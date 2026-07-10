@@ -261,15 +261,27 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
     var rdr = reader_mod.Reader.init(vm.gc, source);
     defer rdr.deinit();
 
-    while (rdr.hasMore() catch return error.InvalidSyntax) {
-        var expr = rdr.readDatum() catch return error.InvalidSyntax;
+    // Reader failures get their own error name so an unbalanced or
+    // malformed .sld surfaces as a parse problem, not a vague
+    // "InvalidSyntax while loading library".
+    while (rdr.hasMore() catch return error.LibrarySourceReadError) {
+        var expr = rdr.readDatum() catch return error.LibrarySourceReadError;
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = result catch |err| return err;
         } else {
-            const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return error.InvalidSyntax;
+            const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch |err| {
+                // OutOfMemory is a fatal runtime failure, not a malformed
+                // library — let it propagate instead of being reported as
+                // a missing/broken import.
+                if (err == error.OutOfMemory) return err;
+                if (vm.last_error_detail_len == 0) {
+                    vm.setErrorDetail("{s} while compiling library body form", .{@errorName(err)});
+                }
+                return error.InvalidSyntax;
+            };
             var func_val = types.makePointer(@ptrCast(func));
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();

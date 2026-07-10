@@ -347,10 +347,13 @@ pub const Compiler = struct {
 
     /// Scan `expr` for set! targets and add them to the current set_targets map.
     /// Called from expandAndCompileMacroUse after expansion to discover targets
-    /// introduced by macro templates (#1250).
+    /// introduced by macro templates (#1250). Does NOT re-expand nested macro
+    /// uses: each nested use gets its own scan when compilation expands it,
+    /// and recursive expansion here made deep macro towers (e.g. CPS-style
+    /// pattern matchers) quadratic — every level re-expanded its whole subtree.
     pub fn scanSetTargets(self: *Compiler, expr: Value) CompileError!void {
         if (self.set_targets) |st| {
-            try collectSetTargets(self, expr, st, 0);
+            try collectSetTargets(self, expr, st, 0, false);
         }
     }
 
@@ -435,7 +438,7 @@ pub const Compiler = struct {
         // (including in nested lambda bodies, which inherit this set).
         var set_targets = std.StringHashMap(void).init(self.gc.allocator);
         defer set_targets.deinit();
-        try collectSetTargets(self, expr_root, &set_targets, 0);
+        try collectSetTargets(self, expr_root, &set_targets, 0, true);
         self.set_targets = &set_targets;
         defer self.set_targets = null;
 
@@ -859,9 +862,11 @@ fn formatSyntaxError(args: Value) void {
 /// constant folding of those names within the enclosing form (see
 /// Compiler.set_targets) and to box locals for correct continuation
 /// semantics (R7RS §3.4). Conservative: it scans every sub-form except
-/// the interior of `quote`d data. When a known macro is encountered,
-/// it is expanded and the expansion is scanned (#1250).
-fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16) CompileError!void {
+/// the interior of `quote`d data. When `expand_macros` is set and a known
+/// macro is encountered, it is expanded and the expansion is scanned
+/// (#1250). Only the top-level pre-scan expands; the per-expansion Part B
+/// scan passes false (see scanSetTargets).
+fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, expand_macros: bool) CompileError!void {
     if (depth > 256) return;
     var cur = expr;
     while (types.isPair(cur)) {
@@ -877,34 +882,36 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                         out.put(types.symbolName(target), {}) catch return CompileError.OutOfMemory;
                     }
                 }
-            } else if (self.lookupMacro(types.symbolName(head))) |transformer| {
-                // Best-effort expansion: uses an empty UseSiteBindingCheck
-                // (no locals exist at pre-scan time), so patterns with
-                // literals may diverge from the real expansion.  Part B
-                // (scanSetTargets in expandAndCompileMacroUse) corrects
-                // any misses at real-expansion time.
-                self.gc.no_collect += 1;
-                const expanded = expander.expandMacro(
-                    self.gc,
-                    cur,
-                    transformer,
-                    self.globals,
-                    &self.macros,
-                    .{},
-                ) catch {
+            } else if (expand_macros) {
+                if (self.lookupMacro(types.symbolName(head))) |transformer| {
+                    // Best-effort expansion: uses an empty UseSiteBindingCheck
+                    // (no locals exist at pre-scan time), so patterns with
+                    // literals may diverge from the real expansion.  Part B
+                    // (scanSetTargets in expandAndCompileMacroUse) corrects
+                    // any misses at real-expansion time.
+                    self.gc.no_collect += 1;
+                    const expanded = expander.expandMacro(
+                        self.gc,
+                        cur,
+                        transformer,
+                        self.globals,
+                        &self.macros,
+                        .{},
+                    ) catch {
+                        self.gc.no_collect -= 1;
+                        cur = types.cdr(cur);
+                        continue;
+                    };
+                    var expanded_root = expanded;
+                    self.gc.pushRoot(&expanded_root);
+                    defer self.gc.popRoot();
                     self.gc.no_collect -= 1;
-                    cur = types.cdr(cur);
-                    continue;
-                };
-                var expanded_root = expanded;
-                self.gc.pushRoot(&expanded_root);
-                defer self.gc.popRoot();
-                self.gc.no_collect -= 1;
-                try collectSetTargets(self, expanded_root, out, depth + 1);
-                return;
+                    try collectSetTargets(self, expanded_root, out, depth + 1, expand_macros);
+                    return;
+                }
             }
         }
-        try collectSetTargets(self, head, out, depth);
+        try collectSetTargets(self, head, out, depth, expand_macros);
         cur = types.cdr(cur);
     }
 }
