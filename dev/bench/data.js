@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783649900058,
+  "lastUpdate": 1783650764692,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "01b971a3b4ca1f78eaa6f405177ca3d28f3b183e",
-          "message": "Fix u8-ready? returning #f at EOF (R7RS requires #t) (#1258)\n\n* Fix u8-ready? returning #f at EOF (R7RS requires #t) (#1179)\n\nR7RS §6.13.3: \"If the port is at end of file then u8-ready? returns #t.\"\nThe #280 fix incorrectly inverted this for string ports. Remove the\nstring-port branch so u8-ready? always returns #t, matching char-ready?.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: remove dead peek_byte check, add comment, fix #280 test\n\n- Collapse u8ReadyP to discard the port and return TRUE directly, removing\n  the dead peek_byte branch (both CodeRabbit and reviewer nit).\n- Add \"For simplicity\" comment mirroring charReadyP in primitives_io.zig.\n- Remove the stale #280 section from bytevector-port-fixes.scm that still\n  documented the inverted EOF behavior this PR reverts.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T18:50:02+05:30",
-          "tree_id": "042fc57b2530cb16b4a91faea6f9caf1fd4ef938",
-          "url": "https://github.com/kaappi/kaappi/commit/01b971a3b4ca1f78eaa6f405177ca3d28f3b183e"
-        },
-        "date": 1783345636674,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.040391,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.219987,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.963687,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.048182,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013594,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235068,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.481331,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068124,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.369553,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.842512,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.088204,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.063145,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.127692,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.868349,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045186,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045816,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2919e4edf3b90d468316a9ed9cdf5c674225cbb6",
+          "message": "Assert the utf8->string rejection is the type error, not any condition (#1386)\n\nReview feedback on #1383: the re-enabled assertions catch every\ncondition, so an unrelated failure would still pass. Add one assertion\npinning error-object? and the \"type error in 'utf8->string'\" message\nprefix on the representative bad-lead-byte case.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T02:11:57Z",
+          "tree_id": "feab4b487e0d84172d5021510bd3022a3439e911",
+          "url": "https://github.com/kaappi/kaappi/commit/2919e4edf3b90d468316a9ed9cdf5c674225cbb6"
+        },
+        "date": 1783650763891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.095745,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.608805,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.025891,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.419736,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014324,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.374525,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514245,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06784,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.521534,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981546,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.665206,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.16862,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.397752,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.854503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044967,
             "unit": "seconds"
           }
         ]
