@@ -129,6 +129,16 @@
 (test-equal 'caught (guard (e (#t 'caught)) (utf8->string #u8(#x41 #xFF #x42) 1 2)))
 (test-equal "A" (utf8->string #u8(#xFF #x41) 1))
 (test-equal 'caught (guard (e (#t 'caught)) (utf8->string #u8(#x41 #xCE #xBB) 0 2)))    ; range splits λ
+;; the rejection is a proper error object naming the conversion, not some
+;; unrelated condition
+(test-equal '(#t "type error in 'utf8->string'")
+  (guard (e (#t (list (error-object? e)
+                      (let ((m (error-object-message e)))
+                        (and (string? m)
+                             (>= (string-length m) 28)
+                             (substring m 0 28))))))
+    (utf8->string (bytevector #xFF))
+    'no-error))
 
 ;;; --- string->utf8 ---
 ;; R7RS 6.9 example
