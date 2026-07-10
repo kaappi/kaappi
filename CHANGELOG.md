@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-10
+
+### Added
+- **SRFI-17 generalized `set!`** with pre-defined setters for `car`, `cdr`, `vector-ref`, `string-ref`, `hashtable-ref`, and `slot-ref` (#1349)
+- **SRFI-61 general `cond` clause** (`generator guard => receiver`) (#1357)
+- **SRFI-132 complete sort library** — 22 procedures: `list-sort`, `list-stable-sort`, `list-sort!`, `vector-sort`, `vector-stable-sort`, `vector-sort!`, merge operations, selection, and deletion (#1339)
+- **FFI callback error propagation:** errors raised inside `ffi-callback` are re-raised when the C call returns, instead of being silently swallowed (#1385)
+- **Descriptive FFI error messages** at call time — type mismatches, arity errors, and range violations now name the FFI function and expected type (#1370)
+- **Accept native procedures in `make-thread` and `spawn`** (#1366)
+- **Unicode derived properties** for `char-alphabetic?`, `char-numeric?`, `char-upper-case?`, `char-lower-case?`, `char-whitespace?` — matches full Unicode spec instead of ASCII approximations (#1263)
+- **Reader Unicode tables** generated from Unicode data files, replacing hand-rolled classification (#1321)
+- **UTF-8 validation in `utf8->string`** — rejects invalid byte sequences at construction instead of producing corrupt strings (#1383)
+- **SRFI completions:** 15 missing SRFI-41 stream procedures (#1330), 9 missing SRFI-133 vector procedures (#1308), 27 missing SRFI-235 combinators (#1338), 21 missing SRFI-125 hash table exports (#1337), 16 missing SRFI-175 ASCII procedures (#1325), SRFI-33 aliases from SRFI-60 (#1328), SRFI-174 `timespec-hash`/`timespec->inexact`/`inexact->timespec` (#1352), SRFI-197 `nest`/`nest-reverse` (#1345), SRFI-78 `check-set-mode!`/`check-ec` (#1342), SRFI-69 `hash-table-update!` (#1315), SRFI-45 `lazy`/`eager` exports (#1353), SRFI-170 `owner/unchanged`/`group/unchanged` constants (#1363), SRFI-210 `box`/`mv` exports (#1318), SRFI-13 `string-join` grammar argument (#1312)
+
+### Changed
+- **Trampoline rewrite:** `map`, `for-each`, `dynamic-wind`, and `force` are now Scheme closures bootstrapped at VM init, eliminating native VM re-entrancy for the callback family. ~460 lines of native code retired. Callbacks that `call/cc` out of `map` now park correctly instead of corrupting the native call stack (#1374, #1378)
+- **Native backend NativeClosure dispatch:** all VM call sites (call, tail-call, tail-apply, `call/cc` receiver, exception handler, dynamic-wind thunks) now handle NativeClosure, fixing native-compiled programs calling bootstrapped procedures (#1376, #1379)
+- **Test framework migration:** 55 test files migrated from `(chibi test)` to SRFI-64 — the R7RS suite remains on `(chibi test)` (#1382)
+- **GC root buffer is now growable** — handles deep native re-entrancy without hitting the fixed 1024-slot limit (#1298)
+- **`string-map`/`string-for-each`** use linear char-list traversal instead of O(n²) index-driven loops (#1378)
+- **`opt*-lambda`** supports sequential defaults and lifts the 2-optional-argument cap (#1340)
+
+### Fixed
+
+#### GC and memory
+- Fix GC crash on stale VM registers after thread start/join cycles (#1254)
+- Add GC write barriers to `readListTail` `set-cdr!` calls (#1292)
+- Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1294)
+- Clear stale registers in tail-call window extension (#1293)
+
+#### Compiler and macros
+- Fix hygiene: use-site argument no longer captured by same-name def-site local (#1301)
+- Capture `let`/`lambda` locals in `define-syntax` transformers (#1287)
+- Expand macros during `set!` target pre-scan (#1291)
+- Use globally-unique binding IDs for `syntax-rules` literal identity (#1284)
+- Separate `let-syntax` from `letrec-syntax` scoping per R7RS (#1277)
+- Handle consecutive ellipses in `syntax-rules` templates (#1278)
+- Report `syntax-error` message and irritants (#1273)
+- Honor `fold-case` flag in `include-ci` (#1274)
+- Check lexical bindings when matching `syntax-rules` literals (#1265)
+- Isolate macro tables for custom environments in `eval`/`load` (#1304)
+- Let imported macros shadow built-in special forms (#1302)
+- Desugar `define-record-type` in body contexts per R7RS §5.5 (#1276)
+- Box `set!`-mutated locals for R7RS store semantics (#1249)
+- Compile `eval` body in tail position per R7RS 3.5 (#1279)
+- Fix non-exported library macros leaking to importers (#1372)
+- Rewrite SRFI-26 `cut`/`cute` with recursive helper macros to fix expander bug (#1344)
+
+#### Control flow
+- Fix spurious wind unwind on return into native-callback frames (#1380)
+- Make advisory yield a no-op under re-entrant native frames (#1384)
+- Fix yield raising inside `with-exception-handler` after `spawn` (#1369)
+- Deliver multiple values when continuation invoked with != 1 argument (#1251)
+- Follow redirect chain in `force` for `delay-force` intermediates (#1280)
+- Remove iteration cap from `force` trampoline for unbounded `delay-force` chains (#1259)
+- Move `parameterize` converter application outside `dynamic-wind` extent (#1286)
+- Fix `parameterize` to evaluate all values before binding (#1260)
+
+#### R7RS conformance
+- Enforce immutability on literal vectors, pairs, and bytevectors (#1285)
+- Signal error on `define`/`set!` in immutable environments (#1275)
+- Reject non-environment second argument to `eval` (#1282)
+- Check record type in accessors and mutators (#1281)
+- Error on unknown identifiers in `import` `only`/`except`/`rename` (#1261)
+- Support optional environment-specifier in `load` per R7RS §6.14 (#1262)
+- Support `import-set` modifiers in `environment` (#1289)
+- Unify platform feature lists across `(features)` and `cond-expand` (#1283)
+- Fix `u8-ready?` returning `#f` at EOF — R7RS requires `#t` (#1258)
+- Patch datum-label references inside vectors (#1257)
+
+#### SRFIs
+- Fix SRFI-1 `take-right`/`drop-right` to accept dotted lists (#1354)
+- Fix SRFI-4 integer vector kinds to be disjoint types with range validation (#1336)
+- Fix SRFI-9 record-type redefinition retargeting old procedures (#1371)
+- Fix SRFI-13 wrong-typed optional args silently ignored (#1360)
+- Fix SRFI-27 `random-integer`/`pseudo-randomize!` to accept bignums (#1319)
+- Fix SRFI-27 `random-real` to return open interval (0, 1) (#1356)
+- Fix SRFI-27 `random-source-make-reals` to honor the unit argument (#1367)
+- Fix SRFI-27 `default-random-source` to be a variable, not a procedure (#1305)
+- Fix SRFI-37 short optional-arg dropping trailing characters (#1355)
+- Fix SRFI-37 `args-fold` short option matching, seed threading, `option?` export (#1343)
+- Fix SRFI-41 `stream-unfold` predicate sense and stream macro hygiene (#1322)
+- Fix SRFI-42 comprehensions: recursive qualifiers, guards, and missing generators (#1346)
+- Fix SRFI-43 vector library to match spec (#1326)
+- Fix SRFI-69 to honor custom equivalence/hash functions (#1329)
+- Fix SRFI-125 `hash-table-ref`/`update!` success proc, `hash-table-find` result (#1337)
+- Fix SRFI-128 default comparator total order, hashability, and `register-default!` (#1335)
+- Fix SRFI-133 `vector-skip`/`vector-skip-right` multi-vector form (#1359)
+- Fix SRFI-134 `ideque-filter` calling unbound `filter` (#1341)
+- Fix SRFI-141 `balanced/` to use correct tie-breaking (#1334)
+- Fix SRFI-143 comparison and `min`/`max` to accept variadic arguments (#1361)
+- Fix SRFI-143 `fxcopy-bit` to accept boolean bit argument (#1351)
+- Fix SRFI-144 `flmax`/`flmin` to be variadic per spec (#1358)
+- Fix SRFI-151 bit-argument API mismatch (#1316)
+- Fix SRFI-151/143 `bitwise-and`/`ior`/`xor` for negative operands (#1310)
+- Fix SRFI-152 `string-every`, `string-split`, and missing exports (#1331)
+- Fix SRFI-197 `chain` `_` placeholder (#1345)
+- Fix SRFI-210 `set!-values` shadowing bug (#1324), `value` procedure (#1318)
+- Fix SRFI-232 curried procedures to support grouped application (#1327)
+- Fix SRFI-233 `ini-file->alist` missing `(scheme char)` import (#1333)
+- Fix `string-contains` and `string-replace` start2/end2 handling (#1317)
+- Fix `string-trim` default criterion to use Unicode whitespace (#1368)
+- Fix `posix-time`/`monotonic-time` to return SRFI-19 time objects (#1320)
+- Honor explicit `#f` thread arg in `mutex-lock!` as locked/not-owned (#1306)
+- Honor timeout deadlines when no fibers are runnable (#1300)
+
+#### FFI
+- Fix FFI `char` type to accept Scheme characters and return characters (#1309)
+- Fix `group-info` by name returning gid 0 (#1307)
+
 ## [0.13.0] - 2026-07-05
 
 ### Added
