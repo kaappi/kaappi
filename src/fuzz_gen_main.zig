@@ -1,8 +1,9 @@
 //! Standalone driver for the fuzz program generators: prints the program
-//! for a given seed to stdout. Used by the offline differential harness
-//! (tests/fuzz/native-diff.sh, issue #1395), which needs reproducible
-//! programs from a shell script. Dev/CI tool only — built with
-//! `zig build fuzz-gen`, never part of the default install or releases.
+//! for a given seed to stdout. Used by the offline differential harnesses
+//! (tests/fuzz/native-diff.sh #1395, tests/fuzz/oracle-diff.sh #1396),
+//! which need reproducible programs from a shell script. Dev/CI tool only —
+//! built with `zig build fuzz-gen`, never part of the default install or
+//! releases.
 
 const std = @import("std");
 const fuzz_gen = @import("fuzz_gen.zig");
@@ -13,10 +14,12 @@ fn fail(msg: []const u8) noreturn {
 }
 
 fn usage() noreturn {
-    fail("usage: kaappi-fuzz-gen <seed> [--native|--full]\n" ++
-        "  --full    full R7RS grammar (default; fuzz_gen.zig)\n" ++
-        "  --native  native-compilable subset for the VM-vs-native\n" ++
-        "            differential harness (fuzz_gen_native.zig)\n");
+    fail("usage: kaappi-fuzz-gen <seed> [--native|--portable|--full]\n" ++
+        "  --full      full R7RS grammar (default; fuzz_gen.zig)\n" ++
+        "  --native    native-compilable subset for the VM-vs-native\n" ++
+        "              differential harness (fuzz_gen_native.zig)\n" ++
+        "  --portable  fully-specified R7RS-small subset for the\n" ++
+        "              external-oracle harness (fuzz_gen_portable.zig)\n");
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
@@ -29,12 +32,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     _ = args.skip(); // argv[0]
 
     var seed: ?u64 = null;
-    var native = false;
+    var mode: enum { full, native, portable } = .full;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--native")) {
-            native = true;
+            mode = .native;
+        } else if (std.mem.eql(u8, arg, "--portable")) {
+            mode = .portable;
         } else if (std.mem.eql(u8, arg, "--full")) {
-            native = false;
+            mode = .full;
         } else if (seed == null) {
             seed = std.fmt.parseInt(u64, arg, 10) catch usage();
         } else {
@@ -43,10 +48,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
     const s = seed orelse usage();
 
-    const src = if (native)
-        try fuzz_gen.generateNativeSeeded(s, gpa)
-    else
-        try fuzz_gen.generateSeeded(s, gpa);
+    const src = switch (mode) {
+        .native => try fuzz_gen.generateNativeSeeded(s, gpa),
+        .portable => try fuzz_gen.generatePortableSeeded(s, gpa),
+        .full => try fuzz_gen.generateSeeded(s, gpa),
+    };
 
     // reporting.writeToFd's loop, except failures are a hard non-zero exit:
     // the harness redirects stdout to a file, and a silently truncated

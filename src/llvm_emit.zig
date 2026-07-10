@@ -398,6 +398,10 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
+        // The let form is about to be evaluated in the global environment;
+        // bind the enclosing frame's params/rest/upvalues as globals first
+        // or references to them inside the form come up undefined (#1410).
+        try lambda.bindParamsAsGlobals(self);
         const keyword = if (sequential) "let*" else "let";
         // Build `(let bindings body ...)` by iterating the args list elements.
         // The args value is `(bindings body ...)` — a list whose elements must
@@ -420,6 +424,18 @@ pub const LLVMEmitter = struct {
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
         return tmp;
+    }
+
+    // Abandon a partially emitted native let and compile the whole form via
+    // the interpreter instead. Pops the GC roots already pushed for emitted
+    // bindings (the natively computed values are dead once the interpreter
+    // re-evaluates the form; leaving their roots pushed would leak stack
+    // slots into the GC root set on every execution of this code path).
+    fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap([]const u8), roots_pushed: usize) EmitError![]const u8 {
+        try self.emitPopRoots(roots_pushed);
+        self.locals.?.deinit();
+        self.locals = saved_locals;
+        return self.emitLetFallback(args, sequential);
     }
 
     fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
@@ -468,27 +484,26 @@ pub const LLVMEmitter = struct {
             var blist = bindings;
             while (blist != types.NIL and types.isPair(blist)) {
                 if (count >= 32) {
-                    self.locals.?.deinit();
-                    self.locals = saved_locals;
-                    return self.emitLetFallback(args, sequential);
+                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
                 }
                 const binding = types.car(blist);
                 const var_sym = types.car(binding);
                 const init_expr = types.car(types.cdr(binding));
                 if (!types.isSymbol(var_sym)) {
-                    self.locals.?.deinit();
-                    self.locals = saved_locals;
-                    return self.emitLetFallback(args, sequential);
+                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
                 }
 
                 const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                    self.locals.?.deinit();
-                    self.locals = saved_locals;
-                    return self.emitLetFallback(args, sequential);
+                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
                 };
                 const alloca = try self.freshTemp();
                 try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-                const val = try self.emitNode(node);
+                // #827: an init that cannot be emitted in this lexical scope
+                // (e.g. a lambda) sends the whole let to the interpreter,
+                // like the body path below.
+                const val = self.emitNode(node) catch {
+                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
+                };
                 try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
                 try self.emitRootPushAlloca(alloca);
 
@@ -509,17 +524,15 @@ pub const LLVMEmitter = struct {
                 const var_sym = types.car(binding);
                 const init_expr = types.car(types.cdr(binding));
                 if (!types.isSymbol(var_sym)) {
-                    self.locals.?.deinit();
-                    self.locals = saved_locals;
-                    return self.emitLetFallback(args, sequential);
+                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
                 }
 
                 const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                    self.locals.?.deinit();
-                    self.locals = saved_locals;
-                    return self.emitLetFallback(args, sequential);
+                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
                 };
-                const val = try self.emitNode(node);
+                const val = self.emitNode(node) catch {
+                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
+                };
                 const alloca = try self.freshTemp();
                 try self.print("  {s} = alloca i64, align 8\n", .{alloca});
                 try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
@@ -536,17 +549,13 @@ pub const LLVMEmitter = struct {
             const rest = types.cdr(body_expr);
             const expr_is_tail = is_tail and (rest == types.NIL or !types.isPair(rest));
             const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
-                self.locals.?.deinit();
-                self.locals = saved_locals;
-                return self.emitLetFallback(args, sequential);
+                return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
             };
             // #827: if emitNode fails (e.g. a lambda that cannot be eval'd in
             // this lexical scope), fall back to evaluating the entire let form
             // via the interpreter.
             last = self.emitNode(node) catch {
-                self.locals.?.deinit();
-                self.locals = saved_locals;
-                return self.emitLetFallback(args, sequential);
+                return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
             };
             body_expr = rest;
         }

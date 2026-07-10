@@ -376,6 +376,105 @@ test "LLVM emit: param shadowing a primitive is captured through a let" {
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"car\"") == null);
 }
 
+// -- Free variables hidden inside nested lambdas (#1410) --
+// The closure tiers' free-variable analysis must also descend into nested
+// .lambda IR nodes, and tier 1 must be able to chain a capture from the
+// enclosing closure's %upvalues (not just its %args). Before the fix, a
+// lambda whose only reference to an enclosing binding lived inside an inner
+// lambda compiled as a *closed* closure and the inner lambda's eval fallback
+// resolved the name globally: "undefined variable" at runtime.
+
+test "LLVM emit: capture through a nested lambda chains upvalues natively (#1410)" {
+    var res = try emitSourceResult("(define g0 (lambda (u) ((lambda (a) (lambda (c) u)) 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // Both the middle and the inner lambda become capturing native closures
+    // (one upvalue, arity 1 each): the middle copies u from g0's %args, the
+    // inner chains it out of the middle closure's %upvalues.
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, ", i64 1, i64 1, ptr"));
+    try expectContains(ll, "getelementptr i64, ptr %upvalues, i64 0");
+    // u must never degrade to a global lookup / interned symbol...
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
+    // ...and nothing may fall back to eval beyond the define-time binding.
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: depth-3 nested capture chains through every closure level (#1410)" {
+    var res = try emitSourceResult("(define g0 (lambda (u) (lambda (a) (lambda (b) (lambda (c) u)))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: capture through a let-wrapped nested lambda chains natively (#1410)" {
+    var res = try emitSourceResult("(define g0 (lambda (u) ((lambda (a) (let ((b 1)) (lambda (c) u))) 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: eval fallback inside a native closure republishes upvalues (#1410)" {
+    // The variadic inner lambda can never be a native closure (no tier
+    // accepts a rest parameter), so it falls back to eval inside the middle
+    // closure — and the fallback must first bind the captured u as a global.
+    var res = try emitSourceResult("(define g0 (lambda (u) ((lambda (a) (lambda (c . r) u)) 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+    try expectContains(ll, "c\"u\"");
+    try expectContains(ll, "@kaappi_define_global");
+    try expectContains(ll, "getelementptr i64, ptr %upvalues, i64 0");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: eval fallback republishes the enclosing rest parameter (#1410)" {
+    // The inner lambda captures the rest list, which no closure tier can
+    // express; its eval fallback must bind xs (loaded from the rest-list
+    // alloca) as a global, not just the fixed params.
+    var res = try emitSourceResult("(define f (lambda (u . xs) (lambda (c) xs)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "c\"xs\"");
+    try expectContains(ll, "@kaappi_define_global");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: let eval fallback republishes enclosing params (#1410)" {
+    // bodyHasCapturingLambda (#827) sends this let to the interpreter; the
+    // fallback must bind u first or the binding init comes up undefined.
+    var res = try emitSourceResult("(define (f u) (let ((b u)) (lambda (c) b)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "c\"u\"");
+    try expectContains(ll, "@kaappi_define_global");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+}
+
+test "LLVM emit: lambda in a let binding init falls back instead of aborting (#1410)" {
+    // Before the fix the init's emission error propagated out of emitLet and
+    // aborted the whole native compilation (emitSourceResult here failed).
+    var res = try emitSourceResult("(let ((b (lambda (c) glob))) (b 0))");
+    defer res.deinit();
+    try expectContains(res.toSlice(), "call i64 @kaappi_eval");
+}
+
+test "LLVM emit: abandoned native let pops the binding roots it pushed (#1410)" {
+    // 17 params exceed the closure tiers' 16-param cap, so the let body's
+    // lambda fails emission after the binding for b was emitted and rooted;
+    // the fallback path must pop that root or every execution of the
+    // enclosing function leaks a GC root slot.
+    var res = try emitSourceResult("(define (f u) (let ((b 1)) (lambda (p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12 p13 p14 p15 p16 p17) p1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call void @kaappi_gc_push_root(");
+    try expectContains(ll, "call void @kaappi_gc_pop_roots(i64 1)");
+}
+
 // -- Begin --
 
 test "LLVM emit: begin sequence" {

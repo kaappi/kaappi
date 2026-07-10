@@ -66,11 +66,12 @@ COMPILE_TIMEOUT="${TIMEOUT_BIN:+$TIMEOUT_BIN 60}"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/native-diff.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
-# Fail fast when the native toolchain is unavailable: `kaappi compile`
-# reports link/toolchain errors on stderr but still exits 0, so probe with a
-# trivial program and check that the output binary actually appears. The
-# probe also warms the linker's compiler-rt cache, so per-seed compiles fit
-# the tighter COMPILE_TIMEOUT; its own budget is generous for a cold cache.
+# Fail fast when the native toolchain is unavailable: probe with a trivial
+# program and check that the output binary actually appears (`kaappi compile`
+# exits non-zero on link/toolchain errors, but the binary check also guards
+# against a compile that lies about success). The probe also warms the
+# linker's compiler-rt cache, so per-seed compiles fit the tighter
+# COMPILE_TIMEOUT; its own budget is generous for a cold cache.
 printf '(write 42)\n(newline)\n' > "$WORK/probe.scm"
 ${TIMEOUT_BIN:+$TIMEOUT_BIN 300} "$KAAPPI" compile "$WORK/probe.scm" -o "$WORK/probe.bin" > "$WORK/probe.log" 2>&1
 if [ ! -x "$WORK/probe.bin" ]; then

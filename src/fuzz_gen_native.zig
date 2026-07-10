@@ -33,9 +33,11 @@
 //! - No lambda expressions inside let forms: emitLet falls back to eval
 //!   when a body lambda captures a let binding (#827), so the generator
 //!   avoids lambdas there entirely. Inline lambdas may capture enclosing
-//!   FUNCTION parameters (native closure upvalues), but only one level —
-//!   an inner lambda referencing an outer-outer parameter would fall back
-//!   to emitLambdaViaEval, which leaks parameters as globals.
+//!   FUNCTION parameters (native closure upvalues). Since #1410 the backend
+//!   chains captures through nested closures (an inner lambda can reach an
+//!   outer-outer parameter via the enclosing closure's upvalues), but this
+//!   generator still emits only one capture level — extending it to chained
+//!   captures would sharpen the oracle.
 //! - Variadic lambdas compile natively only with at least one fixed
 //!   parameter (`(lambda (a . rest) ...)`) and only in define position.
 //! - Cross-function calls appear only in top-level expressions and let
@@ -421,7 +423,9 @@ fn genInt(g: *Gen, ctx: *Ctx, depth_in: u32) Error!void {
             try g.emit("((lambda (");
             // At top level the body must be closed over its own params (pure
             // tier); inside a function body it may also capture that
-            // function's int parameters (upvalue tier) — one level only.
+            // function's int parameters (upvalue tier) — this generator
+            // emits one capture level (see the header comment; the backend
+            // itself chains deeper since #1410).
             var saved = try enterBody(g, ctx.fn_depth > 0);
             for (params, 0..) |p, i| {
                 if (i > 0) try g.emit(" ");
