@@ -204,6 +204,76 @@ subexpressions. Both backends currently evaluate left-to-right, so a
 divergence is always an implementation inconsistency worth filing — but the
 fix may be "make the order consistent" rather than "wrong code".
 
+## The Kaappi-vs-Chibi oracle batch (#1396)
+
+[`tests/fuzz/oracle-diff.sh`](../../tests/fuzz/oracle-diff.sh) diffs Kaappi
+against an **external reference implementation** — the only oracle that can
+catch conformance bugs where both of Kaappi's own evaluation paths agree but
+are wrong. The oracle is Chibi Scheme (closest R7RS-small alignment, small
+install) under its default invocation; the harness prints and records the
+exact version, and `CHIBI=/path/to/binary` pins one explicitly. Note the
+repo's `(chibi test)` shim is implemented *in Kaappi* — the oracle must be a
+real installed `chibi-scheme` (`apt-get install chibi-scheme` /
+`brew install chibi-scheme`).
+
+```bash
+bash tests/fuzz/oracle-diff.sh            # 100 programs, seeds 0..99
+bash tests/fuzz/oracle-diff.sh 500 2000   # 500 programs starting at seed 2000
+```
+
+Programs come from the **portable-subset generator**
+([`src/fuzz_gen_portable.zig`](../../src/fuzz_gen_portable.zig), built as
+`kaappi-fuzz-gen --portable`). R7RS-small leaves evaluation order, error
+objects, exactness edges, Unicode-beyond-ASCII, and several printing
+representations unspecified, so an unrestricted program would diverge
+without either implementation being wrong (Csmith's "fully-specified subset
+only" lesson — that is where the engineering effort lives). The module doc
+comment states the rule for every construct; the shape of the discipline:
+
+- **Pure expressions** — mutation, `raise`, and I/O live only in statement
+  slots whose order the report specifies (top-level forms, statement
+  bodies, `for-each`); expressions may mutate only bindings/objects they
+  themselves introduce. This is Midtgaard et al.'s effect discipline,
+  simplified to "expressions carry no external effects".
+- **Total by construction** — `guard` always has an `else`; `raise` fires
+  from at most one structured site per guard body; `call/cc` escapes once,
+  structurally. Programs never signal, so both sides must exit 0 and
+  stdout (all output written explicitly via `write`) compares
+  byte-for-byte.
+- **Exact integers, ASCII only, four libraries** — no flonums; every byte
+  < 0x80; the program imports exactly `(scheme base)`, `(scheme char)`,
+  `(scheme lazy)`, `(scheme write)` and uses nothing outside them (Chibi
+  enforces library boundaries; Kaappi does not — a leaked name shows up as
+  a one-sided "undefined variable").
+- **Specified output only** — every top-level form is void-valued (Kaappi
+  echoes non-void top-level values, Chibi doesn't); procedures are never
+  written; bytevectors are observed byte-wise (Chibi writes them with hex
+  bytes: `#u8(#xFF)`); non-procedure globals are echoed at program end.
+
+Comparison rules: both exit 0 → stdout must match byte-for-byte; both exit
+1–127 → "raises" class match (stdout and message text never compared —
+Kaappi continues past a top-level error, Chibi stops); any exit ≥ 128 →
+divergence (signal death); classes differ → divergence; timeout on either
+side → pair skipped. Divergences land in `RESULTS_DIR` (default
+`oracle-diff-results/`) together with `oracle-version.txt`.
+
+**Triage protocol** (also in the script header): a divergence is (a) a
+Kaappi bug, (b) an oracle bug, or (c) the generator leaking unspecified
+behavior. Check the R7RS spec (`docs/errata-corrected-r7rs.pdf`) **before**
+filing — two self-consistent implementations disagreeing usually means (c),
+which is fixed in `fuzz_gen_portable.zig`, not in either implementation.
+Two unit gates keep the subset honest: `fuzz_gen_portable.zig` asserts
+fixed-seed programs stay ASCII/void-valued/in-vocabulary, and
+`tests_fuzz.zig` asserts they evaluate without error.
+
+The `oracle-diff` job in `fuzz.yml` runs 1000 programs nightly with a seed
+base that rotates per run (replayable via `workflow_dispatch` inputs
+`oracle-diff-count` / `oracle-diff-base` or locally), and uploads
+divergences as the `oracle-diff-divergences` artifact. Chibi comes from
+ubuntu-latest's apt; the recorded version makes any divergence reproducible
+against the exact oracle even after a distro bump. Gauche can be added
+later as a second, separately pinned opinion.
+
 ## Turning a failure into a regression test
 
 Every fuzz finding follows the same three steps — no exceptions:
@@ -239,6 +309,14 @@ Every fuzz finding follows the same three steps — no exceptions:
    minimise as ordinary Scheme — but keep the shrunken program inside the
    native subset (check with the eval-count gate in `tests_native.zig`, or
    just verify the divergence survives each shrink step).
+
+   An `oracle-diff.sh` divergence works the same way (`seed-N.scm` plus
+   both outputs plus `oracle-version.txt`): reproduce with
+   `kaappi seed-N.scm` vs `chibi-scheme seed-N.scm`, run the script
+   header's triage protocol against the R7RS spec first, and only then
+   minimise — each shrink step must stay inside the portable subset
+   (re-run both sides) or the "divergence" may become an artifact of
+   unspecified behavior rather than the bug.
 
 2. **Add a readable regression test** that fails without the fix and passes
    with it, per the repo's bug-fix rule:

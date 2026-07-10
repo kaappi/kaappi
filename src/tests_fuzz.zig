@@ -526,6 +526,32 @@ test "native-subset generator: programs evaluate without error" {
     try std.testing.expect(ok * 100 >= total * 90);
 }
 
+// The portable-subset generator (fuzz_gen_portable.zig, #1396) must produce
+// programs that never signal: the external-oracle harness
+// (tests/fuzz/oracle-diff.sh) compares stdout byte-for-byte only when both
+// sides exit cleanly, so every runtime error costs oracle coverage AND
+// suggests the generator leaked outside its total-by-construction subset.
+test "portable-subset generator: programs evaluate without error" {
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    var ok: u32 = 0;
+    var total: u32 = 0;
+    var seed_n: u64 = 0;
+    while (seed_n < 60) : (seed_n += 1) {
+        const src = try fuzz_gen.generatePortableSeeded(seed_n, std.testing.allocator);
+        defer std.testing.allocator.free(src);
+        errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed_n, src });
+        switch (evalOneOutcome(src)) {
+            .ok => ok += 1,
+            .scheme_error => {},
+            .harness_unavailable => return error.SkipZigTest,
+        }
+        total += 1;
+    }
+    // Measured rate is 100% over the first 300 seeds; the threshold leaves
+    // room only for deadline jitter on a loaded CI machine.
+    try std.testing.expect(ok * 100 >= total * 90);
+}
+
 // ---------------------------------------------------------------------------
 // Differential oracle: optimized vs unoptimized evaluation (Tier 3, #1394)
 //

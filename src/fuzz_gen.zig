@@ -350,6 +350,26 @@ pub fn generateNativeSeeded(seed: u64, gpa: Allocator) Error![]u8 {
     return generateNativeWith(&ch, gpa);
 }
 
+/// Portable subset (fuzz_gen_portable.zig): fully-specified, deterministic
+/// R7RS-small programs for the Kaappi-vs-external-reference differential
+/// harness (tests/fuzz/oracle-diff.sh, issue #1396).
+pub fn generatePortableSeeded(seed: u64, gpa: Allocator) Error![]u8 {
+    var prng = std.Random.DefaultPrng.init(seed);
+    var ch: Chooser = .{ .random = prng.random() };
+    var g: Gen = .{
+        .ch = &ch,
+        .aw = .init(gpa),
+        .gpa = gpa,
+    };
+    defer {
+        g.scope.deinit(gpa);
+        g.macros.deinit(gpa);
+        g.aw.deinit();
+    }
+    try @import("fuzz_gen_portable.zig").genProgram(&g);
+    return g.aw.toOwnedSlice() catch return error.OutOfMemory;
+}
+
 fn generateWith(ch: *Chooser, gpa: Allocator) Error![]u8 {
     var g: Gen = .{
         .ch = ch,
@@ -1483,4 +1503,5 @@ test "generation is deterministic per seed" {
 
 test {
     _ = @import("fuzz_gen_native.zig");
+    _ = @import("fuzz_gen_portable.zig");
 }
