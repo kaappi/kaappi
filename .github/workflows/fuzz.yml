@@ -1,0 +1,98 @@
+name: Fuzz
+
+# Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig.
+# See docs/dev/fuzzing.md for the runbook (running locally, and turning a
+# failure into a regression test + corpus entry).
+
+on:
+  schedule:
+    # Daily at 02:47 UTC — away from the 05:17 UTC ecosystem nightly.
+    - cron: '47 2 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Fuzz run limit per variant (number, K/M/G suffix allowed). Overrides the matrix defaults.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The limit applies PER FUZZ TEST (5 targets currently). The eval
+          # and token targets build a full VM per input (~20-50 ms), so they
+          # dominate the wall time: locally 200 per target is a ~2 minute
+          # pass, so 2K per target keeps a hosted runner well under the job
+          # timeout. The gc-stress variant attempts a collection on every
+          # allocation (converting latent rooting bugs into immediate
+          # failures), so it gets a far smaller budget for the same time.
+          - variant: default
+            build-args: ''
+            limit: 2K
+          - variant: gc-stress
+            build-args: '-Dgc-stress=true'
+            limit: 200
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+          cache-key: fuzz-${{ matrix.variant }}
+
+      # Fuzzer state accumulates across runs when the cache is preserved:
+      # f/ holds the discovered corpus, v/ the coverage bitmap. The rolling
+      # key restores the newest previous corpus and saves an updated one
+      # (only on success, so crash state is never cached — the crash marker
+      # is uploaded as an artifact instead).
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache/f
+            .zig-cache/v
+          key: fuzz-corpus-${{ matrix.variant }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.variant }}-
+
+      # Zig 0.16's bounded fuzz mode does NOT propagate a fuzz-found crash
+      # into the build's exit code — it saves the encoded crashing input to
+      # .zig-cache/f/crash and reports the step failed, but `zig build` still
+      # exits 0. The crash marker file is authoritative. Inputs are passed
+      # via env so user-controlled dispatch values never reach Bash source.
+      - name: Fuzz (bounded)
+        shell: bash
+        env:
+          FUZZ_LIMIT: ${{ inputs.limit || matrix.limit }}
+          BUILD_ARGS: ${{ matrix.build-args }}
+        run: |
+          set -o pipefail
+          rm -f .zig-cache/f/crash
+          zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log
+          if [ -f .zig-cache/f/crash ]; then
+            echo "::error::Fuzzing found a crash; encoded input saved to .zig-cache/f/crash"
+            exit 1
+          fi
+
+      # f/crash holds the crashing input as a serialized Smith decision
+      # stream (see docs/dev/fuzzing.md for turning it into a regression
+      # test); libfuzzer.log has the fuzzer's own transcript.
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ matrix.variant }}
+          path: |
+            .zig-cache/f/crash
+            fuzz-run.log
+            .zig-cache/tmp/libfuzzer.log
+          retention-days: 90
+          if-no-files-found: warn

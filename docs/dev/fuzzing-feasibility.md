@@ -6,7 +6,9 @@ question: can [Fuzzilli](https://github.com/googleprojectzero/fuzzilli),
 Google Project Zero's coverage-guided fuzzer, be pointed at Kaappi? The short
 answer is no — but the reasoning maps directly onto what Kaappi *should* do for
 fuzzing, so it is worth keeping. Concrete work items belong in the issue
-tracker; this note is the analysis, not a task list.
+tracker; this note is the analysis, not a task list. The operational guide —
+how to run the targets, the scheduled CI job, and the failure workflow — is
+[fuzzing.md](fuzzing.md).
 
 ## TL;DR
 
