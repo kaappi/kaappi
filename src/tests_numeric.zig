@@ -131,6 +131,22 @@ test "eval sqrt" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.4142135623730951), types.toFlonum(r2), 1e-10);
 }
 
+test "sqrt exact rational and bignum perfect squares" {
+    // #1412: exact rationals whose numerator and denominator are both
+    // perfect squares return exact rationals, and bignum perfect squares
+    // return exact integer roots.
+    try th.expectEvalTrue("(let ((r (sqrt 9/4))) (and (exact? r) (= r 3/2)))");
+    try th.expectEvalTrue("(let ((r (sqrt 1/4))) (and (exact? r) (= r 1/2)))");
+    try th.expectEvalTrue("(let ((r (sqrt 16/9))) (and (exact? r) (= r 4/3)))");
+    try th.expectEvalTrue("(let ((r (sqrt (* 12345678901234567 12345678901234567)))) (and (exact? r) (= r 12345678901234567)))");
+    // Non-perfect squares stay inexact
+    try th.expectEvalTrue("(inexact? (sqrt 2/3))");
+    try th.expectEvalTrue("(inexact? (sqrt 9/2))");
+    try th.expectEvalTrue("(inexact? (sqrt 2/9))");
+    // exact-integer-sqrt still works through the shared helper
+    try th.expectEvalTrue("(call-with-values (lambda () (exact-integer-sqrt 17)) (lambda (s r) (and (= s 4) (= r 1))))");
+}
+
 test "eval expt" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
