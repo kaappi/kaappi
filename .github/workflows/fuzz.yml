@@ -56,12 +56,12 @@ jobs:
       # Both jobs in this workflow execute fuzzer-generated programs (and
       # the native-diff job runs binaries compiled from them), so don't
       # leave the GITHUB_TOKEN sitting in git config for the process tree.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v1
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
           cache-key: fuzz-${{ matrix.variant }}
@@ -72,7 +72,7 @@ jobs:
       # (only on success, so crash state is never cached — the crash marker
       # is uploaded as an artifact instead).
       - name: Restore fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             .zig-cache/f
@@ -105,7 +105,7 @@ jobs:
       # test); libfuzzer.log has the fuzzer's own transcript.
       - name: Upload fuzz artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-artifacts-${{ matrix.variant }}
           path: |
@@ -127,12 +127,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v1
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
           cache-key: fuzz-native-diff
@@ -157,7 +157,7 @@ jobs:
       # see docs/dev/fuzzing.md for minimising it into a regression test.
       - name: Upload divergences
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-diff-divergences
           path: native-diff-results/

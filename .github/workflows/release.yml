@@ -27,10 +27,12 @@ jobs:
             artifact: kaappi-riscv64-linux
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v1
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
 
@@ -83,21 +85,21 @@ jobs:
           cp zig-out/lib/libkaappi_rt.a libkaappi_rt-${{ matrix.target }}.a
 
       - name: Upload kaappi artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
           retention-days: 1
 
       - name: Upload thottam artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: thottam-${{ matrix.target }}
           path: thottam-${{ matrix.target }}
           retention-days: 1
 
       - name: Upload libkaappi_rt artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: libkaappi_rt-${{ matrix.target }}
           path: libkaappi_rt-${{ matrix.target }}.a
@@ -106,10 +108,12 @@ jobs:
   build-wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v1
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
 
@@ -117,7 +121,7 @@ jobs:
         run: zig build wasm
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kaappi-wasm32-wasi
           path: zig-out/bin/kaappi.wasm
@@ -127,10 +131,12 @@ jobs:
     needs: [build, build-wasm]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
 
@@ -165,8 +171,11 @@ jobs:
           echo "$NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      # action-gh-release talks to the API with the workflow token
+      # (contents: write above); it performs no git operations, so
+      # disabled checkout credentials don't affect it.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           body: ${{ steps.changelog.outputs.notes }}
           files: release/*

@@ -25,6 +25,7 @@ investigation produced analysis worth keeping.
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |
 | [fuzzing.md](fuzzing.md) | Fuzzing runbook: the targets, the scheduled CI job, turning a failure into a regression test |
+| [github-actions.md](github-actions.md) | Workflow hardening rules: SHA-pinned actions, `persist-credentials: false`, least-privilege tokens |
 | [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) | Rooting, write barriers, and error propagation patterns contributors must follow |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
