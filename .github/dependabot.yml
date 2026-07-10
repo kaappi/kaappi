@@ -1,0 +1,12 @@
+# Keeps the SHA-pinned actions in .github/workflows/ from going stale:
+# dependabot proposes bumps that update both the pinned commit SHA and
+# the version comment next to it. See docs/dev/github-actions.md.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']
