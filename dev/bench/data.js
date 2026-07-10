@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783644576167,
+  "lastUpdate": 1783644648328,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c9dc81af0c007014e609fe460ce6b3b100d7b068",
-          "message": "Deliver multiple values when continuation invoked with != 1 arg (#1251)\n\n* Deliver multiple values when continuation invoked with != 1 arg (#1169)\n\nContinuation invocation (both call/cc and call/ec) was silently dropping\nall but the first argument. When nargs != 1, wrap the args in a\nMultipleValues object — mirroring `values` semantics — so\ncall-with-values consumers receive the correct argument count.\n\nFixed in all three dispatch sites: vm_dispatch.zig (regular call and\nflat-args paths) and vm_calls.zig (callValue fallback).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix missed callWithArgs site, extract continuationArgValue helper\n\nAddress review feedback: the callWithArgs continuation branch still had\nthe old single-value logic, reachable via apply and first-class\ncall-with-values. Extract continuationArgValue() to a shared helper so\nall four dispatch sites use the same wrap, preventing future divergence.\n\nAdd three regression tests covering the callWithArgs path (non-tail\napply multi-arg, zero-arg apply, first-class call-with-values).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T12:14:33+05:30",
-          "tree_id": "5bb200e2ba6b37c59c99ae2baf0f66374fb0dfe6",
-          "url": "https://github.com/kaappi/kaappi/commit/c9dc81af0c007014e609fe460ce6b3b100d7b068"
-        },
-        "date": 1783321810014,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.082698,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.02201,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.772698,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.095799,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.010714,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.182096,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.372693,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054309,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 9.729624,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.42952,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.606802,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.826741,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.143777,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.470395,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035241,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04551,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "547f7cab4f69854ddc6088a006a6f838edb43c16",
+          "message": "Fix spurious wind unwind on return into native-callback frames (#1377) (#1380)\n\nSince #1374, dynamic-wind is a Scheme closure whose bytecode manages\nthe wind stack via %push-wind/%pop-wind. When a callback is invoked\nfrom native code through callWithArgs — an SRFI-18 thread thunk, a\nmember/sort predicate — its frame is pushed with returns_to_native\nset, and a tail call to dynamic-wind reuses that frame. The Return\nopcode's caller-wind cleanup then mistook the frame's own live wind\nrecord (pushed after frame entry, so above saved_wind_count) for an\norphaned native wind: as soon as the wound thunk returned, it ran the\nafter-thunk and popped the record, so dynamic-wind's closing\n%pop-wind underflowed. In a thread that surfaced as \"uncaught\nexception in thread\"; the same failure was reproducible without\nthreads from any callWithArgs-driven predicate.\n\nDelete the cleanup. A callee's return never exits the caller's\ndynamic extent, so unwinding the caller's winds at that point is\nnever correct. The cleanup existed for winds pushed by the pre-#1374\nnative dynamic-wind, which could be orphaned when a continuation\nrestore discarded the native's Zig frame; since #1374 every wind is\npushed and popped by bytecode, and unbalanced frames are still\nunwound at the frame's own return, the scope-root return, and the\ncallReentrant/execute error paths.\n\nCI missed this because no test exercised dynamic-wind inside\nmake-thread, and the existing callback tests either called\ndynamic-wind in non-tail position (own frame, returns_to_native\nfalse) or ended their thunks in native calls, which return through\nthe tail-call native fast path and never execute a Return opcode.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T05:50:17+05:30",
+          "tree_id": "29d8ac2328427cd2bf1cdca4bd304fef44bbf88e",
+          "url": "https://github.com/kaappi/kaappi/commit/547f7cab4f69854ddc6088a006a6f838edb43c16"
+        },
+        "date": 1783644647215,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.584114,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.230091,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.036535,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.53708,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01376,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.319761,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.480229,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06654,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.320268,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.909211,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.230125,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.966101,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.269604,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.98044,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040799,
             "unit": "seconds"
           }
         ]
