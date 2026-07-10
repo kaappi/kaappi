@@ -8,6 +8,8 @@ const primitives = @import("primitives.zig");
 const library = @import("library.zig");
 const types = @import("types.zig");
 const fuzz_gen = @import("fuzz_gen.zig");
+const ir_mod = @import("ir.zig");
+const printer = @import("printer.zig");
 
 const Context = @TypeOf(.{});
 
@@ -192,6 +194,36 @@ fn evalOne(input: []const u8) void {
 }
 
 fn evalOneOutcome(input: []const u8) EvalOutcome {
+    var out = evalNormalized(input, true, std.testing.allocator);
+    defer out.deinit(std.testing.allocator);
+    return switch (out) {
+        .value => .ok,
+        .harness_unavailable => .harness_unavailable,
+        .compile_error, .runtime_error, .resource_limit => .scheme_error,
+    };
+}
+
+/// Normalized observable of one evaluation, for differential comparison:
+/// the printed result (write mode) or the error CLASS — never error message
+/// text. Resource outcomes (deadline, heap, stack) legitimately depend on
+/// how much work each compilation path does, so they make a differential
+/// pair incomparable rather than counting as divergence.
+const NormalizedOutcome = union(enum) {
+    value: []u8, // owned; printer.zig write-mode
+    compile_error, // read or compile (vm.eval folds both into CompileError)
+    runtime_error,
+    resource_limit,
+    harness_unavailable,
+
+    fn deinit(self: *NormalizedOutcome, gpa: std.mem.Allocator) void {
+        switch (self.*) {
+            .value => |s| gpa.free(s),
+            else => {},
+        }
+    }
+};
+
+fn evalNormalized(input: []const u8, optimize: bool, gpa: std.mem.Allocator) NormalizedOutcome {
     // Redirect fd 1 to /dev/null for the duration: generated programs can
     // call (display ...), and the test binary's stdout is the build-runner
     // IPC pipe — a stray write there deadlocks the run.
@@ -232,8 +264,41 @@ fn evalOneOutcome(input: []const u8) EvalOutcome {
     library.registerSandboxedLibraries(&vm.libraries, vm.globals) catch return .harness_unavailable;
     vm.sandbox_mode = true;
     vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + 100_000_000;
-    _ = vm.eval(input) catch return .scheme_error;
-    return .ok;
+
+    // Toggle only around user-program evaluation, after the bootstrap and
+    // library registration above compiled with the default setting.
+    ir_mod.optimize_enabled = optimize;
+    defer ir_mod.optimize_enabled = true;
+    const result = vm.eval(input) catch |err| return switch (err) {
+        error.CompileError => .compile_error,
+        error.ExecutionTimeout, error.OutOfMemory, error.StackOverflow => .resource_limit,
+        else => .runtime_error,
+    };
+
+    // The observable is the final expression's value PLUS the generator's
+    // fixed globals: `vm.eval` returns only the last top-level value, so a
+    // wrong value inside `(define g1 ...)` (a void-valued form) would
+    // otherwise stay invisible unless the last expression happens to be
+    // sensitive to it. Closures print as `#<procedure name>` — no
+    // addresses — so proc-valued globals compare deterministically.
+    var parts: std.ArrayList(u8) = .empty;
+    defer parts.deinit(gpa);
+    appendPrinted(&parts, gpa, result) catch return .harness_unavailable;
+    for (fuzz_gen.global_names) |gn| {
+        const gv = vm.globals.get(gn) orelse continue;
+        parts.appendSlice(gpa, "\n") catch return .harness_unavailable;
+        parts.appendSlice(gpa, gn) catch return .harness_unavailable;
+        parts.appendSlice(gpa, "=") catch return .harness_unavailable;
+        appendPrinted(&parts, gpa, gv) catch return .harness_unavailable;
+    }
+    const printed = parts.toOwnedSlice(gpa) catch return .harness_unavailable;
+    return .{ .value = printed };
+}
+
+fn appendPrinted(parts: *std.ArrayList(u8), gpa: std.mem.Allocator, value: types.Value) !void {
+    const s = try printer.valueToString(gpa, value, .write);
+    defer gpa.free(s);
+    try parts.appendSlice(gpa, s);
 }
 
 test "fuzz reader" {
@@ -431,4 +496,82 @@ test "grammar generator: majority of programs evaluate without error" {
     // load-sensitive: a real generator regression tanks the rate, CI
     // jitter must not.
     try std.testing.expect(ok * 100 >= total * 75);
+}
+
+// ---------------------------------------------------------------------------
+// Differential oracle: optimized vs unoptimized evaluation (Tier 3, #1394)
+//
+// Crash-only fuzzing never surfaces silently-wrong values — the majority
+// class of compiler bugs (EMI; Pałka et al. found GHC optimizer bugs within
+// ~20k random tests with exactly this oracle). Evaluate the same generated
+// program with IR optimizations on and off; any divergence in the normalized
+// observable is a bug in an optimization pass (or in the baseline).
+//
+// The generator already emits nothing observably nondeterministic: no time,
+// random, or I/O forms, and `eq?` only on interned symbols (never on heap
+// literals, where identity is unspecified and may legitimately differ
+// between compilation paths).
+// ---------------------------------------------------------------------------
+
+fn diffOne(src: []const u8) !void {
+    var opt = evalNormalized(src, true, std.testing.allocator);
+    defer opt.deinit(std.testing.allocator);
+    if (opt == .harness_unavailable or opt == .resource_limit) return;
+    var noopt = evalNormalized(src, false, std.testing.allocator);
+    defer noopt.deinit(std.testing.allocator);
+    if (noopt == .harness_unavailable or noopt == .resource_limit) return;
+
+    const match = switch (opt) {
+        .value => |s| noopt == .value and std.mem.eql(u8, s, noopt.value),
+        .compile_error => noopt == .compile_error,
+        .runtime_error => noopt == .runtime_error,
+        .resource_limit, .harness_unavailable => unreachable,
+    };
+    if (!match) {
+        // stderr, never fd 1 (the build-runner IPC pipe).
+        std.debug.print("differential mismatch on program:\n{s}\n--- opt observable ---\n{s}\n--- no-opt observable ---\n{s}\n", .{
+            src, describeOutcome(opt), describeOutcome(noopt),
+        });
+        return error.DifferentialMismatch;
+    }
+}
+
+fn describeOutcome(o: NormalizedOutcome) []const u8 {
+    return switch (o) {
+        .value => |s| s,
+        else => @tagName(o),
+    };
+}
+
+test "fuzz differential (opt vs no-opt)" {
+    try std.testing.fuzz(Context{}, struct {
+        fn testOne(_: Context, smith: *std.testing.Smith) anyerror!void {
+            const src = fuzz_gen.generateProgram(smith, std.testing.allocator) catch return;
+            defer std.testing.allocator.free(src);
+            try diffOne(src);
+        }
+    }.testOne, .{});
+}
+
+// Deterministic regression gate for the oracle itself: fixed-seed programs
+// must agree between the two compilation paths on every `zig build test`
+// run, not just under --fuzz. A failure here is a real optimizer (or
+// baseline) bug — minimise the printed program into a Scheme regression
+// test per repo policy. 60 seeds keeps the cost near the majority-evaluate
+// gate above (each seed builds two VMs); planted-bug measurement: an
+// off-by-one planted in the `*` constant fold diverges at seed 30 (and 3
+// more within 500), so this window has real detection power.
+test "differential oracle: fixed-seed programs agree opt vs no-opt" {
+    // Under gc-stress both runs hit the 100 ms deadline and every pair
+    // becomes incomparable resource_limit outcomes — the test would pass
+    // while measuring nothing, at ~2 VM builds per seed. Skip.
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    var seed_n: u64 = 0;
+    while (seed_n < 60) : (seed_n += 1) {
+        const src = try fuzz_gen.generateSeeded(seed_n, std.testing.allocator);
+        defer std.testing.allocator.free(src);
+        // diffOne already prints the program and both observables.
+        errdefer std.debug.print("(fixed seed {d})\n", .{seed_n});
+        try diffOne(src);
+    }
 }
