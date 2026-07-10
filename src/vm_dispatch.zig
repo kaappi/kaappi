@@ -775,24 +775,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return result;
                 }
                 if (from_native_call) return raiseDeadNativeReturn(self);
-                // Unwind any winds that were pushed by native
-                // functions (via callReentrant) between this frame
-                // and the caller — only when the caller itself was
-                // pushed by a native re-entry. Bytecode callers
-                // (e.g. Scheme-level dynamic-wind) manage their own
-                // winds via %push-wind/%pop-wind and must not be
-                // unwound here.
-                // callThunk may re-enter the VM and grow self.frames — copy
-                // the caller's fields instead of holding a pointer across it.
-                const caller_returns_to_native = self.frames[self.frame_count - 1].returns_to_native;
-                const caller_wind_count = self.frames[self.frame_count - 1].saved_wind_count;
+                // Do NOT unwind winds above the caller's saved_wind_count
+                // here: a callee's return never exits the caller's dynamic
+                // extent. The caller's own bytecode may have pushed winds
+                // after the frame was entered (Scheme-level dynamic-wind
+                // via %push-wind — including in returns_to_native callback
+                // frames such as SRFI-18 thread thunks, #1377); it pops
+                // them itself via %pop-wind. Unbalanced winds are cleaned
+                // up at the frame's own return above, at the scope-root
+                // return, and on the callReentrant/execute error paths.
                 const caller_base = self.frames[self.frame_count - 1].base;
-                if (caller_returns_to_native) {
-                    while (self.wind_count > caller_wind_count) {
-                        self.wind_count -= 1;
-                        _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
-                    }
-                }
                 const ret_idx = try registerIndex(self, caller_base, return_dst);
                 self.registers[ret_idx] = result;
             },
