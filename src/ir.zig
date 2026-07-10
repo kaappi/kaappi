@@ -568,6 +568,15 @@ pub fn lower(irn: *IR, expr: Value) CompileError!*Node {
     return lowerWithMacros(irn, expr, null);
 }
 
+/// Master switch for IR optimization: when false, `lowerAndOptimize` skips
+/// the five optimization passes and `tryFoldFromAST` stops folding during
+/// lowering. Analysis (`markTailPositions`) always runs — it is required for
+/// correctness, not an optimization. Threadlocal (like `vm_instance`) so
+/// SRFI-18 child threads keep the default regardless of the parent's setting.
+/// Toggled by the `--no-ir-opt` CLI flag and by the differential fuzz oracle
+/// in tests_fuzz.zig (#1393).
+pub threadlocal var optimize_enabled: bool = true;
+
 pub fn lowerAndOptimize(
     ir_instance: *IR,
     expr: Value,
@@ -576,6 +585,7 @@ pub fn lowerAndOptimize(
 ) CompileError!*Node {
     var node = try lowerWithMacros(ir_instance, expr, macros);
     markTailPositions(node, is_tail);
+    if (!optimize_enabled) return node;
     node = foldConstants(ir_instance, node);
     node = eliminateDeadBranches(ir_instance, node);
     node = simplifyBooleans(ir_instance, node);
@@ -748,6 +758,7 @@ fn lowerCall(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value)) CompileEr
 }
 
 fn tryFoldFromAST(ir: *IR, expr: Value) ?*Node {
+    if (!optimize_enabled) return null;
     const operator = types.car(expr);
     if (!types.isSymbol(operator)) return null;
     const name = types.symbolName(operator);
