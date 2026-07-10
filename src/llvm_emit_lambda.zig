@@ -143,18 +143,21 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     if (free_count == 0) return null;
 
     const outer_params = self.params orelse return null;
+    const outer_upvalues = self.upvalues;
     for (free_vars[0..free_count]) |fv| {
-        // Captures are copied out of the enclosing %args array, so a name
-        // bound by an enclosing let-local or rest parameter (which outrank
-        // params in emitGlobalRef's resolution order) cannot be captured
-        // here, and neither can a name living only in the enclosing
-        // closure's upvalue array (#1410).
+        // Captures are copied out of the enclosing frame at closure-creation
+        // time: params from its %args, and — when this lambda sits inside
+        // another native closure — chained captures from that closure's own
+        // %upvalues array (#1410). A name bound by an enclosing let-local or
+        // rest parameter (which outrank params in emitGlobalRef's resolution
+        // order) has no capturable slot, and any other name is unknown here;
+        // reject those and let the eval fallback handle the lambda.
         if (localsOrRestShadows(self, fv)) return null;
         if (outer_params.contains(fv)) continue;
-        if (self.upvalues) |uv| {
-            if (uv.contains(fv)) return null;
+        if (outer_upvalues) |uv| {
+            if (uv.contains(fv)) continue;
         }
-        if (!ir.isKnownGlobal(fv)) return null;
+        return null;
     }
 
     const id = self.lambda_counter;
@@ -172,6 +175,12 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         self.current_fn_name = null;
         self.body_label = null;
         self.current_block = "entry";
+        // The enclosing function's let-locals and rest parameter are not in
+        // scope inside this closure's body; leaking them would misresolve
+        // names against the wrong frame's allocas.
+        self.locals = null;
+        self.rest_param_name = null;
+        self.rest_param_alloca = null;
 
         var p = std.StringHashMap(u8).init(self.backing_alloc);
         defer p.deinit();
@@ -179,12 +188,13 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
             p.put(pname, @intCast(i)) catch return null;
         }
 
+        // Every collected free variable passed the capture check above, so
+        // each one has a slot in the upvalue array this closure is created
+        // with (params-sourced and chained captures alike).
         var uv_map = std.StringHashMap(u8).init(self.backing_alloc);
         defer uv_map.deinit();
         for (free_vars[0..free_count], 0..) |fv, i| {
-            if (outer_params.contains(fv)) {
-                uv_map.put(fv, @intCast(i)) catch return null;
-            }
+            uv_map.put(fv, @intCast(i)) catch return null;
         }
         self.params = p;
         self.upvalues = uv_map;
@@ -209,15 +219,26 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     const uv_alloca = self.freshTemp() catch return null;
     self.print("  {s} = alloca [{d} x i64], align 8\n", .{ uv_alloca, free_count }) catch return null;
     for (free_vars[0..free_count], 0..) |fv, i| {
-        if (outer_params.get(fv)) |idx| {
+        const val = blk: {
+            if (outer_params.get(fv)) |idx| {
+                const gep_src = self.freshTemp() catch return null;
+                self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep_src, idx }) catch return null;
+                const v = self.freshTemp() catch return null;
+                self.print("  {s} = load i64, ptr {s}\n", .{ v, gep_src }) catch return null;
+                break :blk v;
+            }
+            // Chained capture (#1410): the value lives in the enclosing
+            // closure's own upvalue array, not in its %args.
+            const idx = outer_upvalues.?.get(fv).?;
             const gep_src = self.freshTemp() catch return null;
-            self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep_src, idx }) catch return null;
-            const val = self.freshTemp() catch return null;
-            self.print("  {s} = load i64, ptr {s}\n", .{ val, gep_src }) catch return null;
-            const gep_dst = self.freshTemp() catch return null;
-            self.print("  {s} = getelementptr i64, ptr {s}, i64 {d}\n", .{ gep_dst, uv_alloca, i }) catch return null;
-            self.print("  store i64 {s}, ptr {s}\n", .{ val, gep_dst }) catch return null;
-        }
+            self.print("  {s} = getelementptr i64, ptr %upvalues, i64 {d}\n", .{ gep_src, idx }) catch return null;
+            const v = self.freshTemp() catch return null;
+            self.print("  {s} = load i64, ptr {s}\n", .{ v, gep_src }) catch return null;
+            break :blk v;
+        };
+        const gep_dst = self.freshTemp() catch return null;
+        self.print("  {s} = getelementptr i64, ptr {s}, i64 {d}\n", .{ gep_dst, uv_alloca, i }) catch return null;
+        self.print("  store i64 {s}, ptr {s}\n", .{ val, gep_dst }) catch return null;
     }
 
     const name_str = self.internString(closure_name) catch return null;
@@ -226,6 +247,11 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     return result;
 }
 
+// Bind every name reachable in the current native frame — fixed params, the
+// rest parameter, and captured upvalues — as globals, so a form that falls
+// back to kaappi_eval (which runs in the global environment) still resolves
+// them. Leaving any of them out surfaces as "undefined variable" (or a
+// silently wrong value when a same-named global exists) at run time (#1410).
 pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
     if (self.params) |p| {
         var iter = p.iterator();
@@ -238,6 +264,27 @@ pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
             const val = try self.freshTemp();
             try self.print("  {s} = load i64, ptr {s}\n", .{ val, gep });
             try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, pname.len, val });
+        }
+    }
+    if (self.rest_param_name) |rp| {
+        if (self.rest_param_alloca) |alloca| {
+            const sym = try self.internSymbol(rp);
+            const val = try self.freshTemp();
+            try self.print("  {s} = load i64, ptr {s}\n", .{ val, alloca });
+            try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, rp.len, val });
+        }
+    }
+    if (self.upvalues) |uv| {
+        var iter = uv.iterator();
+        while (iter.next()) |entry| {
+            const uname = entry.key_ptr.*;
+            const idx = entry.value_ptr.*;
+            const sym = try self.internSymbol(uname);
+            const gep = try self.freshTemp();
+            try self.print("  {s} = getelementptr i64, ptr %upvalues, i64 {d}\n", .{ gep, idx });
+            const val = try self.freshTemp();
+            try self.print("  {s} = load i64, ptr {s}\n", .{ val, gep });
+            try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, uname.len, val });
         }
     }
 }
@@ -370,6 +417,10 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.tmp_counter = 0;
         self.label_counter = 0;
         self.locals = null;
+        // This function is closed — it receives null for %upvalues at run
+        // time — so an upvalue map inherited from the enclosing emission
+        // scope must not leak into body emission or bindParamsAsGlobals.
+        self.upvalues = null;
 
         var p = std.StringHashMap(u8).init(self.backing_alloc);
         defer p.deinit();
@@ -384,6 +435,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.body_label = if (rest_name == null) body_lbl else null;
         self.current_block = body_lbl;
         self.rest_param_name = rest_name;
+        self.rest_param_alloca = null;
 
         const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch return null;
         defer self.allocator().free(header);
@@ -673,12 +725,14 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
         // global. Disqualify and fall back to the interpreter.
         .define => return true,
         .constant => return false,
-        // let/let* keep their contents as a raw S-expression, so references
-        // hidden inside them are invisible to the node-level cases above.
-        // Walk the raw form with proper binder scoping (#1407).
+        // let/let* and nested lambdas keep their contents as a raw
+        // S-expression, so references hidden inside them are invisible to
+        // the node-level cases above. Walk the raw forms with proper binder
+        // scoping (#1407, #1410).
         .let_form => return letSexprHasFreeVars(self, node.data.let_form.args, false, params),
         .let_star => return letSexprHasFreeVars(self, node.data.let_star.args, true, params),
-        .lambda, .passthrough, .sexpr_form => return false,
+        .lambda => return lambdaSexprHasFreeVars(self, node.data.lambda.args, params),
+        .passthrough, .sexpr_form => return false,
         .letrec, .letrec_star => return false,
     }
 }
@@ -757,23 +811,26 @@ fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const
             if (!collectNodeFreeVars(self, node.data.unless_form.test_expr, params, buf, count)) return false;
             return collectFreeVars(self, node.data.unless_form.body, params, buf, count);
         },
-        // See nodeHasFreeVars: let/let* contents are a raw S-expression and
-        // must be walked with binder scoping, or captures hidden inside them
-        // are silently compiled as global lookups (#1407).
+        // See nodeHasFreeVars: let/let* and nested lambda contents are raw
+        // S-expressions and must be walked with binder scoping, or captures
+        // hidden inside them are silently compiled as global lookups
+        // (#1407, #1410).
         .let_form => return collectLetSexprFreeVars(self, node.data.let_form.args, false, params, buf, count),
         .let_star => return collectLetSexprFreeVars(self, node.data.let_star.args, true, params, buf, count),
-        .constant, .define, .set_form, .lambda, .passthrough, .sexpr_form => return true,
+        .lambda => return collectLambdaSexprFreeVars(self, node.data.lambda.args, params, buf, count),
+        .constant, .define, .set_form, .passthrough, .sexpr_form => return true,
         .letrec, .letrec_star => return true,
     }
 }
 
-// --- Scope-aware free-name walk over raw let/let* forms (#1407) ---
+// --- Scope-aware free-name walk over raw let/let*/lambda forms (#1407, #1410) ---
 //
-// The IR keeps let/let* contents as a raw S-expression (ir.LetData.args), so
-// the node-level free-variable analysis cannot see references inside them.
-// This walk descends into the raw form tracking binder scopes (let binders,
-// nested lambda formals) and reports every referenced name that is neither
-// bound nor a known global — the same rule the .global_ref arms apply.
+// The IR keeps let/let* contents (ir.LetData.args) and lambda contents
+// (ir.LambdaData.args) as raw S-expressions, so the node-level free-variable
+// analysis cannot see references inside them. This walk descends into the
+// raw form tracking binder scopes (let binders, nested lambda formals) and
+// reports every referenced name that is neither bound nor a known global —
+// the same rule the .global_ref arms apply.
 // `inexact` is set when the walk meets something it cannot scope precisely
 // (internal define, an eval-fallback form, malformed bindings, overflow);
 // callers must then treat the analysis as failed and refuse to compile the
@@ -834,6 +891,20 @@ fn letSexprHasFreeVars(self: *LLVMEmitter, args: Value, sequential: bool, params
 fn collectLetSexprFreeVars(self: *LLVMEmitter, args: Value, sequential: bool, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
     var w = FreeNameWalk{ .emitter = self, .params = params, .buf = buf, .count = count };
     walkLetSexpr(&w, args, sequential);
+    return !w.inexact;
+}
+
+// args is the raw `(formals body ...)` tail of a nested lambda IR node
+// (ir.LambdaData.args), the same shape walkLambdaSexpr consumes.
+fn lambdaSexprHasFreeVars(self: *LLVMEmitter, args: Value, params: []const []const u8) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params };
+    walkLambdaSexpr(&w, args);
+    return w.found or w.inexact;
+}
+
+fn collectLambdaSexprFreeVars(self: *LLVMEmitter, args: Value, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params, .buf = buf, .count = count };
+    walkLambdaSexpr(&w, args);
     return !w.inexact;
 }
 
