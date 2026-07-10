@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783644488803,
+  "lastUpdate": 1783644576167,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04e2ee1abb76ad62f346152a36724b0dd9e640e6",
-          "message": "Box set!-mutated locals for R7RS store semantics (#1168) (#1249)\n\n* Box set!-mutated locals for R7RS store semantics (#1168)\n\nR7RS §3.4 requires that set! modifies the store (a heap location), not\nthe continuation. The compiler previously boxed locals only when they\nwere closure-captured as upvalues, leaving set!-mutated-but-uncaptured\nlocals in plain registers. Since captureContinuation snapshots the\nregister file, restoring a continuation rolled back those mutations,\ncausing infinite loops in idiomatic generator/counter patterns.\n\nFix: introduce boxIfSetTarget — after defining a local (in let, let*,\nlambda parameters, or do), if its name appears in the top-level form's\nset_targets map, box it immediately. The register then holds a pointer\nto a heap-allocated pair whose car is the mutable value; set! writes to\nthe car via set_box_local, and continuation restore puts back the same\npointer without affecting the car.\n\nApplied to all four binding paths: compileLet, compileLetStar,\ncompileLambdaWithIR, compileLambda, and compileDo.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add FAIL-marked tests for macro-introduced set! gap (#1250)\n\ncollectSetTargets scans pre-expansion, so set! introduced by macros\nbypasses boxing. Document the two reproduction cases from review and\nreference follow-up issue #1250.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add #1250 to FAIL markers for grep discoverability\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T10:54:37+05:30",
-          "tree_id": "122f7db37958a06dbca5d54b44a1ddb3bc112037",
-          "url": "https://github.com/kaappi/kaappi/commit/04e2ee1abb76ad62f346152a36724b0dd9e640e6"
-        },
-        "date": 1783316957925,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.246994,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.868581,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.980394,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.150447,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012422,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212118,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.481353,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071602,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.479547,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.86354,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.994366,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.975361,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.327273,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.580645,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043407,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045078,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4e2779f432c027081b8aab038254de90b1e8b55",
+          "message": "Fix native backend calls to bootstrapped procedures (#1376) (#1379)\n\nSince #1374 rewrote map/for-each/dynamic-wind/force as Scheme closures\ninstalled at VM init, natively compiled programs reach them as bytecode\nthrough kaappi_call_scheme — and the bytecode then has to invoke the\nnatively compiled callback, a NativeClosure, from inside the dispatch\nloop. Every dispatch site (callValue, callThunk, callHandler, and the\ntail_call/tail_apply/tail_call_global/tail_call_cc opcodes) only knew\nClosure/NativeFn/Continuation/FfiFunction/Parameter, so the first\ncallback invocation died with NotAProcedure (\"runtime error in call\").\nPre-#1374 this never mattered: NativeClosures were only ever called by\nthe Zig primitives via callWithArgs, the one place that handled them.\n\nAdd a native_closure arm to each of those sites, routed through a new\nvm_calls.callNativeClosure helper. The helper copies the arguments into\na stack buffer before the call: emitted native functions read their\nparameters lazily from the args pointer, and re-entering the VM can\ngrow (realloc) vm.registers, so a pointer into the register file could\ndangle. The originals stay reachable through the caller's storage, so\nthe copies need no GC roots (verified with KAAPPI_GC_THRESHOLD=1).\n\nAlso report vm.last_error_detail plus the Zig error name in the\nkaappi_call_scheme / callPrimitive / kaappi_eval exit paths, instead of\na bare \"runtime error in call\" — uncaught Scheme exceptions are\nformatted via noteUncaughtException first, so e.g. (error \"boom\" 1)\ninside a callback now prints \"runtime error in call: boom 1\n(ExceptionRaised)\".\n\nRegression tests: unit tests drive a hand-built NativeClosure through\neach dispatch path (call, tail_call, tail_apply, tail_call_global,\ncall/cc receiver, with-exception-handler thunk/handler, dynamic-wind\nthunks, upvalues, catchable arity errors), and\ntests/scheme/compile/native-bootstrap-callbacks-1376.sh compiles and\nruns the whole bootstrapped family natively, including the error-detail\noutput.\n\nFixes #1376.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T05:49:56+05:30",
+          "tree_id": "87ce17e8fe19d2f891307efe4e5c199201d99549",
+          "url": "https://github.com/kaappi/kaappi/commit/a4e2779f432c027081b8aab038254de90b1e8b55"
+        },
+        "date": 1783644574626,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.008924,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.625093,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.988717,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.641203,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012987,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338582,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510757,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069739,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.533028,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.283344,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.750137,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.038819,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.57487,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.693962,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04551,
             "unit": "seconds"
           }
         ]
