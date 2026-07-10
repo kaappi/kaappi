@@ -17,13 +17,18 @@
 #   RESULTS_DIR  where divergences are written (default: ./native-diff-results)
 #
 # Comparison rules (rationale in docs/dev/fuzzing.md):
-#   both exit 0          -> stdout must match byte-for-byte
-#   both exit non-zero   -> error classes match; stdout is NOT compared (the
-#                           VM reports a top-level error and continues, the
-#                           native binary exits at the first error, so
-#                           post-error output legitimately differs)
-#   exit classes differ  -> divergence
-#   either side timed out-> pair skipped (incomparable)
+#   both exit 0             -> stdout must match byte-for-byte
+#   both exit 1..127        -> ordinary-error match; stdout is NOT compared
+#                              (the VM reports a top-level error and
+#                              continues, the native binary exits at the
+#                              first error, so post-error output
+#                              legitimately differs)
+#   any exit >= 128         -> divergence: 128+N is death by signal N
+#                              (segfault, abort, ...), never an ordinary
+#                              Scheme error on either side
+#   exit classes differ     -> divergence (error on one side only)
+#   compile fails/times out -> divergence (generated programs must compile)
+#   either side timed out   -> pair skipped (incomparable)
 #
 # This is process-spawn + link per input — orders of magnitude slower than
 # in-process fuzzing — so it runs as a scheduled batch in CI (fuzz.yml), not
@@ -46,22 +51,28 @@ GEN=zig-out/bin/kaappi-fuzz-gen
 
 # GNU timeout when available (Linux/CI); on macOS without coreutils the
 # programs are bounded by construction, so running without one is acceptable.
-TIMEOUT_CMD=""
+# Compilation gets a longer budget than execution: it forks the system
+# linker, and a hang there would otherwise stall the whole batch.
+TIMEOUT_BIN=""
 for c in timeout gtimeout; do
   if command -v "$c" >/dev/null 2>&1; then
-    TIMEOUT_CMD="$c 10"
+    TIMEOUT_BIN="$c"
     break
   fi
 done
+RUN_TIMEOUT="${TIMEOUT_BIN:+$TIMEOUT_BIN 10}"
+COMPILE_TIMEOUT="${TIMEOUT_BIN:+$TIMEOUT_BIN 60}"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/native-diff.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 # Fail fast when the native toolchain is unavailable: `kaappi compile`
 # reports link/toolchain errors on stderr but still exits 0, so probe with a
-# trivial program and check that the output binary actually appears.
+# trivial program and check that the output binary actually appears. The
+# probe also warms the linker's compiler-rt cache, so per-seed compiles fit
+# the tighter COMPILE_TIMEOUT; its own budget is generous for a cold cache.
 printf '(write 42)\n(newline)\n' > "$WORK/probe.scm"
-"$KAAPPI" compile "$WORK/probe.scm" -o "$WORK/probe.bin" > "$WORK/probe.log" 2>&1
+${TIMEOUT_BIN:+$TIMEOUT_BIN 300} "$KAAPPI" compile "$WORK/probe.scm" -o "$WORK/probe.bin" > "$WORK/probe.log" 2>&1
 if [ ! -x "$WORK/probe.bin" ]; then
   echo "native-diff: 'kaappi compile' cannot produce binaries here:" >&2
   cat "$WORK/probe.log" >&2
@@ -87,29 +98,38 @@ while [ "$i" -lt "$N" ]; do
   seed=$((BASE + i))
   i=$((i + 1))
   prog="$WORK/seed-$seed.scm"
+  # Clear per-seed transients so save_divergence can never attach a stale
+  # file from an earlier seed (nat.out/nat.err are only written when the
+  # compile succeeds).
+  rm -f "$WORK/vm.out" "$WORK/vm.err" "$WORK/nat.out" "$WORK/nat.err" "$WORK/compile.log"
   "$GEN" "$seed" --native > "$prog" || {
     echo "native-diff: generator failed for seed $seed" >&2
     exit 1
   }
 
-  $TIMEOUT_CMD "$KAAPPI" "$prog" > "$WORK/vm.out" 2> "$WORK/vm.err"
+  $RUN_TIMEOUT "$KAAPPI" "$prog" > "$WORK/vm.out" 2> "$WORK/vm.err"
   vm_exit=$?
 
   bin="$WORK/seed-$seed.bin"
   rm -f "$bin"
-  "$KAAPPI" compile "$prog" -o "$bin" > "$WORK/compile.log" 2>&1
+  $COMPILE_TIMEOUT "$KAAPPI" compile "$prog" -o "$bin" > "$WORK/compile.log" 2>&1
+  compile_exit=$?
   if [ ! -x "$bin" ]; then
-    echo "seed $seed: DIVERGENCE — native compilation failed (generated programs must always compile)" >&2
+    if [ -n "$TIMEOUT_BIN" ] && { [ "$compile_exit" -eq 124 ] || [ "$compile_exit" -eq 137 ]; }; then
+      echo "seed $seed: DIVERGENCE — native compilation timed out" >&2
+    else
+      echo "seed $seed: DIVERGENCE — native compilation failed (generated programs must always compile)" >&2
+    fi
     save_divergence
     divergent=$((divergent + 1))
     continue
   fi
 
-  $TIMEOUT_CMD "$bin" > "$WORK/nat.out" 2> "$WORK/nat.err"
+  $RUN_TIMEOUT "$bin" > "$WORK/nat.out" 2> "$WORK/nat.err"
   nat_exit=$?
 
   # 124 = timeout(1) expiry, 137 = SIGKILL after expiry: incomparable pair.
-  if [ -n "$TIMEOUT_CMD" ] && { [ "$vm_exit" -eq 124 ] || [ "$vm_exit" -eq 137 ] ||
+  if [ -n "$TIMEOUT_BIN" ] && { [ "$vm_exit" -eq 124 ] || [ "$vm_exit" -eq 137 ] ||
     [ "$nat_exit" -eq 124 ] || [ "$nat_exit" -eq 137 ]; }; then
     skipped=$((skipped + 1))
     rm -f "$bin" "$prog" "${prog%.scm}.sbc"
@@ -119,6 +139,11 @@ while [ "$i" -lt "$N" ]; do
   mismatch=""
   if [ "$vm_exit" -eq 0 ] && [ "$nat_exit" -eq 0 ]; then
     cmp -s "$WORK/vm.out" "$WORK/nat.out" || mismatch="stdout differs (both exited 0)"
+  elif [ "$vm_exit" -ge 128 ] || [ "$nat_exit" -ge 128 ]; then
+    # 128+N = killed by signal N. A segfault/abort is a crash finding even
+    # when the other side also errored, so it must never be absorbed into
+    # the ordinary-error match below.
+    mismatch="signal-terminated exit (vm=$vm_exit native=$nat_exit)"
   elif [ "$vm_exit" -eq 0 ] || [ "$nat_exit" -eq 0 ]; then
     mismatch="exit class differs (vm=$vm_exit native=$nat_exit)"
   fi

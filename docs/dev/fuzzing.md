@@ -183,15 +183,20 @@ Comparison rules:
   non-procedure global), because the VM echoes non-void top-level values but
   native binaries do not, and procedure values print differently by design
   (`#<procedure name>` vs `#<procedure>`).
-- **Both exit non-zero** — treated as a match without comparing stdout: the
+- **Both exit 1–127** — ordinary-error match, without comparing stdout: the
   VM reports a top-level error and continues with the next form, the native
   binary exits at the first error, so post-error output legitimately
   differs.
-- **Exit classes differ, stdout differs, or `kaappi compile` fails to
-  produce a binary** — divergence: the program plus both sides'
-  stdout/stderr land in the results dir and the script exits non-zero.
-- **Either side times out** (needs GNU `timeout`/`gtimeout` on PATH) — the
-  pair is skipped as incomparable.
+- **Any exit ≥ 128** — divergence: 128+N is death by signal N (segfault,
+  abort, …), which is never an ordinary Scheme error, so it is flagged even
+  when the other side also errored.
+- **Exit classes differ, stdout differs, or `kaappi compile` fails or times
+  out** — divergence: the program plus both sides' stdout/stderr land in
+  the results dir and the script exits non-zero.
+- **Either side's execution times out** (needs GNU `timeout`/`gtimeout` on
+  PATH) — the pair is skipped as incomparable. Compilation gets its own,
+  longer timeout so a hung linker on one seed is classified as a divergence
+  instead of stalling the batch.
 
 One caveat when triaging a divergence: argument evaluation order is
 unspecified in R7RS, and generated programs do mutate globals inside

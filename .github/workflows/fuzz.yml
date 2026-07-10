@@ -53,7 +53,12 @@ jobs:
           #   build-args: '-Dgc-stress=true'
           #   limit: 200
     steps:
+      # Both jobs in this workflow execute fuzzer-generated programs (and
+      # the native-diff job runs binaries compiled from them), so don't
+      # leave the GITHUB_TOKEN sitting in git config for the process tree.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -123,6 +128,8 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1

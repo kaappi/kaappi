@@ -48,10 +48,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     else
         try fuzz_gen.generateSeeded(s, gpa);
 
+    // reporting.writeToFd's loop, except failures are a hard non-zero exit:
+    // the harness redirects stdout to a file, and a silently truncated
+    // program would be diffed as if it were the real seed.
     var off: usize = 0;
     while (off < src.len) {
-        const n = std.posix.system.write(1, src.ptr + off, src.len - off);
-        if (n <= 0) std.process.exit(1);
-        off += @intCast(n);
+        const rc = std.posix.system.write(1, src.ptr + off, src.len - off);
+        if (rc < 0) {
+            if (std.posix.errno(rc) == .INTR) continue;
+            std.process.exit(1);
+        }
+        if (rc == 0) std.process.exit(1);
+        off += @as(usize, @intCast(rc));
     }
 }
