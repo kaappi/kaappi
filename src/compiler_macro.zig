@@ -175,6 +175,13 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     // Inject non-procedure global free vars as locals so
     // use-site locals don't shadow the definition-site
     // global binding (R7RS 4.3.1 referential transparency).
+    // Alias registers are freed after the expansion is compiled: leaking
+    // them breaks the balanced-register contract expression compilation
+    // relies on — a call site allocates CONTIGUOUS argument registers, so
+    // a leak inside one argument shifts every later argument slot while
+    // the call still reads the original window (found by the Kaappi-vs-
+    // Chibi differential oracle, #1396).
+    var injected_reg_count: u16 = 0;
     for (global_free_names[0..global_free_count]) |gname| {
         // Skip if already covered by captured_locals
         var already_captured = false;
@@ -187,6 +194,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         if (already_captured) continue;
         // Load the global value into a fresh register
         const gslot = self.allocReg() catch continue;
+        injected_reg_count += 1;
         const gsym = self.gc.allocSymbol(gname) catch continue;
         const gsym_idx = self.addConstant(gsym) catch continue;
         self.emitOp(.get_global) catch continue;
@@ -242,9 +250,14 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             }
         }
     }
-    // Remove injected locals
+    // Remove injected locals and rewind their alias registers: the
+    // expansion's result now lives in dst, so the aliases are dead, and
+    // compileExpr itself is register-balanced, making the LIFO rewind safe.
     while (self.locals.items.len > saved_locals_len) {
         _ = self.locals.pop();
+    }
+    while (injected_reg_count > 0) : (injected_reg_count -= 1) {
+        self.freeReg();
     }
     return result_err;
 }

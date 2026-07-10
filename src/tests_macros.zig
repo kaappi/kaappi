@@ -728,3 +728,28 @@ test "recursive variadic macro: sibling calls produce correct values (#1215)" {
         \\  (+ (car (my-list 10 20)) (car (my-list 30 40))))
     , 40);
 }
+
+test "macro expanding to a global as a non-final call argument (#1396 oracle find)" {
+    // Referential-transparency aliasing loads a template's free global into
+    // a fresh register during expansion (#935). That register leaked, so in
+    // (+ (m0) 1) the literal 1 landed one slot past the register window the
+    // call reads — the call saw the alias's value twice: (+ (m0) 1) => 82.
+    // Found by the Kaappi-vs-Chibi differential oracle on its first batch.
+    try th.expectEval(
+        \\(begin
+        \\  (define g1 41)
+        \\  (define-syntax m0 (syntax-rules () ((_) g1)))
+        \\  (+ (m0) 1))
+    , 42);
+}
+
+test "macro-with-global expansion keeps later argument slots intact (#1396)" {
+    // Same leak, observed structurally: every argument after the expansion
+    // was read from the wrong slot, so (list (m0) 1 2) became (41 41 41).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define g1 41)
+        \\  (define-syntax m0 (syntax-rules () ((_) g1)))
+        \\  (equal? (list (m0) 1 2) '(41 1 2)))
+    );
+}
