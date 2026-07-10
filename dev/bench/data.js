@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783644648328,
+  "lastUpdate": 1783646903338,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f13e806f71e3b9682bfbc2889f8cbc6f6a6db8c7",
-          "message": "Add CodeRabbit AI code review configuration (#1252)\n\nConfigures CodeRabbit with project-specific review instructions:\n- GC safety rules for primitives, memory, and VM files\n- Compiler form checklist for compiler and IR files\n- R7RS compliance guidance for reader and SRFI files\n- Assertive profile for thorough correctness-focused reviews\n- Path filters to skip vendored/generated files\n- Relevant linters enabled (shellcheck, actionlint, yamllint, gitleaks)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T12:15:19+05:30",
-          "tree_id": "3fc22cf91e9a154c25a82efb67fd7f0a3e4a3a7a",
-          "url": "https://github.com/kaappi/kaappi/commit/f13e806f71e3b9682bfbc2889f8cbc6f6a6db8c7"
-        },
-        "date": 1783321956215,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.051227,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.993742,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.983247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.07457,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013672,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235628,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.483464,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068231,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.394271,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.840235,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.106949,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.083699,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.118242,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.820902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04466,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040799,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c8e50dd7bdf38029ff80314287ad7a8a0a3df6b",
+          "message": "Migrate (chibi test) tests to SRFI-64 (#1313) (#1382)\n\nThe (chibi test) shim exists only to run the upstream R7RS suite, but 55\nother test files had adopted it. SRFI-64 is the standardized framework\nthe rest of the suite uses, has richer assertions, and — unlike the shim,\nwhich always exits 0 — its exit-on-fail epilogue lets run-all.sh detect\nfailures from the exit code instead of grepping output.\n\n- tests/scheme/{srfi,audit,compliance}: (chibi test) -> (srfi 64),\n  test -> test-equal, runner-grab epilogue with (exit 1) on failure;\n  test-values forms (srfi152) become test-equal + call-with-values;\n  commented-out ;; FAIL: #NNN assertions renamed so they still work\n  when un-commented after fixes\n- r7rs-tests.scm stays on the shim (upstream suite, out of scope)\n- audit-primitives skill template and audit-strategy.md session\n  protocol now prescribe SRFI-64 for new test files\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T06:32:43+05:30",
+          "tree_id": "e0b5479c7b0740bd783f8fa7a8263e9c42800e55",
+          "url": "https://github.com/kaappi/kaappi/commit/6c8e50dd7bdf38029ff80314287ad7a8a0a3df6b"
+        },
+        "date": 1783646902636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.539062,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.748696,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.005804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.639852,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012924,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.339225,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512108,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070221,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.66317,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.07954,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.756625,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.037119,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.630738,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715128,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045588,
             "unit": "seconds"
           }
         ]
