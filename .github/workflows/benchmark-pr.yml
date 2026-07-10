@@ -46,7 +46,7 @@ jobs:
           git checkout ${{ github.event.pull_request.head.sha }}
 
       - name: Compare and comment
-        uses: kaappi/github-action-pull-request-benchmark@11e6f9c49191a57127f53dddcbdcc30b18f7f0a3 # v1.4.0
+        uses: kaappi/github-action-pull-request-benchmark@1a82ba746b2050a6143f3e4ab67d935e505f7b73 # v1 tag (2026-07-01)
         with:
           tool: 'raw'
           pr-benchmark-file-path: pr-results.json

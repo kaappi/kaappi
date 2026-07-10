@@ -22,10 +22,23 @@ To add or update a pin, resolve the tag yourself rather than copying a SHA
 from the action's README:
 
 ```bash
-gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+# What refs/tags/<tag> points at — never ambiguous with branches
+gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object | "\(.type) \(.sha)"'
+# If the type printed is "tag" (annotated), peel it to the commit:
+gh api repos/<owner>/<repo>/git/tags/<that-sha> --jq .object.sha
 ```
 
-and put the exact version tag in the trailing comment. Dependabot
+Do **not** resolve with `gh api repos/<owner>/<repo>/commits/<tag>`: when a
+repo has a branch and a tag with the same name, that endpoint returns the
+*branch* head while the Actions runner resolves `uses: repo@<name>` to the
+*tag* — so the pin silently captures different code than `@<name>` ran.
+This is not hypothetical: `kaappi/github-action-pull-request-benchmark` has
+a stale `v1` branch shadowing its `v1` tag, and the mismatch broke the PR
+benchmark workflow when it was first pinned (#1413). If `refs/tags/<tag>`
+404s, the ref really is a branch (e.g. `benchmark-action`'s `v1`) — pin the
+branch head and note in the comment which release it corresponds to.
+
+Put the exact version tag in the trailing comment. Dependabot
 (`.github/dependabot.yml`, weekly) proposes bumps and rewrites both the SHA
 and the version comment, so pins don't go stale silently.
 
