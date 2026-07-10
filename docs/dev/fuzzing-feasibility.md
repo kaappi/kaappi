@@ -64,8 +64,8 @@ The two things Fuzzilli's architecture is really about — coverage feedback and
 fast persistent harness — already exist here:
 
 - **A coverage-guided fuzzer.** [`src/tests_fuzz.zig`](../../src/tests_fuzz.zig)
-  defines four `std.testing.fuzz` targets, using Zig 0.16's built-in
-  libFuzzer-style fuzzer with `std.testing.Smith`:
+  defines four `std.testing.fuzz` targets, using Zig 0.16's built-in fuzzer
+  with `std.testing.Smith`:
 
   | Target | Exercises |
   |--------|-----------|
@@ -96,6 +96,32 @@ fast persistent harness — already exist here:
   `coverage-scheme`) in [`build.zig`](../../build.zig) reports which `src/` lines
   a run exercises.
 
+### An important Zig corpus detail
+
+Zig's `std.testing.FuzzInputOptions` has a `corpus` field, but that field is a
+slice of **serialized `Smith` decisions**, not a directory of application
+inputs. The current four targets each make exactly one
+`smith.sliceWithHash(&buf, 0)` call. Consequently, a seed for a Scheme source
+`s` must be encoded as:
+
+```
+<4-byte little-endian length of s><bytes of s>
+```
+
+Passing a `.scm` file directly would make its first four source bytes look like
+a length, and will normally produce an empty or malformed input. Likewise,
+Zig's public fuzz API exposes a corpus but no libFuzzer-style `-dict` option.
+The standard library's [`FuzzInputOptions`](https://github.com/ziglang/zig/blob/0.16.0/lib/std/testing.zig#L1222-L1232)
+is the relevant API contract.
+
+This does **not** make seeding impractical. Add a small, explicit seed helper
+that encodes a curated set of source snippets at compile time, and pass those
+encoded values via `.corpus`. Keep the corpus small and coverage-focused rather
+than embedding the entire Scheme suite: many suite files depend on a test
+harness, imports, or filesystem layout and are poor standalone `vm.eval`
+inputs. A test-only corpus directory can still be useful as source material,
+but needs a conversion/minimisation step before it becomes a Zig fuzz corpus.
+
 ## Gaps — where the real improvement opportunities are
 
 Measured against Fuzzilli's philosophy, the current setup leaves value on the
@@ -106,11 +132,15 @@ table:
 - **Byte-oriented input.** `Smith` mutates a raw byte buffer, so most inputs are
   rejected by the reader; the fuzzer mostly stresses the **parser** and rarely
   produces semantically deep, valid Scheme that reaches the compiler, VM, or GC.
-- **No seed corpus.** The 442 `.scm` files under `tests/scheme/**` are a
-  ready-made corpus of valid programs and are not fed to the fuzzer.
-- **No token dictionary.** Keywords and lexical tokens (`define`, `lambda`,
-  `let`, `call/cc`, `#\`, `#(`, `quasiquote`, …) would help the mutator form
-  valid constructs.
+- **No seed corpus.** Every target currently passes `.{}` to
+  `std.testing.fuzz`. The Scheme suite is useful source material, but its files
+  must be reduced to standalone snippets and encoded as `Smith` inputs before
+  they can be used as this fuzzer's corpus.
+- **No direct token dictionary.** A libFuzzer token dictionary is not an
+  option exposed by Zig's current fuzz API. Keywords and lexical tokens
+  (`define`, `lambda`, `let`, `call/cc`, `#\`, `#(`, `quasiquote`, …) should
+  instead appear in curated encoded seeds, or preferably be selected by a
+  `Smith`-driven grammar generator.
 - **No structure-aware generation** and **no differential testing** — the two
   techniques that find the deepest bugs.
 
@@ -119,19 +149,41 @@ table:
 A tiered direction, so work can stop at any point. File concrete steps as issues
 (per the [dev-docs policy](README.md)); this is the shape, not the backlog.
 
-- **Tier 1 — cheap, high value.** Wire the existing targets into CI (a scheduled
-  `--fuzz` run), seed the corpus from `tests/scheme/**`, and add a Scheme token
-  dictionary. Fix whatever crashes surface. Pure leverage on what already exists.
+- **Tier 1 — cheap, high value.** Wire the existing targets into CI as a
+  scheduled, *bounded* `zig build test --fuzz=<iteration-limit>` job. Add a
+  small set of encoded `Smith` seeds for reader, compiler, and eval forms; add
+  valid and intentionally malformed `.sbc` seeds for the loader. Preserve each
+  minimised failure as both a regression test and a corpus entry. This is pure
+  leverage on what already exists.
 - **Tier 2 — structure-aware generation.** A grammar-based generator of valid
-  R7RS forms, used as fuzz input or corpus seed. This is the Scheme analog of
+  R7RS forms driven directly by `Smith` choices. This is the Scheme analog of
   Fuzzilli's generative core: it gets past the reader and actually exercises the
-  compiler, VM, and GC.
+  compiler, VM, and GC. Bound expression depth, literal sizes, allocation, and
+  evaluation time; keep an invalid-input target for parser robustness.
 - **Tier 3 — differential testing (highest bug value).** Run generated programs
   through Kaappi *and* a real reference Scheme (Chibi, Gauche, Guile, Chez, or
   Racket) and diff the results. This finds **correctness** bugs, not just
-  crashes. Note: the repo's `(chibi test)` is an API shim implemented in Kaappi,
-  **not** real Chibi — a genuine external interpreter must be installed as the
-  oracle.
+  crashes. Compare a normalized observable result (value, stdout, and exit
+  class), and generate only a portable subset: R7RS leaves evaluation order,
+  error objects, and several edge cases unspecified. Note: the repo's `(chibi
+  test)` is an API shim implemented in Kaappi, **not** real Chibi — a genuine
+  external interpreter must be installed as the oracle.
 - **Tier 4 — Fuzzilli fork (deferred).** The path in "What a real Fuzzilli fork
   would require" remains available as a research option; documented here so it
   can be chosen consciously rather than drifted into.
+
+## Operating guidance
+
+- Run fuzzing in an isolated job and do not generate filesystem, process, FFI,
+  or network forms. The in-process eval harness is fast, but those facilities
+  would make a fuzz run nondeterministic and could alter its runner.
+- Keep the 100 ms VM execution deadline, and add comparable resource bounds to
+  a future grammar generator. It currently guards bytecode execution; reader
+  and compiler work still need bounded input depth and size.
+- Treat a crash, panic, leak report, or sanitizer finding as a failure. Ordinary
+  Scheme read/compile/runtime errors are expected fuzz outcomes and should not
+  fail the target.
+- Minimise every failure, add a readable regression test, then retain the
+  corresponding encoded fuzzer input. A corpus is both a search aid and a
+  permanent regression set, as described in the
+  [libFuzzer corpus guidance](https://llvm.org/docs/LibFuzzer.html#corpus).
