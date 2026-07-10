@@ -267,8 +267,9 @@ fn evalNormalized(input: []const u8, optimize: bool, gpa: std.mem.Allocator) Nor
 
     // Toggle only around user-program evaluation, after the bootstrap and
     // library registration above compiled with the default setting.
+    const saved_opt = ir_mod.optimize_enabled;
     ir_mod.optimize_enabled = optimize;
-    defer ir_mod.optimize_enabled = true;
+    defer ir_mod.optimize_enabled = saved_opt;
     const result = vm.eval(input) catch |err| return switch (err) {
         error.CompileError => .compile_error,
         error.ExecutionTimeout, error.OutOfMemory, error.StackOverflow => .resource_limit,

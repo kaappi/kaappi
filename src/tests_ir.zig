@@ -769,15 +769,18 @@ test "IR opt switch: folded patterns evaluate identically without optimization" 
         .{ .src = "(or #f 7)", .want = 7 },
         .{ .src = "(let ((x (* 2 3))) (+ x (if #t 1 0)))", .want = 7 },
     };
+    const saved_opt = ir_mod.optimize_enabled;
+    defer ir_mod.optimize_enabled = saved_opt;
+
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
+    ir_mod.optimize_enabled = true;
     for (cases) |case| {
         try std.testing.expectEqual(case.want, types.toFixnum(try ctx.vm.eval(case.src)));
     }
 
     ir_mod.optimize_enabled = false;
-    defer ir_mod.optimize_enabled = true;
     for (cases) |case| {
         try std.testing.expectEqual(case.want, types.toFixnum(try ctx.vm.eval(case.src)));
     }
@@ -788,8 +791,9 @@ test "IR opt switch: self-tail-call still optimized without IR optimization" {
     // analysis, and it is what compiles self-tail-calls as loops. 100k
     // iterations would overflow the frame stack otherwise (mirrors the
     // bare-lambda self-tail-call test above, which runs optimized).
+    const saved_opt = ir_mod.optimize_enabled;
+    defer ir_mod.optimize_enabled = saved_opt;
     ir_mod.optimize_enabled = false;
-    defer ir_mod.optimize_enabled = true;
     try th.expectEval(
         \\(define f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc 1)))))
         \\(f 100000 0)
@@ -800,14 +804,17 @@ test "IR opt switch: disabling optimization changes emitted bytecode" {
     // (if #t 1 2) collapses to a single constant load when dead-branch
     // elimination runs; without it the test, branch, and both arms are all
     // emitted. Different code proves the switch is live.
+    const saved_opt = ir_mod.optimize_enabled;
+    defer ir_mod.optimize_enabled = saved_opt;
+
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
+    ir_mod.optimize_enabled = true;
     const opt_func = try compiler_mod.compileExpression(&gc, try readExpr(&gc, "(if #t 1 2)"));
     const opt_len = opt_func.code.items.len;
 
     ir_mod.optimize_enabled = false;
-    defer ir_mod.optimize_enabled = true;
     const noopt_func = try compiler_mod.compileExpression(&gc, try readExpr(&gc, "(if #t 1 2)"));
     try std.testing.expect(opt_len < noopt_func.code.items.len);
 }
