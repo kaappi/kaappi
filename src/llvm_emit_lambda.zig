@@ -50,6 +50,9 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
 
     if (rest_name != null) return null;
 
+    // #1422: reject if a param is both set! and captured by a nested lambda.
+    if (bodyHasConflictingSetCapture(body_list, param_names[0..arity], null)) return null;
+
     var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them

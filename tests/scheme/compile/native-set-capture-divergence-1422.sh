@@ -24,8 +24,11 @@ trap 'rm -rf "$DIR"' EXIT
 
 fail=0
 
+# Compile natively and check output.  When expect_native is "yes", also
+# verify that at least one user-defined native function was emitted; when
+# "no", verify that none were (the whole program fell back to eval).
 check() {
-    local name="$1" src="$2" expect_out="$3"
+    local name="$1" src="$2" expect_out="$3" expect_native="${4:-}"
 
     printf '%s' "$src" > "$DIR/$name.scm"
 
@@ -46,24 +49,42 @@ check() {
         echo "FAIL: $name — expected '$expect_out', got '$out'" >&2
         fail=1
     fi
+
+    # Pin the compilation tier when requested.
+    if [[ -n "$expect_native" ]]; then
+        (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1) || true
+        if [[ "$expect_native" == "yes" ]]; then
+            if ! grep -q '^define i64 @lambda_' "$DIR/$name.ll" 2>/dev/null; then
+                echo "FAIL: $name — expected native fn definition in LLVM IR" >&2
+                fail=1
+            fi
+        elif [[ "$expect_native" == "no" ]]; then
+            if grep -q '^define i64 @lambda_' "$DIR/$name.ll" 2>/dev/null; then
+                echo "FAIL: $name — expected NO native fn definition (should fall back)" >&2
+                fail=1
+            fi
+        fi
+    fi
 }
 
-# 1. Issue reproducer: set! of param u in a sibling argument, lambda captures u.
+# 1. Issue reproducer (define-position): set! of param u in a sibling
+#    argument, lambda captures u.  Must fall back to interpreter.
 check set-capture-inline \
 '(define (f0 u) ((lambda (a) (+ u a)) (let ((b 5)) (set! u 90) b)))
 (write (f0 1))
 (newline)' \
-'95'
+'95' no
 
 # 2. Variadic inner lambda (falls to eval fallback, same divergence via
-#    bindParamsAsGlobals snapshot).
+#    bindParamsAsGlobals snapshot).  Must fall back.
 check set-capture-variadic \
 '(define (f0 u) ((lambda (a . rest) (+ u a)) (let ((b 5)) (set! u 90) b) 7))
 (write (f0 1))
 (newline)' \
-'95'
+'95' no
 
 # 3. Retained closure: set! runs between closure creation and call.
+#    Must fall back.
 check set-capture-retained \
 '(define (f x)
   (let ((g (lambda () x)))
@@ -71,22 +92,30 @@ check set-capture-retained \
     (g)))
 (write (f 1))
 (newline)' \
-'42'
+'42' no
 
-# 4. Shadowed param: the lambda (x) shadows f's x, so it does NOT capture f's x.
-#    The function should still compile natively.
+# 4. Inline lambda (tier 2): same divergence through
+#    tryCompilePureLambdaAsNativeClosure.  Must fall back.
+check set-capture-inline-lambda \
+'(write ((lambda (u) ((lambda (a) (+ u a)) (let ((b 5)) (set! u 90) b))) 1))
+(newline)' \
+'95' no
+
+# 5. Shadowed param: the lambda (x) shadows f's x, so it does NOT capture
+#    f's x.  The function should still compile natively.
 check set-shadowed-param \
 '(define (f x) (set! x 10) ((lambda (x) (+ x 1)) 3))
 (write (f 5))
 (newline)' \
-'4'
+'4' yes
 
-# 5. No conflict: set! targets x but lambda captures y — no overlap.
+# 6. No conflict: set! targets x but lambda captures y — no overlap.
+#    Should still compile natively.
 check set-different-param \
 '(define (f x y) (set! x 10) ((lambda () y)))
 (write (f 1 99))
 (newline)' \
-'99'
+'99' yes
 
 if [[ "$fail" -ne 0 ]]; then
     exit 1
