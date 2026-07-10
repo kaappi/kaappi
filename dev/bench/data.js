@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783651913882,
+  "lastUpdate": 1783653454543,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e04a667cb1aeee5ac4bae29ef167ba6e8a36f81",
-          "message": "Support optional environment-specifier in load (R7RS §6.14) (#1262)\n\n* Support optional environment-specifier in load (R7RS §6.14) (#1190)\n\nR7RS specifies that load accepts an optional second argument specifying\nthe environment in which to evaluate the loaded expressions. Previously,\nload was registered with exact arity 1, rejecting the two-argument form\nwith an arity error.\n\nChange load's arity to variadic (minimum 1) and compile expressions via\ncompileExpressionInEnv when an environment is supplied, following the\nsame pattern as eval.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: use SRFI-64, add positive custom-env assertion\n\n- Rewrite smoke test to use SRFI-64 (test-begin/test-equal/test-end)\n  instead of manual pass/fail counters per project conventions\n- Add positive assertion that load into a custom environment actually\n  defines the variable there (eval in that env returns it)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T19:41:46+05:30",
-          "tree_id": "813319ada7476bf7e929b6649b3e19f93845b277",
-          "url": "https://github.com/kaappi/kaappi/commit/9e04a667cb1aeee5ac4bae29ef167ba6e8a36f81"
-        },
-        "date": 1783348589586,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.307061,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.700151,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.972396,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.317149,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012812,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212403,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.481844,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071102,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.617104,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.867097,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.99791,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.95856,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.373615,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.763171,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044103,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043519,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a4034f9a6f4329b6b45ce08f6f9680dd86ca696",
+          "message": "Ground fuzzing feasibility note in the research literature (#1388)\n\n* Ground fuzzing feasibility note in the research literature\n\nThe note argued from Fuzzilli's design alone; the same conclusions are\nthe central findings of ~15 years of compiler/interpreter fuzzing\nresearch, so cite the primary sources and let them sharpen the plan:\n\n- New \"What the research literature says\" section surveying 18 verified\n  papers (grammar-based fuzzing, differential compiler testing, the\n  Fuzzilli line, functional-language testing, LLM generation), each\n  mapped to a concrete Kaappi decision.\n- Key find: Zig's std.testing.Smith is exactly Zest's parametric-\n  generator architecture (ISSTA 2019), so the Tier 2 grammar generator\n  is a published, validated design.\n- Tier 3 restructured: a Kaappi-vs-itself variant (bytecode VM vs LLVM\n  native backend, per Midtgaard et al. ICFP 2017 and FuzzJIT) now\n  precedes the external-oracle variant, since it needs no reference\n  Scheme installed.\n- Operating guidance: pair fuzz runs with -Dgc-stress=true builds.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review precision findings on the research survey\n\n- classfuzz/classming: describe their actual oracle (diff across multiple\n  JVM implementations); present the .sbc-mutation idea as our own\n  adaptation, since Kaappi has no second VM to diff against.\n- Tier 3 external oracle: pin one reference interpreter at a fixed\n  version (Chibi first) with fixed invocation/normalization, instead of\n  an open-ended implementation list.\n- Fuzz4All: state the throughput comparison as a qualitative expectation\n  with its reason, not a bare figure.\n- gc-stress: \"attempts collection at every allocation\" — maybeCollect\n  skips when no_collect is held or the GC is disabled (memory.zig).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T08:19:31+05:30",
+          "tree_id": "6a0b680b73693b357c845a4b9e97338ea4eba9f0",
+          "url": "https://github.com/kaappi/kaappi/commit/6a4034f9a6f4329b6b45ce08f6f9680dd86ca696"
+        },
+        "date": 1783653452765,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.09246,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.250543,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.02487,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.09221,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01416,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.374417,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.516703,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067819,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.63726,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.982034,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.659503,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.16524,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.386769,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.846059,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04496,
             "unit": "seconds"
           }
         ]
