@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783649546415,
+  "lastUpdate": 1783649900058,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1567d33d47ea953fe2d8b839a11873e1b47fcdd4",
-          "message": "Fix parameterize to evaluate all values before binding (#1202) (#1260)\n\nR7RS §4.2.6 and SRFI-39 require that all value expressions in a\nparameterize form are evaluated before any parameter cell is mutated.\nThe previous desugaring used a single let* which installed bindings\nsequentially, causing later value expressions to observe earlier\nsibling bindings.\n\nSplit the desugaring into an outer let (evaluates all param and value\nexpressions in the original dynamic environment) and an inner let*\n(saves old values and installs new converted values sequentially).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T18:32:51+05:30",
-          "tree_id": "15600d0c5dadb8f96c11c6dae7829d1fdf4c49a5",
-          "url": "https://github.com/kaappi/kaappi/commit/1567d33d47ea953fe2d8b839a11873e1b47fcdd4"
-        },
-        "date": 1783344845714,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.389962,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.075563,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.957157,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.271643,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012462,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.213275,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.489897,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071319,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.461513,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.895896,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.045804,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.977412,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.349921,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.75348,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043574,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043859,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "72da4981008b24b7cb5dacd6d42ae772274052c4",
+          "message": "Re-raise errors from FFI callbacks when the C call returns (#1185) (#1385)\n\nErrors raised inside an ffi-callback invoked from C vanished: the\ntrampolines set vm.last_callback_error, but nothing ever read the flag,\nso the callback handed a default 0 to C and the enclosing FFI call\nreported success. A callback returning a non-integer where the\nsignature declares int was coerced to 0 with the same silence.\n\nA Scheme exception cannot unwind the C frames between the FFI call and\nthe trampoline, so park it instead: trampolines stash the pending\nexception in the new GC-traced vm.callback_error_value (synthesizing an\nerror object from the recorded detail for VM-level errors), and callFfi\nre-raises it once the C call returns — the C result is garbage at that\npoint and must not be delivered as a success. First error wins; later\ncallback invocations by the same C call run on already-poisoned state.\nControl-flow signals (ContinuationInvoked/Yielded/Terminated/\nExecutionTimeout) keep their existing handling. Int-returning\ntrampolines now stash the same way for non-fixnum or out-of-c_int-range\nresults.\n\nThe four FFI dispatch sites propagate ExceptionRaised instead of\ncollapsing every callFfi failure to TypeError, so guard receives the\noriginal condition object with its message intact.\n\nCloses #1185\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T01:50:37Z",
+          "tree_id": "72fb8221d4c01fd78849937ba681cedc3705ebfc",
+          "url": "https://github.com/kaappi/kaappi/commit/72da4981008b24b7cb5dacd6d42ae772274052c4"
+        },
+        "date": 1783649899306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.114908,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.111516,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.038225,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.43624,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014264,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.374887,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514277,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067797,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.533113,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981337,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.670075,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.173706,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.400328,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.898239,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045816,
             "unit": "seconds"
           }
         ]
