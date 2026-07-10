@@ -422,10 +422,13 @@ test "grammar generator: majority of programs evaluate without error" {
         }
         total += 1;
     }
-    // Measured rate is 98% over 300 seeds (294/300; the rest are expected
-    // outcomes — guard re-raises and deadline hits on loop-heavy programs).
-    // The threshold sits far below that because deadline outcomes are
-    // load-sensitive: a real generator regression tanks the rate, CI jitter
-    // must not.
+    // Offline measurement over 300 seeds puts the rate at ~98% (the misses
+    // are expected outcomes — guard re-raises and deadline hits on
+    // loop-heavy programs). This gate samples only the first 60 seeds to
+    // keep `zig build test` cheap (each eval builds a full VM, and the
+    // Debug CI job runs close to its time budget), and the threshold sits
+    // far below the measured rate because deadline outcomes are
+    // load-sensitive: a real generator regression tanks the rate, CI
+    // jitter must not.
     try std.testing.expect(ok * 100 >= total * 75);
 }

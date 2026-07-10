@@ -259,11 +259,11 @@ pub fn genList(g: *Gen, depth_in: u32, need: ListNeed) Error!ListInfo {
                 try g.genInt(d);
             }
             try g.emit(")");
-            return .{ .len = .{ .exact = @intCast(n) }, .mutable = true, .ints = true };
+            return .{ .len = .{ .exact = @intCast(n) }, .mut = .all, .ints = true };
         },
         .empty_lit => {
             try g.emit("'()");
-            return .{ .len = .{ .exact = 0 }, .mutable = false, .ints = true };
+            return .{ .len = .{ .exact = 0 }, .mut = .none, .ints = true };
         },
         .quote_lit => {
             const n = g.ch.range(.len_pick, 1, 5);
@@ -273,7 +273,7 @@ pub fn genList(g: *Gen, depth_in: u32, need: ListNeed) Error!ListInfo {
                 try g.emitf("{d}", .{@as(i64, g.ch.range(.lit_pick, 0, 200)) - 100});
             }
             try g.emit(")");
-            return .{ .len = .{ .exact = @intCast(n) }, .mutable = false, .ints = true };
+            return .{ .len = .{ .exact = @intCast(n) }, .mut = .none, .ints = true };
         },
         .ref => {
             const b = g.pickListVar(need).?;
@@ -286,17 +286,24 @@ pub fn genList(g: *Gen, depth_in: u32, need: ListNeed) Error!ListInfo {
             try g.emit(" ");
             const tail = try g.genList(d, .{ .ints = need.ints });
             try g.emit(")");
-            // The head cell is fresh, so set-car! through this value is
-            // always safe regardless of the tail's provenance.
-            return .{ .len = tail.len.plusOne(), .mutable = true, .ints = tail.ints };
+            // The head cell is fresh (set-car! safe), but the spine is the
+            // tail's cells: cdr onto it stays writable only if the tail was
+            // fully fresh (review finding on PR #1403).
+            return .{
+                .len = tail.len.plusOne(),
+                .mut = if (tail.mut == .all) .all else .head,
+                .ints = tail.ints,
+            };
         },
         .cdr_op => {
             const b = g.pickCdrVar(need).?;
             const info = b.kind.list;
             try g.emitf("(cdr {s})", .{b.name});
+            // The result's first cell is the source's second: writable only
+            // when every source cell is known-fresh.
             return .{
                 .len = .{ .exact = info.len.exactLen().? - 1 },
-                .mutable = info.mutable,
+                .mut = if (info.mut == .all) .all else .none,
                 .ints = info.ints,
             };
         },
@@ -306,15 +313,23 @@ pub fn genList(g: *Gen, depth_in: u32, need: ListNeed) Error!ListInfo {
             try g.emit(" ");
             const b = try g.genList(d, .{ .ints = need.ints, .non_empty = need.non_empty });
             try g.emit(")");
-            // append may return the second list unchanged, so the result
-            // is conservatively immutable.
-            return .{ .len = Len.sum(a.len, b.len), .mutable = false, .ints = a.ints and b.ints };
+            // append copies every argument except the last and shares the
+            // last (R7RS 6.4): all cells are fresh iff the shared tail's
+            // are; the head cell is fresh iff the first list is known
+            // non-empty (otherwise the result may BE the second list).
+            const mut: gen_mod.Mut = if (b.mut == .all)
+                .all
+            else if (a.len.nonEmpty())
+                .head
+            else
+                .none;
+            return .{ .len = Len.sum(a.len, b.len), .mut = mut, .ints = a.ints and b.ints };
         },
         .reverse_op => {
             try g.emit("(reverse ");
             const a = try g.genList(d, need);
             try g.emit(")");
-            return .{ .len = a.len, .mutable = true, .ints = a.ints };
+            return .{ .len = a.len, .mut = .all, .ints = a.ints };
         },
         .map_op => {
             var nb: [4][]const u8 = undefined;
@@ -327,12 +342,12 @@ pub fn genList(g: *Gen, depth_in: u32, need: ListNeed) Error!ListInfo {
             try g.emit(") ");
             const src = try g.genList(d, .{ .ints = true, .non_empty = need.non_empty });
             try g.emit(")");
-            return .{ .len = src.len, .mutable = true, .ints = true };
+            return .{ .len = src.len, .mut = .all, .ints = true };
         },
         .vec2list => {
             const b = g.pickVar(bindIsIntVec).?;
             try g.emitf("(vector->list {s})", .{b.name});
-            return .{ .len = .{ .exact = b.kind.vector.len }, .mutable = true, .ints = true };
+            return .{ .len = .{ .exact = b.kind.vector.len }, .mut = .all, .ints = true };
         },
         .quasi => return genQuasi(g, depth, need.non_empty),
     }
@@ -389,7 +404,7 @@ pub fn genQuasi(g: *Gen, depth: u32, non_empty: bool) Error!ListInfo {
         }
     }
     try g.emit(")");
-    return .{ .len = len, .mutable = false, .ints = false };
+    return .{ .len = len, .mut = .none, .ints = false };
 }
 
 // -- vectors --

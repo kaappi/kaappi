@@ -164,8 +164,13 @@ pub const Len = union(enum) {
 };
 
 pub const StrInfo = struct { len: ?u16, mutable: bool };
+/// Cell mutability of a list value: `head` means only the first cell is
+/// known-fresh (e.g. a cons onto a possibly-literal tail), `all` means every
+/// cell is newly allocated. set-car! through a binding needs `head` or
+/// better; cdr walks onto the spine, so it needs `all` to stay writable.
+pub const Mut = enum { none, head, all };
 /// `ints`: every element is an exact integer (safe to feed to arithmetic).
-pub const ListInfo = struct { len: Len, mutable: bool, ints: bool };
+pub const ListInfo = struct { len: Len, mut: Mut, ints: bool };
 /// `boxed`: elements are non-empty int lists (heap values — write-barrier
 /// paths) rather than fixnums.
 pub const VecInfo = struct { len: u16, boxed: bool };
@@ -274,7 +279,7 @@ pub fn bindIsStringExact(b: Binding) bool {
 }
 pub fn bindIsListMutNonEmpty(b: Binding) bool {
     return switch (b.kind) {
-        .list => |l| l.mutable and l.len.nonEmpty(),
+        .list => |l| l.mut != .none and l.len.nonEmpty(),
         else => false,
     };
 }
@@ -295,6 +300,7 @@ pub fn Cands(comptime E: type) type {
         total: u32 = 0,
 
         pub fn add(self: *@This(), op: E, weight: u32) void {
+            std.debug.assert(self.n < self.ops.len);
             self.ops[self.n] = op;
             self.weights[self.n] = weight;
             self.n += 1;
@@ -302,6 +308,7 @@ pub fn Cands(comptime E: type) type {
         }
 
         pub fn pick(self: *@This(), ch: *Chooser) E {
+            std.debug.assert(self.total > 0);
             var r = ch.range(.op_pick, 0, self.total - 1);
             for (self.ops[0..self.n], self.weights[0..self.n]) |op, wt| {
                 if (r < wt) return op;
@@ -1196,7 +1203,7 @@ pub const Gen = struct {
         const mark = g.scope.items.len;
         if (variadic and arity == 0) {
             try g.emit("(lambda rest ");
-            try g.pushBinding("rest", .{ .list = .{ .len = .unknown, .mutable = true, .ints = true } });
+            try g.pushBinding("rest", .{ .list = .{ .len = .unknown, .mut = .all, .ints = true } });
         } else {
             try g.emit("(lambda (");
             for (params, 0..) |p, i| {
@@ -1206,7 +1213,7 @@ pub const Gen = struct {
             }
             if (variadic) {
                 try g.emit(" . rest");
-                try g.pushBinding("rest", .{ .list = .{ .len = .unknown, .mutable = true, .ints = true } });
+                try g.pushBinding("rest", .{ .list = .{ .len = .unknown, .mut = .all, .ints = true } });
             }
             try g.emit(") ");
         }
