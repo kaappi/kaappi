@@ -1,9 +1,11 @@
 name: Fuzz
 
 # Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig, plus the
-# offline VM-vs-native differential batch (tests/fuzz/native-diff.sh).
-# See docs/dev/fuzzing.md for the runbook (running locally, and turning a
-# failure into a regression test + corpus entry).
+# offline differential batches: VM vs native backend
+# (tests/fuzz/native-diff.sh) and Kaappi vs Chibi Scheme
+# (tests/fuzz/oracle-diff.sh). See docs/dev/fuzzing.md for the runbook
+# (running locally, and turning a failure into a regression test + corpus
+# entry).
 
 on:
   schedule:
@@ -21,6 +23,14 @@ on:
         default: ''
       native-diff-base:
         description: 'First seed for the differential batch (default: rotates per run).'
+        required: false
+        default: ''
+      oracle-diff-count:
+        description: 'Number of programs for the Kaappi-vs-Chibi oracle batch.'
+        required: false
+        default: ''
+      oracle-diff-base:
+        description: 'First seed for the oracle batch (default: rotates per run).'
         required: false
         default: ''
 
@@ -161,5 +171,62 @@ jobs:
         with:
           name: native-diff-divergences
           path: native-diff-results/
+          retention-days: 90
+          if-no-files-found: warn
+
+  # Offline external-oracle batch: Kaappi vs Chibi Scheme on the portable
+  # subset (#1396). This is the only oracle that catches conformance bugs
+  # where BOTH Kaappi evaluation paths agree but are wrong. Two interpreter
+  # runs per program (no linking), so it is much cheaper per seed than
+  # native-diff. The oracle version is whatever ubuntu-latest's apt ships;
+  # the harness records the exact version in the log and in any divergence
+  # artifact, and CHIBI can pin a specific binary if the distro version
+  # ever proves flaky.
+  oracle-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # This job executes fuzzer-generated programs; don't leave the
+      # GITHUB_TOKEN sitting in git config for the process tree.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+          cache-key: fuzz-oracle-diff
+
+      - name: Install Chibi Scheme (the oracle)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chibi-scheme
+          chibi-scheme -V
+
+      - name: Build interpreter and generator
+        run: |
+          zig build
+          zig build fuzz-gen
+
+      - name: Differential batch (Kaappi vs Chibi)
+        env:
+          COUNT: ${{ inputs.oracle-diff-count }}
+          BASE: ${{ inputs.oracle-diff-base }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          count="${COUNT:-1000}"
+          base="${BASE:-$((RUN_NUMBER * 1000))}"
+          bash tests/fuzz/oracle-diff.sh "$count" "$base"
+
+      # Each divergence comes with the program, both sides' stdout/stderr,
+      # and the oracle version; the triage protocol lives in the script
+      # header (Kaappi bug / oracle bug / generator leak).
+      - name: Upload divergences
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oracle-diff-divergences
+          path: oracle-diff-results/
           retention-days: 90
           if-no-files-found: warn
