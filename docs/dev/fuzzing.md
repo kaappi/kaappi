@@ -150,8 +150,8 @@ bash tests/fuzz/native-diff.sh 300 1200   # 300 programs starting at seed 1200
 
 The script builds anything missing (`zig build`, `zig build lib`,
 `zig build fuzz-gen`), probes that `kaappi compile` can actually link here
-(it finds `zig cc` on PATH; the probe is needed because `kaappi compile`
-reports toolchain failures on stderr but exits 0), then runs the batch. Each
+(it finds `zig cc` on PATH; the probe checks that the output binary appears,
+not just the exit status), then runs the batch. Each
 input is a generate + interpret + compile-and-link + run cycle (~1 s,
 dominated by linking) — orders of magnitude slower than in-process fuzzing,
 which is why this is a scheduled batch and not a `std.testing.fuzz` target.
