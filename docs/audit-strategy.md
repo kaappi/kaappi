@@ -50,9 +50,9 @@ below only specify *what* to audit; this section specifies *how*.
 3. **Run existing tests for the domain first.** Failures found here cost
    nothing — capture them before reading any source.
 4. **Write new tests** per the phase's prompt. Follow existing conventions:
-   `(chibi test)` for `tests/scheme/audit/` and `compliance/`; exit-code
-   style or `(chibi test)` for `tests/scheme/srfi/` (naming: `srfiNNN.scm`,
-   extensions as `srfiNNN-ext.scm`).
+   `(srfi 64)` with the exit-on-fail epilogue (see `tests/scheme/CLAUDE.md`)
+   for `tests/scheme/audit/`, `compliance/`, and `tests/scheme/srfi/`
+   (naming: `srfiNNN.scm`, extensions as `srfiNNN-ext.scm`).
 5. **Verify each failure before filing** (false-positive filter):
    - Reproduce on the fresh build from step 2.
    - Re-read the exact spec text; quote it in the issue. Do not trust memory
@@ -85,10 +85,10 @@ below only specify *what* to audit; this section specifies *how*.
 
 ### Footguns
 
-- **`(chibi test)` never exits non-zero.** `run-all.sh` checks only exit
-  codes, so a chibi-test file with 30 failing assertions still prints PASS.
-  Always run audit files directly and read the printed `N pass, M fail`
-  counts: `zig-out/bin/kaappi tests/scheme/audit/foo-audit.scm`.
+- **`(chibi test)` never exits non-zero.** Only `r7rs-tests.scm` still uses
+  the shim (audit/compliance/srfi files were migrated to SRFI-64 with an
+  exit-on-fail epilogue, #1313). For the R7RS suite, read the printed
+  `N pass, M fail` counts rather than trusting the exit code.
 - **Stale `.sbc` bytecode caches** are keyed on source hash only — a rebuilt
   *binary* does not invalidate them. Delete any `.sbc` next to a `.scm` you
   are re-running after an interpreter change (mainly a Phase 4 concern).
@@ -188,11 +188,10 @@ coverage/ (gap-fillers), deferred/ (known-deferred .sbc files), phase1–5/
 (.sbc bytecache tests), robustness/, and sandbox/.
 
 Most Scheme test files use **no formal framework** — they succeed on exit
-code 0 and fail on non-zero. Only audit tests and a few compliance files use
-`(chibi test)`. One file uses `(srfi 64)`. Note: `run-all.sh` treats
-chibi-test files as pass/fail **by exit code only** — it does not parse their
-`N fail` output (except for the R7RS suite, which is parsed specially). See
-Footguns above.
+code 0 and fail on non-zero. Audit, SRFI, and compliance tests use
+`(srfi 64)` with an exit-on-fail epilogue (migrated from `(chibi test)` in
+#1313); only the R7RS suite still uses the chibi-test shim, and its output
+is parsed specially by `run-all.sh`. See Footguns above.
 
 ### Primitives audit status
 
@@ -317,7 +316,8 @@ For each domain in your session:
      exact/inexact and fixnum/bignum boundaries where numeric)
    - Does the implementation match the spec text exactly?
 4. Write new tests to tests/scheme/compliance/r7rs-<section>-gaps.scm
-   using (chibi test). Run them directly and read the pass/fail counts.
+   using (srfi 64) with the exit-on-fail epilogue. Run them directly and
+   read the pass/fail counts.
 5. Verify and file issues per the Session protocol; comment out failing
    assertions with ;; FAIL: #NNN markers.
 
@@ -373,11 +373,12 @@ Follow the /audit-primitives skill workflow, with one override: do NOT fix
 bugs (skip the skill's Step 4 fixing; this campaign separates discovery
 from fixing). Instead:
 1. Write the audit test file to tests/scheme/audit/primitives_XXX-audit.scm
-   using (chibi test). Cover the skill's 6 bug patterns: type dispatch
-   gaps, GC safety, UTF-8 indexing, error propagation in callbacks,
-   boundary conditions, ignored optional arguments.
+   using (srfi 64) with the exit-on-fail epilogue. Cover the skill's 6 bug
+   patterns: type dispatch gaps, GC safety, UTF-8 indexing, error
+   propagation in callbacks, boundary conditions, ignored optional
+   arguments.
 2. Run it DIRECTLY (zig-out/bin/kaappi <file>) and read the pass/fail
-   counts — run-all.sh will not surface chibi-test failures.
+   counts.
 3. Verify and file issues per the Session protocol; comment out failing
    assertions with ;; FAIL: #NNN markers so run-all.sh stays green.
 
