@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783697505141,
+  "lastUpdate": 1783700462404,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6f383b80cf337a7ef9be698c0eb32b2f010b31c5",
-          "message": "Follow redirect chain in force for delay-force intermediates (#1280)\n\n* Follow redirect chain in force for delay-force intermediates (#1264)\n\nAfter a delay-force chain completes, the SRFI-45 merge step redirects\nintermediate promises to point at the chain head. The force trampoline\nreturned these redirect pointers directly instead of following them to\nthe memoized value. Continue trampolining at all three return sites\n(memoization check, re-entrant check, inner-already-forced) so the\nchain is always resolved to its final value.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add comment explaining redirect-follow invariant in force\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T02:52:42+05:30",
-          "tree_id": "bae8539fcba3b941bba87fb7d6e064b7f79ebd34",
-          "url": "https://github.com/kaappi/kaappi/commit/6f383b80cf337a7ef9be698c0eb32b2f010b31c5"
-        },
-        "date": 1783374591333,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.037863,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.607385,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.992398,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.04558,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013836,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.23466,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477102,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068186,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.485789,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.824943,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.082968,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.08017,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.173954,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.87295,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048062,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044039,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e04a2ea1f501388b8b6dc2696dcda40498b5c299",
+          "message": "Harden GitHub Actions: pin actions by SHA and disable persisted checkout credentials (#1413)\n\n* Harden GitHub Actions: pin actions by SHA, disable persisted credentials\n\nMutable tags like @v7 let a compromised upstream repoint what our\nworkflows execute with our tokens and secrets; a full commit SHA cannot\nbe repointed. Persisted checkout credentials sit in git config where\nevery later step (including fuzzer-generated programs and benchmark\nruns) can read them, and no step in this repo relies on them: gh uses\nGH_TOKEN, github-action-benchmark and action-gh-release authenticate\nthrough their explicit token inputs.\n\n- Pin all 10 distinct actions across the 5 workflows to full commit\n  SHAs, each with a comment naming the resolved version.\n- Set persist-credentials: false on all 17 checkout steps (fuzz.yml\n  already had it from #1398).\n- Add a top-level contents: read permissions block to post-release.yml,\n  which previously inherited the repository default token scope.\n- Add .github/dependabot.yml (weekly, grouped) so pins are bumped with\n  the version comments kept in sync instead of going stale.\n- Document the conventions in docs/dev/github-actions.md.\n\nCloses #1400\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Repin PR benchmark action to the v1 tag, not the shadowing v1 branch\n\nkaappi/github-action-pull-request-benchmark has both a v1 tag (master\ntip, posts PR comments) and a stale v1 branch (v1.4.0, posts commit\ncomments requiring contents: write). The Actions runner resolves @v1 to\nthe tag, but the commits/<ref> API endpoint used to resolve the pin\nreturned the branch head, so the first pin captured the wrong code and\nthe comment step failed with \"Resource not accessible by integration\".\n\nPin the tag's commit instead, and fix the resolution recipe in\ndocs/dev/github-actions.md to use refs/tags (with annotated-tag\npeeling), which cannot be shadowed by a branch.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T21:26:54+05:30",
+          "tree_id": "5d1699beaf4eb6582d268aee88ad9214dd47444e",
+          "url": "https://github.com/kaappi/kaappi/commit/e04a2ea1f501388b8b6dc2696dcda40498b5c299"
+        },
+        "date": 1783700460840,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.37484,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.086216,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.997703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.428406,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012902,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338997,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509711,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070272,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.481729,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.949904,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.766212,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.037736,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.638949,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.681068,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042861,
             "unit": "seconds"
           }
         ]
