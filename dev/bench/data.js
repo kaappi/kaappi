@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783650764692,
+  "lastUpdate": 1783650908124,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e88c757495cef053c91f0a7e5d39446a84c91223",
-          "message": "Patch datum-label references inside vectors (#1213) (#1257)\n\n* Patch datum-label references inside vectors (#1213)\n\nThe reader resolved #n# forward references in pair cells but never\nwalked vector slots, so `#0=#(1 #0#)` left the placeholder unpatched.\nAdd an iterative patchPlaceholder walk (pairs + vectors, cycle-safe via\nvisited set) for non-pair labeled datums.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: write barriers, OOM propagation, hash-set visited\n\n1. Add gc.writeBarrier after every patch store (setCar, setCdr, vector\n   slot) — containers may be promoted to old gen during mid-read minor\n   GCs while datum is young. Also fixes the pre-existing gap in the\n   pair branch (L65-66).\n2. Change patchPlaceholder to return error{OutOfMemory} and propagate\n   it as ReadError.OutOfMemory at the call site — no more silent\n   partial patching.\n3. Replace O(n²) visited ArrayList with AutoHashMap for O(1) cycle\n   detection.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T19:01:18+05:30",
-          "tree_id": "b26abc1c03fe5e6ea39223c6a3c0b8f1ad6109f0",
-          "url": "https://github.com/kaappi/kaappi/commit/e88c757495cef053c91f0a7e5d39446a84c91223"
-        },
-        "date": 1783346403385,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.525935,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.343141,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.752682,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.32105,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01334,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.216078,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.37433,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057248,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.576404,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.419496,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.253394,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.977308,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.291572,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.046583,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037697,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044967,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4ac8c3811fc868a5a489d5a7cd4259fce5b9134",
+          "message": "Document practical fuzzing strategy (#1387)",
+          "timestamp": "2026-07-10T07:39:56+05:30",
+          "tree_id": "324ea0d8b816e66254b0796b08fa2a8ca7d248dc",
+          "url": "https://github.com/kaappi/kaappi/commit/a4ac8c3811fc868a5a489d5a7cd4259fce5b9134"
+        },
+        "date": 1783650906572,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.125202,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.804315,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.050203,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.429547,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014634,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.375196,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513607,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067858,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.569918,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981219,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.705819,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.165506,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.431347,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.852996,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044673,
             "unit": "seconds"
           }
         ]
