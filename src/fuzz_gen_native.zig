@@ -32,16 +32,32 @@
 //!   and mutated from inside let bodies.
 //! - No lambda expressions inside let forms: emitLet falls back to eval
 //!   when a body lambda captures a let binding (#827), so the generator
-//!   avoids lambdas there entirely. Inline lambdas may capture enclosing
-//!   FUNCTION parameters (native closure upvalues). Since #1410 the backend
-//!   chains captures through nested closures (an inner lambda can reach an
-//!   outer-outer parameter via the enclosing closure's upvalues), but this
-//!   generator still emits only one capture level — extending it to chained
-//!   captures would sharpen the oracle.
+//!   avoids lambdas there entirely. Inline lambdas may nest and capture
+//!   int parameters from ANY enclosing function/lambda level (#1420):
+//!   since #1410 the closure tiers chain captures through nested closures
+//!   (an inner lambda reaches an outer-outer parameter via the enclosing
+//!   closure's upvalue array), so chained shapes stay fully native.
 //! - Variadic lambdas compile natively only with at least one fixed
 //!   parameter (`(lambda (a . rest) ...)`) and only in define position.
+//!   Inline variadic lambdas are still emitted occasionally (#1420): no
+//!   closure tier accepts a rest parameter, so each one exercises the
+//!   emitLambdaViaEval fallback that republishes the enclosing frame —
+//!   params, rest parameter, upvalues — as globals (#1410), at the cost
+//!   of exactly one kaappi_eval (the tests_native.zig gate counts them).
+//!   Their bodies suppress nested lambdas: the body is eval'd as one
+//!   source string, so a lambda inside it would be interpreted without
+//!   ever reaching the emitter, breaking the gate's accounting.
+//! - No set! inside inline-call argument subtrees in function bodies:
+//!   native closures snapshot captured parameters by value at creation
+//!   (and eval fallbacks read globals republished at that point), while
+//!   the VM's closures capture locations — a set! of a captured param in
+//!   a sibling argument runs between capture and call and diverges
+//!   (#1422).
 //! - Cross-function calls appear only in top-level expressions and let
 //!   bodies: `f0` inside `f1`'s body would be a free variable (see above).
+//!   Inside function bodies this also keeps eval-fallback republication
+//!   sound: nothing can re-enter another function (and re-publish its
+//!   frame) between a fallback's define-globals and its call.
 //!
 //! Output discipline: `kaappi f.scm` echoes every non-void top-level value
 //! to stdout but a native binary echoes nothing, so EVERY top-level form
@@ -76,12 +92,15 @@ const rec_ops = [_][]const u8{ "+", "*", "max" };
 const Ctx = struct {
     /// >0 while inside a natively compiled function/lambda body. Governs
     /// what an inline lambda may capture: at depth 0 its body must be
-    /// closed (pure native closure tier); deeper, it may reference the
-    /// enclosing function's int parameters (upvalue tier).
+    /// closed (pure native closure tier); deeper, it may reference int
+    /// parameters of any enclosing function/lambda (upvalue tier, chained
+    /// through nested closures since #1410).
     fn_depth: u8 = 0,
-    /// True inside let forms and inline-lambda bodies, where emitting a
-    /// further lambda would push the enclosing form off the native path
-    /// (#827 capture check; single-level upvalue capture).
+    /// True inside let forms, where emitting a lambda would push the
+    /// enclosing let off the native path (#827 capture check), and inside
+    /// variadic inline-lambda bodies, which are eval'd as one source
+    /// string — a lambda nested there would be interpreted invisibly to
+    /// the emitter and break the gate's eval accounting.
     no_lambda: bool = false,
     /// True inside inline-lambda bodies: the capturing closure tier rejects
     /// bodies containing set! ANYWHERE — even of a let-local — via the
@@ -89,6 +108,10 @@ const Ctx = struct {
     /// there would drop the lambda to emitLambdaViaEval. (Define-position
     /// lambdas go through tryCompileDefineFunction, whose free-var check
     /// does not descend into let forms, so set! inside their lets is fine.)
+    /// Also true inside inline-call ARGUMENT subtrees in function bodies:
+    /// arguments run between closure creation (which snapshots captured
+    /// params by value) and the call, so a set! of a captured param there
+    /// diverges from the VM's location-based capture (#1422).
     no_set: bool = false,
 };
 
@@ -271,10 +294,12 @@ fn genFnDefine(g: *Gen, ctx: *Ctx) Error!void {
 
 /// Swap in a fresh scope for a function/lambda body. With `keep_ints`, int
 /// bindings stay visible (an inline lambda inside a function body may
-/// capture that function's int parameters as native closure upvalues; its
-/// list-typed rest parameter must NOT leak in — the upvalue tier only
-/// accepts fixed parameters, and a rest reference would fall back to
-/// emitLambdaViaEval where `rest` is unbound).
+/// capture int parameters of any enclosing level as native closure
+/// upvalues, chained since #1410; a list-typed rest parameter must NOT
+/// leak in — the closure tiers only capture fixed parameters and chained
+/// upvalues, so a rest reference would reject them and take an eval
+/// fallback the tests_native.zig gate does not account for, and nested
+/// two or more levels down it would read an unbound global at run time).
 fn enterBody(g: *Gen, keep_ints: bool) Error!std.ArrayList(Binding) {
     const saved = g.scope;
     g.scope = .empty;
@@ -417,29 +442,52 @@ fn genInt(g: *Gen, ctx: *Ctx, depth_in: u32) Error!void {
             try g.emit(")");
         },
         .inline_call => {
-            const arity = g.ch.range(.arity, 0, 2);
+            // A variadic inline lambda can never be a native closure (no
+            // tier accepts a rest parameter): it takes the emitLambdaViaEval
+            // fallback, which first republishes the enclosing frame —
+            // params, rest parameter, upvalues — as globals (#1410). Each
+            // one costs exactly one kaappi_eval, counted by the
+            // tests_native.zig gate.
+            const variadic = g.ch.chance(.coin, 1, 5);
+            const arity = g.ch.range(.arity, if (variadic) 1 else 0, 2);
             var nb: [4][]const u8 = undefined;
             const params = g.pickNames(arity, &nb);
             try g.emit("((lambda (");
             // At top level the body must be closed over its own params (pure
-            // tier); inside a function body it may also capture that
-            // function's int parameters (upvalue tier) — this generator
-            // emits one capture level (see the header comment; the backend
-            // itself chains deeper since #1410).
+            // tier); inside a function body it may capture int parameters
+            // from any enclosing level — the closure tiers chain such
+            // captures through nested closures since #1410 (#1420).
             var saved = try enterBody(g, ctx.fn_depth > 0);
             for (params, 0..) |p, i| {
                 if (i > 0) try g.emit(" ");
                 try g.emit(p);
                 try g.pushBinding(p, .int);
             }
+            if (variadic) {
+                try g.emit(" . rest");
+                try g.pushBinding("rest", .{ .list = .{ .len = .unknown, .mut = .all, .ints = true } });
+            }
             try g.emit(") ");
-            var body_ctx: Ctx = .{ .fn_depth = ctx.fn_depth + 1, .no_lambda = true, .no_set = true };
-            try genInt(g, &body_ctx, d);
+            // Variadic bodies are eval'd as one source string, so a lambda
+            // nested inside one would never reach the emitter — suppress
+            // nesting there to keep the gate's eval accounting exact.
+            var body_ctx: Ctx = .{ .fn_depth = ctx.fn_depth + 1, .no_lambda = variadic, .no_set = true };
+            try genFnBody(g, &body_ctx, variadic, d);
             try g.emit(")");
             leaveBody(g, &saved);
-            for (0..arity) |_| {
+            // Arguments run between closure creation (captured params are
+            // snapshotted by value, or republished as globals) and the call:
+            // a set! of a captured param in an argument would be visible to
+            // the VM's location-based capture but not to the snapshot, so
+            // ban set! in argument subtrees whenever a capture is possible
+            // (#1422). At top level the body is closed — nothing to capture.
+            var arg_ctx = ctx.*;
+            if (ctx.fn_depth > 0) arg_ctx.no_set = true;
+            var nargs: u32 = arity;
+            if (variadic) nargs += g.ch.range(.nargs, 0, 2);
+            for (0..nargs) |_| {
                 try g.emit(" ");
-                try genInt(g, ctx, d);
+                try genInt(g, &arg_ctx, d);
             }
             try g.emit(")");
         },
@@ -772,6 +820,49 @@ const allowed_top_prefixes = [_][]const u8{
     "(begin ",  "(let (", "(let* (", "(write ",  "(newline)",
 };
 
+/// Occurrence facts about inline lambdas in a generated program (#1420). A
+/// lambda is "inline" unless it is the define-position value of a
+/// `(define name (lambda ...))` line — the generator emits one top-level
+/// form per line, so define position is line-syntactic.
+const InlineLambdaFacts = struct { nested: bool = false, variadic: bool = false };
+
+fn scanInlineLambdas(src: []const u8) InlineLambdaFacts {
+    var facts: InlineLambdaFacts = .{};
+    var lines = std.mem.splitScalar(u8, src, '\n');
+    while (lines.next()) |line| {
+        var from: usize = 0;
+        if (std.mem.startsWith(u8, line, "(define ") and !std.mem.startsWith(u8, line, "(define (")) {
+            // The first lambda on such a line is the define-position value.
+            if (std.mem.indexOf(u8, line, "(lambda (")) |pos| from = pos + "(lambda (".len;
+        }
+        while (std.mem.indexOfPos(u8, line, from, "(lambda (")) |pos| {
+            from = pos + "(lambda (".len;
+            // The parameter list is flat, so it ends at the first ')'.
+            const plist_end = std.mem.indexOfScalarPos(u8, line, from, ')') orelse line.len;
+            if (std.mem.indexOf(u8, line[from..plist_end], " . ") != null) facts.variadic = true;
+            // Nested: another lambda inside this one's paren extent. The
+            // native subset has no strings, chars, or comments, so paren
+            // counting is exact.
+            var depth: usize = 0;
+            var j = pos;
+            const end = while (j < line.len) : (j += 1) {
+                switch (line[j]) {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if (depth == 0) break j;
+                    },
+                    else => {},
+                }
+            } else line.len;
+            if (std.mem.indexOfPos(u8, line, pos + 1, "(lambda (")) |inner| {
+                if (inner < end) facts.nested = true;
+            }
+        }
+    }
+    return facts;
+}
+
 fn assertNativeSubset(src: []const u8) !void {
     for (forbidden_fragments) |f| {
         try std.testing.expect(std.mem.indexOf(u8, src, f) == null);
@@ -806,6 +897,8 @@ test "native-mode fixed-seed programs parse, compile, stay bounded and in subset
     const types = @import("types.zig");
     const gpa = std.testing.allocator;
 
+    var saw_nested_inline = false;
+    var saw_variadic_inline = false;
     var seed: u64 = 0;
     while (seed < 2000) : (seed += 1) {
         const src = try gen_mod.generateNativeSeeded(seed, gpa);
@@ -813,6 +906,9 @@ test "native-mode fixed-seed programs parse, compile, stay bounded and in subset
         errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed, src });
         try std.testing.expect(src.len < gen_mod.expected_max_bytes);
         try assertNativeSubset(src);
+        const facts = scanInlineLambdas(src);
+        if (facts.nested) saw_nested_inline = true;
+        if (facts.variadic) saw_variadic_inline = true;
 
         var gc = memory.GC.init(gpa);
         defer gc.deinit();
@@ -832,6 +928,13 @@ test "native-mode fixed-seed programs parse, compile, stay bounded and in subset
             _ = try compiler_mod.compileExpressionWithMacros(&gc, expr, &macros, &globals);
         }
     }
+    // The #1420 shapes must actually occur in the seed corpus: nested
+    // inline lambdas (chained-capture coverage) and inline variadic
+    // lambdas (eval-fallback frame-republication coverage). A failure here
+    // means a generator change silently disabled a shape family the
+    // VM-vs-native oracle depends on.
+    try std.testing.expect(saw_nested_inline);
+    try std.testing.expect(saw_variadic_inline);
 }
 
 test "native-mode generation is deterministic per seed" {

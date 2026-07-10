@@ -55,6 +55,16 @@ fn emitSourceResult(source: []const u8) !EmitResult {
 }
 
 fn emitMultiResult(source: []const u8) !EmitResult {
+    return emitMultiResultOpts(source, true);
+}
+
+/// With `optimize` false, the five IR optimization passes are skipped —
+/// callers must also clear `ir_mod.optimize_enabled` so closure-body
+/// lowering inside the emitter (which calls lowerAndOptimize) skips them
+/// too. Used by the fuzz gate for exact eval accounting: dead-branch
+/// elimination legitimately deletes eval-fallback forms from constant-test
+/// branches, so exact counts only hold on unoptimized emission.
+fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
     var gc = memory.GC.init(emitter_alloc);
     errdefer gc.deinit();
 
@@ -71,11 +81,13 @@ fn emitMultiResult(source: []const u8) !EmitResult {
         const expr = try reader.readDatum();
         var root = try ir_mod.lower(&ir_instance, expr);
         ir_mod.markTailPositions(root, false);
-        root = ir_mod.foldConstants(&ir_instance, root);
-        root = ir_mod.eliminateDeadBranches(&ir_instance, root);
-        root = ir_mod.simplifyBooleans(&ir_instance, root);
-        root = ir_mod.eliminateIdentity(&ir_instance, root);
-        root = ir_mod.simplifyBegin(&ir_instance, root);
+        if (optimize) {
+            root = ir_mod.foldConstants(&ir_instance, root);
+            root = ir_mod.eliminateDeadBranches(&ir_instance, root);
+            root = ir_mod.simplifyBooleans(&ir_instance, root);
+            root = ir_mod.eliminateIdentity(&ir_instance, root);
+            root = ir_mod.simplifyBegin(&ir_instance, root);
+        }
         try ir_nodes.append(emitter_alloc, root);
     }
 
@@ -644,11 +656,22 @@ test "NativeClosure arity mismatch raises a catchable error" {
 // as strong as the generated programs' nativeness: every form that falls
 // back to the interpreter shrinks the diff to VM-vs-VM. This gate emits
 // fixed-seed native-subset programs through the LLVM emitter and counts
-// `kaappi_eval` calls in the IR. Defining a function/lambda legitimately
-// emits exactly ONE eval (emitDefine/emitPassthrough create the global
-// binding via the interpreter; call sites still use the direct native
-// path), so the expected count is the number of function/lambda defines
-// and anything above that means a generated form silently fell back.
+// `kaappi_eval` calls in the IR. Two shapes legitimately eval:
+//
+//   - defining a function/lambda emits exactly ONE eval
+//     (emitDefine/emitPassthrough create the global binding via the
+//     interpreter; call sites still use the direct native path);
+//   - an inline VARIADIC lambda emits exactly ONE eval (#1420): no
+//     closure tier accepts a rest parameter, so it goes through
+//     emitLambdaViaEval, which first republishes the enclosing frame as
+//     globals — the #1410 codegen this shape exists to exercise.
+//
+// The exact count is checked on UNOPTIMIZED emission: dead-branch
+// elimination legitimately deletes variadic lambdas from constant-test
+// branches (the generator emits constant tests as dead-branch fodder), so
+// under the production pass pipeline the count is only bounded — the
+// optimized emission is checked against that range instead, and anything
+// above it means a generated form silently fell back.
 test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
     const fuzz_gen = @import("fuzz_gen.zig");
     const gpa = std.testing.allocator;
@@ -659,9 +682,11 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
         defer gpa.free(src);
         errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed, src });
 
-        // One eval expected per function define and per lambda-valued
-        // global define. The generator emits one top-level form per line.
-        var expected: usize = 0;
+        // One eval per function define and per lambda-valued global define,
+        // plus one per inline variadic lambda. The generator emits one
+        // top-level form per line, so define position is line-syntactic.
+        var ndefines: usize = 0;
+        var nvariadic: usize = 0;
         var names: [8][]const u8 = undefined;
         var name_count: usize = 0;
         var lines = std.mem.splitScalar(u8, src, '\n');
@@ -679,18 +704,49 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
                 name = rest[0..end];
             }
             if (name) |n| {
-                expected += 1;
+                ndefines += 1;
                 names[name_count] = n;
                 name_count += 1;
             }
+            // Inline variadic lambdas: every "(lambda (" occurrence except
+            // the define-position one on a `(define name (lambda ...)` line.
+            // The parameter list is flat, so it ends at the first ')'; a
+            // " . " inside it marks a rest parameter.
+            var from: usize = 0;
+            if (std.mem.startsWith(u8, line, "(define ") and !std.mem.startsWith(u8, line, "(define (")) {
+                if (std.mem.indexOf(u8, line, "(lambda (")) |pos| from = pos + "(lambda (".len;
+            }
+            while (std.mem.indexOfPos(u8, line, from, "(lambda (")) |pos| {
+                from = pos + "(lambda (".len;
+                const plist_end = std.mem.indexOfScalarPos(u8, line, from, ')') orelse line.len;
+                if (std.mem.indexOf(u8, line[from..plist_end], " . ") != null) nvariadic += 1;
+            }
+        }
+        const expected = ndefines + nvariadic;
+
+        // Exact accounting on unoptimized emission: every source shape
+        // reaches the emitter, so any count mismatch is a shape that
+        // unexpectedly fell back (or unexpectedly stayed native).
+        var res_noopt = blk: {
+            ir_mod.optimize_enabled = false;
+            defer ir_mod.optimize_enabled = true;
+            break :blk try emitMultiResultOpts(src, false);
+        };
+        defer res_noopt.deinit();
+        const actual_noopt = std.mem.count(u8, res_noopt.toSlice(), "call i64 @kaappi_eval(");
+        if (actual_noopt != expected) {
+            std.debug.print("seed {d}: expected {d} kaappi_eval calls unoptimized ({d} defines + {d} inline variadic lambdas), found {d}\n", .{ seed, expected, ndefines, nvariadic, actual_noopt });
+            return error.NativeSubsetFellBackToEval;
         }
 
+        // Production pass pipeline: elimination can only remove eval sites,
+        // never add them.
         var res = try emitMultiResult(src);
         defer res.deinit();
         const ll = res.toSlice();
         const actual = std.mem.count(u8, ll, "call i64 @kaappi_eval(");
-        if (actual != expected) {
-            std.debug.print("seed {d}: expected {d} kaappi_eval calls, found {d}\n", .{ seed, expected, actual });
+        if (actual < ndefines or actual > expected) {
+            std.debug.print("seed {d}: expected {d}..{d} kaappi_eval calls optimized, found {d}\n", .{ seed, ndefines, expected, actual });
             return error.NativeSubsetFellBackToEval;
         }
 
