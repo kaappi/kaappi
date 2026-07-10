@@ -74,10 +74,10 @@
 ;; evaluated in the OUTER parameterization (R7RS 4.2.6 / SRFI-39 "1010")
 (define p1 (make-parameter 1))
 (define p2 (make-parameter 2))
-;; FAIL: #1202 (parameterize installs bindings sequentially, let*-style)
-;; (test-equal "parameterize evaluates values in outer parameterization"
-;;   '(2 1)
-;;   (parameterize ((p1 (p2)) (p2 (p1))) (list (p1) (p2))))
+;; Regression for #1202 (parameterize used to install bindings let*-style):
+(test-equal "parameterize evaluates values in outer parameterization"
+  '(2 1)
+  (parameterize ((p1 (p2)) (p2 (p1))) (list (p1) (p2))))
 
 ;;; --- 5.3.3 define-values ---
 (define-values (dv-a dv-b) (values 1 2))

@@ -109,10 +109,9 @@
 ;; "The escape procedure accepts the same number of arguments as the
 ;; continuation to the original call" — k invoked with 2 values must
 ;; deliver both to the receiving producer context
-;; FAIL: #1169 (continuation invoked with multiple arguments drops all
-;;   but the first)
-;; (test-equal "continuation carries multiple values" '(1 2)
-;;   (call-with-values (lambda () (call/cc (lambda (k) (k 1 2)))) list))
+;; Regression for #1169 (multiple arguments used to drop all but the first):
+(test-equal "continuation carries multiple values" '(1 2)
+  (call-with-values (lambda () (call/cc (lambda (k) (k 1 2)))) list))
 
 ;;; --- 6.11 guard + raise interactions ---
 (test-equal "guard catches raise" '(caught oops)

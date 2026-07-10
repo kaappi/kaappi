@@ -55,11 +55,11 @@
 ;; definitions in the interaction environment persist
 (test-equal 77 (begin (eval '(define r7rs-audit-def-probe 77) (interaction-environment))
                       (eval 'r7rs-audit-def-probe (interaction-environment))))
-;; eval with a non-environment second argument is silently ignored and the
-;; expression evaluates in the interaction environment instead of erroring.
-;; FAIL: #1188 (eval ignores a non-environment environment-specifier)
-;; (test-equal 'caught (guard (e (#t 'caught)) (eval '(+ 1 2) 42)))
-;; (test-equal 'caught (guard (e (#t 'caught)) (eval '(+ 1 2) "not-an-env")))
+;; eval with a non-environment second argument must error (regression for
+;; #1188: it used to be silently ignored, evaluating in the interaction
+;; environment).
+(test-equal 'caught (guard (e (#t 'caught)) (eval '(+ 1 2) 42)))
+(test-equal 'caught (guard (e (#t 'caught)) (eval '(+ 1 2) "not-an-env")))
 
 ;;; --- environment ---
 (test-equal #t (procedure? (lambda () (environment '(scheme base)))))

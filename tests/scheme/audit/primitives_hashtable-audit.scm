@@ -62,27 +62,25 @@
 (test-equal 'v (let ((ht (make-hash-table)))
                  (hash-table-set! ht (bytevector 1 2) 'v)
                  (hash-table-ref/default ht (bytevector 1 2) 'missing)))
-;; Heap-boxed numeric keys hash by pointer while lookup compares by equal? —
-;; entries become unfindable once the table grows past one bucket-group
-;; (verified: 27/30 bignum and 28/30 rational lookups miss at 30 entries).
-;; Same class: pairs/vectors nested deeper than the depth-8 hash cutoff.
-;; FAIL: #1180 (bignum/rational/complex and deep structural keys are unfindable)
-;; (test-equal 0 (let ((ht (make-hash-table)))
-;;           (do ((i 0 (+ i 1))) ((= i 30))
-;;             (hash-table-set! ht (+ (expt 2 100) i) i))
-;;           (let ((misses 0))
-;;             (do ((i 0 (+ i 1))) ((= i 30))
-;;               (if (eq? 'missing (hash-table-ref/default ht (+ (expt 2 100) i) 'missing))
-;;                   (set! misses (+ misses 1))))
-;;             misses)))
-;; (test-equal 0 (let ((ht (make-hash-table)))
-;;           (do ((i 0 (+ i 1))) ((= i 30))
-;;             (hash-table-set! ht (/ 1 (+ i 3)) i))
-;;           (let ((misses 0))
-;;             (do ((i 0 (+ i 1))) ((= i 30))
-;;               (if (eq? 'missing (hash-table-ref/default ht (/ 1 (+ i 3)) 'missing))
-;;                   (set! misses (+ misses 1))))
-;;             misses)))
+;; Regression for #1180: heap-boxed numeric keys used to hash by pointer
+;; while lookup compared by equal?, so entries became unfindable once the
+;; table grew past one bucket-group.
+(test-equal 0 (let ((ht (make-hash-table)))
+                (do ((i 0 (+ i 1))) ((= i 30))
+                  (hash-table-set! ht (+ (expt 2 100) i) i))
+                (let ((mismatches 0))
+                  (do ((i 0 (+ i 1))) ((= i 30))
+                    (if (not (equal? i (hash-table-ref/default ht (+ (expt 2 100) i) 'missing)))
+                        (set! mismatches (+ mismatches 1))))
+                  mismatches)))
+(test-equal 0 (let ((ht (make-hash-table)))
+                (do ((i 0 (+ i 1))) ((= i 30))
+                  (hash-table-set! ht (/ 1 (+ i 3)) i))
+                (let ((mismatches 0))
+                  (do ((i 0 (+ i 1))) ((= i 30))
+                    (if (not (equal? i (hash-table-ref/default ht (/ 1 (+ i 3)) 'missing)))
+                        (set! mismatches (+ mismatches 1))))
+                  mismatches)))
 
 ;;; --- growth: many entries stay findable (fixnum/string/symbol keys) ---
 (test-equal 0 (let ((ht (make-hash-table)))
