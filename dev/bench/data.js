@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783682994142,
+  "lastUpdate": 1783686490459,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "920e41a3d026593c980629fb1031d2c7d5a14c9c",
-          "message": "Signal error on define/set! in immutable environments (#1147) (#1275)\n\n* Signal error on define/set! in immutable environments (#1147)\n\nR7RS 6.12 requires that environments created by (environment ...),\n(null-environment), and (scheme-report-environment) are immutable.\nPreviously, define and set! in these environments silently succeeded\n(as a mutable private copy). Now the VM signals an error, which is\ncatchable by guard/with-exception-handler.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update tests for immutable environment semantics\n\nenv-uaf.scm: use let instead of define (GC safety path is the same —\nfunc.env still points to the env map regardless of binding mechanism).\n\nload-env-1190.scm: verify that load into an immutable (environment ...)\nsignals an error, matching R7RS 6.12.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Block define-syntax in immutable environments and deduplicate guard\n\nAddress review feedback:\n- define-syntax in an immutable environment now errors at compile time\n  and macros are no longer copied back to vm.macros (preventing global leak)\n- Factor duplicate immutability check in set_global/define_global into\n  rejectImmutableEnv helper, resolving duplicate sym lookup\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T23:55:29+05:30",
-          "tree_id": "cb5047dc032d6ca079608a6cdf3fd583f9e49167",
-          "url": "https://github.com/kaappi/kaappi/commit/920e41a3d026593c980629fb1031d2c7d5a14c9c"
-        },
-        "date": 1783364299527,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.349365,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.022647,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.959743,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.287784,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012483,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212297,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.483169,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072148,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.596962,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.905235,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.999352,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.952445,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.325968,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.714318,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042857,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043039,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e922abc19a426af8537955cfa1679d92437b8d6",
+          "message": "Harden the --no-ir-opt compile guard from post-merge review of #1405 (#1406)\n\nThree findings from the re-review of PR #1405 after it merged:\n\n- The collision check failed OPEN: an allocation or normalization\n  failure in outputIsBytecodeCache returned \"no collision\", letting an\n  unoptimized cache write proceed. Now any failure counts as a\n  collision — the worst case is a spurious usage error, never a\n  poisoned cache.\n- A symlinked -o (alias.sbc -> prog.sbc) bypassed the lexical path\n  comparison and the write followed the link into the real cache.\n  Symlinked outputs are now refused outright under --no-ir-opt\n  --compile; symlinked parent directories remain undetected (noted in\n  the doc comment).\n- The opt-switch tests and the differential fuzz harness restored\n  ir_mod.optimize_enabled by assigning `true` instead of the saved\n  value, and the optimized baselines assumed it was already enabled.\n  All toggles now save/restore and set their baseline explicitly.\n\nVerified end-to-end: -o through a symlink exits 2 with the usage\nerror; a distinct real file compiles. New unit tests cover the\nsymlink case (via std.testing.tmpDir) and the failing-allocator\nfail-closed path.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T17:28:23+05:30",
+          "tree_id": "bcf36293ee5da7f0ec9459f2a3a8a2f1fb120106",
+          "url": "https://github.com/kaappi/kaappi/commit/1e922abc19a426af8537955cfa1679d92437b8d6"
+        },
+        "date": 1783686488892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.431016,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.728599,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.978071,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.404993,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013033,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338293,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504838,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069274,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.550643,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.93088,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.78254,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.051257,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.611618,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.77439,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044145,
             "unit": "seconds"
           }
         ]
