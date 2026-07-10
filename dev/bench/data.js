@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783706131266,
+  "lastUpdate": 1783708399239,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9b8fb278de10a0e1ce1f52170fe40d4b16959227",
-          "message": "Move parameterize converter application outside dynamic-wind extent (#1266) (#1286)\n\nThe inner let* was mutating parameter cells (via the set-then-read idiom)\nbefore dynamic-wind was entered. This caused converters to observe\nearlier bindings' new values, converter errors to permanently leak\nmutations, and duplicate params to restore wrong values.\n\nAdd %parameter-convert primitive that applies a parameter's converter\nwithout mutating the cell, and use it in the parameterize desugaring so\nall mutation happens inside dynamic-wind's before/after thunks.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T06:03:16Z",
-          "tree_id": "770042ed8aeee4bae07003401494adce3d78e4fb",
-          "url": "https://github.com/kaappi/kaappi/commit/9b8fb278de10a0e1ce1f52170fe40d4b16959227"
-        },
-        "date": 1783405927553,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.288536,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.499376,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.89305,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.073926,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012664,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.21202,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.462713,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069936,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.49279,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.81498,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.971696,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.96105,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.323578,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.708358,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046314,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044423,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "efa04eef45e36028bced6dfe082e91aee6d21cef",
+          "message": "Read rational literals with bignum numerators or denominators (#1423)\n\nThe tokenizer parsed rational parts as i64 with no bignum fallback, so\nvalid R7RS literals like 36893488147419103232/18446744073709551616\n(2^65/2^64) failed with a read error at the slash — or, with a radix\nprefix, silently split into a bignum and a stray symbol datum.\nstring->number already accepted the same syntax.\n\nDigit runs that overflow i64 now produce a big_rational token; datum\nconstruction parses each side with parseBignumString (rooting the\nnumerator across the second parse) and reduces via makeRationalReduced,\nso 2^65/2^64 reads as exact 2. Exactness and radix prefixes apply as\nfor fixnum rationals. Also frees the limbs buffer parseBignumString\nleaked on all-zero digit strings, previously unreachable.\n\nVerified under -Dgc-stress=true.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T17:59:22Z",
+          "tree_id": "686991e5f4c3fb313836d525dd2968b59b9d7c08",
+          "url": "https://github.com/kaappi/kaappi/commit/efa04eef45e36028bced6dfe082e91aee6d21cef"
+        },
+        "date": 1783708397878,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.864606,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.979752,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.974277,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.144737,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013475,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.316503,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.461224,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.064819,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.182948,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.755974,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.224557,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.977398,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.934851,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.979703,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042893,
             "unit": "seconds"
           }
         ]
