@@ -58,7 +58,10 @@ const max_inner_iters: u32 = 5;
 // ---------------------------------------------------------------------------
 
 const local_names = [_][]const u8{ "a", "b", "c", "d", "e", "h", "u", "v" };
-const global_names = [_][]const u8{ "g0", "g1", "g2" };
+/// Public: the differential oracle (tests_fuzz.zig) prints these globals
+/// after evaluation to widen its observable — a wrong fold inside
+/// `(define g1 ...)` is invisible in the program's final value alone.
+pub const global_names = [_][]const u8{ "g0", "g1", "g2" };
 const fn_names = [_][]const u8{ "f0", "f1" };
 const macro_names = [_][]const u8{ "m0", "m1" };
 const pattern_names = [_][]const u8{ "p", "q", "r" };

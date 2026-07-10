@@ -23,7 +23,9 @@ zig build -Dgc-stress=true         # force GC on every allocation (stress testin
 ```
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
-`-o <file>`, `--disassemble`, `--sandbox`, `--gc-stats`,
+`-o <file>`, `--disassemble`, `--no-ir-opt` (disable IR optimization passes;
+also skips the `.sbc` cache — useful for miscompilation triage and
+`--disassemble` comparisons), `--sandbox`, `--gc-stats`,
 `--profile`, `--coverage`, `--completions <shell>`.
 Subcommand: `kaappi compile <file> [-o output]`
 compiles to native binary via LLVM. Version is defined as `pub const version`

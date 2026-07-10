@@ -197,6 +197,11 @@ table:
 - **No structure-aware generation** and **no differential testing** — the two
   techniques that find the deepest bugs. The next section maps the research
   literature onto both.
+  *(Structure-aware generation closed 2026-07-10 by the grammar generator,
+  #1392. Differential testing partially closed the same day by the
+  optimized-vs-unoptimized oracle — the `--no-ir-opt` switch, #1393, plus
+  the `fuzz differential` target, #1394; the native-backend and external-
+  reference oracles, #1395/#1396, remain open.)*
 
 ## What the research literature says
 

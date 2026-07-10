@@ -26,11 +26,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The limit applies PER FUZZ TEST (5 targets currently). The eval
-          # and token targets build a full VM per input (~20-50 ms), so they
-          # dominate the wall time: locally 200 per target is a ~2 minute
-          # pass, so 2K per target keeps a hosted runner well under the job
-          # timeout.
+          # The limit applies PER FUZZ TEST (7 targets currently). The eval,
+          # token, and grammar targets build a full VM per input (~20-50 ms)
+          # — and the differential target two of them — so they dominate the
+          # wall time: locally 200 per target is a ~2 minute pass, so 2K per
+          # target keeps a hosted runner well under the job timeout.
           - variant: default
             build-args: ''
             limit: 2K

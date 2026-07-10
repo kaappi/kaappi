@@ -207,6 +207,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (opts.action == .exit_ok) return;
 
     // Apply parsed options to VM/GC
+    if (opts.no_ir_opt) ir_mod.optimize_enabled = false;
     if (opts.timeout_ms) |ms| {
         const clockNs = @import("vm_calls.zig").clockNs;
         vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
@@ -408,6 +409,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         }
     } else if (opts.compile_mode) {
         if (opts.file_path) |fp| {
+            // --no-ir-opt must not write unoptimized bytecode where plain
+            // runs load their cache from (cache keys don't include the
+            // flag). That location is both the default output (no -o) and
+            // the natural explicit choice (-o program.sbc), so refuse both.
+            if (opts.no_ir_opt) {
+                const clobbers = if (opts.compile_output) |op|
+                    outputIsBytecodeCache(allocator, fp, op)
+                else
+                    true;
+                if (clobbers) {
+                    usageError("--no-ir-opt --compile requires -o <file> that is not the source's .sbc cache path (plain runs would load the unoptimized bytecode as their cache)\n");
+                }
+            }
             try compileFile(vm, fp, opts.compile_output);
         } else {
             usageError("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
@@ -437,6 +451,30 @@ fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
     return bytecode_file.getSbcPath(allocator, scm_path);
 }
 
+/// True when `output_path` is the `.sbc` cache location that plain runs of
+/// `src_path` load from. Lexical comparison after normalizing `.`/`..`
+/// segments — symlinks and absolute-vs-relative aliases of the same file are
+/// not detected, but the natural spellings (`prog.sbc`, `./prog.sbc`) are.
+fn outputIsBytecodeCache(allocator: std.mem.Allocator, src_path: []const u8, output_path: []const u8) bool {
+    const cache_path = getSbcPath(allocator, src_path) catch return false;
+    defer allocator.free(cache_path);
+    const out_norm = std.fs.path.resolve(allocator, &.{output_path}) catch return false;
+    defer allocator.free(out_norm);
+    const cache_norm = std.fs.path.resolve(allocator, &.{cache_path}) catch return false;
+    defer allocator.free(cache_norm);
+    return std.mem.eql(u8, out_norm, cache_norm);
+}
+
+test "outputIsBytecodeCache detects cache-path collisions" {
+    const gpa = std.testing.allocator;
+    try std.testing.expect(outputIsBytecodeCache(gpa, "prog.scm", "prog.sbc"));
+    try std.testing.expect(outputIsBytecodeCache(gpa, "prog.scm", "./prog.sbc"));
+    try std.testing.expect(outputIsBytecodeCache(gpa, "dir/prog.scm", "dir/prog.sbc"));
+    try std.testing.expect(outputIsBytecodeCache(gpa, "dir/prog.scm", "dir/../dir/prog.sbc"));
+    try std.testing.expect(!outputIsBytecodeCache(gpa, "prog.scm", "prog.noopt.sbc"));
+    try std.testing.expect(!outputIsBytecodeCache(gpa, "prog.scm", "out/prog.sbc"));
+}
+
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -453,8 +491,11 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     const source_hash = bytecode_file.sourceHash(source);
 
-    // Try loading cached bytecode (skip in sandbox mode — no filesystem side effects)
-    const sbc_path = if (vm.sandbox_mode) null else getSbcPath(allocator, path) catch null;
+    // Try loading cached bytecode (skip in sandbox mode — no filesystem side
+    // effects — and under --no-ir-opt: cache keys don't include the flag, so
+    // a no-opt run must neither reuse optimized bytecode nor poison the cache
+    // with unoptimized bytecode).
+    const sbc_path = if (vm.sandbox_mode or !ir_mod.optimize_enabled) null else getSbcPath(allocator, path) catch null;
     defer if (sbc_path) |p| allocator.free(p);
 
     if (sbc_path) |sp| {

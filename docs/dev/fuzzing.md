@@ -20,6 +20,7 @@ Zig 0.16's built-in coverage-guided fuzzer (`std.testing.fuzz` +
 | `fuzz eval` | raw bytes (128) | full read → compile → VM execute via `vm.eval` |
 | `fuzz tokens` | token sequence | read → compile → execute of near-miss token soup |
 | `fuzz grammar` | generated program | compiler, VM, and GC on valid, well-bound R7RS programs |
+| `fuzz differential (opt vs no-opt)` | generated program | correctness oracle: IR optimization passes vs unoptimized baseline |
 
 The `fuzz tokens` target picks sequences from a Scheme token vocabulary
 instead of raw bytes, so its inputs get past the lexer without being confined
@@ -40,10 +41,25 @@ depth, literal sizes, loop iteration counts, and program bytes by
 construction. It needs no seed corpus: any decision stream decodes to a
 valid program.
 
+The `fuzz differential` target (Tier 3, #1394) is the first target that can
+catch **silently wrong values**, not just crashes: it evaluates each
+grammar-generated program twice — IR optimizations on and off (the switch
+from #1393, `ir.optimize_enabled` / CLI `--no-ir-opt`) — and compares a
+normalized observable: the printed final value plus the generator's globals
+(`g0`–`g2`), and the error *class* (value / compile error / runtime error),
+never error message text. Timeout, out-of-memory, and stack-overflow
+outcomes make a pair incomparable (skipped) rather than a divergence, since
+the two compilation paths legitimately do different amounts of work. Any
+other divergence fails the target with `error.DifferentialMismatch` and is a
+bug in an optimization pass (or in the baseline). To debug one: re-run the
+printed program under `kaappi file.scm` vs `kaappi --no-ir-opt file.scm` and
+minimise from there (`--no-ir-opt` skips the `.sbc` cache, so no stale-cache
+footguns).
+
 Ordinary Scheme read/compile/runtime errors are **expected** fuzz outcomes.
-Only crashes, panics, memory leaks (via `std.testing.allocator`), and
-sanitizer findings fail a target. VM execution is bounded by a 100 ms
-deadline per input.
+Only crashes, panics, memory leaks (via `std.testing.allocator`),
+sanitizer findings, and differential mismatches fail a target. VM execution
+is bounded by a 100 ms deadline per input.
 
 ## Running locally
 
@@ -55,10 +71,11 @@ zig build test --fuzz          # unbounded + web UI; Ctrl-C to stop
 zig build test --fuzz=1K -Dgc-stress=true   # GC collects on every allocation
 ```
 
-The limit applies **per fuzz test** (six targets currently), and per-input
+The limit applies **per fuzz test** (seven targets currently), and per-input
 cost varies enormously by target: reader/compiler/loader inputs are
 microseconds, but the eval, token, and grammar targets construct a full VM
-per input (~20–50 ms) and dominate the wall time. As a rule of thumb, `--fuzz=200` is
+per input (~20–50 ms) — and the differential target two of them — and
+dominate the wall time. As a rule of thumb, `--fuzz=200` is
 a ~2-minute pass and `--fuzz=20K` is half an hour or more on a fast machine.
 
 The fuzzer's working corpus persists in `.zig-cache/f/` and accumulates
@@ -133,15 +150,17 @@ Every fuzz finding follows the same three steps — no exceptions:
    disappear. Scheme inputs minimise well structurally: drop list elements,
    replace subexpressions with literals, shorten identifiers.
 
-   The `fuzz grammar` target's stream is a sequence of `u64` grammar
-   decisions with no simple hand-decoding; reproduce by replaying the
-   artifact verbatim as a `.corpus` entry on that target, and recover the
-   failing *program text* by temporarily printing the generated source (to
-   stderr, never fd 1) in the target body during the replay. Once you have
-   the program text, minimise it as ordinary Scheme and add the minimised
-   source as a `seed()` corpus entry on the **eval** target — source seeds
-   are stable, decision streams are not (any change to the generator's
-   decision sequence re-interprets them).
+   The `fuzz grammar` and `fuzz differential` targets' streams are sequences
+   of `u64` grammar decisions with no simple hand-decoding; reproduce by
+   replaying the artifact verbatim as a `.corpus` entry on the target that
+   failed, and recover the failing *program text* by temporarily printing
+   the generated source (to stderr, never fd 1) in the target body during
+   the replay. Once you have the program text, minimise it as ordinary
+   Scheme and add the minimised source as a `seed()` corpus entry on the
+   **eval** target — source seeds are stable, decision streams are not (any
+   change to the generator's decision sequence re-interprets them). A
+   differential mismatch reproduces outside the harness as
+   `kaappi prog.scm` vs `kaappi --no-ir-opt prog.scm` disagreeing.
 
 2. **Add a readable regression test** that fails without the fix and passes
    with it, per the repo's bug-fix rule:

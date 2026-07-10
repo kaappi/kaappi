@@ -20,6 +20,7 @@ const FlagId = enum {
     emit_llvm,
     output,
     disassemble,
+    no_ir_opt,
     sandbox,
     gc_stats,
     profile,
@@ -47,6 +48,7 @@ const flags = [_]FlagDesc{
     .{ .long = "--emit-llvm", .short = null, .takes_value = false, .id = .emit_llvm, .value_name = "" },
     .{ .long = "-o", .short = null, .takes_value = true, .id = .output, .value_name = "file path" },
     .{ .long = "--disassemble", .short = null, .takes_value = false, .id = .disassemble, .value_name = "" },
+    .{ .long = "--no-ir-opt", .short = null, .takes_value = false, .id = .no_ir_opt, .value_name = "" },
     .{ .long = "--sandbox", .short = null, .takes_value = false, .id = .sandbox, .value_name = "" },
     .{ .long = "--gc-stats", .short = null, .takes_value = false, .id = .gc_stats, .value_name = "" },
     .{ .long = "--profile", .short = null, .takes_value = false, .id = .profile, .value_name = "" },
@@ -89,6 +91,7 @@ pub const Options = struct {
     max_memory: ?usize = null,
 
     sandbox_mode: bool = false,
+    no_ir_opt: bool = false,
 
     lib_path_buf: [16][]const u8 = undefined,
     lib_path_count: usize = 0,
@@ -175,6 +178,7 @@ pub fn parse(args: std.process.Args) Options {
                 .emit_llvm => opts.emit_llvm_mode = true,
                 .output => opts.compile_output = value.?,
                 .disassemble => opts.disassemble_mode = true,
+                .no_ir_opt => opts.no_ir_opt = true,
                 .sandbox => opts.sandbox_mode = true,
                 .gc_stats => opts.gc_stats_mode = true,
                 .profile => opts.profile_mode = true,
@@ -241,6 +245,7 @@ pub fn printUsage() void {
             "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
             "  -o <file>          Output path\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
+            "  --no-ir-opt        Disable IR optimization passes (skips .sbc cache)\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
@@ -460,6 +465,13 @@ test "parse: multiple lib paths" {
     try std.testing.expectEqual(@as(usize, 2), opts.lib_path_count);
     try std.testing.expectEqualStrings("/a", opts.libPaths()[0]);
     try std.testing.expectEqualStrings("/b", opts.libPaths()[1]);
+}
+
+test "parse: no-ir-opt" {
+    const argv = [_][*:0]const u8{ "kaappi", "--no-ir-opt", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.no_ir_opt);
+    try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
 }
 
 test "parse: disassemble mode" {
