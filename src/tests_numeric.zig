@@ -339,3 +339,25 @@ test "types.toF64 handles bignums (#792)" {
     try std.testing.expect(f2 > 0.0);
     try std.testing.expect(f2 < 1e-19);
 }
+
+test "reader accepts rational literals with bignum parts" {
+    // Regression: the tokenizer parsed rational parts as i64 with no bignum
+    // fallback, so 2^65/2^64 failed with a read error at the slash.
+    try th.expectEval("36893488147419103232/18446744073709551616", 2);
+    try th.expectEval("-36893488147419103232/18446744073709551616", -2);
+    try th.expectEval("#e36893488147419103232/18446744073709551616", 2);
+    // Radix-prefixed: 2^65/2^64 in hex, binary 2^65/2
+    try th.expectEval("#x20000000000000000/10000000000000000", 2);
+    try th.expectEvalTrue("(= #b100000000000000000000000000000000000000000000000000000000000000000/10 (expt 2 64))");
+    // bignum/fixnum reducing to a bignum integer
+    try th.expectEvalTrue("(= 36893488147419103232/2 (expt 2 64))");
+    // Irreducible results keep exact bignum parts
+    try th.expectEvalTrue("(= (numerator 36893488147419103232/3) (expt 2 65))");
+    try th.expectEval("(denominator 36893488147419103232/3)", 3);
+    try th.expectEvalTrue("(= (denominator 3/36893488147419103232) (expt 2 65))");
+    try th.expectEvalTrue("(exact? 36893488147419103232/3)");
+    // Inexact prefix divides as flonums
+    try th.expectEvalTrue("(= #i36893488147419103232/18446744073709551616 2.0)");
+    // Bignum/0 is a read error, matching 1/0
+    try th.expectEvalTrue("(guard (e ((read-error? e) #t) (#t #f)) (read (open-input-string \"36893488147419103232/0\")))");
+}

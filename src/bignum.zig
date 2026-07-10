@@ -681,6 +681,7 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     const radix_u64: u64 = radix;
 
     var limbs = try gc.allocator.alloc(u64, 1);
+    errdefer gc.allocator.free(limbs);
     limbs[0] = 0;
     var len: usize = 0;
 
@@ -734,7 +735,10 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     }
 
     // Check if it fits in a fixnum
-    if (len == 0) return types.makeFixnum(0);
+    if (len == 0) {
+        gc.allocator.free(limbs);
+        return types.makeFixnum(0);
+    }
     if (len == 1 and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)))) {
         const n: i64 = @intCast(limbs[0]);
         gc.allocator.free(limbs);

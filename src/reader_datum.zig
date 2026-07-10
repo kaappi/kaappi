@@ -32,6 +32,16 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             const arith = @import("primitives_arithmetic.zig");
             return arith.makeRationalFromReader(self.gc, r.num, r.den) catch return ReadError.OutOfMemory;
         },
+        .big_rational => |r| {
+            const bignum_mod = @import("bignum.zig");
+            const arith = @import("primitives_arithmetic.zig");
+            const num = bignum_mod.parseBignumString(self.gc, r.num_str, r.radix) catch return ReadError.OutOfMemory;
+            var slot_num = self.gc.rootedSlot(num) catch return ReadError.OutOfMemory;
+            defer slot_num.release();
+            const den = bignum_mod.parseBignumString(self.gc, r.den_str, r.radix) catch return ReadError.OutOfMemory;
+            if (bignum_mod.isZero(den)) return ReadError.InvalidNumber;
+            return arith.makeRationalReduced(self.gc, slot_num.get(), den) catch return ReadError.OutOfMemory;
+        },
         .complex => |c| return self.gc.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag) catch return ReadError.OutOfMemory,
         .boolean => |b| return if (b) types.TRUE else types.FALSE,
         .character => |c| return types.makeChar(c),

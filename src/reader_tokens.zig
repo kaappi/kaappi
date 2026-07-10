@@ -45,6 +45,36 @@ fn parseDecimalReal(s: []const u8) ?f64 {
     return std.fmt.parseFloat(f64, s) catch null;
 }
 
+/// Consume the '/' at the current position plus the following run of digits
+/// valid in `radix`, returning the denominator digit slice (possibly empty).
+fn scanDenominatorDigits(self: *Reader, radix: u8) []const u8 {
+    self.pos += 1; // skip '/'
+    const den_start = self.pos;
+    while (self.pos < self.source.len) {
+        const rc = self.source[self.pos];
+        const valid = switch (radix) {
+            2 => rc == '0' or rc == '1',
+            8 => rc >= '0' and rc <= '7',
+            16 => std.ascii.isHex(rc),
+            else => std.ascii.isDigit(rc),
+        };
+        if (!valid) break;
+        self.pos += 1;
+    }
+    return self.source[den_start..self.pos];
+}
+
+/// Build a big_rational token for a rational literal with an i64-overflowing
+/// numerator or denominator. Unlike the fixnum rational path (which admits
+/// trailing complex syntax like 1/2+3i), a bignum rational must end at a
+/// delimiter — otherwise the tail would be silently read as a second datum.
+fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, radix: u8) ReadError!Token {
+    if (den_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+    if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+        return ReadError.InvalidNumber;
+    return .{ .big_rational = .{ .num_str = num_str, .den_str = den_str, .radix = radix } };
+}
+
 pub fn readNumber(self: *Reader) ReadError!Token {
     if (self.pos >= self.source.len) return ReadError.InvalidNumber;
     const start = self.pos;
@@ -164,22 +194,27 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         return .{ .flonum = f };
     } else {
         const n = std.fmt.parseInt(i64, num_str, 10) catch |err| {
-            if (err == error.Overflow) {
-                return .{ .bignum_str = .{ .str = num_str, .radix = 10 } };
+            if (err != error.Overflow) return ReadError.InvalidNumber;
+            // Numerator overflows i64: still check for a rational literal N/D
+            // so bignum numerators fall back to bignum parsing in the datum
+            // constructor instead of leaving '/' behind as a stray token.
+            if (self.pos < self.source.len and self.source[self.pos] == '/' and
+                self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))
+            {
+                const den_str = scanDenominatorDigits(self, 10);
+                return bigRationalToken(self, num_str, den_str, 10);
             }
-            return ReadError.InvalidNumber;
+            return .{ .bignum_str = .{ .str = num_str, .radix = 10 } };
         };
         // Check for rational literal: N/D
         if (self.pos < self.source.len and self.source[self.pos] == '/' and
             self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))
         {
-            self.pos += 1; // skip '/'
-            const den_start = self.pos;
-            while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
-                self.pos += 1;
-            }
-            const den_str = self.source[den_start..self.pos];
-            const den = std.fmt.parseInt(i64, den_str, 10) catch return ReadError.InvalidNumber;
+            const den_str = scanDenominatorDigits(self, 10);
+            const den = std.fmt.parseInt(i64, den_str, 10) catch |err| {
+                if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, 10);
+                return ReadError.InvalidNumber;
+            };
             // Check for complex after rational: 1/2+3/4i
             if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
                 const csave = self.pos;
@@ -339,7 +374,7 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
     const want_exact = exact orelse return tok;
     if (want_exact) {
         return switch (tok) {
-            .fixnum, .rational, .bignum_str => tok,
+            .fixnum, .rational, .bignum_str, .big_rational => tok,
             .flonum => |f| blk: {
                 if (!std.math.isFinite(f)) break :blk Token{ .flonum = f };
                 const max_i64_f: f64 = @floatFromInt(@as(i64, std.math.maxInt(i64)));
@@ -390,6 +425,13 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
         .fixnum => |n| .{ .flonum = @floatFromInt(n) },
         .rational => |r| .{ .flonum = @as(f64, @floatFromInt(r.num)) / @as(f64, @floatFromInt(r.den)) },
         .bignum_str => |bs| .{ .flonum = std.fmt.parseFloat(f64, bs.str) catch return ReadError.InvalidNumber },
+        // Like .bignum_str, only decimal digit runs can go through parseFloat.
+        .big_rational => |r| blk: {
+            if (r.radix != 10) return ReadError.InvalidNumber;
+            const nf = std.fmt.parseFloat(f64, r.num_str) catch return ReadError.InvalidNumber;
+            const df = std.fmt.parseFloat(f64, r.den_str) catch return ReadError.InvalidNumber;
+            break :blk .{ .flonum = nf / df };
+        },
         else => ReadError.InvalidNumber,
     };
 }
@@ -557,30 +599,26 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
     const n = std.fmt.parseInt(i64, num_str, radix) catch |err| {
-        if (err == error.Overflow) {
-            return .{ .bignum_str = .{ .str = num_str, .radix = radix } };
+        if (err != error.Overflow) return ReadError.InvalidNumber;
+        // Numerator overflows i64: still consume a rational N/D so the '/'
+        // does not get re-tokenized as the start of a symbol.
+        if (self.pos < self.source.len and self.source[self.pos] == '/') {
+            const slash_pos = self.pos;
+            const den_str = scanDenominatorDigits(self, radix);
+            if (den_str.len > 0) return bigRationalToken(self, num_str, den_str, radix);
+            self.pos = slash_pos; // no digits after '/', backtrack
         }
-        return ReadError.InvalidNumber;
+        return .{ .bignum_str = .{ .str = num_str, .radix = radix } };
     };
     // Check for rational literal: N/D (within same radix)
     if (self.pos < self.source.len and self.source[self.pos] == '/') {
         const slash_pos = self.pos;
-        self.pos += 1; // skip '/'
-        const den_start = self.pos;
-        while (self.pos < self.source.len) {
-            const rc = self.source[self.pos];
-            const valid = switch (radix) {
-                2 => rc == '0' or rc == '1',
-                8 => rc >= '0' and rc <= '7',
-                16 => std.ascii.isHex(rc),
-                else => std.ascii.isDigit(rc),
+        const den_str = scanDenominatorDigits(self, radix);
+        if (den_str.len > 0) {
+            const den = std.fmt.parseInt(i64, den_str, radix) catch |err| {
+                if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
+                return ReadError.InvalidNumber;
             };
-            if (!valid) break;
-            self.pos += 1;
-        }
-        if (self.pos > den_start) {
-            const den_str = self.source[den_start..self.pos];
-            const den = std.fmt.parseInt(i64, den_str, radix) catch return ReadError.InvalidNumber;
             return .{ .rational = .{ .num = n, .den = den } };
         }
         // No digits after '/', backtrack

@@ -38,6 +38,9 @@ pub const Token = union(enum) {
     datum_label_ref: u32,
     bignum_str: struct { str: []const u8, radix: u8 },
     rational: struct { num: i64, den: i64 },
+    /// Rational literal whose numerator or denominator overflows i64.
+    /// Digit runs are parsed as bignums at datum construction.
+    big_rational: struct { num_str: []const u8, den_str: []const u8, radix: u8 },
     complex: struct { real: f64, imag: f64, exact_real: bool = false, exact_imag: bool = false },
     eof,
 };
