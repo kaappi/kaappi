@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783671366620,
+  "lastUpdate": 1783675894079,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a6a20dcc44179fd9fe890f4fbaa7dd7697de6d30",
-          "message": "Honor fold-case flag in include-ci (R7RS 4.1.7) (#1274)\n\n* Honor fold-case flag in include-ci (R7RS 4.1.7) (#1141)\n\nThe ci parameter was discarded in both the top-level and library-context\ninclude paths, so include-ci read files case-sensitively. Set\nreader.fold_case from the ci flag in handleTopLevelInclude and\ncompileLibInclude.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add test for #!no-fold-case inside include-ci'd file\n\nPins down the \"as if it began with #!fold-case\" semantics: an explicit\n#!no-fold-case directive inside an included file restores case sensitivity\nfor the remainder of that file.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T23:44:13+05:30",
-          "tree_id": "254d44a17acb57e901920014db81bf1626f662ea",
-          "url": "https://github.com/kaappi/kaappi/commit/a6a20dcc44179fd9fe890f4fbaa7dd7697de6d30"
-        },
-        "date": 1783363411848,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.340729,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.179798,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.987511,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.168097,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013219,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.214984,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.479891,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071299,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.69096,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.853029,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.021597,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955432,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.299912,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712118,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043091,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044867,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2400a3697f0f0b9a24867776c0cd615b387c26cf",
+          "message": "Add a Smith-driven grammar generator for valid R7RS forms (#1403)\n\n* Add a Smith-driven grammar generator for valid R7RS forms (#1392)\n\nFuzzing roadmap Phase 2 (Tier 2, epic #1397). The existing fuzz targets\nfeed the VM raw bytes or token soup, so they rarely get past the reader:\nover equal 30-input sets, random bytes cover 11.1% of src/ while\ngenerated programs cover 24.3% — vm_dispatch 480 vs 156 lines, memory\n255 vs 144, and compiler_macro, compiler_advanced, expander, and\nvm_continuations go from zero lines to hundreds.\n\nsrc/fuzz_gen.zig is a Zest-style parametric generator (the architecture\nstd.testing.Smith natively supports): every structural decision is a\nSmith choice, so the fuzzer's byte mutations on the decision stream\nbecome structural program mutations. Design constraints, each from a\nresearch lesson documented in docs/dev/fuzzing-feasibility.md:\n\n- Well-bound (PolyGlot): a scope stack tracks identifiers with a\n  type-ish Kind (numbers, procedures with arity, vectors with length and\n  element kind, strings/lists with length and mutability), so references\n  resolve, calls match arities, and indices stay in range. A `reserved`\n  kind hides skeleton binders (letrec procs) that would otherwise let a\n  generated reference resolve to a shadowing binder of another type.\n- Bounded by construction: expression depth, literal sizes, loop\n  iteration counts, and program bytes are capped; loop-carried integer\n  accumulators are modulo-clamped so repeated squaring cannot build\n  million-digit bignums whose single multiplication outlives the 100 ms\n  VM deadline.\n- No ambient effects: filesystem, process, FFI, network, and thread\n  forms are never emitted (the sandboxed harness stays as backstop).\n- Form coverage weighted toward the interesting paths: closures, tail\n  calls, named let/do loops, call/cc, dynamic-wind, guard/raise,\n  quasiquote (incl. splices and nested templates), syntax-rules\n  definition + use (fixed and ellipsis rules), and\n  vector/string/bytevector mutation for the GC write-barrier paths.\n\nThe generator is driven through a Chooser that is Smith under the\nfuzzer and a seeded PRNG in unit tests — Smith replays out-of-range\ndecisions as the range minimum, so a PRNG is what gives fixed-seed\ntests real variety. Unit tests assert that 2000 fixed-seed programs\nall parse, compile, and stay under the size bound, and that generation\nis deterministic. A tests_fuzz.zig gate asserts a majority of programs\nevaluate cleanly (measured: 98% over 300 seeds; the rest are expected\nguard re-raises and deadline hits). The new \"fuzz grammar\" target needs\nno corpus — any decision stream decodes to a valid program — and the\nraw-bytes and token targets stay for parser robustness.\n\nData-kind generators (chars, strings, lists, quasiquote, vectors,\nbytevectors, reals, mutation statements) live in fuzz_gen_data.zig,\nsplit along the grammar-domain seam for the 1500-line file policy and\nre-exported as Gen methods.\n\nThe eval-rate gate skips under -Dgc-stress builds: stress slows\nevaluation by orders of magnitude, so deadline hits would measure GC\noverhead instead of generator quality (and gc-stress unit tests are\nbroken anyway, #1401).\n\nCloses #1392\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1403 review: three-state list mutability, Cands asserts\n\nReview found a real well-boundness hole: ListInfo carried a single\nmutable flag meaning \"first cell is fresh\", but cdr moves onto the\ntail's cells, so (cdr (cons x '(1 2 3))) — the immutable quoted spine —\nwas marked mutable and set-car! through it failed at runtime.\n\nReplace the flag with Mut { none, head, all }: constructors that\nallocate every cell (list, reverse, map, vector->list, rest args)\nreturn .all; quoted data and quasiquote templates .none; cons is .all\nonly when its tail is, else .head; cdr keeps .all or drops to .none;\nappend now models R7RS 6.4 sharing (copies all but the last argument)\ninstead of being blanket-immutable. set-car! gating needs != .none.\n\nAlso add the requested capacity/non-empty asserts to Cands and reword\nthe eval-rate comment to say the 294/300 figure is an offline 300-seed\nmeasurement while the gate samples 60 seeds for CI cost (re-measured\nafter this change: still 294/300, same six misses — all deadline or\nguard re-raise outcomes, none mutability-related).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T09:01:32Z",
+          "tree_id": "80e864d9314b774d929785de2efa8126a119cc5f",
+          "url": "https://github.com/kaappi/kaappi/commit/2400a3697f0f0b9a24867776c0cd615b387c26cf"
+        },
+        "date": 1783675893286,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.359373,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.844502,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.000164,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.508795,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013254,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338108,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509888,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069986,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.609378,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.968724,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.749087,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.040253,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.532678,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713234,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043204,
             "unit": "seconds"
           }
         ]
