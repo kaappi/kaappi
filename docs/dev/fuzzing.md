@@ -44,7 +44,7 @@ The limit applies **per fuzz test** (five targets currently), and per-input
 cost varies enormously by target: reader/compiler/loader inputs are
 microseconds, but the eval and token targets construct a full VM per input
 (~20–50 ms) and dominate the wall time. As a rule of thumb, `--fuzz=200` is
-a ~2 minute pass and `--fuzz=20K` is half an hour or more on a fast machine.
+a ~2-minute pass and `--fuzz=20K` is half an hour or more on a fast machine.
 
 The fuzzer's working corpus persists in `.zig-cache/f/` and accumulates
 across runs; coverage stats accumulate in `.zig-cache/v/`. Delete
@@ -82,9 +82,15 @@ any local scripting — must check for that file; the workflow fails the run
 when it exists and uploads it, the run log, and `libfuzzer.log` as the
 `fuzz-artifacts-<variant>` artifact, retained for 90 days.
 
+The job persists `.zig-cache/f` (corpus) and `.zig-cache/v` (coverage)
+across runs via `actions/cache` with a rolling key, so nightly coverage
+accumulates instead of restarting from the seeds; the cache is only saved
+on success, so crash state never leaks into the next run.
+
 The job needs no services, network access beyond checkout/toolchain, or
-special permissions: the generators never emit filesystem, process, FFI,
-network, or thread forms, and everything runs in-process in the test binary.
+special permissions: the eval harness registers only the sandboxed
+primitive set (no filesystem, process, FFI, or thread procedures), and
+everything runs in-process in the test binary.
 
 ## Turning a failure into a regression test
 
@@ -93,12 +99,15 @@ Every fuzz finding follows the same three steps — no exceptions:
 1. **Minimise.** The crash artifact (`.zig-cache/f/crash`, locally or from
    CI) is the encoded Smith decision stream. For the four byte-input targets
    the encoding is `<4-byte LE length><input bytes>` — strip the first four
-   bytes to get the failing source text. The fastest reproduction is adding
-   the artifact's bytes verbatim as a `.corpus` entry (plain `zig build
-   test` replays every corpus entry). Then shrink the input by hand until
-   removing anything makes the failure disappear. Scheme inputs minimise
-   well structurally: drop list elements, replace subexpressions with
-   literals, shorten identifiers.
+   bytes to get the failing source text. The `fuzz tokens` target's stream
+   is different: a sequence of little-endian `u64` decisions (token count,
+   then one table index per token) — decode indices against `token_table`
+   to reconstruct the source. Either way, the fastest reproduction is
+   adding the artifact's bytes verbatim as a `.corpus` entry on the target
+   that crashed (plain `zig build test` replays every corpus entry). Then
+   shrink the input by hand until removing anything makes the failure
+   disappear. Scheme inputs minimise well structurally: drop list elements,
+   replace subexpressions with literals, shorten identifiers.
 
 2. **Add a readable regression test** that fails without the fix and passes
    with it, per the repo's bug-fix rule:
@@ -120,9 +129,9 @@ Every fuzz finding follows the same three steps — no exceptions:
 The bytecode-loader corpus starts from a small valid compiled file,
 `src/testdata/fuzz-seed.sbc` (plus comptime-derived truncated and bit-flipped
 variants). Its header's compiler-version hash is patched at comptime, so
-interpreter version bumps do **not** stale it. A bytecode format `VERSION`
-bump does — the `fuzz seed .sbc fixture stays loadable` unit test fails, and
-the fixture must be regenerated:
+interpreter version bumps do **not** invalidate it. A bytecode format
+`VERSION` bump does — the `fuzz seed .sbc fixture stays loadable` unit test
+fails, and the fixture must be regenerated:
 
 ```bash
 zig build

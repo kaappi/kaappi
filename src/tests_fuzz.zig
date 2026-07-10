@@ -203,6 +203,8 @@ fn evalOne(input: []const u8) void {
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
+    // gc lives on this stack frame; don't leave the threadlocal dangling.
+    defer memory.gc_instance = null;
     const vm = std.testing.allocator.create(vm_mod.VM) catch return;
     vm.* = vm_mod.VM.init(&gc) catch {
         std.testing.allocator.destroy(vm);
@@ -213,10 +215,15 @@ fn evalOne(input: []const u8) void {
         std.testing.allocator.destroy(vm);
     }
     vm_mod.setVMInstance(vm);
-    primitives.registerAll(vm) catch return;
+    // Sandboxed registration: filesystem, process, FFI, and thread
+    // primitives are absent, so fuzz inputs reaching those forms get an
+    // ordinary undefined-variable error instead of touching the host
+    // (per the operating guidance in docs/dev/fuzzing-feasibility.md).
+    primitives.registerSandboxed(vm) catch return;
     memory.setGCInstance(&gc);
     vm_mod.vm_bootstrap.install(vm) catch return;
-    library.registerStandardLibraries(&vm.libraries, vm.globals) catch return;
+    library.registerSandboxedLibraries(&vm.libraries, vm.globals) catch return;
+    vm.sandbox_mode = true;
     vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + 100_000_000;
     _ = vm.eval(input) catch return;
 }

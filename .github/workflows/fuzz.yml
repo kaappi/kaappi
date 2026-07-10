@@ -48,14 +48,35 @@ jobs:
           version: 0.16.0
           cache-key: fuzz-${{ matrix.variant }}
 
+      # Fuzzer state accumulates across runs when the cache is preserved:
+      # f/ holds the discovered corpus, v/ the coverage bitmap. The rolling
+      # key restores the newest previous corpus and saves an updated one
+      # (only on success, so crash state is never cached — the crash marker
+      # is uploaded as an artifact instead).
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache/f
+            .zig-cache/v
+          key: fuzz-corpus-${{ matrix.variant }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.variant }}-
+
       # Zig 0.16's bounded fuzz mode does NOT propagate a fuzz-found crash
       # into the build's exit code — it saves the encoded crashing input to
       # .zig-cache/f/crash and reports the step failed, but `zig build` still
-      # exits 0. The crash marker file is authoritative.
+      # exits 0. The crash marker file is authoritative. Inputs are passed
+      # via env so user-controlled dispatch values never reach Bash source.
       - name: Fuzz (bounded)
         shell: bash
+        env:
+          FUZZ_LIMIT: ${{ inputs.limit || matrix.limit }}
+          BUILD_ARGS: ${{ matrix.build-args }}
         run: |
-          zig build test --fuzz=${{ inputs.limit || matrix.limit }} ${{ matrix.build-args }} 2>&1 | tee fuzz-run.log
+          set -o pipefail
+          rm -f .zig-cache/f/crash
+          zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log
           if [ -f .zig-cache/f/crash ]; then
             echo "::error::Fuzzing found a crash; encoded input saved to .zig-cache/f/crash"
             exit 1
