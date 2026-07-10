@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783702835916,
+  "lastUpdate": 1783703007822,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4ccbf0f45f2f9d438419f17557480a4c305eeae8",
-          "message": "Check record type in accessors and mutators (#1199) (#1281)\n\n* Check record type in accessors and mutators (#1199)\n\nRecord accessors and mutators desugared from define-record-type now\nverify that the argument is an instance of the correct record type,\nnot just any record. Previously, passing a record of a different type\nwith enough fields would silently read/write the wrong field — a data\ncorruption hazard.\n\nThe fix passes the expected record type as an additional argument to\nthe internal %record-ref and %record-set! primitives, which compare\nit against the instance's record_type pointer. All three desugaring\npaths (VM top-level, body-context expansion, and compiler dispatch)\nare updated.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard record-type argument before downcast in %record-ref/%record-set!\n\nAdd isRecordType checks before the toObject().as(RecordType) downcast\nso that passing a non-record-type value (e.g. a fixnum) raises a\nproper Scheme error instead of dereferencing a bogus pointer. Also\nupdate audit tests to exercise the 3-arg %record-ref and add a\n%record-set! bad-type-arg test.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T10:02:40+05:30",
-          "tree_id": "8b80d11ea45ad6625141f42827806f4a9e1af61c",
-          "url": "https://github.com/kaappi/kaappi/commit/4ccbf0f45f2f9d438419f17557480a4c305eeae8"
-        },
-        "date": 1783400386116,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.302654,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.528741,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931223,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.11007,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012482,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211994,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471203,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069851,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.361487,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.820717,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.969643,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.943727,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.280719,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.71956,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043239,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042929,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24fa6651ac6ec6fe439f2bb9eaaa1d5ab4286c29",
+          "message": "Exit non-zero on every kaappi compile / --emit-llvm failure (#1417)\n\nkaappi compile printed diagnostics for a missing libkaappi_rt.a, a\nmissing C compiler, or a failing linker, but then exited 0 with no\noutput binary, so exit-code-checking callers (CI, differential fuzz\nharnesses) treated the failure as success. Missing input files were\nworse: silent and exit 0.\n\ncompileNative and emitLlvmFile now return errors on every failure\npath, which mainInner already turns into exit code 1. A failed link\nis also reported as \"Linking failed\" instead of the misleading \"No C\ncompiler found\" when a compiler was present, and the temp .ll file\nis cleaned up on failure too.\n\nThe exit-code.sh regression suite gains hermetic coverage for all of\nthese: missing/unreadable input for both compile and --emit-llvm, a\nmissing runtime library (isolated binary copy so every lookup\nmisses), a missing C compiler (empty PATH dir), and a failing linker\n(stub cc that always exits 1). All seven new assertions fail against\na pre-fix build.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T22:04:35+05:30",
+          "tree_id": "e2086b2fc78fc49eeb70122be3e9248ab9e5b5db",
+          "url": "https://github.com/kaappi/kaappi/commit/24fa6651ac6ec6fe439f2bb9eaaa1d5ab4286c29"
+        },
+        "date": 1783703006225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.3646,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.86548,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.031767,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.506604,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012953,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338368,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.518956,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070173,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.490573,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.9822,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.734262,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.044079,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.576265,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.764439,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043917,
             "unit": "seconds"
           }
         ]
