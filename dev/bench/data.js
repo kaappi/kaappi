@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783675894079,
+  "lastUpdate": 1783676020211,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f688e055cd975b6dd5a0daf749194a58713330d",
-          "message": "Report syntax-error message and irritants (#1273)\n\n* Report syntax-error message and irritants (#1142)\n\nsyntax-error was returning a bare CompileError.InvalidSyntax, discarding\nthe message string and irritants that macro authors provide for diagnostics.\nNow formats them into a threadlocal buffer and reportCompileError includes\nthe detail in the output.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Clear stale syntax-error buffer at compile entry; avoid report overflow\n\nFixes two review issues:\n- The threadlocal syntax_error_detail buffer was only cleared in\n  reportCompileError, so a syntax-error caught via guard/eval leaked\n  into the next unrelated CompileError.InvalidSyntax. Now cleared at\n  the start of every compile entry point.\n- reportCompileError wrote prefix+detail into a single 768-byte buffer\n  that could overflow with long paths. Now writes prefix and detail as\n  separate writeStderr calls.\n\nAdds regression test for the cross-form stale-buffer case.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T23:44:48+05:30",
-          "tree_id": "f5e0d6e4af4774b35c977cee859c7386fed065ac",
-          "url": "https://github.com/kaappi/kaappi/commit/0f688e055cd975b6dd5a0daf749194a58713330d"
-        },
-        "date": 1783363542984,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.0352,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.921744,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.960385,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.060144,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013653,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234813,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.48074,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068202,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.396218,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.834518,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.090588,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.058596,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.103243,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.813635,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044686,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043204,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "64c327b2532c140bfc651261e79d4449ededb863",
+          "message": "Record the AFL++ analysis in the fuzzing feasibility note (#1404)\n\nSecond recurring tool question after Fuzzilli, so it gets the same\ntreatment: a section mapping AFL++'s feature set onto what Phase 1\n(#1398) built and what the tiered plan covers — persistent mode is the\nin-process vm.eval harness, dictionaries are the token target, grammar\nmutators are Tier 2's Smith generator. The blocker is instrumentation:\nafl-cc cannot compile Zig, leaving only the slow QEMU/FRIDA modes or\nthe SanitizerCoverage work already scoped and deferred for Fuzzilli.\n\nThe one AFL-shaped niche — CMPLOG against the .sbc loader's binary\nformat — is noted as a deferred complement alongside the Fuzzilli fork\nand Fuzz4All.\n\nAlso annotate the Gaps section with the items Phase 1 closed, so the\nnote no longer contradicts the sections that reference that work.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T14:35:49+05:30",
+          "tree_id": "c2fa8ead65951801dcc0eb084b49e9ed49634196",
+          "url": "https://github.com/kaappi/kaappi/commit/64c327b2532c140bfc651261e79d4449ededb863"
+        },
+        "date": 1783676018184,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344013,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.862316,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.052046,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.518759,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013029,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338394,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508276,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070282,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.650081,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.980104,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.754219,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.038043,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.560173,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.706858,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043526,
             "unit": "seconds"
           }
         ]
