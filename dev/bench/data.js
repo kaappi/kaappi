@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783703007822,
+  "lastUpdate": 1783703477887,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3d54b53a075e39c85b30ae12c40a4acb9b3d7a3f",
-          "message": "Reject non-environment second argument to eval (#1270) (#1282)\n\n* Reject non-environment second argument to eval (#1270)\n\nBoth code paths for eval (the evalFn native function and the tail_eval\nbytecode opcode) silently ignored a non-environment second argument,\nfalling through to the global-environment path. Now they raise a type\nerror, matching load's behavior per R7RS §6.12.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: collapse redundant check, add tail-position test, match error message\n\n- evalFn: fold guard + isEnvironment into single branch (redundant re-check)\n- tail_eval: include offending value in error message for parity with native path\n- Add test where eval is in tail position to exercise the tail_eval opcode\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add trailing #f to tail-position test so it fails without the fix\n\nWithout the #f, the guard body returns 3 (truthy) when the bug is\npresent, making the test-assert a tautology.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T04:52:13Z",
-          "tree_id": "080797ef6127f57cbccd2dd9a2d96233f010a145",
-          "url": "https://github.com/kaappi/kaappi/commit/3d54b53a075e39c85b30ae12c40a4acb9b3d7a3f"
-        },
-        "date": 1783401520094,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.044428,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.013211,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.956265,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.041892,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013686,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235028,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477587,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068319,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.36456,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.835907,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.093378,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.060432,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.145984,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.821689,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044496,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043917,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b54431c7b660de8a8c3f9f8a7c11a3077a3d6f80",
+          "message": "Fuzzing roadmap Phase 3: Kaappi vs external reference Scheme differential harness (#1418)\n\n* Fix register leak when macro expansions reference globals\n\nexpandAndCompileMacroUse loads each non-procedure global free variable\nof a template into a fresh register and aliases it as a local (R7RS\n4.3.1 referential transparency, #935). Those registers were never\nfreed after the expansion compiled, breaking the balanced-register\ncontract call compilation relies on: argument registers are allocated\ncontiguously, so the leak shifted every argument after the expansion\none slot up while the call still read the original window. The call\nthen saw the alias value in later argument slots — with (define g1 41)\nand (define-syntax m0 (syntax-rules () ((_) g1))):\n\n    (+ (m0) 1)    => 82\n    (list (m0) 1) => (41 41)\n\nor a spurious \"type error in 'arithmetic'\" when the global held a\nchar or procedure.\n\nFound by the Kaappi-vs-Chibi differential oracle (#1396) on its first\nbatch: all 28 divergences in 1900 seeds trace to this one leak. Both\ninternal oracles (opt-vs-no-opt, VM-vs-native) are structurally blind\nto it because every internal evaluation path shares this compiler.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fuzzing roadmap Phase 3: Kaappi vs external reference Scheme harness\n\nImplements #1396 (Tier 3, last item): run generated programs through\nkaappi and a pinned Chibi Scheme and diff normalized observables — the\nonly oracle that catches conformance bugs where both of Kaappi's own\nevaluation paths agree but are wrong. Its first batch caught exactly\nsuch a bug (the macro-expansion register leak fixed in the previous\ncommit): 28/1900 seeds diverged, all one root cause, invisible to the\nopt-vs-no-opt and VM-vs-native oracles since every internal path\nshares the compiler.\n\nThe portable-subset generator mode (src/fuzz_gen_portable.zig, with\ndata-kind productions split into fuzz_gen_portable_data.zig per the\nfile size policy) emits only fully-specified, deterministic R7RS-small\nprograms — Csmith's \"fully-specified subset only\" lesson. One rule per\nunspecified zone, each probed against real Chibi during development:\npure expressions (effects only in statement slots whose order the\nreport fixes; Midtgaard et al.'s effect discipline simplified), total\nby construction (guard always has else, single structured raise site,\nsingle structured call/cc escape), exact integers only, ASCII only,\nexplicit four-library import (Chibi enforces boundaries — delay/force\nlive in (scheme lazy)), void-valued top-level forms with explicit\n(write ...) observables, bytevectors echoed byte-wise (Chibi writes\nthem with hex bytes).\n\ntests/fuzz/oracle-diff.sh mirrors native-diff.sh: stdout byte-for-byte\nwhen both exit 0, error class otherwise (never message text), signal\nexits always divergent, timeouts skipped, oracle version recorded with\nany divergence, triage protocol (Kaappi bug / oracle bug / generator\nleak) in the header. A nightly oracle-diff job runs 1000 programs with\na rotating, replayable seed base. With the leak fixed, a 2000-seed\nbatch runs clean against Chibi 0.12.0.\n\nCloses #1396.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T16:36:42Z",
+          "tree_id": "e7fed72659c8c6e56a1aaf799a0b3e385625e13a",
+          "url": "https://github.com/kaappi/kaappi/commit/b54431c7b660de8a8c3f9f8a7c11a3077a3d6f80"
+        },
+        "date": 1783703476506,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.087137,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.016095,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.024986,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407253,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014234,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.374698,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509771,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068387,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.571317,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.982624,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.669633,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.167482,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.464136,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.91424,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045464,
             "unit": "seconds"
           }
         ]
