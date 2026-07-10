@@ -419,7 +419,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 else
                     true;
                 if (clobbers) {
-                    usageError("--no-ir-opt --compile requires -o <file> that is not the source's .sbc cache path (plain runs would load the unoptimized bytecode as their cache)\n");
+                    usageError("--no-ir-opt --compile requires -o <file> that is neither the source's .sbc cache path nor a symlink (plain runs would load the unoptimized bytecode as their cache)\n");
                 }
             }
             try compileFile(vm, fp, opts.compile_output);
@@ -451,18 +451,31 @@ fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
     return bytecode_file.getSbcPath(allocator, scm_path);
 }
 
-/// True when `output_path` is the `.sbc` cache location that plain runs of
-/// `src_path` load from. Lexical comparison after normalizing `.`/`..`
-/// segments — symlinks and absolute-vs-relative aliases of the same file are
-/// not detected, but the natural spellings (`prog.sbc`, `./prog.sbc`) are.
+/// True when `output_path` may be the `.sbc` cache location that plain runs
+/// of `src_path` load from. Fails CLOSED: an allocation failure or a
+/// symlinked output (the write would follow the link to an unknown target)
+/// counts as a collision, so --no-ir-opt can never poison the cache through
+/// this guard — the caller refuses with a usage error either way.
+/// Path comparison is lexical after normalizing `.`/`..` segments;
+/// symlinked *parent directories* and absolute-vs-relative aliases of the
+/// same file are still not detected.
 fn outputIsBytecodeCache(allocator: std.mem.Allocator, src_path: []const u8, output_path: []const u8) bool {
-    const cache_path = getSbcPath(allocator, src_path) catch return false;
+    if (pathIsSymlink(allocator, output_path)) return true;
+    const cache_path = getSbcPath(allocator, src_path) catch return true;
     defer allocator.free(cache_path);
-    const out_norm = std.fs.path.resolve(allocator, &.{output_path}) catch return false;
+    const out_norm = std.fs.path.resolve(allocator, &.{output_path}) catch return true;
     defer allocator.free(out_norm);
-    const cache_norm = std.fs.path.resolve(allocator, &.{cache_path}) catch return false;
+    const cache_norm = std.fs.path.resolve(allocator, &.{cache_path}) catch return true;
     defer allocator.free(cache_norm);
     return std.mem.eql(u8, out_norm, cache_norm);
+}
+
+fn pathIsSymlink(allocator: std.mem.Allocator, path: []const u8) bool {
+    // Treat an unrepresentable path as a symlink (fail closed).
+    const path_z = allocator.dupeZ(u8, path) catch return true;
+    defer allocator.free(path_z);
+    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    return std.c.readlink(path_z, &buf, buf.len) >= 0;
 }
 
 test "outputIsBytecodeCache detects cache-path collisions" {
@@ -473,6 +486,30 @@ test "outputIsBytecodeCache detects cache-path collisions" {
     try std.testing.expect(outputIsBytecodeCache(gpa, "dir/prog.scm", "dir/../dir/prog.sbc"));
     try std.testing.expect(!outputIsBytecodeCache(gpa, "prog.scm", "prog.noopt.sbc"));
     try std.testing.expect(!outputIsBytecodeCache(gpa, "prog.scm", "out/prog.sbc"));
+}
+
+test "outputIsBytecodeCache refuses symlinked outputs" {
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.symLink(std.testing.io, "prog.sbc", "alias.sbc", .{});
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", gpa);
+    defer gpa.free(dir_path);
+
+    const src = try std.fs.path.join(gpa, &.{ dir_path, "prog.scm" });
+    defer gpa.free(src);
+    const alias = try std.fs.path.join(gpa, &.{ dir_path, "alias.sbc" });
+    defer gpa.free(alias);
+    const distinct = try std.fs.path.join(gpa, &.{ dir_path, "other.sbc" });
+    defer gpa.free(distinct);
+
+    try std.testing.expect(outputIsBytecodeCache(gpa, src, alias));
+    try std.testing.expect(!outputIsBytecodeCache(gpa, src, distinct));
+}
+
+test "outputIsBytecodeCache fails closed on allocation failure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    try std.testing.expect(outputIsBytecodeCache(failing.allocator(), "prog.scm", "prog.noopt.sbc"));
 }
 
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
