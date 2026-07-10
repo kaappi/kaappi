@@ -1,8 +1,8 @@
 # Fuzzing Kaappi — and why Fuzzilli isn't the tool
 
 **Feasibility note, 2026-07-09; revised 2026-07-10 with a survey of the
-research literature.** Records the analysis behind a recurring
-question: can [Fuzzilli](https://github.com/googleprojectzero/fuzzilli),
+research literature and the AFL++ question.** Records the analysis behind a
+recurring question: can [Fuzzilli](https://github.com/googleprojectzero/fuzzilli),
 Google Project Zero's coverage-guided fuzzer, be pointed at Kaappi? The short
 answer is no — but the reasoning maps directly onto what Kaappi *should* do for
 fuzzing, so it is worth keeping. Concrete work items belong in the issue
@@ -27,6 +27,10 @@ how to run the targets, the scheduled CI job, and the failure workflow — is
   compiler, VM, and GC; and differential oracles — including Kaappi-internal
   ones (bytecode VM vs LLVM native backend) — are what find miscompilations
   rather than crashes. See "What the research literature says".
+- **The same verdict applies to AFL++**, for different reasons: no language
+  mismatch, but almost everything it would bring already exists here or is
+  planned, and its compile-time instrumentation cannot target Zig code. See
+  "Why not AFL++ either".
 
 ## Why Fuzzilli can't fuzz Kaappi directly
 
@@ -130,6 +134,42 @@ harness, imports, or filesystem layout and are poor standalone `vm.eval`
 inputs. A test-only corpus directory can still be useful as source material,
 but needs a conversion/minimisation step before it becomes a Zig fuzz corpus.
 
+## Why not AFL++ either
+
+The second most recurring tool question, recorded here for the same reason
+as the Fuzzilli one. [AFL++](https://github.com/AFLplusplus/AFLplusplus) is
+the de-facto standard greybox fuzzer, and unlike Fuzzilli it has no target
+language: it fuzzes anything it can instrument or emulate. The problem is on
+the other side of the ledger — almost everything it would bring is already
+here, deliberately, mapped through the same research this note surveys:
+
+| AFL++ feature | Kaappi equivalent |
+|---------------|-------------------|
+| Coverage-guided greybox loop | Zig 0.16's built-in fuzzer, instrumenting the whole interpreter |
+| Persistent mode (no fork per input) | The in-process `vm.eval` harness — the property persistent mode exists to approximate |
+| Dictionaries / autodict | The token-vocabulary target embeds the dictionary in the generator (Zig's fuzz API has no `-x dict`) |
+| Custom / grammar mutators | Tier 2's `Smith` parametric generator — byte mutation of the decision string becomes structural mutation for free (Zest), rather than a C plugin bolted onto a byte mutator |
+| Sanitizers | ReleaseSafe bounds/overflow checks; Debug builds poison freed GC memory; `-Dgc-stress=true` as the GC use-after-free amplifier |
+| afl-cmin / afl-tmin | Manual minimisation per the [fuzzing.md](fuzzing.md) runbook — not a bottleneck at current corpus sizes |
+
+The integration cost is what kills it: `afl-cc` is clang/gcc-based and cannot
+instrument Zig code, so the realistic modes are QEMU or FRIDA (10–100×
+slower, surrendering the in-process throughput this note identifies as
+Kaappi's structural advantage) or adding SanitizerCoverage to the Zig build —
+the same engineering scoped in "What a real Fuzzilli fork would require",
+deferred for the same reason. Adoption would also split the corpus into two
+incompatible formats (Smith decision streams vs raw bytes).
+
+One genuinely AFL-shaped problem exists here: the **bytecode loader**. A raw
+binary format with magic bytes, length fields, and hashes is exactly where
+AFL++'s CMPLOG/RedQueen (input-to-state correspondence) beats anything in the
+Zig stack. An occasional offline AFL++ campaign in QEMU mode against
+`kaappi <file.sbc>` needs no harness code and would complement — not
+replace — the loader target. That idea sits with the other deferred
+complements (Fuzzilli fork, Fuzz4All): revisit if Tiers 2–3 plateau.
+Weinholt's AFL++-on-Loko exercise (see "Practice" in the research section
+below) is the working precedent if that day comes.
+
 ## Gaps — where the real improvement opportunities are
 
 Measured against Fuzzilli's philosophy, the current setup leaves value on the
@@ -137,18 +177,23 @@ table:
 
 - **Not run in CI.** No `--fuzz` invocation in `build.zig` or the workflows, so
   the targets only ever run once, with a fixed seed, under normal `test`.
+  *(Closed 2026-07-10 by the scheduled fuzz workflow, #1390.)*
 - **Byte-oriented input.** `Smith` mutates a raw byte buffer, so most inputs are
   rejected by the reader; the fuzzer mostly stresses the **parser** and rarely
   produces semantically deep, valid Scheme that reaches the compiler, VM, or GC.
+  *(Partially addressed by the token-vocabulary target, #1391; Tier 2 is the
+  real fix.)*
 - **No seed corpus.** Every target currently passes `.{}` to
   `std.testing.fuzz`. The Scheme suite is useful source material, but its files
   must be reduced to standalone snippets and encoded as `Smith` inputs before
   they can be used as this fuzzer's corpus.
+  *(Closed 2026-07-10 by the encoded seed corpora, #1389.)*
 - **No direct token dictionary.** A libFuzzer token dictionary is not an
   option exposed by Zig's current fuzz API. Keywords and lexical tokens
   (`define`, `lambda`, `let`, `call/cc`, `#\`, `#(`, `quasiquote`, …) should
   instead appear in curated encoded seeds, or preferably be selected by a
   `Smith`-driven grammar generator.
+  *(Closed 2026-07-10 by the token-vocabulary target, #1391.)*
 - **No structure-aware generation** and **no differential testing** — the two
   techniques that find the deepest bugs. The next section maps the research
   literature onto both.
