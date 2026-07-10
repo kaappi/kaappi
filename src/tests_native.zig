@@ -297,6 +297,57 @@ test "LLVM emit: let* sequential" {
     try expectContains(res.toSlice(), "alloca i64");
 }
 
+// -- Free variables hidden inside let/let* (#1407) --
+// The closure tiers' free-variable analysis must descend into raw let/let*
+// forms. Before the fix, a lambda capturing an enclosing param only through
+// a let compiled as a *closed* native closure and the reference degraded to
+// kaappi_global_lookup: "undefined variable" at runtime, or a silently wrong
+// value when a same-named global existed.
+
+test "LLVM emit: lambda capturing enclosing param through a let gets an upvalue (#1407)" {
+    var res = try emitSourceResult("(define g0 (lambda (u) ((lambda (a) (let ((b u)) b)) 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // Tier 1 must capture `u`: closure created with one upvalue (arity 1)...
+    try expectContains(ll, "@kaappi_create_native_closure");
+    try expectContains(ll, ", i64 1, i64 1, ptr");
+    // ...and the closure body must read it from the upvalue array.
+    try expectContains(ll, "ptr %upvalues, i64 0");
+    // The lambda-local name must never be interned for a global lookup.
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
+}
+
+test "LLVM emit: lambda capturing enclosing param through a let* gets an upvalue (#1407)" {
+    var res = try emitSourceResult("(define g0 (lambda (u) ((lambda (a) (let* ((b u) (c b)) c)) 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "@kaappi_create_native_closure");
+    try expectContains(ll, ", i64 1, i64 1, ptr");
+    try expectContains(ll, "ptr %upvalues, i64 0");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
+}
+
+test "LLVM emit: top-level lambda with let-hidden free name falls back to eval (#1407)" {
+    // With no enclosing scope to capture from, both closure tiers must
+    // reject; emitLambdaViaEval resolves `u` in the global environment at
+    // call time, which is correct at top level.
+    var res = try emitSourceResult("(lambda (a) (let ((b u)) b))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call i64 @kaappi_eval");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_create_native_closure") == null);
+}
+
+test "LLVM emit: let over own params still compiles as a closed native closure" {
+    // Guard against over-conservatism: a let that only references the
+    // lambda's own params has no free variables and must stay native.
+    var res = try emitSourceResult("(lambda (a) (let ((b a)) b))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "@kaappi_create_native_closure");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_eval") == null);
+}
+
 // -- Begin --
 
 test "LLVM emit: begin sequence" {

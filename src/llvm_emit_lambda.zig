@@ -139,7 +139,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     var free_vars: [16][]const u8 = undefined;
     var free_count: usize = 0;
-    collectFreeVars(body_nodes[0..body_count], param_names[0..arity], &free_vars, &free_count);
+    if (!collectFreeVars(body_nodes[0..body_count], param_names[0..arity], &free_vars, &free_count)) return null;
     if (free_count == 0) return null;
 
     const outer_params = self.params orelse return null;
@@ -642,7 +642,12 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
         // global. Disqualify and fall back to the interpreter.
         .define => return true,
         .constant => return false,
-        .lambda, .passthrough, .let_form, .let_star, .sexpr_form => return false,
+        // let/let* keep their contents as a raw S-expression, so references
+        // hidden inside them are invisible to the node-level cases above.
+        // Walk the raw form with proper binder scoping (#1407).
+        .let_form => return letSexprHasFreeVars(node.data.let_form.args, false, params),
+        .let_star => return letSexprHasFreeVars(node.data.let_star.args, true, params),
+        .lambda, .passthrough, .sexpr_form => return false,
         .letrec, .letrec_star => return false,
     }
 }
@@ -662,50 +667,254 @@ fn valueIsBoundOrLiteral(value: types.Value, params: []const []const u8) bool {
     return !types.isPair(value);
 }
 
-fn collectFreeVars(nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) void {
+// Both collectors return false when the analysis could not stay exact (a
+// name buffer overflowed, or a let walk met a form it cannot scope). Callers
+// must then reject native closure compilation — emitting with an incomplete
+// free-variable set would leave the missed name to resolve as a global.
+fn collectFreeVars(nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
     for (nodes) |node| {
-        collectNodeFreeVars(node, params, buf, count);
+        if (!collectNodeFreeVars(node, params, buf, count)) return false;
+    }
+    return true;
+}
+
+fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    switch (node.tag) {
+        .global_ref => {
+            if (!types.isSymbol(node.data.global_ref)) return true;
+            const name = types.symbolName(node.data.global_ref);
+            for (params) |p| {
+                if (std.mem.eql(u8, name, p)) return true;
+            }
+            if (ir.isKnownGlobal(name)) return true;
+            for (buf[0..count.*]) |existing| {
+                if (std.mem.eql(u8, name, existing)) return true;
+            }
+            if (count.* >= buf.len) return false;
+            buf[count.*] = name;
+            count.* += 1;
+            return true;
+        },
+        .call => {
+            if (!collectNodeFreeVars(node.data.call.operator, params, buf, count)) return false;
+            for (node.data.call.args) |arg| {
+                if (!collectNodeFreeVars(arg, params, buf, count)) return false;
+            }
+            return true;
+        },
+        .@"if" => {
+            if (!collectNodeFreeVars(node.data.@"if".test_expr, params, buf, count)) return false;
+            if (!collectNodeFreeVars(node.data.@"if".consequent, params, buf, count)) return false;
+            if (node.data.@"if".alternate) |alt| {
+                if (!collectNodeFreeVars(alt, params, buf, count)) return false;
+            }
+            return true;
+        },
+        .begin => return collectFreeVars(node.data.begin, params, buf, count),
+        .and_form => return collectFreeVars(node.data.and_form, params, buf, count),
+        .or_form => return collectFreeVars(node.data.or_form, params, buf, count),
+        .when_form => {
+            if (!collectNodeFreeVars(node.data.when_form.test_expr, params, buf, count)) return false;
+            return collectFreeVars(node.data.when_form.body, params, buf, count);
+        },
+        .unless_form => {
+            if (!collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count)) return false;
+            return collectFreeVars(node.data.unless_form.body, params, buf, count);
+        },
+        // See nodeHasFreeVars: let/let* contents are a raw S-expression and
+        // must be walked with binder scoping, or captures hidden inside them
+        // are silently compiled as global lookups (#1407).
+        .let_form => return collectLetSexprFreeVars(node.data.let_form.args, false, params, buf, count),
+        .let_star => return collectLetSexprFreeVars(node.data.let_star.args, true, params, buf, count),
+        .constant, .define, .set_form, .lambda, .passthrough, .sexpr_form => return true,
+        .letrec, .letrec_star => return true,
     }
 }
 
-fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) void {
-    switch (node.tag) {
-        .global_ref => {
-            if (!types.isSymbol(node.data.global_ref)) return;
-            const name = types.symbolName(node.data.global_ref);
-            for (params) |p| {
-                if (std.mem.eql(u8, name, p)) return;
-            }
-            if (ir.isKnownGlobal(name)) return;
+// --- Scope-aware free-name walk over raw let/let* forms (#1407) ---
+//
+// The IR keeps let/let* contents as a raw S-expression (ir.LetData.args), so
+// the node-level free-variable analysis cannot see references inside them.
+// This walk descends into the raw form tracking binder scopes (let binders,
+// nested lambda formals) and reports every referenced name that is neither
+// bound nor a known global — the same rule the .global_ref arms apply.
+// `inexact` is set when the walk meets something it cannot scope precisely
+// (internal define, an eval-fallback form, malformed bindings, overflow);
+// callers must then treat the analysis as failed and refuse to compile the
+// enclosing lambda natively.
+
+const FreeNameWalk = struct {
+    params: []const []const u8,
+    bound: [64][]const u8 = undefined,
+    bound_count: usize = 0,
+    // When non-null, free names are appended here, deduplicated.
+    buf: ?*[16][]const u8 = null,
+    count: ?*usize = null,
+    found: bool = false,
+    inexact: bool = false,
+
+    fn pushBound(w: *FreeNameWalk, name: []const u8) void {
+        if (w.bound_count >= w.bound.len) {
+            w.inexact = true;
+            return;
+        }
+        w.bound[w.bound_count] = name;
+        w.bound_count += 1;
+    }
+
+    fn noteRef(w: *FreeNameWalk, name: []const u8) void {
+        for (w.params) |p| {
+            if (std.mem.eql(u8, name, p)) return;
+        }
+        for (w.bound[0..w.bound_count]) |b| {
+            if (std.mem.eql(u8, name, b)) return;
+        }
+        if (ir.isKnownGlobal(name)) return;
+        w.found = true;
+        if (w.buf) |buf| {
+            const count = w.count.?;
             for (buf[0..count.*]) |existing| {
                 if (std.mem.eql(u8, name, existing)) return;
             }
-            if (count.* < 16) {
-                buf[count.*] = name;
-                count.* += 1;
+            if (count.* >= buf.len) {
+                w.inexact = true;
+                return;
             }
-        },
-        .call => {
-            collectNodeFreeVars(node.data.call.operator, params, buf, count);
-            for (node.data.call.args) |arg| collectNodeFreeVars(arg, params, buf, count);
-        },
-        .@"if" => {
-            collectNodeFreeVars(node.data.@"if".test_expr, params, buf, count);
-            collectNodeFreeVars(node.data.@"if".consequent, params, buf, count);
-            if (node.data.@"if".alternate) |alt| collectNodeFreeVars(alt, params, buf, count);
-        },
-        .begin => collectFreeVars(node.data.begin, params, buf, count),
-        .and_form => collectFreeVars(node.data.and_form, params, buf, count),
-        .or_form => collectFreeVars(node.data.or_form, params, buf, count),
-        .when_form => {
-            collectNodeFreeVars(node.data.when_form.test_expr, params, buf, count);
-            collectFreeVars(node.data.when_form.body, params, buf, count);
-        },
-        .unless_form => {
-            collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count);
-            collectFreeVars(node.data.unless_form.body, params, buf, count);
-        },
-        .constant, .define, .set_form, .lambda, .passthrough, .let_form, .let_star, .sexpr_form => {},
-        .letrec, .letrec_star => {},
+            buf[count.*] = name;
+            count.* += 1;
+        }
+    }
+};
+
+fn letSexprHasFreeVars(args: Value, sequential: bool, params: []const []const u8) bool {
+    var w = FreeNameWalk{ .params = params };
+    walkLetSexpr(&w, args, sequential);
+    return w.found or w.inexact;
+}
+
+fn collectLetSexprFreeVars(args: Value, sequential: bool, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    var w = FreeNameWalk{ .params = params, .buf = buf, .count = count };
+    walkLetSexpr(&w, args, sequential);
+    return !w.inexact;
+}
+
+// args is the raw `(bindings body ...)` tail of a let/let* form. For let the
+// init expressions see only the enclosing scope; for let* each init also sees
+// the binders before it. The binders are in scope for the body either way.
+fn walkLetSexpr(w: *FreeNameWalk, args: Value, sequential: bool) void {
+    if (!types.isPair(args)) {
+        w.inexact = true;
+        return;
+    }
+    const bindings = types.car(args);
+    const saved = w.bound_count;
+    defer w.bound_count = saved;
+
+    var blist = bindings;
+    while (types.isPair(blist)) : (blist = types.cdr(blist)) {
+        const binding = types.car(blist);
+        if (!types.isPair(binding)) {
+            w.inexact = true;
+            return;
+        }
+        const var_sym = types.car(binding);
+        const init_list = types.cdr(binding);
+        if (!types.isSymbol(var_sym) or !types.isPair(init_list)) {
+            w.inexact = true;
+            return;
+        }
+        walkSexpr(w, types.car(init_list));
+        if (sequential) w.pushBound(types.symbolName(var_sym));
+    }
+    if (blist != types.NIL) {
+        w.inexact = true;
+        return;
+    }
+    if (!sequential) {
+        blist = bindings;
+        while (types.isPair(blist)) : (blist = types.cdr(blist)) {
+            w.pushBound(types.symbolName(types.car(types.car(blist))));
+        }
+    }
+    var body_expr = types.cdr(args);
+    while (types.isPair(body_expr)) : (body_expr = types.cdr(body_expr)) {
+        walkSexpr(w, types.car(body_expr));
+    }
+}
+
+// rest is the raw `(formals body ...)` tail of a lambda form.
+fn walkLambdaSexpr(w: *FreeNameWalk, rest: Value) void {
+    if (!types.isPair(rest)) {
+        w.inexact = true;
+        return;
+    }
+    const saved = w.bound_count;
+    defer w.bound_count = saved;
+
+    var f = types.car(rest);
+    while (types.isPair(f)) : (f = types.cdr(f)) {
+        const p = types.car(f);
+        if (!types.isSymbol(p)) {
+            w.inexact = true;
+            return;
+        }
+        w.pushBound(types.symbolName(p));
+    }
+    // Rest parameter: dotted tail, or bare-symbol formals.
+    if (f != types.NIL) {
+        if (!types.isSymbol(f)) {
+            w.inexact = true;
+            return;
+        }
+        w.pushBound(types.symbolName(f));
+    }
+    var body_expr = types.cdr(rest);
+    while (types.isPair(body_expr)) : (body_expr = types.cdr(body_expr)) {
+        walkSexpr(w, types.car(body_expr));
+    }
+}
+
+fn walkSexpr(w: *FreeNameWalk, expr: Value) void {
+    if (w.inexact) return;
+    if (types.isSymbol(expr)) {
+        w.noteRef(types.symbolName(expr));
+        return;
+    }
+    if (!types.isPair(expr)) return;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const name = types.symbolName(head);
+        if (std.mem.eql(u8, name, "quote")) return;
+        if (std.mem.eql(u8, name, "lambda")) return walkLambdaSexpr(w, types.cdr(expr));
+        const is_let = std.mem.eql(u8, name, "let");
+        if (is_let or std.mem.eql(u8, name, "let*")) {
+            const rest = types.cdr(expr);
+            // Named let is rejected upstream by sexprNeedsEvalFallback; if
+            // one shows up anyway, give up rather than mis-scope its binders.
+            if (is_let and types.isPair(rest) and types.isSymbol(types.car(rest))) {
+                w.inexact = true;
+                return;
+            }
+            return walkLetSexpr(w, rest, !is_let);
+        }
+        // An internal define introduces a binding this walk does not model.
+        if (std.mem.eql(u8, name, "define")) {
+            w.inexact = true;
+            return;
+        }
+        // Forms the backend sends to eval fallback (cond, do, letrec, ...)
+        // are rejected upstream before this analysis runs; if one appears
+        // anyway, its binder structure is unknown — give up.
+        if (isEvalFallbackForm(name)) {
+            w.inexact = true;
+            return;
+        }
+    }
+    // Everything else (calls, if/begin/and/or/when/unless/set!, ...) is a
+    // plain expression tree: every symbol in it is a reference, and keyword
+    // heads are filtered out by isKnownGlobal inside noteRef.
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        walkSexpr(w, types.car(cur));
     }
 }
