@@ -49,19 +49,25 @@ Create `tests/scheme/audit/<basename>-audit.scm`:
 
 ```scheme
 (import (scheme base) (scheme write) (scheme read) ...)
-(import (chibi test))
+(import (scheme process-context) (srfi 64))
 
 (test-begin "<basename> audit")
 
 ;;; --- procedure-name ---
-(test expected (procedure-name args ...))
+(test-equal expected (procedure-name args ...))
 ;; Type error
-(test #t (guard (e (#t (error-object? e))) (procedure-name wrong-type)))
+(test-equal #t (guard (e (#t (error-object? e))) (procedure-name wrong-type)))
 ;; Boundary
-(test expected (procedure-name boundary-input))
+(test-equal expected (procedure-name boundary-input))
 
-(test-end "<basename> audit")
+(let ((runner (test-runner-current)))
+  (test-end "<basename> audit")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
 ```
+
+Grab the runner **before** `test-end` — the outermost `test-end` resets the
+current runner. The `(exit 1)` epilogue is what makes `run-all.sh` notice
+failures.
 
 ### Step 4: Run and diagnose
 

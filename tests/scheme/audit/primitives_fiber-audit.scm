@@ -10,26 +10,26 @@
 ;; free slot may run after it.
 
 (import (scheme base) (scheme write) (kaappi fibers))
-(import (chibi test))
+(import (scheme process-context) (srfi 64))
 
 (test-begin "primitives_fiber audit")
 
 ;;; --- channels without any fibers ---
 ;; receive on an empty channel with no scheduler must raise, not hang
-(test 'deadlock-caught
+(test-equal 'deadlock-caught
     (guard (e (#t 'deadlock-caught)) (channel-receive (make-channel))))
-(test 42 (let ((ch (make-channel))) (channel-send ch 42) (channel-receive ch)))
+(test-equal 42 (let ((ch (make-channel))) (channel-send ch 42) (channel-receive ch)))
 ;; FIFO ordering
-(test '(1 2 3)
+(test-equal '(1 2 3)
     (let ((ch (make-channel)))
       (channel-send ch 1) (channel-send ch 2) (channel-send ch 3)
       (list (channel-receive ch) (channel-receive ch) (channel-receive ch))))
 ;; values pass through by reference (same heap object)
-(test #t (let ((ch (make-channel)) (x (list 1 2)))
-           (channel-send ch x)
-           (eq? x (channel-receive ch))))
+(test-equal #t (let ((ch (make-channel)) (x (list 1 2)))
+                 (channel-send ch x)
+                 (eq? x (channel-receive ch))))
 ;; interleaved send/receive
-(test '(1 2)
+(test-equal '(1 2)
     (let ((ch (make-channel)))
       (channel-send ch 1)
       (let ((a (channel-receive ch)))
@@ -37,94 +37,96 @@
         (list a (channel-receive ch)))))
 
 ;;; --- predicates ---
-(test #t (channel? (make-channel)))
-(test #f (channel? 42))
-(test #f (channel? '()))
-(test #f (fiber? (make-channel)))
-(test #f (fiber? 42))
+(test-equal #t (channel? (make-channel)))
+(test-equal #f (channel? 42))
+(test-equal #f (channel? '()))
+(test-equal #f (fiber? (make-channel)))
+(test-equal #f (fiber? 42))
 
 ;;; --- type errors are catchable ---
-(test 'caught (guard (e (#t 'caught)) (channel-send 42 'v)))
-(test 'caught (guard (e (#t 'caught)) (channel-receive "not-a-channel")))
-(test 'caught (guard (e (#t 'caught)) (fiber-join 42)))
-(test 'caught (guard (e (#t 'caught)) (spawn 42)))
+(test-equal 'caught (guard (e (#t 'caught)) (channel-send 42 'v)))
+(test-equal 'caught (guard (e (#t 'caught)) (channel-receive "not-a-channel")))
+(test-equal 'caught (guard (e (#t 'caught)) (fiber-join 42)))
+(test-equal 'caught (guard (e (#t 'caught)) (spawn 42)))
 
 ;;; --- yield ---
 ;; top-level yield with no scheduler is a no-op
-(test 'ok (begin (yield) 'ok))
+(test-equal 'ok (begin (yield) 'ok))
 
 ;;; --- spawn / fiber-join ---
 ;; native procedures are now accepted as spawn thunks (#1155)
-(test #t (let ((f (spawn newline)))
-           (fiber-join f)
-           (fiber? f)))
-(test #t (fiber? (spawn (lambda () 1))))
-(test 42 (fiber-join (spawn (lambda () (* 6 7)))))
+(test-equal #t (let ((f (spawn newline)))
+                 (fiber-join f)
+                 (fiber? f)))
+(test-equal #t (fiber? (spawn (lambda () 1))))
+(test-equal 42 (fiber-join (spawn (lambda () (* 6 7)))))
 ;; yield with a runnable scheduler is fine
-(test 'ok (begin (yield) 'ok))
+(test-equal 'ok (begin (yield) 'ok))
 ;; join is memoized: joining twice returns the same result
-(test '(once once)
+(test-equal '(once once)
     (let ((f (spawn (lambda () 'once))))
       (list (fiber-join f) (fiber-join f))))
 ;; fibers spawning fibers
-(test 11 (fiber-join (spawn (lambda ()
-                              (+ 1 (fiber-join (spawn (lambda () 10))))))))
+(test-equal 11 (fiber-join (spawn (lambda ()
+                                    (+ 1 (fiber-join (spawn (lambda () 10))))))))
 ;; producer fiber wakes a blocked main receive
-(test 'hello (let ((ch (make-channel)))
-               (spawn (lambda () (channel-send ch 'hello)))
-               (channel-receive ch)))
+(test-equal 'hello (let ((ch (make-channel)))
+                     (spawn (lambda () (channel-send ch 'hello)))
+                     (channel-receive ch)))
 ;; two-stage pipeline through the scheduler
-(test 30 (let ((a (make-channel)) (b (make-channel)))
-           (spawn (lambda () (channel-send b (* 3 (channel-receive a)))))
-           (spawn (lambda () (channel-send a 10)))
-           (channel-receive b)))
+(test-equal 30 (let ((a (make-channel)) (b (make-channel)))
+                 (spawn (lambda () (channel-send b (* 3 (channel-receive a)))))
+                 (spawn (lambda () (channel-send a 10)))
+                 (channel-receive b)))
 
 ;;; --- errors inside fibers ---
 ;; join re-raises the fiber's exception, with the error object intact
-(test '(caught "fiber-boom")
+(test-equal '(caught "fiber-boom")
     (guard (e (#t (list 'caught (error-object-message e))))
       (fiber-join (spawn (lambda () (error "fiber-boom"))))))
 ;; re-raised on every join
-(test '(c1 c2)
+(test-equal '(c1 c2)
     (let ((f (spawn (lambda () (error "boom2")))))
       (list (guard (e (#t 'c1)) (fiber-join f))
             (guard (e (#t 'c2)) (fiber-join f)))))
 ;; a guard inside the fiber handles its own error normally
-(test 'handled (fiber-join (spawn (lambda ()
-                                    (guard (e (#t 'handled)) (error "x"))))))
+(test-equal 'handled (fiber-join (spawn (lambda ()
+                                          (guard (e (#t 'handled)) (error "x"))))))
 
 ;;; --- deadlock detection (each leaks a parked fiber; that is inherent) ---
 ;; joining a fiber blocked on a never-sent channel raises, not hangs
-(test 'deadlock-caught
+(test-equal 'deadlock-caught
     (guard (e (#t 'deadlock-caught))
       (let ((ch (make-channel)))
         (fiber-join (spawn (lambda () (channel-receive ch)))))))
 ;; cyclic join raises, not hangs
-(test 'deadlock-caught
+(test-equal 'deadlock-caught
     (guard (e (#t 'deadlock-caught))
       (letrec ((fa (spawn (lambda () (fiber-join fb))))
                (fb (spawn (lambda () (fiber-join fa)))))
         (fiber-join fa))))
 ;; deadlock errors carry a useful message
-(test #t (guard (e (#t (and (error-object? e)
-                            (> (string-length (error-object-message e)) 10))))
-           (channel-receive (make-channel))
-           #f))
+(test-equal #t (guard (e (#t (and (error-object? e)
+                                  (> (string-length (error-object-message e)) 10))))
+                 (channel-receive (make-channel))
+                 #f))
 
 ;;; --- spawn limit (MAX_FIBERS = 64) — fills all remaining slots; keep last ---
-(test '(limit-hit #t)
+(test-equal '(limit-hit #t)
     (guard (e (#t (list 'limit-hit (error-object? e))))
       (let loop ((i 0))
         (if (= i 70) 'no-limit
             (begin (spawn (lambda () (channel-receive (make-channel))))
                    (loop (+ i 1)))))))
 ;; sends/receives that need no new slot still work at the limit
-(test 1 (let ((ch (make-channel))) (channel-send ch 1) (channel-receive ch)))
+(test-equal 1 (let ((ch (make-channel))) (channel-send ch 1) (channel-receive ch)))
 ;; With every slot holding a permanently-parked fiber, a top-level (yield)
 ;; raises a bare error whose message is just "error" — but the main fiber
 ;; can obviously still run (the send/receive above works). Yield is
 ;; advisory and should be a no-op here.
 ;; FAIL: #1184 (yield raises a contentless error when all other fibers are parked)
-;; (test 'yield-ok (begin (yield) 'yield-ok))
+;; (test-equal 'yield-ok (begin (yield) 'yield-ok))
 
-(test-end "primitives_fiber audit")
+(let ((runner (test-runner-current)))
+  (test-end "primitives_fiber audit")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
