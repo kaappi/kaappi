@@ -7,6 +7,7 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const library = @import("library.zig");
 const types = @import("types.zig");
+const fuzz_gen = @import("fuzz_gen.zig");
 
 const Context = @TypeOf(.{});
 
@@ -184,19 +185,25 @@ test "fuzz seed .sbc fixture stays loadable" {
 // only panics, crashes, and leaks fail the target.
 // ---------------------------------------------------------------------------
 
+const EvalOutcome = enum { ok, scheme_error, harness_unavailable };
+
 fn evalOne(input: []const u8) void {
+    _ = evalOneOutcome(input);
+}
+
+fn evalOneOutcome(input: []const u8) EvalOutcome {
     // Redirect fd 1 to /dev/null for the duration: generated programs can
     // call (display ...), and the test binary's stdout is the build-runner
     // IPC pipe — a stray write there deadlocks the run.
     const c = std.posix.system;
     const saved_stdout = c.dup(1);
-    if (saved_stdout < 0) return;
+    if (saved_stdout < 0) return .harness_unavailable;
     defer _ = c.close(saved_stdout);
     const devnull = c.open("/dev/null", .{ .ACCMODE = .WRONLY });
-    if (devnull < 0) return;
+    if (devnull < 0) return .harness_unavailable;
     if (c.dup2(devnull, 1) < 0) {
         _ = c.close(devnull);
-        return;
+        return .harness_unavailable;
     }
     _ = c.close(devnull);
     defer _ = c.dup2(saved_stdout, 1);
@@ -205,10 +212,10 @@ fn evalOne(input: []const u8) void {
     defer gc.deinit();
     // gc lives on this stack frame; don't leave the threadlocal dangling.
     defer memory.gc_instance = null;
-    const vm = std.testing.allocator.create(vm_mod.VM) catch return;
+    const vm = std.testing.allocator.create(vm_mod.VM) catch return .harness_unavailable;
     vm.* = vm_mod.VM.init(&gc) catch {
         std.testing.allocator.destroy(vm);
-        return;
+        return .harness_unavailable;
     };
     defer {
         vm.deinit();
@@ -219,13 +226,14 @@ fn evalOne(input: []const u8) void {
     // primitives are absent, so fuzz inputs reaching those forms get an
     // ordinary undefined-variable error instead of touching the host
     // (per the operating guidance in docs/dev/fuzzing-feasibility.md).
-    primitives.registerSandboxed(vm) catch return;
+    primitives.registerSandboxed(vm) catch return .harness_unavailable;
     memory.setGCInstance(&gc);
-    vm_mod.vm_bootstrap.install(vm) catch return;
-    library.registerSandboxedLibraries(&vm.libraries, vm.globals) catch return;
+    vm_mod.vm_bootstrap.install(vm) catch return .harness_unavailable;
+    library.registerSandboxedLibraries(&vm.libraries, vm.globals) catch return .harness_unavailable;
     vm.sandbox_mode = true;
     vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + 100_000_000;
-    _ = vm.eval(input) catch return;
+    _ = vm.eval(input) catch return .scheme_error;
+    return .ok;
 }
 
 test "fuzz reader" {
@@ -366,4 +374,61 @@ test "fuzz tokens" {
             evalOne(buf[0..len]);
         }
     }.testOne, .{});
+}
+
+// ---------------------------------------------------------------------------
+// Grammar-generated target (Tier 2, #1392)
+//
+// src/fuzz_gen.zig maps the Smith decision stream to a VALID, well-bound,
+// resource-bounded R7RS program — a Zest-style parametric generator. Unlike
+// the raw-bytes and token targets (which stay for parser robustness), every
+// input here reaches the compiler and VM, so this is the target that
+// exercises compiler_*.zig, vm_dispatch.zig, and the GC write-barrier paths.
+// No corpus: the decision stream IS the input, and any stream decodes to a
+// valid program (an empty stream yields the minimal one).
+// ---------------------------------------------------------------------------
+
+test "fuzz grammar" {
+    try std.testing.fuzz(Context{}, struct {
+        fn testOne(_: Context, smith: *std.testing.Smith) anyerror!void {
+            const src = fuzz_gen.generateProgram(smith, std.testing.allocator) catch return;
+            defer std.testing.allocator.free(src);
+            evalOne(src);
+        }
+    }.testOne, .{});
+}
+
+// Guards the generator's value proposition: the point of Tier 2 is programs
+// that RUN, not just parse (the Phase 1 token target manages 76% parsing).
+// Deterministic (fixed seeds, fixed generator), so a regression here means a
+// generator change made programs start dying at runtime — fix the generator
+// or consciously re-baseline.
+test "grammar generator: majority of programs evaluate without error" {
+    // A gc-stress build slows evaluation by orders of magnitude, so the
+    // 100 ms deadline converts slow-but-correct programs into errors and
+    // the rate stops measuring the generator. Skip: the CI gc-stress
+    // variant still replays the fuzz targets themselves.
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    var ok: u32 = 0;
+    var total: u32 = 0;
+    var seed_n: u64 = 0;
+    while (seed_n < 60) : (seed_n += 1) {
+        const src = try fuzz_gen.generateSeeded(seed_n, std.testing.allocator);
+        defer std.testing.allocator.free(src);
+        switch (evalOneOutcome(src)) {
+            .ok => ok += 1,
+            .scheme_error => {},
+            .harness_unavailable => return error.SkipZigTest,
+        }
+        total += 1;
+    }
+    // Offline measurement over 300 seeds puts the rate at ~98% (the misses
+    // are expected outcomes — guard re-raises and deadline hits on
+    // loop-heavy programs). This gate samples only the first 60 seeds to
+    // keep `zig build test` cheap (each eval builds a full VM, and the
+    // Debug CI job runs close to its time budget), and the threshold sits
+    // far below the measured rate because deadline outcomes are
+    // load-sensitive: a real generator regression tanks the rate, CI
+    // jitter must not.
+    try std.testing.expect(ok * 100 >= total * 75);
 }
