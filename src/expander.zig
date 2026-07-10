@@ -182,9 +182,15 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
 
     const literal_bound = transformer.literal_bound;
 
-    // Try each rule in order
+    // Try each rule in order. The bindings buffer is hoisted and left
+    // uninitialized (entries below bind_count are always written before
+    // being read) — a safety fill of the ~1MB array per rule attempt is
+    // prohibitively slow for macro-heavy code.
+    var bindings: [MAX_BINDINGS]Binding = b: {
+        @setRuntimeSafety(false);
+        break :b undefined;
+    };
     for (0..transformer.num_rules) |i| {
-        var bindings: [MAX_BINDINGS]Binding = undefined;
         var bind_count: usize = 0;
 
         // Skip the keyword in the pattern (first element of pattern)
@@ -239,14 +245,16 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
         // Underscore (not in literals): match anything, bind nothing
         if (std.mem.eql(u8, name, "_")) return true;
 
-        // Pattern variable: bind to input
+        // Pattern variable: bind to input. Fields are set individually
+        // because a struct literal re-initializes the 8KB ellipsis_values
+        // field (safety fill), which dominated expansion time on
+        // macro-heavy code.
         if (count.* >= MAX_BINDINGS) return false;
-        bindings[count.*] = .{
-            .name = name,
-            .value = input,
-            .depth = 0,
-            .is_list = false,
-        };
+        bindings[count.*].name = name;
+        bindings[count.*].value = input;
+        bindings[count.*].depth = 0;
+        bindings[count.*].is_list = false;
+        bindings[count.*].ellipsis_count = 0;
         count.* += 1;
         return true;
     }
@@ -363,23 +371,29 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
     collectPatternVars(elem_pattern, literals, &elem_var_names, &elem_var_count, &var_overflow);
     if (var_overflow) return false;
 
-    // Create list bindings for each pattern variable found in the ellipsis sub-pattern
+    // Create list bindings for each pattern variable found in the ellipsis
+    // sub-pattern. Field-wise assignment: see matchPattern.
     const base_count = count.*;
     for (0..elem_var_count) |vi| {
         if (count.* >= MAX_BINDINGS) return false;
-        bindings[count.*] = .{
-            .name = elem_var_names[vi],
-            .value = types.NIL,
-            .depth = 1,
-            .is_list = true,
-        };
+        bindings[count.*].name = elem_var_names[vi];
+        bindings[count.*].value = types.NIL;
+        bindings[count.*].depth = 1;
+        bindings[count.*].is_list = true;
+        bindings[count.*].ellipsis_count = 0;
         count.* += 1;
     }
 
-    // Match each repetition
+    // Match each repetition. The sub-binding buffer is hoisted out of the
+    // loop and left uninitialized: matchPattern only writes entries below
+    // sub_count, and a safety fill of the ~1MB array per repetition is
+    // what made match-style macros unusably slow.
+    var sub_bindings: [MAX_BINDINGS]Binding = b: {
+        @setRuntimeSafety(false);
+        break :b undefined;
+    };
     var inp = input;
     for (0..repeat_count) |_| {
-        var sub_bindings: [MAX_BINDINGS]Binding = undefined;
         var sub_count: usize = 0;
         if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count, gc, literal_bound, use_check))
             return false;
@@ -543,11 +557,6 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         }
     }
 
-    // Nested syntax-rules: protect inner pattern variables from outer substitution
-    if (types.isSymbol(elem) and std.mem.eql(u8, types.symbolName(elem), "syntax-rules")) {
-        return instantiateNestedSyntaxRules(gc, template, bindings, intro_scope, literals, macro_keyword, globals, macros);
-    }
-
     // Detect binding forms and set binding-position flag for variable names
     const BINDING_FLAG: u32 = 0x20000000;
     if (types.isSymbol(elem)) {
@@ -592,6 +601,40 @@ fn instantiateLetBindings(gc: *GC, binding_list: Value, bindings: []Binding, sco
     if (binding_list == types.NIL) return types.NIL;
     if (!types.isPair(binding_list)) return instantiateTemplate(gc, binding_list, bindings, scope, literals, macro_keyword, globals, macros);
     const pair = types.car(binding_list);
+    // Ellipsis after a binding element: ((var init) ...) — expand the
+    // repetitions via the regular ellipsis machinery, then continue
+    // let-binding processing on whatever follows the ellipsis token(s).
+    // Consecutive extra ellipses (((var init) ... ...), R7RS 4.3.2
+    // flattening) are collected into a synthetic rest-template so
+    // instantiateEllipsis applies its existing flattening logic.
+    const after = types.cdr(binding_list);
+    if (types.isPair(after)) {
+        const nxt = types.car(after);
+        if (types.isSymbol(nxt) and isEllipsis(types.symbolName(nxt))) {
+            var synth_rest: Value = types.NIL;
+            gc.pushRoot(&synth_rest);
+            defer gc.popRoot();
+            var rest_after = types.cdr(after);
+            while (types.isPair(rest_after)) {
+                const tok = types.car(rest_after);
+                if (types.isSymbol(tok) and isEllipsis(types.symbolName(tok))) {
+                    synth_rest = try gc.allocPair(tok, synth_rest);
+                    rest_after = types.cdr(rest_after);
+                } else break;
+            }
+            const segment = try instantiateEllipsis(gc, pair, synth_rest, bindings, scope & ~@as(u32, 0x20000000), literals, macro_keyword, globals, macros);
+            var seg_root = segment;
+            gc.pushRoot(&seg_root);
+            defer gc.popRoot();
+            const tail = try instantiateLetBindings(gc, rest_after, bindings, scope, literals, macro_keyword, globals, macros);
+            if (seg_root == types.NIL) return tail;
+            var last = seg_root;
+            while (types.isPair(types.cdr(last))) last = types.cdr(last);
+            gc.writeBarrier(types.toObject(last), tail);
+            types.setCdr(last, tail);
+            return seg_root;
+        }
+    }
     if (!types.isPair(pair)) {
         const new_pair = try instantiateTemplate(gc, pair, bindings, scope, literals, macro_keyword, globals, macros);
         var pair_root = new_pair;
@@ -616,49 +659,6 @@ fn instantiateLetBindings(gc: *GC, binding_list: Value, bindings: []Binding, sco
     defer gc.popRoot();
     const new_rest = try instantiateLetBindings(gc, types.cdr(binding_list), bindings, scope, literals, macro_keyword, globals, macros);
     return gc.allocPair(np_root, new_rest);
-}
-
-fn instantiateNestedSyntaxRules(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
-    // template = (syntax-rules (lits...) (pat tmpl) ...)
-    // Collect inner pattern variable names to exclude from outer bindings
-    var inner_pvs: [128][]const u8 = undefined;
-    var inner_pv_count: usize = 0;
-    const sr_rest = types.cdr(template); // skip 'syntax-rules'
-    if (sr_rest != types.NIL and types.isPair(sr_rest)) {
-        var rules = types.cdr(sr_rest); // skip literals list
-        while (rules != types.NIL and types.isPair(rules)) {
-            const rule = types.car(rules);
-            if (types.isPair(rule)) {
-                var overflowed = false;
-                collectPatternVars(types.car(rule), literals, &inner_pvs, &inner_pv_count, &overflowed);
-                if (overflowed) return ExpandError.PatternTooComplex;
-            }
-            rules = types.cdr(rules);
-        }
-    }
-    // Filter outer bindings: remove any that clash with inner pattern variables
-    var filtered: [MAX_BINDINGS]Binding = undefined;
-    var filt_count: usize = 0;
-    for (bindings) |b| {
-        var is_inner = false;
-        for (inner_pvs[0..inner_pv_count]) |ipv| {
-            if (std.mem.eql(u8, b.name, ipv)) {
-                is_inner = true;
-                break;
-            }
-        }
-        if (!is_inner) {
-            filtered[filt_count] = b;
-            filt_count += 1;
-        }
-    }
-    // Recurse with filtered bindings
-    const new_car = try instantiateTemplate(gc, types.car(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
-    var car_root = new_car;
-    gc.pushRoot(&car_root);
-    defer gc.popRoot();
-    const new_cdr = try instantiateTemplate(gc, types.cdr(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
-    return gc.allocPair(car_root, new_cdr);
 }
 
 fn templateReferencesVar(template: Value, name: []const u8) bool {
@@ -729,23 +729,28 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     }
     defer if (extra_ellipsis > 0) gc.popRoot();
 
-    // Generate copies in reverse so we build the list from right to left
+    // Generate copies in reverse so we build the list from right to left.
+    // The sub-binding buffer is hoisted out of the loop and written
+    // field-by-field: whole-struct assignment re-initializes or copies the
+    // 8KB ellipsis_values field each time, which dominated expansion time
+    // on macro-heavy code (ellipsis_values is only read when is_list).
+    var sub_bindings: [MAX_BINDINGS]Binding = b: {
+        @setRuntimeSafety(false);
+        break :b undefined;
+    };
     var i = repeat_count;
     while (i > 0) {
         i -= 1;
         // Create sub-bindings with the i-th value for each list binding
-        var sub_bindings: [MAX_BINDINGS]Binding = undefined;
         var sub_count: usize = 0;
         for (bindings) |b| {
             if (b.is_list) {
                 if (b.depth > 1) {
                     // Nested ellipsis: unpack list into sub-binding
-                    sub_bindings[sub_count] = .{
-                        .name = b.name,
-                        .value = types.NIL,
-                        .depth = b.depth - 1,
-                        .is_list = true,
-                    };
+                    sub_bindings[sub_count].name = b.name;
+                    sub_bindings[sub_count].value = types.NIL;
+                    sub_bindings[sub_count].depth = b.depth - 1;
+                    sub_bindings[sub_count].is_list = true;
                     var list_val = b.ellipsis_values[i];
                     var ev_count: usize = 0;
                     while (types.isPair(list_val) and ev_count < MAX_ELLIPSIS_VALUES) {
@@ -755,15 +760,18 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
                     }
                     sub_bindings[sub_count].ellipsis_count = ev_count;
                 } else {
-                    sub_bindings[sub_count] = .{
-                        .name = b.name,
-                        .value = b.ellipsis_values[i],
-                        .depth = 0,
-                        .is_list = false,
-                    };
+                    sub_bindings[sub_count].name = b.name;
+                    sub_bindings[sub_count].value = b.ellipsis_values[i];
+                    sub_bindings[sub_count].depth = 0;
+                    sub_bindings[sub_count].is_list = false;
+                    sub_bindings[sub_count].ellipsis_count = 0;
                 }
             } else {
-                sub_bindings[sub_count] = b;
+                sub_bindings[sub_count].name = b.name;
+                sub_bindings[sub_count].value = b.value;
+                sub_bindings[sub_count].depth = b.depth;
+                sub_bindings[sub_count].is_list = false;
+                sub_bindings[sub_count].ellipsis_count = 0;
             }
             sub_count += 1;
         }
