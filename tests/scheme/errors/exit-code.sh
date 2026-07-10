@@ -113,6 +113,47 @@ assert_exit_code "--compile read error exits 1" 1 "$KAAPPI" --compile "$TMPDIR_T
 assert_exit_code "--compile missing file exits 1" 1 "$KAAPPI" --compile "$TMPDIR_TESTS/nope.scm"
 assert_exit_code "--disassemble read error exits 1" 1 "$KAAPPI" --disassemble "$TMPDIR_TESTS/unbal.scm"
 
+# Native-compile subcommand failures must also exit non-zero. A missing
+# libkaappi_rt.a used to print an error but exit 0 with no output binary,
+# so exit-code-checking harnesses (e.g. tests/fuzz/native-diff.sh) saw
+# success. Source-level failures share the --emit-llvm path.
+assert_exit_code "compile missing file exits 1" 1 "$KAAPPI" compile "$TMPDIR_TESTS/nope.scm" -o "$TMPDIR_TESTS/nat-out"
+assert_exit_code "compile read error exits 1" 1 "$KAAPPI" compile "$TMPDIR_TESTS/unbal.scm" -o "$TMPDIR_TESTS/nat-out"
+assert_exit_code "--emit-llvm missing file exits 1" 1 "$KAAPPI" --emit-llvm "$TMPDIR_TESTS/nope.scm"
+assert_exit_code "--emit-llvm read error exits 1" 1 "$KAAPPI" --emit-llvm "$TMPDIR_TESTS/unbal.scm"
+
+# Missing runtime library: run an isolated copy of the binary from a bare
+# directory so the exe-relative and cwd-relative libkaappi_rt.a lookups all
+# miss. Skipped when a system-wide runtime is installed (last fallback).
+if [[ -f /usr/local/lib/libkaappi_rt.a ]]; then
+    echo "SKIP: compile without libkaappi_rt.a exits 1 (system-wide runtime installed)"
+else
+    mkdir -p "$TMPDIR_TESTS/isobin"
+    cp "$KAAPPI" "$TMPDIR_TESTS/isobin/kaappi"
+    status=0
+    (cd "$TMPDIR_TESTS" && env -u KAAPPI_LIB_DIR ./isobin/kaappi compile ok.scm -o nat-out) > /dev/null 2>&1 || status=$?
+    if [[ "$status" -eq 1 ]]; then
+        echo "PASS: compile without libkaappi_rt.a exits 1"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: compile without libkaappi_rt.a — expected exit 1, got $status"
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
+# Missing C compiler / failing linker: a dummy libkaappi_rt.a satisfies the
+# library lookup, and PATH controls what compiler the link step can find.
+mkdir -p "$TMPDIR_TESTS/fakelib" "$TMPDIR_TESTS/emptypath" "$TMPDIR_TESTS/fakecc"
+touch "$TMPDIR_TESTS/fakelib/libkaappi_rt.a"
+printf '#!/bin/sh\nexit 1\n' > "$TMPDIR_TESTS/fakecc/cc"
+chmod +x "$TMPDIR_TESTS/fakecc/cc"
+assert_exit_code "compile without C compiler exits 1" 1 \
+    env KAAPPI_LIB_DIR="$TMPDIR_TESTS/fakelib" PATH="$TMPDIR_TESTS/emptypath" \
+    "$KAAPPI" compile "$TMPDIR_TESTS/ok.scm" -o "$TMPDIR_TESTS/nat-out"
+assert_exit_code "compile with failing linker exits 1" 1 \
+    env KAAPPI_LIB_DIR="$TMPDIR_TESTS/fakelib" PATH="$TMPDIR_TESTS/fakecc" \
+    "$KAAPPI" compile "$TMPDIR_TESTS/ok.scm" -o "$TMPDIR_TESTS/nat-out"
+
 # Passing a directory must error, not silently run an empty program (#789)
 mkdir -p "$TMPDIR_TESTS/adir"
 assert_exit_code "directory as script exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/adir"

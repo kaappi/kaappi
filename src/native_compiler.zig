@@ -13,7 +13,12 @@ const writeStderr = reporting.writeStderr;
 
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
-    const source = file_utils.readWholeFile(allocator, path, 1024 * 1024) catch return;
+    const source = file_utils.readWholeFile(allocator, path, 1024 * 1024) catch |err| {
+        var errbuf: [1088]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "Error opening file '{s}'\n", .{path}) catch "Error opening file\n";
+        writeStderr(s);
+        return err;
+    };
     defer allocator.free(source);
 
     const saved_lib_dir = vm.current_lib_dir;
@@ -41,14 +46,14 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
         writeStderr(s);
-        return;
+        return err;
     }) {
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
-            return;
+            return err;
         };
 
         if (types.isPair(expr)) {
@@ -81,10 +86,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "IR lowering error: {}\n", .{err}) catch "IR error\n";
             writeStderr(s);
-            return;
+            return err;
         };
 
-        ir_nodes.append(allocator, root) catch return;
+        try ir_nodes.append(allocator, root);
 
         // Record any define/set! target from this form so that the next
         // form's constant folding does not assume the primitive is unmodified.
@@ -97,15 +102,15 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "LLVM emit error: {}\n", .{err}) catch "emit error\n";
         writeStderr(s);
-        return;
+        return err;
     };
 
     const out_path = output_path orelse blk: {
         if (std.mem.endsWith(u8, path, ".scm")) {
             const base = path[0 .. path.len - 4];
-            break :blk std.fmt.allocPrint(allocator, "{s}.ll", .{base}) catch return;
+            break :blk try std.fmt.allocPrint(allocator, "{s}.ll", .{base});
         }
-        break :blk std.fmt.allocPrint(allocator, "{s}.ll", .{path}) catch return;
+        break :blk try std.fmt.allocPrint(allocator, "{s}.ll", .{path});
     };
     const should_free = output_path == null;
     defer if (should_free) allocator.free(out_path);
@@ -114,9 +119,9 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         .ACCMODE = .WRONLY,
         .CREAT = true,
         .TRUNC = true,
-    }, 0o644) catch {
+    }, 0o644) catch |err| {
         writeStderr("Failed to create output file\n");
-        return;
+        return err;
     };
     defer _ = std.posix.system.close(fd);
     const data = emitter.toSlice();
@@ -125,7 +130,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         const result = std.posix.system.write(fd, data.ptr + total, data.len - total);
         if (result <= 0) {
             writeStderr("Failed to write output\n");
-            return;
+            return error.WriteFailed;
         }
         total += @as(usize, @intCast(result));
     }
@@ -141,11 +146,11 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
     const pid = std.c.getpid();
     var ll_buf: [64]u8 = undefined;
     var ll_w: std.Io.Writer = .fixed(&ll_buf);
-    ll_w.print("/tmp/kaappi_native_{d}.ll", .{pid}) catch return;
+    try ll_w.print("/tmp/kaappi_native_{d}.ll", .{pid});
     const ll_path = ll_w.buffered();
     ll_buf[ll_path.len] = 0;
-    emitLlvmFile(vm, path, ll_path) catch return;
     defer _ = std.posix.system.unlink(@ptrCast(ll_path.ptr));
+    try emitLlvmFile(vm, path, ll_path);
 
     const out_path = output_path orelse blk: {
         if (std.mem.endsWith(u8, path, ".scm")) {
@@ -156,22 +161,29 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
 
     const lib_dir = findLibDir(allocator) orelse {
         writeStderr("Cannot find libkaappi_rt.a. Build it with: zig build lib\n");
-        return;
+        return error.RuntimeLibraryNotFound;
     };
 
-    const lib_flag = std.fmt.allocPrint(allocator, "-L{s}", .{lib_dir}) catch return;
+    const lib_flag = try std.fmt.allocPrint(allocator, "-L{s}", .{lib_dir});
     defer allocator.free(lib_flag);
 
+    var found_compiler = false;
     const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
     for (compilers) |cc| {
         const cc_path = findInPath(allocator, cc) orelse continue;
         defer allocator.free(cc_path);
+        found_compiler = true;
         if (tryLink(allocator, cc_path, ll_path, out_path, lib_flag, std.mem.eql(u8, cc, "zig"))) {
             return;
         }
     }
 
+    if (found_compiler) {
+        writeStderr("Linking failed (see C compiler diagnostics above).\n");
+        return error.LinkFailed;
+    }
     writeStderr("No C compiler found. Install zig, clang, or gcc.\n");
+    return error.NoCCompilerFound;
 }
 
 fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
