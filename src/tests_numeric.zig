@@ -339,3 +339,38 @@ test "types.toF64 handles bignums (#792)" {
     try std.testing.expect(f2 > 0.0);
     try std.testing.expect(f2 < 1e-19);
 }
+
+test "bignum rational arithmetic survives GC stress (#1414)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // 2^50 and 2^48 both exceed the ±2^47 fixnum range, so the rational
+    // accumulator loops in +, -, *, / allocate a bignum on every update.
+    _ = try vm.eval("(define big-a 1125899906842624)");
+    _ = try vm.eval("(define big-b 281474976710656)");
+
+    // Collect on every allocation: an unrooted intermediate is freed and its
+    // memory reused by the next accumulator update, aliasing the operands.
+    gc.stress = true;
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 4 (/ big-a big-b))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 1407374883553280 (+ big-a big-b))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 844424930131968 (- big-a big-b))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 4 (* big-a (/ 1 big-b)))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= (/ 5 big-a) (+ (/ 1 big-a) (/ 1 big-b)))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        "(= 1000000007 (/ (* 1234567890123456789 1000000007) 1234567890123456789))",
+    ));
+    // string->number's rational parse holds the numerator bignum across the
+    // denominator parse — same unrooted-intermediate hazard. First case takes
+    // the makeFixnumChecked branch (parts fit i64), second takes the
+    // parseBignumString branch (parts >= 2^63).
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        "(= 4 (string->number \"1125899906842624/281474976710656\"))",
+    ));
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        "(= 2 (string->number \"36893488147419103232/18446744073709551616\"))",
+    ));
+}
