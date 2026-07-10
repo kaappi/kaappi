@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783646903338,
+  "lastUpdate": 1783648104859,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "66e4389d7b180140f8ffd0161e2b6f967125a529",
-          "message": "Improve parallel-issues skill: label filter, triage rules, body-based grouping (#1255)\n\nThe skill grouped issues by title alone, so it could not actually verify\nits core no-file-overlap rule, and it happily batched epic/tracking\nissues, assigned issues, and issues with fixes already in flight.\n\n- Accept an optional label argument ($ARGUMENTS) to scope the batch\n- Fetch issue bodies and assignees; bodies are where file paths live\n- Skip epics/tracking/meta, assigned, linked-PR, and not-actionable issues\n- Raise the list limit to 500 and rerun when the count hits the limit\n- Cap sets at ~8 issues so output matches launchable parallelism\n- Explain the why behind the strict set-line output format\n\nValidated with the skill-creator eval loop against the live tracker:\nnew skill 11/11 assertions vs old skill 9/11 — the baseline batched\nmeta-issues 1137/1245/1246 and produced sets of up to 18 issues.\nEval definitions live in evals/evals.json for future iterations.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T11:15:03Z",
-          "tree_id": "726a50d16780fffdb3ea7073d86841e99f48f014",
-          "url": "https://github.com/kaappi/kaappi/commit/66e4389d7b180140f8ffd0161e2b6f967125a529"
-        },
-        "date": 1783337901754,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.339632,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.772768,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.937033,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.369152,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012437,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212749,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.489712,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071526,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.398432,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.939092,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.967806,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.962243,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.302429,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695209,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042026,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045588,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c93734e159f46a28260c9ab10e9dc310c6b36a4",
+          "message": "Re-enable stale FAIL-marked assertions for six fixed issues (#1381)\n\n* Re-enable stale FAIL-marked assertions for six fixed issues\n\nAn epic #1246 verification sweep found FAIL: #NNNN markers whose issues\nwere closed with the fix landed, but whose disabled assertions were never\nre-enabled: #1199 (record accessor type checks), #1202 (parameterize\nsimultaneous binding), #1169 (multi-value continuations), #1180\n(heap-boxed numeric hash keys), #1188 (eval environment validation),\nand #826 (Unicode whitespace in string-trim). All six now pass against\nHEAD, so they become live regression tests.\n\nMarkers for #1178, #1184, and #1185 are left disabled: those issues were\nclosed as completed but the behavior is still broken (verified against\nHEAD).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Strengthen re-enabled hash-key assertions to compare stored values\n\nReview feedback on the #1180 regression loops: checking only for the\n'missing sentinel would pass if a lookup returned the wrong entry's\nvalue. Compare against the inserted value instead, matching the\nfixnum/string growth tests later in the file.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T01:25:23Z",
+          "tree_id": "2b07887ce35f3e2fe79255617c1fb7dce35a3e04",
+          "url": "https://github.com/kaappi/kaappi/commit/0c93734e159f46a28260c9ab10e9dc310c6b36a4"
+        },
+        "date": 1783648103000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.549313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.114443,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.003715,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.615904,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012917,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338894,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513989,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070166,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.630052,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.253556,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.761559,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.037919,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.587607,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.518142,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044573,
             "unit": "seconds"
           }
         ]
