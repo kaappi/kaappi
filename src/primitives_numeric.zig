@@ -492,6 +492,26 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
         const i = i_sign * @sqrt((mag - c.real) / 2.0);
         return gc.allocComplex(r, i) catch return PrimitiveError.OutOfMemory;
     }
+    if (types.isBignum(args[0]) and !bignum_mod.isNegative(args[0])) {
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const r = try isqrtNonNegative(gc, args[0]);
+        if (bignum_mod.isZero(r.rem)) return r.root;
+    }
+    if (types.isRationalObj(args[0])) {
+        const rat = types.toRational(args[0]);
+        if (!bignum_mod.isNegative(rat.numerator)) {
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const num_r = try isqrtNonNegative(gc, rat.numerator);
+            if (bignum_mod.isZero(num_r.rem)) {
+                var slot_root = gc.rootedSlot(num_r.root) catch return PrimitiveError.OutOfMemory;
+                defer slot_root.release();
+                const den_r = try isqrtNonNegative(gc, rat.denominator);
+                if (bignum_mod.isZero(den_r.rem)) {
+                    return arith.makeRationalReduced(gc, num_r.root, den_r.root);
+                }
+            }
+        }
+    }
     const f = try toF64(args[0]);
     if (f < 0.0) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -506,22 +526,23 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
     return makeFlonumVal(result);
 }
 
-fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (types.isFixnum(args[0])) {
-        const n = types.toFixnum(args[0]);
-        if (n < 0) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
+const IsqrtResult = struct { root: Value, rem: Value };
+
+/// Floor integer square root of a non-negative exact integer (fixnum or
+/// bignum). Returns the root and remainder n - root*root, demoted to fixnums
+/// when they fit. The results are unrooted: callers must root them before
+/// allocating.
+fn isqrtNonNegative(gc: *memory.GC, n_val: Value) PrimitiveError!IsqrtResult {
+    if (types.isFixnum(n_val)) {
+        const n = types.toFixnum(n_val);
         const f: f64 = @floatFromInt(n);
         var s: i64 = @intFromFloat(@sqrt(f));
         while (s * s > n) s -= 1;
         while ((s + 1) * (s + 1) <= n) s += 1;
-        const rem = n - s * s;
-        const vals = [_]Value{ types.makeFixnum(s), types.makeFixnum(rem) };
-        return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+        return .{ .root = types.makeFixnum(s), .rem = types.makeFixnum(n - s * s) };
     }
-    if (types.isBignum(args[0])) {
-        if (bignum_mod.isNegative(args[0])) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
-        const n = args[0];
+    {
+        const n = n_val;
         // Use f64 sqrt as initial guess. When the number is too large
         // for f64, compute bit-length and use (n >> shift) for the
         // approximation, then shift the result back.
@@ -593,12 +614,25 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
             s1_sq = bignum_mod.mul(gc, s1, s1) catch return PrimitiveError.OutOfMemory;
         }
         const rem = bignum_mod.sub(gc, n, s2) catch return PrimitiveError.OutOfMemory;
-        var slot_rem = gc.rootedSlot(rem) catch return PrimitiveError.OutOfMemory;
-        defer slot_rem.release();
-        const vals = [_]Value{ bignum_mod.demote(s), bignum_mod.demote(rem) };
-        return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+        return .{ .root = bignum_mod.demote(s), .rem = bignum_mod.demote(rem) };
     }
-    return primitives.typeError("exact-integer-sqrt", "exact integer", args[0]);
+}
+
+fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) {
+        return primitives.typeError("exact-integer-sqrt", "exact integer", args[0]);
+    }
+    if (bignum_mod.isNegative(args[0])) {
+        return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
+    }
+    const r = try isqrtNonNegative(gc, args[0]);
+    var slot_root = gc.rootedSlot(r.root) catch return PrimitiveError.OutOfMemory;
+    defer slot_root.release();
+    var slot_rem = gc.rootedSlot(r.rem) catch return PrimitiveError.OutOfMemory;
+    defer slot_rem.release();
+    const vals = [_]Value{ r.root, r.rem };
+    return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------
