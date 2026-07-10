@@ -112,6 +112,9 @@ const Ctx = struct {
     /// arguments run between closure creation (which snapshots captured
     /// params by value) and the call, so a set! of a captured param there
     /// diverges from the VM's location-based capture (#1422).
+    /// Note: set! of a define-position function's own params is prevented
+    /// separately by pushing those params with settable=false — the #1422
+    /// guard rejects functions whose params are both set! and captured.
     no_set: bool = false,
 };
 
@@ -203,7 +206,7 @@ fn genLambda(g: *Gen, ctx: *Ctx, arity: u8, variadic: bool) Error!void {
     for (params, 0..) |p, i| {
         if (i > 0) try g.emit(" ");
         try g.emit(p);
-        try g.pushBinding(p, .int);
+        try g.scope.append(g.gpa, .{ .name = p, .kind = .int, .settable = false });
     }
     if (variadic) {
         try g.emit(" . rest");
@@ -244,7 +247,10 @@ fn genFnDefine(g: *Gen, ctx: *Ctx) Error!void {
             var saved = try enterBody(g, false);
             for (params) |p| {
                 try g.emitf(" {s}", .{p});
-                try g.pushBinding(p, .int);
+                // Non-settable: inline lambdas in the body may capture these
+                // params, and set! of a captured param triggers the #1422
+                // guard, rejecting the whole function for native compilation.
+                try g.scope.append(g.gpa, .{ .name = p, .kind = .int, .settable = false });
             }
             if (variadic) {
                 try g.emit(" . rest");
@@ -263,8 +269,8 @@ fn genFnDefine(g: *Gen, ctx: *Ctx) Error!void {
                 name, params[0], params[1], params[0], params[1], name, params[0],
             });
             var saved = try enterBody(g, false);
-            try g.pushBinding(params[0], .int);
-            try g.pushBinding(params[1], .int);
+            try g.scope.append(g.gpa, .{ .name = params[0], .kind = .int, .settable = false });
+            try g.scope.append(g.gpa, .{ .name = params[1], .kind = .int, .settable = false });
             var body_ctx: Ctx = .{ .fn_depth = 1 };
             try genInt(g, &body_ctx, 3);
             leaveBody(g, &saved);
@@ -276,7 +282,7 @@ fn genFnDefine(g: *Gen, ctx: *Ctx) Error!void {
             const op = rec_ops[g.ch.index(.op_pick, rec_ops.len)];
             try g.emitf("(define ({s} {s}) (if (<= {s} 0) ", .{ name, params[0], params[0] });
             var saved = try enterBody(g, false);
-            try g.pushBinding(params[0], .int);
+            try g.scope.append(g.gpa, .{ .name = params[0], .kind = .int, .settable = false });
             var body_ctx: Ctx = .{ .fn_depth = 1 };
             try genInt(g, &body_ctx, 2);
             try g.emitf(" ({s} ", .{op});

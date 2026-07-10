@@ -360,6 +360,9 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
         param_list = types.cdr(param_list);
     }
 
+    // #1422: reject if a param is both set! and captured by a nested lambda.
+    if (bodyHasConflictingSetCapture(body, param_names[0..arity], rest_name)) return null;
+
     var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters (including a rest parameter) shadow primitives of the same
@@ -659,6 +662,80 @@ fn sexprContainsSetOrDefine(expr: types.Value) bool {
         if (sexprContainsSetOrDefine(types.car(cur))) return true;
     }
     return false;
+}
+
+// True if the function body has a parameter that is both targeted by set!
+// and captured by a nested lambda.  The native upvalue-copy model snapshots
+// at closure creation, so a later set! of the same param is invisible to
+// the closure — diverging from the VM's by-location semantics (#1422).
+fn bodyHasConflictingSetCapture(body_list: Value, param_names: []const []const u8, rest_name: ?[]const u8) bool {
+    const total = param_names.len + @as(usize, if (rest_name != null) 1 else 0);
+    if (total == 0) return false;
+    var set_flags: [17]bool = @splat(false);
+
+    var expr = body_list;
+    while (expr != types.NIL and types.isPair(expr)) : (expr = types.cdr(expr)) {
+        sexprCollectSetTargets(types.car(expr), param_names, rest_name, &set_flags);
+    }
+
+    var any = false;
+    for (set_flags[0..total]) |f| {
+        if (f) {
+            any = true;
+            break;
+        }
+    }
+    if (!any) return false;
+
+    var flagged: [17][]const u8 = undefined;
+    var flagged_count: usize = 0;
+    for (param_names, 0..) |p, i| {
+        if (set_flags[i]) {
+            flagged[flagged_count] = p;
+            flagged_count += 1;
+        }
+    }
+    if (rest_name) |rn| {
+        if (set_flags[param_names.len]) {
+            flagged[flagged_count] = rn;
+            flagged_count += 1;
+        }
+    }
+
+    return bodyHasCapturingLambda(body_list, flagged[0..flagged_count]);
+}
+
+fn sexprCollectSetTargets(expr: Value, param_names: []const []const u8, rest_name: ?[]const u8, flags: *[17]bool) void {
+    if (!types.isPair(expr)) return;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const h = types.symbolName(head);
+        if (std.mem.eql(u8, h, "quote")) return;
+        if (std.mem.eql(u8, h, "set!")) {
+            const rest = types.cdr(expr);
+            if (types.isPair(rest)) {
+                const target = types.car(rest);
+                if (types.isSymbol(target)) {
+                    const tname = types.symbolName(target);
+                    for (param_names, 0..) |p, i| {
+                        if (std.mem.eql(u8, tname, p)) {
+                            flags[i] = true;
+                            break;
+                        }
+                    }
+                    if (rest_name) |rn| {
+                        if (std.mem.eql(u8, tname, rn)) {
+                            flags[param_names.len] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        sexprCollectSetTargets(types.car(cur), param_names, rest_name, flags);
+    }
 }
 
 fn hasFreeVars(self: *LLVMEmitter, nodes: []const *ir.Node, params: []const []const u8) bool {
