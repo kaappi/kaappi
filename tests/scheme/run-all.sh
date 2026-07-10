@@ -53,10 +53,10 @@ run_file() {
         return
     fi
     if [[ $status -eq 0 ]]; then
-        # chibi-test files exit 0 even when assertions fail (the shim's
-        # "N pass, M fail" summary is the only signal), and SRFI-64 files
-        # rely on their own exit-on-fail epilogue. Trust the printed
-        # counts, not just the exit code.
+        # SRFI-64 files rely on their own exit-on-fail epilogue, and a file
+        # that forgets it (or a stray chibi-test file — the shim exits 0
+        # even when assertions fail) would otherwise slip through. Trust
+        # the printed counts, not just the exit code.
         if grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]' "$TMPOUT"; then
             echo "  FAIL  $file  (failing assertions reported despite exit 0)"
             cat "$TMPOUT"
