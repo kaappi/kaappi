@@ -4,7 +4,7 @@
 ;; Run directly and read the printed counts — run-all.sh only sees exit codes.
 
 (import (scheme base) (scheme write) (scheme file) (srfi 170) (srfi 60))
-(import (chibi test))
+(import (scheme process-context) (srfi 64))
 
 (test-begin "primitives_filesystem audit")
 
@@ -24,64 +24,64 @@
   (lambda (port) (display "h" port)))
 
 ;;; --- directory-files: no . / .., dotfiles opt-in ---
-(test '("a.txt") (directory-files D))
-(test #t (and (member ".hidden" (directory-files D #t))
-              (member "a.txt" (directory-files D #t)) #t))
+(test-equal '("a.txt") (directory-files D))
+(test-equal #t (and (member ".hidden" (directory-files D #t))
+                    (member "a.txt" (directory-files D #t)) #t))
 
 ;;; --- file-info with follow? flag ---
 (let ((fi (file-info (string-append D "/a.txt") #t)))
-  (test #t (file-info? fi))
-  (test #f (file-info? 42))
-  (test 4 (file-info:size fi))
-  (test #t (file-info-regular? fi))
-  (test #f (file-info-directory? fi))
-  (test #t (and (exact? (file-info:mtime fi)) (exact? (file-info:atime fi))
-                (exact? (file-info:ctime fi))))
-  (test #t (>= (file-info:nlinks fi) 1))
-  (test #t (= (file-info:uid fi) (user-uid))))
-(test #t (file-info-directory? (file-info D #t)))
-(test 'regular (file-info-type (file-info (string-append D "/a.txt") #t)))
+  (test-equal #t (file-info? fi))
+  (test-equal #f (file-info? 42))
+  (test-equal 4 (file-info:size fi))
+  (test-equal #t (file-info-regular? fi))
+  (test-equal #f (file-info-directory? fi))
+  (test-equal #t (and (exact? (file-info:mtime fi)) (exact? (file-info:atime fi))
+                      (exact? (file-info:ctime fi))))
+  (test-equal #t (>= (file-info:nlinks fi) 1))
+  (test-equal #t (= (file-info:uid fi) (user-uid))))
+(test-equal #t (file-info-directory? (file-info D #t)))
+(test-equal 'regular (file-info-type (file-info (string-append D "/a.txt") #t)))
 
 ;;; --- symlinks: follow? governs stat vs lstat ---
 (create-symlink (string-append D "/a.txt") (string-append D "/ln"))
-(test #t (file-info-symlink? (file-info (string-append D "/ln") #f)))
-(test #f (file-info-symlink? (file-info (string-append D "/ln") #t)))
-(test (string-append D "/a.txt") (read-symlink (string-append D "/ln")))
-(test #t (string=? (real-path (string-append D "/ln"))
-                   (real-path (string-append D "/a.txt"))))
-(test 'symlink (file-info-type (file-info (string-append D "/ln") #f)))
+(test-equal #t (file-info-symlink? (file-info (string-append D "/ln") #f)))
+(test-equal #f (file-info-symlink? (file-info (string-append D "/ln") #t)))
+(test-equal (string-append D "/a.txt") (read-symlink (string-append D "/ln")))
+(test-equal #t (string=? (real-path (string-append D "/ln"))
+                         (real-path (string-append D "/a.txt"))))
+(test-equal 'symlink (file-info-type (file-info (string-append D "/ln") #f)))
 
 ;;; --- create-directory with permission bits ---
 (create-directory (string-append D "/sub") #o700)
-(test #o700 (logand (file-info:mode (file-info (string-append D "/sub") #t)) #o777))
+(test-equal #o700 (logand (file-info:mode (file-info (string-append D "/sub") #t)) #o777))
 
 ;;; --- rename-file overwrites; set-file-mode; truncate-file ---
 (call-with-output-file (string-append D "/b.txt") (lambda (port) (display "bb" port)))
 (rename-file (string-append D "/b.txt") (string-append D "/a.txt"))
-(test 2 (file-info:size (file-info (string-append D "/a.txt") #t)))
+(test-equal 2 (file-info:size (file-info (string-append D "/a.txt") #t)))
 (set-file-mode (string-append D "/a.txt") #o600)
-(test #o600 (logand (file-info:mode (file-info (string-append D "/a.txt") #t)) #o777))
+(test-equal #o600 (logand (file-info:mode (file-info (string-append D "/a.txt") #t)) #o777))
 (truncate-file (string-append D "/a.txt") 1)
-(test 1 (file-info:size (file-info (string-append D "/a.txt") #t)))
+(test-equal 1 (file-info:size (file-info (string-append D "/a.txt") #t)))
 
 ;;; --- hard links; fifo; ownership; times ---
 (create-hard-link (string-append D "/a.txt") (string-append D "/hard"))
-(test 2 (file-info:nlinks (file-info (string-append D "/a.txt") #t)))
+(test-equal 2 (file-info:nlinks (file-info (string-append D "/a.txt") #t)))
 (create-fifo (string-append D "/fifo"))
-(test #t (file-info-fifo? (file-info (string-append D "/fifo") #f)))
+(test-equal #t (file-info-fifo? (file-info (string-append D "/fifo") #f)))
 ;; chown to self is always permitted (spec: 3-arg chown-style signature)
-(test #t (begin (set-file-owner (string-append D "/a.txt") (user-uid) (user-gid)) #t))
-(test #t (begin (set-file-times (string-append D "/a.txt")) #t))
-(test #t (begin (set-file-owner (string-append D "/a.txt")
-                                owner/unchanged group/unchanged) #t))
+(test-equal #t (begin (set-file-owner (string-append D "/a.txt") (user-uid) (user-gid)) #t))
+(test-equal #t (begin (set-file-times (string-append D "/a.txt")) #t))
+(test-equal #t (begin (set-file-owner (string-append D "/a.txt")
+                                      owner/unchanged group/unchanged) #t))
 
 ;;; --- temp files ---
-(test #t (procedure? temp-file-prefix))     ; parameter object
+(test-equal #t (procedure? temp-file-prefix))     ; parameter object
 (let ((tf (create-temp-file)))
-  (test #t (file-exists? tf))
+  (test-equal #t (file-exists? tf))
   (delete-file tf))
 (let ((tf (create-temp-file (string-append D "/pfx-"))))
-  (test #t (file-exists? tf))
+  (test-equal #t (file-exists? tf))
   (delete-file tf))
 
 ;;; --- directory streams: dotfiles skipped by default, no . / .. ---
@@ -90,72 +90,74 @@
     (let ((e (read-directory ds)))
       (if (eof-object? e) acc (drain (cons e acc)))))
   (let ((entries (drain '())))
-    (test #f (member "." entries))
-    (test #f (member ".." entries))
-    (test #f (member ".hidden" entries))
-    (test #t (and (member "a.txt" entries) #t)))
+    (test-equal #f (member "." entries))
+    (test-equal #f (member ".." entries))
+    (test-equal #f (member ".hidden" entries))
+    (test-equal #t (and (member "a.txt" entries) #t)))
   (close-directory ds))
 
 ;;; --- process state ---
-(test #t (> (pid) 0))
-(test #t (string? (current-directory)))
+(test-equal #t (> (pid) 0))
+(test-equal #t (string? (current-directory)))
 (let ((old (umask)))
   (set-umask! #o027)
-  (test #o027 (umask))
+  (test-equal #o027 (umask))
   (set-umask! old)
-  (test old (umask)))
-(test #t (number? (nice 0)))
-(test #t (and (number? (user-uid)) (number? (user-gid))
-              (number? (user-effective-uid)) (number? (user-effective-gid))))
-(test #t (pair? (user-supplementary-gids)))
+  (test-equal old (umask)))
+(test-equal #t (number? (nice 0)))
+(test-equal #t (and (number? (user-uid)) (number? (user-gid))
+                    (number? (user-effective-uid)) (number? (user-effective-gid))))
+(test-equal #t (pair? (user-supplementary-gids)))
 
 ;;; --- environment variables (write side) ---
 (set-environment-variable! "KAAPPI_AUDIT_VAR" "v1")
-(test "v1" (get-environment-variable "KAAPPI_AUDIT_VAR"))
+(test-equal "v1" (get-environment-variable "KAAPPI_AUDIT_VAR"))
 (delete-environment-variable! "KAAPPI_AUDIT_VAR")
-(test #f (get-environment-variable "KAAPPI_AUDIT_VAR"))
+(test-equal #f (get-environment-variable "KAAPPI_AUDIT_VAR"))
 
 ;;; --- user/group database ---
 (let ((ui (user-info (user-uid))))
-  (test #t (user-info? ui))
-  (test #f (user-info? "root"))
-  (test #t (string? (user-info:name ui)))
-  (test #t (string? (user-info:home-dir ui)))
-  (test #t (string? (user-info:shell ui)))
+  (test-equal #t (user-info? ui))
+  (test-equal #f (user-info? "root"))
+  (test-equal #t (string? (user-info:name ui)))
+  (test-equal #t (string? (user-info:home-dir ui)))
+  (test-equal #t (string? (user-info:shell ui)))
   ;; by-name dispatch returns the same account
-  (test (user-uid) (user-info:uid (user-info (user-info:name ui))))
-  (test (user-info:gid ui) (user-info:gid (user-info (user-info:name ui)))))
+  (test-equal (user-uid) (user-info:uid (user-info (user-info:name ui))))
+  (test-equal (user-info:gid ui) (user-info:gid (user-info (user-info:name ui)))))
 (let ((gi (group-info (user-gid))))
-  (test #t (group-info? gi))
-  (test #t (string? (group-info:name gi)))
-  (test (user-gid) (group-info:gid gi)))
-(test (user-gid)
+  (test-equal #t (group-info? gi))
+  (test-equal #t (string? (group-info:name gi)))
+  (test-equal (user-gid) (group-info:gid gi)))
+(test-equal (user-gid)
   (group-info:gid (group-info (group-info:name (group-info (user-gid))))))
 
 ;;; --- time ---
-(test #t (not (number? (monotonic-time))))
-(test #t (not (number? (posix-time))))
+(test-equal #t (not (number? (monotonic-time))))
+(test-equal #t (not (number? (posix-time))))
 
 ;;; --- terminal? ---
-(test #f (terminal? (open-input-string "x")))
+(test-equal #f (terminal? (open-input-string "x")))
 
 ;;; --- errors are catchable ---
-(test #t (guard (e (#t #t)) (file-info "/nonexistent-kaappi-fs" #t)))
-(test #t (guard (e (#t #t)) (delete-directory "/nonexistent-kaappi-fs")))
-(test #t (guard (e (#t #t)) (delete-directory D)))          ; non-empty
-(test #t (guard (e (#t #t)) (read-symlink (string-append D "/a.txt"))))
-(test #t (guard (e (#t #t)) (create-directory D)))          ; exists
-(test #t (guard (e (#t #t)) (directory-files "/nonexistent-kaappi-fs")))
-(test #t (guard (e (#t #t)) (file-info 42 #t)))
-(test #t (guard (e (#t #t)) (user-info #f)))
-(test #t (guard (e (#t #t)) (group-info 3.14)))
-(test #t (guard (e (#t #t)) (truncate-file (string-append D "/a.txt") "n")))
+(test-equal #t (guard (e (#t #t)) (file-info "/nonexistent-kaappi-fs" #t)))
+(test-equal #t (guard (e (#t #t)) (delete-directory "/nonexistent-kaappi-fs")))
+(test-equal #t (guard (e (#t #t)) (delete-directory D)))          ; non-empty
+(test-equal #t (guard (e (#t #t)) (read-symlink (string-append D "/a.txt"))))
+(test-equal #t (guard (e (#t #t)) (create-directory D)))          ; exists
+(test-equal #t (guard (e (#t #t)) (directory-files "/nonexistent-kaappi-fs")))
+(test-equal #t (guard (e (#t #t)) (file-info 42 #t)))
+(test-equal #t (guard (e (#t #t)) (user-info #f)))
+(test-equal #t (guard (e (#t #t)) (group-info 3.14)))
+(test-equal #t (guard (e (#t #t)) (truncate-file (string-append D "/a.txt") "n")))
 
 ;;; --- cleanup ---
 (for-each (lambda (n) (rm-f (string-append D "/" n)))
           '("a.txt" ".hidden" "ln" "hard" "fifo"))
 (rmdir-f (string-append D "/sub"))
 (rmdir-f D)
-(test #f (file-exists? D))
+(test-equal #f (file-exists? D))
 
-(test-end "primitives_filesystem audit")
+(let ((runner (test-runner-current)))
+  (test-end "primitives_filesystem audit")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
