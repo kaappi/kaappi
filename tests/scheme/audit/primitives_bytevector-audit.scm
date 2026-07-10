@@ -119,14 +119,16 @@
 (test-equal "A" (utf8->string #u8(#x41 #xCE #xBB) 0 1))
 (test-equal 'caught (guard (e (#t 'caught)) (utf8->string #u8(1 2) 0 3)))
 (test-equal 'caught (guard (e (#t 'caught)) (utf8->string "abc")))
-;; Invalid UTF-8 is accepted unchecked, creating a corrupt string: write shows
-;; a replacement char and string-length answers, but string-ref on the same
-;; string raises "expected valid UTF-8 string". Validate at construction.
-;; FAIL: #1178 (utf8->string skips UTF-8 validation; corrupt string breaks string-ref)
-;; (test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xFF))))
-;; (test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xC0 #x80))))    ; overlong
-;; (test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xED #xA0 #x80)))) ; surrogate
-;; (test-equal #\A (string-ref (utf8->string (bytevector #xFF #x41)) 1))  ; works today, but index 0 raises
+;; Invalid UTF-8 must be rejected at construction (#1178) — otherwise the
+;; corrupt string breaks string-ref later.
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xFF))))
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xC0 #x80))))    ; overlong
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xED #xA0 #x80)))) ; surrogate
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string (bytevector #xCE))))          ; truncated
+;; validation applies to the selected range only
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string #u8(#x41 #xFF #x42) 1 2)))
+(test-equal "A" (utf8->string #u8(#xFF #x41) 1))
+(test-equal 'caught (guard (e (#t 'caught)) (utf8->string #u8(#x41 #xCE #xBB) 0 2)))    ; range splits λ
 
 ;;; --- string->utf8 ---
 ;; R7RS 6.9 example

@@ -169,6 +169,10 @@ fn utf8ToString(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 1, bv.data.len, "utf8->string");
     const start = range.start;
     const end = range.end;
+    // Strings are codepoint-indexed and assume valid UTF-8 — reject invalid
+    // sequences here rather than letting string-ref fail on a corrupt string (#1178).
+    if (!std.unicode.utf8ValidateSlice(bv.data[start..end]))
+        return primitives.typeError("utf8->string", "valid UTF-8 byte sequence", args[0]);
     return gc.allocString(bv.data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
 
