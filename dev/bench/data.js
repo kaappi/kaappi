@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783703477887,
+  "lastUpdate": 1783703981799,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f68f43faa08b28eab8d4b30c73ceb7c2b811769f",
-          "message": "Enforce immutability on literal vectors, pairs, and bytevectors (#1173) (#1285)\n\n* Enforce immutability on literal vectors, pairs, and bytevectors (#1173)\n\nR7RS §3.4 requires literal constants to be immutable. Strings already\nenforced this via SchemeString.immutable, but vectors, pairs, and\nbytevectors allowed silent mutation of shared literals — causing\nself-modifying code across calls.\n\nMirror the string pattern: add an `immutable` flag to Vector, Pair, and\nBytevector structs, mark reader-produced literals, and guard all 13\nmutating primitives (vector-set!, vector-fill!, vector-copy!,\nvector-swap!, vector-reverse!, set-car!, set-cdr!, list-set!,\nbytevector-u8-set!, bytevector-copy!, read-bytevector!).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: pack immutable into Object header, read returns mutable data\n\n- Pack marked/generation/survive_count/immutable into a single\n  Object.Flags(u8) packed struct — keeps Object at 16 bytes and makes\n  the immutable bit free for all heap types (Pair, Vector, Bytevector\n  stay at 32 bytes; SchemeString drops from 48 to 40).\n\n- Add Reader.mark_immutable flag (default true). The 4 Reader sites in\n  primitives_io.zig (the `read` procedure) set it to false, so data\n  returned by `(read ...)` is mutable per R7RS §6.13.2 while source-code\n  literals remain immutable per §3.4.\n\n- Migrate SchemeString.immutable to the header flag for consistency.\n\n- Rewrite smoke test to SRFI-64; add 3 tests verifying read returns\n  mutable pairs, vectors, and strings.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T05:13:41Z",
-          "tree_id": "282e5dcca884c803d9f10d7265c96eedb0ed6eec",
-          "url": "https://github.com/kaappi/kaappi/commit/f68f43faa08b28eab8d4b30c73ceb7c2b811769f"
-        },
-        "date": 1783402789129,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.376321,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.610198,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924007,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.14654,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012495,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212209,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470933,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070969,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.448054,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.845875,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.958997,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.949906,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.311644,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.522281,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043056,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045464,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd71851272a4a0f6d35ab3537e7dc89750a6bb4d",
+          "message": "Chain nested-lambda captures in the native closure tiers (#1410) (#1419)\n\nThe closure tiers' free-variable analysis treated nested .lambda IR\nnodes as opaque, so a lambda whose only reference to an enclosing\nbinding lived inside an inner lambda was misclassified as a closed\nclosure, and the inner lambda's eval fallback then resolved the capture\nas an (undefined) global at run time.\n\nThree-part fix:\n\n- The analysis descends into nested lambda bodies via the same\n  scope-tracking raw-sexpr walk that #1409 added for let/let*.\n- Tier 1 can chain a capture out of the enclosing closure's %upvalues\n  (not just its %args), so nested captures of any depth stay native\n  with correct per-instance copy semantics.\n- Every eval-fallback boundary (emitLambdaViaEval, emitFormEval, and\n  now emitLetFallback) republishes the full frame - fixed params, the\n  rest parameter, and upvalues - as globals, closing the sibling holes:\n  variadic inner lambdas, rest-parameter captures, and let fallbacks\n  that lost the enclosing params.\n\nAlso hardened on the same paths: an abandoned native let now pops the\nGC roots it had pushed (each execution of that path leaked root-stack\nslots before), a lambda in a let binding init falls back instead of\naborting the whole native compilation, and emitLambdaFunction / tier-1\nemission no longer leak the enclosing scope's upvalues/locals/rest\nstate into nested function emission.\n\nVerified: VM-vs-native differential on ten reproducer shapes, unit +\nScheme + e2e suites, and a 300-seed native-diff fuzz sweep with zero\ndivergences. All new regression tests fail without the fix.\n\nFixes #1410\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T16:49:47Z",
+          "tree_id": "4fd718b76ef4c1b877a51579ee496d5e1ac50971",
+          "url": "https://github.com/kaappi/kaappi/commit/dd71851272a4a0f6d35ab3537e7dc89750a6bb4d"
+        },
+        "date": 1783703980924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.366782,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.292588,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.015247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.458677,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013259,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338544,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505021,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070105,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.533191,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981104,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.753461,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.043261,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.571334,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.783649,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044184,
             "unit": "seconds"
           }
         ]
