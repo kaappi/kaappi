@@ -554,7 +554,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const ffi_mod = @import("ffi.zig");
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc, self) catch return VMError.TypeError;
+                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc, self) catch |err| {
+                        if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
+                        return VMError.TypeError;
+                    };
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
@@ -719,7 +722,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc, self) catch return VMError.TypeError;
+                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc, self) catch |err| {
+                        if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
+                        return VMError.TypeError;
+                    };
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);

@@ -454,7 +454,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, 
     try validateArgsDetailed(ffi_fn, args, vm);
     var bool_buf: [5]Value = undefined;
     const call_args = normalizeBoolArgs(ffi_fn, args, &bool_buf);
-    const result = switch (ffi_fn.param_count) {
+    const call_result = switch (ffi_fn.param_count) {
         0 => callFfiGeneric(0, ffi_fn, call_args, gc),
         1 => callFfiGeneric(1, ffi_fn, call_args, gc),
         2 => callFfiGeneric(2, ffi_fn, call_args, gc),
@@ -465,7 +465,23 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, 
             vm.setErrorDetail("'{s}': unsupported parameter count ({d})", .{ ffi_fn.name, ffi_fn.param_count });
             return error.TypeError;
         },
-    } catch {
+    };
+    // A Scheme error raised inside an ffi-callback during this call was
+    // stashed by the trampoline (ffi_callback.zig): the C frames between the
+    // call and the callback could not be unwound. Re-raise it now that C has
+    // returned — the C result is garbage in this case and must not be
+    // delivered as a success (#1185).
+    if (vm.last_callback_error) {
+        vm.last_callback_error = false;
+        if (vm.callback_error_value) |exc| {
+            vm.callback_error_value = null;
+            vm.current_exception = exc;
+            return error.ExceptionRaised;
+        }
+        vm.setErrorDetail("'{s}': error in FFI callback", .{ffi_fn.name});
+        return error.TypeError;
+    }
+    const result = call_result catch {
         if (vm.last_error_detail_len == 0)
             vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
         return error.TypeError;
