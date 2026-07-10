@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783650908124,
+  "lastUpdate": 1783651913882,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "18063843170e95d0054bc93abacbf25ab4086bd4",
-          "message": "Use Unicode derived properties for char classification (#1145) (#1263)\n\n* Use Unicode derived properties for char classification (#1145)\n\nchar-upper-case?, char-lower-case?, and char-alphabetic? were deriving\nclassification from case mappings instead of the Unicode Uppercase,\nLowercase, and Alphabetic derived properties. This caused titlecase\nletters (Lt) to report as both upper and lower, sharp-s (U+00DF) to\nmiss lowercase, and ordinal indicators (U+00AA/U+00BA) to miss\nalphabetic/lowercase.\n\nGenerate proper property range tables from DerivedCoreProperties.txt\nand use binary-searched range lookups instead of case-mapping inference\nand hardcoded script block ranges.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix string-titlecase and final-sigma regressions with Cased property\n\nstring-titlecase and string-downcase final-sigma detection used\nisUnicodeUppercase/isUnicodeLowercase as a proxy for the Unicode Cased\nproperty. Titlecase (Lt) characters are Cased but neither Uppercase nor\nLowercase, and combining marks are Alphabetic but not Cased.\n\nAdd a cased_ranges table from DerivedCoreProperties.txt and use it at\nall four word-boundary/final-sigma sites in primitives_char.zig and\nprimitives_string_ext.zig.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T13:37:12Z",
-          "tree_id": "83004391a110f23ee43d48445aedc98cf9e8178b",
-          "url": "https://github.com/kaappi/kaappi/commit/18063843170e95d0054bc93abacbf25ab4086bd4"
-        },
-        "date": 1783346940822,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329733,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.846771,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.932537,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.12575,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012513,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212744,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.487792,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07197,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.500333,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.878508,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.023654,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.962618,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.417692,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.689454,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044306,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044673,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "46fcc6998f0d54011854d9150c9f1cfb86cd5028",
+          "message": "Release v0.14.0",
+          "timestamp": "2026-07-10T07:50:38+05:30",
+          "tree_id": "32e75ce700980c4a5292f35482906bfee732b730",
+          "url": "https://github.com/kaappi/kaappi/commit/46fcc6998f0d54011854d9150c9f1cfb86cd5028"
+        },
+        "date": 1783651912466,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.424017,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.972357,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.998658,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.846673,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012952,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338358,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507908,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071151,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.658624,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.969261,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.779419,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.044148,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.567926,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715096,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043519,
             "unit": "seconds"
           }
         ]
