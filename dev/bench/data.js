@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783653454543,
+  "lastUpdate": 1783666388478,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1102effb0bf51ca423ecc48574509128775a7dfd",
-          "message": "Error on unknown identifiers in import only/except/rename (#1261)\n\n* Error on unknown identifiers in import only/except/rename (#1174)\n\nR7RS §5.2 says it is an error if identifiers listed in only, except, or\nrename are not found in the library's exports. Previously these were\nsilently ignored, which masked typos and missing exports (e.g. probing\nSRFI-133 for vector-fold appeared to succeed).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: syntax keywords, define-library propagation, atomic only\n\n- Accept syntax keywords (define, if, when, case-lambda, define-record-type,\n  etc.) in only/except/rename by checking ir.isSpecialForm; add VM-level\n  syntax forms (define-record-type, import, include) to the special form\n  table so they pass validation too\n- Propagate import errors from define-library instead of swallowing them\n  (fixes the main use site for import filters)\n- Make only validate all identifiers before importing any (atomic, consistent\n  with except/rename)\n- Use fetchRemove in except/rename for validate+exclude in one hash op,\n  eliminating the O(n*m) excluded_list scan\n- Fix message wording: \"import set\" instead of \"library exports\" (accurate\n  for composed sets like prefix)\n- Expand tests: 20 shell tests covering syntax keywords, define-library\n  propagation, composed sets, error messages; 4 unit tests in\n  tests_libraries.zig\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix rename corruption on colliding names (parallel semantics)\n\nInterleaved fetchRemove+put in the rename pass corrupted colliding\nrenames like (rename lib (a b) (b c)) — the put for \"b\" clobbered\nthe original \"b\" entry before its own fetchRemove ran. Split into\ntwo phases: remove all old entries first, then insert under new names.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add auxiliary syntax to special forms, swap regression test\n\nAdd else, =>, _, ..., unquote, unquote-splicing to the special form\ntable so they pass import filter validation (R7RS Appendix A lists\nthem as (scheme base) exports). Add swap rename regression test.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T20:58:15+05:30",
-          "tree_id": "031ccc18f650eca4c2aa8ffed51fc3e916734c8e",
-          "url": "https://github.com/kaappi/kaappi/commit/1102effb0bf51ca423ecc48574509128775a7dfd"
-        },
-        "date": 1783353305976,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.337575,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.789321,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.956878,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.283788,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01261,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212519,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.480694,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070978,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.442999,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.876474,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.972748,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955576,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.335685,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.731007,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043709,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04496,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ea008c6b5bc484d6a64beb46cbedad18fca849f9",
+          "message": "Fuzzing roadmap Phase 1: seed corpora, token target, scheduled CI job (#1398)\n\n* Add fuzz seed corpora and a token-vocabulary fuzz target (#1389, #1391)\n\nThe four fuzz targets started from nothing: no seed corpus, and\nbyte-oriented Smith inputs that rarely got past the lexer, so the\ncompiler, VM, and GC were barely exercised.\n\nCorpus entries for std.testing.fuzz are serialized Smith decision\nstreams, not raw inputs — a seed() helper encodes source text as\n<4-byte LE length><bytes> and rejects seeds that exceed the target's\nbuffer at compile time. Each target gets a curated corpus: lexical\nvariety for the reader, one expression per core form for the compiler,\nsmall self-contained programs for eval, and a checked-in valid .sbc\nfixture (plus truncated/bit-flipped variants) for the bytecode loader.\nThe fixture's compiler-version hash is patched at comptime so releases\ndon't stale it; a sanity test fails when a format VERSION bump does.\nThe fixture needs a .gitignore exception: *.sbc normally means a local\ncompile cache.\n\nThe new \"fuzz tokens\" target mutates token sequences instead of bytes\n(Salls et al., USENIX Security 2021): 76% of its inputs get past the\nfirst readDatum vs 33% for random bytes, without being confined to\ngrammatically valid programs.\n\nThe shared eval harness silences fd 1 while evaluating: the test\nbinary's stdout is the build-runner IPC pipe, and a generated\n(display ...) call would deadlock the run.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add scheduled bounded fuzzing job to CI (#1390)\n\nThe fuzz targets were never run in fuzzing mode — no --fuzz invocation\nexisted anywhere, so each target only ever executed once with a fixed\nseed under plain zig build test.\n\nfuzz.yml runs a bounded pass daily at 02:47 UTC (away from the 05:17\necosystem nightly) in two variants: default, and -Dgc-stress=true with\na smaller budget, which converts latent GC rooting bugs into immediate\nfailures. Limits are per fuzz test and sized from measured local rates\n(the eval-based targets build a full VM per input at ~20-50 ms).\n\nZig 0.16's bounded fuzz mode does not propagate a fuzz-found crash into\nthe build's exit code — verified with a locally planted panic — so the\njob treats .zig-cache/f/crash (the encoded crashing input) as the\nauthoritative failure marker, fails the run, and uploads it with the\nlogs.\n\ndocs/dev/fuzzing.md is the operating runbook: running locally, the CI\njob, and the failure workflow (minimise, regression test, corpus entry).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1398 review: sandboxed eval harness, workflow hardening\n\nevalOne now uses the sandboxed registration path (registerSandboxed +\nregisterSandboxedLibraries + sandbox_mode), so fuzz inputs that reach\nfilesystem, process, FFI, or thread forms get an ordinary undefined-\nvariable error instead of touching the host — including (exit), which\nwould have killed the fuzz worker. It also clears the GC threadlocal on\nteardown instead of leaving it pointing at a dead stack frame.\n\nThe workflow passes dispatch inputs via env (never interpolated into\nBash source), sets pipefail explicitly (shell: bash already implied it,\nbut explicit survives someone removing that line), removes a stale\ncrash marker before each run, and persists the fuzzer's corpus and\ncoverage across runs with a rolling actions/cache key — saved only on\nsuccess so crash state never leaks into the next run.\n\nRunbook: document the token target's u64 decision-stream encoding for\ncrash reproduction, the corpus persistence, and two wording fixes.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T06:23:25Z",
+          "tree_id": "db94295e6fb146599be58a14a151342db3138496",
+          "url": "https://github.com/kaappi/kaappi/commit/ea008c6b5bc484d6a64beb46cbedad18fca849f9"
+        },
+        "date": 1783666386909,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.939807,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.763901,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.955306,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.291141,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012575,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.316102,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477444,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067816,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.895503,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.85224,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.182146,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.96539,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.899045,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.996521,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04127,
             "unit": "seconds"
           }
         ]
