@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783766589081,
+  "lastUpdate": 1783777201316,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c42805aabe756fcc0b28c66067d505cdf970745d",
-          "message": "Let imported macros shadow built-in special forms (#1237) (#1302)\n\n* Let imported macros shadow built-in special forms (#1237)\n\nThe compiler dispatched special form keywords (define, set!, etc.)\nbefore consulting the macro table, so a syntax-rules macro exported\nunder a special form name — like SRFI-219's curried `define` — was\ndead on arrival.\n\nMove the macro lookup ahead of the special form string comparisons in\nboth the IR lowering path (ir.zig) and the legacy compiler path\n(compiler.zig).  Add fixed-point detection in expandAndCompileMacroUse\nso that identity rules (e.g. SRFI-219 rule 3: (define x e) → (define\nx e)) terminate by falling through to the built-in handler instead of\nlooping.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: consume suppress flag once, add let/begin tests\n\n- Clear suppress_macro_name the moment compileForm matches it, so the\n  flag only guards the single immediate re-dispatch and does not leak\n  into nested let/begin bodies compiled inline in the same Compiler.\n- Add regression tests for curried define inside let and begin bodies.\n- Add doc comment explaining why the depth-128 bound in\n  valuesStructurallyEqual is safe (structure sharing).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T18:09:43Z",
-          "tree_id": "e109e9fcb97edd2559ce75dda25e59f7ccc03e06",
-          "url": "https://github.com/kaappi/kaappi/commit/c42805aabe756fcc0b28c66067d505cdf970745d"
-        },
-        "date": 1783449474338,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.333033,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.209177,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.952184,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.196329,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012428,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.200932,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47864,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071937,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.511193,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.869152,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.992549,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957284,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.351318,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.707549,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04347,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042146,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28f1a3375d388589706fa8323860ae3d95a44d00",
+          "message": "Reactor core: kqueue/epoll backends with a userspace timer heap (KEP-0001 P1) (#1446)\n\n* Add reactor core: kqueue/epoll backends with a userspace timer heap\n\nPhase 1 of KEP-0001 (event-loop reactor for fiber I/O). Adds\nsrc/reactor.zig: a per-OS-thread Reactor with kqueue and epoll backends\nand a shared userspace timer min-heap, so deadline logic is identical\nacross platforms. No scheduler caller yet — that's Phase 2 — so this\nhas no behavior change; it's unit-tested in isolation against real\npipe/socketpair fds in tests_reactor.zig.\n\nImplements the five design decisions already resolved in the KEP:\nwake-all waiter lists per fd direction, epoll ms-granularity timeouts\nwith ceil-rounding (never fire early), ONESHOT arming on both\nbackends, and fd-keyed registration (safe here since no user code runs\nbetween poll() returning and the scheduler's status flips, per the\nper-OS-thread cooperative model).\n\nThe trickiest correctness point is a platform asymmetry: kqueue treats\nread/write as independent filters, so firing one never disturbs the\nother, but epoll's EPOLLONESHOT disarms the *whole* fd registration on\nany fire, including a direction that didn't fire. Reactor.poll\nre-arms the remaining direction after a partial fire (a harmless\nredundant EV_ADD on kqueue); a socketpair-based test exercises this\ndirectly to guard against silently losing a still-parked waiter.\n\nAdds Reactor.removeTimer beyond the KEP's interface sketch — needed by\nPhase 2 to cancel a stale timer entry when a fiber is woken some other\nway before its deadline, so a reused fiber slot can't get a spurious\nwake later.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1446 review feedback\n\nFixes two bugs flagged as should-fix-before-merge:\n\n- KqueueBackend.disarmAll batched both EV_DELETEs into one kevent()\n  call with a zero-length eventlist, so the first ENOENT (expected\n  whenever a direction was never armed) aborted the changelist and\n  left the other filter's knote behind. Verified independently with a\n  standalone C repro. Now issues each delete as its own call.\n- EpollBackend.init used epoll_create1(0), leaking the reactor's fd\n  into every subprocess the core spawns (thottam_proc.zig,\n  native_compiler.zig). Now passes EPOLL.CLOEXEC.\n\nAlso, from the same review:\n\n- Drop the dead Reg.fd field (never read; the hashmap key is the fd\n  source everywhere else).\n- Reserve ready's capacity before draining a fd's waiters in poll(),\n  so a mid-drain allocation failure can't strand the remaining\n  waiters after their ONESHOT event was already consumed.\n- Saturating-add in msFromNs to avoid a theoretical overflow panic on\n  a near-u64::MAX timeout.\n- Document that poll()'s ready list may contain a fiber twice when an\n  fd wake and its timer both land in the same call, for Phase 2 to\n  read.\n- tests_reactor.zig: assert single-byte writes actually land instead\n  of discarding the return value, so a short write fails at the\n  syscall rather than as an unrelated timeout.\n- Add a peer-close test covering the EOF/HUP-to-broken mapping\n  (kqueue EV_EOF, epoll EPOLLHUP|EPOLLERR), previously untested.\n\nFull suite: 746/746 (was 745/745 before the added test). gc-stress:\n740/746, 6 pre-existing skips, 0 failures.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T13:12:28Z",
+          "tree_id": "326498926d101cdd2b4be45b508038102631fd95",
+          "url": "https://github.com/kaappi/kaappi/commit/28f1a3375d388589706fa8323860ae3d95a44d00"
+        },
+        "date": 1783777199422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335915,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.699178,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.887775,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.439993,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006401,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054148,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50648,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069329,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.56241,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.963116,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592035,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437807,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811339,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.734325,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04395,
             "unit": "seconds"
           }
         ]
