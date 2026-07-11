@@ -493,6 +493,7 @@ detailed checklists for GC write barriers, rooting, and compiler form additions.
 | `/r7rs-reader` | R7RS lexical syntax reference for reader changes |
 | `/linux-test` | Build and test on Linux via podman (aarch64, x86_64, riscv64) |
 | `/do-linux-test` | Full test suite on real x86-64 Linux via DigitalOcean droplet |
+| `/do-stress-test` | Unit suite under `-Dgc-stress=true` on a DigitalOcean droplet (3-hour lifetime) |
 
 ### Ecosystem plugin (`kaappi-dev`)
 
