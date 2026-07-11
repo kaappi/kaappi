@@ -130,8 +130,8 @@ test "fiber switch does not grow the fiber's own register storage to match a lar
     // is the one that would balloon f's storage if save/restore weren't
     // live-window bounded, KEP-0001 Phase 2 resolved question 5).
     try vm.ensureRegisterCapacity(8192);
-    sched.switchTo(1);
-    sched.switchTo(0);
+    try sched.switchTo(1);
+    try sched.switchTo(0);
 
     try std.testing.expect(f.registers.len < 1024);
 

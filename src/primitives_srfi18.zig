@@ -383,6 +383,11 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
 
     const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
     if (status != .completed and status != .errored) {
+        // A terminated fiber may have been mid-timed-wait (mutex-lock!,
+        // thread-join!, condvar wait, thread-sleep!) with a pending entry
+        // on the reactor's timer heap. Cancel it now — otherwise it fires
+        // later against whatever fiber ends up reusing this slot.
+        ctx.reactor.removeTimer(fiber);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         ctx.sched.wakeWaiters(fiber);
     }
@@ -479,12 +484,22 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
             try ctx.reactor.addTimer(d, me);
         }
 
-        _ = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target }, ctx.vm, ctx.sched, me);
+        const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target }, ctx.vm, ctx.sched, me);
+        me.deadline_ns = null;
 
         if (me.timed_out) {
             me.timed_out = false;
             if (has_timeout_val) return timeout_val;
             return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
+        }
+        if (!done) {
+            // Genuine deadlock: parkOnReactor gave up because nothing local
+            // could ever complete the joined fiber. Must not fall through
+            // to threadJoinResult, which would silently return VOID (the
+            // target's never-set default result) instead of erroring.
+            // me.waiting_on (not args[0]): args is a slice into
+            // vm.registers, which runSchedulerStep may have reallocated.
+            return raiseError(.general, "thread-join!: deadlock — joined fiber can never complete (all fibers blocked)", me.waiting_on);
         }
     }
 
@@ -676,12 +691,19 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         try ctx.reactor.addTimer(d, me);
     }
 
-    _ = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
+    const done = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
     me.deadline_ns = null;
 
     if (me.timed_out) {
         me.timed_out = false;
         return types.FALSE;
+    }
+    if (!done) {
+        // Genuine deadlock: parkOnReactor gave up because nothing local
+        // could ever unlock this mutex (no other runnable fiber, no
+        // pending timer). Must not fall through to "assume success" —
+        // that would silently steal a lock still held elsewhere.
+        return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
     }
 
     m.locked = true;
@@ -730,12 +752,17 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
             try ctx.reactor.addTimer(d, me);
         }
 
-        _ = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me }, ctx.vm, ctx.sched, me);
+        const done = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me }, ctx.vm, ctx.sched, me);
         me.deadline_ns = null;
 
         if (me.timed_out) {
             me.timed_out = false;
             return types.FALSE;
+        }
+        if (!done) {
+            // Genuine deadlock: parkOnReactor gave up because nothing
+            // local could ever signal this condition variable.
+            return raiseError(.general, "mutex-unlock!: deadlock — condition variable will never be signaled (all fibers blocked)", types.VOID);
         }
         return types.TRUE;
     }

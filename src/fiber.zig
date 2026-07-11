@@ -195,20 +195,20 @@ pub const FiberScheduler = struct {
         return span;
     }
 
-    fn growFiberRegisters(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) void {
+    fn growFiberRegisters(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) VMError!void {
         if (needed <= fiber.registers.len) return;
         var new_cap = fiber.registers.len;
         while (new_cap < needed) new_cap *= 2;
-        const new_regs = allocator.alloc(Value, new_cap) catch return;
+        const new_regs = try allocator.alloc(Value, new_cap);
         allocator.free(fiber.registers);
         fiber.registers = new_regs;
     }
 
-    fn growFiberFrames(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) void {
+    fn growFiberFrames(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) VMError!void {
         if (needed <= fiber.frames.len) return;
         var new_cap = fiber.frames.len;
         while (new_cap < needed) new_cap *= 2;
-        const new_frames = allocator.alloc(CallFrame, new_cap) catch return;
+        const new_frames = try allocator.alloc(CallFrame, new_cap);
         allocator.free(fiber.frames);
         fiber.frames = new_frames;
     }
@@ -217,12 +217,17 @@ pub const FiberScheduler = struct {
     /// instead of the VM's entire register file — fiber switch cost no
     /// longer scales with the VM's peak register-file capacity (KEP-0001
     /// Phase 2, resolved question 5).
-    pub fn saveCurrentFiber(self: *FiberScheduler) void {
+    ///
+    /// Propagates OOM instead of swallowing it: growFiberRegisters/Frames
+    /// must actually succeed before the memcpy below runs at the new
+    /// (larger) span, or the memcpy would read/write past a buffer that
+    /// silently stayed its old, smaller size.
+    pub fn saveCurrentFiber(self: *FiberScheduler) VMError!void {
         const fiber = self.fibers.items[self.current_idx] orelse return;
         const vm = self.vm;
         const span = liveRegisterSpan(vm.frames[0..vm.frame_count], vm.registers.len);
-        growFiberRegisters(vm.gc.allocator, fiber, span);
-        growFiberFrames(vm.gc.allocator, fiber, vm.frame_count);
+        try growFiberRegisters(vm.gc.allocator, fiber, span);
+        try growFiberFrames(vm.gc.allocator, fiber, vm.frame_count);
         @memcpy(fiber.registers[0..span], vm.registers[0..span]);
         fiber.frame_count = vm.frame_count;
         @memcpy(fiber.frames[0..vm.frame_count], vm.frames[0..vm.frame_count]);
@@ -235,12 +240,12 @@ pub const FiberScheduler = struct {
         fiber.continuation_value = vm.continuation_value;
     }
 
-    pub fn restoreFiber(self: *FiberScheduler, idx: usize) void {
+    pub fn restoreFiber(self: *FiberScheduler, idx: usize) VMError!void {
         const fiber = self.fibers.items[idx] orelse return;
         const vm = self.vm;
         const span = liveRegisterSpan(fiber.frames[0..fiber.frame_count], fiber.registers.len);
-        vm.ensureRegisterCapacity(span) catch return;
-        vm.ensureFrameCapacity(fiber.frame_count) catch return;
+        try vm.ensureRegisterCapacity(span);
+        try vm.ensureFrameCapacity(fiber.frame_count);
         @memcpy(vm.registers[0..span], fiber.registers[0..span]);
         @memcpy(vm.frames[0..fiber.frame_count], fiber.frames[0..fiber.frame_count]);
         vm.frame_count = fiber.frame_count;
@@ -253,27 +258,37 @@ pub const FiberScheduler = struct {
         vm.continuation_value = fiber.continuation_value;
     }
 
-    pub fn switchTo(self: *FiberScheduler, next_idx: usize) void {
+    pub fn switchTo(self: *FiberScheduler, next_idx: usize) VMError!void {
         if (next_idx == self.current_idx) return;
         const current = self.fibers.items[self.current_idx] orelse return;
 
-        self.saveCurrentFiber();
+        try self.saveCurrentFiber();
         if (current.status == .running) current.status = .suspended;
 
-        self.restoreFiber(next_idx);
+        try self.restoreFiber(next_idx);
         const next = self.fibers.items[next_idx] orelse return;
         next.status = .running;
         self.current_idx = next_idx;
         self.vm.current_fiber = next;
     }
 
-    /// Round-robins over `created`/`suspended` fibers. Timed waits
-    /// (`.waiting` + `deadline_ns`) and `.io_waiting` are not selectable
-    /// here — their expiry/readiness is detected by the reactor's timer
-    /// heap and fd polling (parkOnReactor), not by a per-tick sweep here
-    /// (KEP-0001 Phase 2, resolved question 5 / folds the old deadline
-    /// sweep into the shared timer heap).
+    /// Round-robins over `created`/`suspended` fibers. Before selecting,
+    /// pops any already-expired timers off the reactor's heap and flips
+    /// their fibers to `.suspended` — checked on *every* call, not just
+    /// when the scheduler goes idle (parkOnReactor), so a timed wait
+    /// resolves promptly even while a busy/yielding sibling keeps this
+    /// loop from ever going idle (KEP-0001 Phase 2, resolved question 5:
+    /// the old per-fiber sweep folds into the shared timer heap, but the
+    /// heap must still be checked every tick — a heap peek/pop is cheaper
+    /// than the old O(fiber count) sweep it replaces, not less prompt).
     pub fn schedule(self: *FiberScheduler) ?usize {
+        if (self.vm.reactor) |reactor| {
+            var expired: std.ArrayList(*Fiber) = .empty;
+            defer expired.deinit(self.vm.gc.allocator);
+            reactor.popExpiredTimers(&expired) catch {};
+            for (expired.items) |f| wakeReadyFiber(f);
+        }
+
         const n = self.fibers.items.len;
         if (n == 0) return null;
         var i: usize = 1;
@@ -446,6 +461,21 @@ pub const TargetWait = struct {
     }
 };
 
+/// Moves a fiber the reactor just reported ready (io fd readiness or an
+/// expired timer) from its wait status back to `.suspended` so schedule()
+/// can pick it up. Shared by parkOnReactor (blocking wait) and schedule()'s
+/// per-tick expired-timer check (non-blocking).
+fn wakeReadyFiber(f: *Fiber) void {
+    switch (f.status) {
+        .io_waiting => f.status = .suspended,
+        .waiting => {
+            f.status = .suspended;
+            f.timed_out = true;
+        },
+        else => {},
+    }
+}
+
 /// Called when sched.schedule() finds nothing immediately runnable. Blocks
 /// in the reactor — bounded by its own timer heap, so no separate
 /// "nearest deadline" computation is needed here — and flips every fiber
@@ -461,16 +491,7 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler) VMError!bool {
     defer ready.deinit(vm.gc.allocator);
     reactor.poll(null, &ready) catch return VMError.OutOfMemory;
 
-    for (ready.items) |f| {
-        switch (f.status) {
-            .io_waiting => f.status = .suspended,
-            .waiting => {
-                f.status = .suspended;
-                f.timed_out = true;
-            },
-            else => {},
-        }
-    }
+    for (ready.items) |f| wakeReadyFiber(f);
     return true;
 }
 
@@ -489,7 +510,7 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler) VMError!bool {
 /// typing), e.g. `TargetWait{ .target = f }`.
 pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberScheduler, me: *Fiber) VMError!bool {
     const my_idx = sched.current_idx;
-    sched.saveCurrentFiber();
+    try sched.saveCurrentFiber();
 
     while (!ctx.isDone() and !me.timed_out) {
         const next_idx = sched.schedule() orelse {
@@ -498,7 +519,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
         };
         if (next_idx == my_idx) break;
 
-        sched.restoreFiber(next_idx);
+        try sched.restoreFiber(next_idx);
         sched.current_idx = next_idx;
         const fiber = sched.fibers.items[next_idx].?;
         fiber.status = .running;
@@ -510,7 +531,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
         vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == VMError.Yielded) {
-                sched.saveCurrentFiber();
+                try sched.saveCurrentFiber();
                 if (fiber.status == .running) fiber.status = .suspended;
                 continue;
             }
@@ -519,7 +540,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
             // top-level form is not thread death, so its mutexes stay
             // valid.
             if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);
-            sched.saveCurrentFiber();
+            try sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
         };
@@ -527,15 +548,20 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
         fiber.result = result;
         vm.gc.writeBarrier(&fiber.header, result);
         if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);
-        sched.saveCurrentFiber();
+        try sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
 
-    sched.restoreFiber(my_idx);
+    // Captured before the epilogue below touches `me`: CondVarWait's
+    // isDone() reads me.status, which the next line unconditionally
+    // forces to .running — evaluating ctx.isDone() after that would
+    // always report true regardless of whether the wait actually resolved.
+    const done = ctx.isDone();
+    try sched.restoreFiber(my_idx);
     sched.current_idx = my_idx;
     me.status = .running;
     vm.current_fiber = me;
-    return ctx.isDone();
+    return done;
 }
 
 pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {

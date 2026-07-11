@@ -160,12 +160,12 @@ pub const Reactor = struct {
         return true;
     }
 
-    /// Belt-and-braces GC root: a reactor-parked fiber is always still
-    /// present in FiberScheduler.fibers[] (addFiber's slot-reuse only
-    /// overwrites .completed/.errored slots), so this is currently
-    /// redundant with FiberScheduler.markRoots. Kept as an explicit
-    /// second root so a fiber reachable only through the reactor can never
-    /// be collected even if that invariant is later weakened.
+    /// GC root, not just belt-and-braces: addFiber's slot-reuse overwrites
+    /// .completed/.errored slots in FiberScheduler.fibers[], and
+    /// thread-terminate! moves a victim straight to .errored. If terminate
+    /// ever raced ahead of removeTimer for a fiber's pending wait, that
+    /// fiber's only remaining reference would be here, in the timer heap —
+    /// this mark is what keeps it alive long enough for the pop to run.
     pub fn markRoots(self: *Reactor, gc: *memory.GC) void {
         var it = self.regs.valueIterator();
         while (it.next()) |reg| {
@@ -225,6 +225,16 @@ pub const Reactor = struct {
             }
         }
 
+        try self.popExpiredTimers(ready);
+    }
+
+    /// Moves every timer whose deadline has already passed into `ready`,
+    /// removing it from the heap. Called from `poll` (after an fd wait)
+    /// and separately from `FiberScheduler.schedule` on every dispatch
+    /// tick — not just when the scheduler goes idle — so a timed wait
+    /// resolves promptly even while other runnable fibers (a busy/yielding
+    /// sibling) mean `poll` is never reached at all.
+    pub fn popExpiredTimers(self: *Reactor, ready: *std.ArrayList(*Fiber)) !void {
         const now = fiber_mod.clockNs();
         while (self.timers.peek()) |top| {
             if (top.deadline_ns > now) break;
@@ -477,7 +487,7 @@ const WasiBackend = struct {
             while (true) {
                 const ret = std.c.nanosleep(&ts, &ts);
                 if (ret == 0) break;
-                if (std.posix.errno(ret) != .INTR) break;
+                if (std.posix.errno(ret) != .INTR) return error.Unexpected;
             }
         }
         return &[_]ReadyEvent{};

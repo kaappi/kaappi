@@ -189,7 +189,7 @@ pub fn run(vm: *VM) VMError!Value {
             // Route the yield through the scheduler instead of aborting
             // the top-level form.
             if (vm.scheduler) |sched| {
-                if (scheduleNextAfterYield(vm, sched)) {
+                if (try scheduleNextAfterYield(vm, sched)) {
                     return runWithScheduler(vm, sched);
                 }
                 return mainFiberResult(sched);
@@ -209,7 +209,7 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
         vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == VMError.Yielded) {
-                if (scheduleNextAfterYield(vm, sched)) continue;
+                if (try scheduleNextAfterYield(vm, sched)) continue;
                 return mainFiberResult(sched);
             }
             return err;
@@ -219,13 +219,13 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
         current.status = .completed;
         current.result = result;
         vm.gc.writeBarrier(&current.header, result);
-        sched.saveCurrentFiber();
+        try sched.saveCurrentFiber();
         sched.wakeWaiters(current);
 
         if (sched.current_idx == 0) return result;
 
         if (sched.schedule()) |next_idx| {
-            sched.switchTo(next_idx);
+            try sched.switchTo(next_idx);
             continue;
         }
         // No runnable fibers remain and the last runUntil unwound out of a
@@ -242,9 +242,9 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
 /// one, or resume a main fiber whose join target completed. Returns false
 /// when nothing can be scheduled; the caller should then finish the
 /// top-level form with mainFiberResult().
-fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
+fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!bool {
     const current = sched.fibers.items[sched.current_idx] orelse return false;
-    sched.saveCurrentFiber();
+    try sched.saveCurrentFiber();
 
     if (current.status == .running) current.status = .suspended;
 
@@ -253,7 +253,7 @@ fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
     }
 
     if (sched.schedule()) |next_idx| {
-        sched.switchTo(next_idx);
+        try sched.switchTo(next_idx);
         return true;
     }
     if (sched.fibers.items[0]) |main_fiber| {
@@ -263,7 +263,7 @@ fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
                 const target = types.toObject(target_val).as(fiber_mod.Fiber);
                 if (target.status == .completed) {
                     main_fiber.result = target.result;
-                    sched.restoreFiber(0);
+                    try sched.restoreFiber(0);
                     sched.current_idx = 0;
                     vm.current_fiber = main_fiber;
                     main_fiber.status = .running;
