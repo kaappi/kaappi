@@ -183,7 +183,22 @@ test "record-set! field survives full GC" {
         \\  (y point-y set-point-y!))
     );
 
-    const result = try vm.eval(
+    // Under -Dgc-stress=true every allocation already collects (full every
+    // 8th), so a small churn count exercises promotion + full collection
+    // without the marathon.
+    const result = try vm.eval(if (@import("build_options").gc_stress)
+        \\(let ()
+        \\  (define p (make-point 1 2))
+        \\  ;; Promote p to old generation
+        \\  (let loop ((i 0))
+        \\    (when (< i 100) (make-list 10 i) (loop (+ i 1))))
+        \\  ;; Mutate with young-gen value
+        \\  (set-point-y! p (list 'a 'b 'c))
+        \\  ;; Force enough GC cycles to trigger full collection
+        \\  (let loop ((i 0))
+        \\    (when (< i 100) (make-list 10 i) (loop (+ i 1))))
+        \\  (point-y p))
+    else
         \\(let ()
         \\  (define p (make-point 1 2))
         \\  ;; Promote p to old generation

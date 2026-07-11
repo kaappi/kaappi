@@ -478,6 +478,9 @@ fn markRoots(gc: *GC) void {
     for (gc.arg_roots[0..gc.arg_root_count]) |v| {
         markValue(gc, v);
     }
+    if (gc.slice_roots) |sr| {
+        for (sr) |v| markValue(gc, v);
+    }
     for (gc.root_buffer[0..gc.root_count]) |root| {
         markValue(gc, root.*);
     }

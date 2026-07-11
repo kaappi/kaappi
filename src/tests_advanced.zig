@@ -669,6 +669,13 @@ test "closure capturing more than 255 variables compiles and runs (#809)" {
     // Regression: addUpvalue did `@intCast` of the upvalue count into a u8
     // upvalue_count field, panicking (compile-time) past 255 captures. The
     // field is now u16, matching the u16 upvalue index in the bytecode.
+    //
+    // The u16-width property is orthogonal to GC rooting, and compiling the
+    // 300-capture program with a collection per allocation peaks around 7 GB
+    // RSS under the testing allocator — the full-suite stress run gets
+    // OOM-killed. Skip on stress builds; the 27-variable sibling test below
+    // keeps the capture path exercised there.
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

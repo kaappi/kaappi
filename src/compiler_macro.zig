@@ -278,6 +278,15 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
 
     const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
 
+    // Root the transformer for the rest of the enclosing compile scope: it
+    // lives only in the compiler-local macro map, which the GC cannot see,
+    // and a body-local macro must survive collections triggered while
+    // compiling sibling forms that use it (#1401). Released by the
+    // enclosing scope's extra_roots truncation — compileExpression* at top
+    // level, or the lambda-body compile (compileLambdaWithIR /
+    // compileLambda) for body scopes.
+    self.gc.extra_roots.append(self.gc.allocator, transformer) catch return CompileError.OutOfMemory;
+
     const tx = types.toObject(transformer).as(types.Transformer);
     if (self.lib_env) |env| {
         tx.def_env = env;
@@ -406,6 +415,9 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
         const transformer_spec = types.car(binding_rest);
         const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
         const name = types.symbolName(keyword);
+
+        // Root for the rest of the compile — see compileDefineSyntax (#1401).
+        self.gc.extra_roots.append(self.gc.allocator, transformer) catch return CompileError.OutOfMemory;
 
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;

@@ -129,7 +129,7 @@ test "tail call to re-entrant native across frames array growth" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    try shrinkFrames(&vm);
+    try shrinkFrames(vm);
 
     _ = try vm.eval(
         \\(define (nest d)
@@ -151,7 +151,7 @@ test "tail apply of re-entrant native across frames array growth" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    try shrinkFrames(&vm);
+    try shrinkFrames(vm);
 
     _ = try vm.eval(
         \\(define (nest d)
@@ -173,7 +173,7 @@ test "tail call to parameter with converter across frames array growth" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    try shrinkFrames(&vm);
+    try shrinkFrames(vm);
 
     _ = try vm.eval("(define p (make-parameter 1 (lambda (v) (* v 10))))");
     _ = try vm.eval(

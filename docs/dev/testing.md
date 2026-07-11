@@ -43,31 +43,35 @@ Unit tests live in `src/tests_*.zig`, organized by feature:
 ### Helper: makeTestVM
 
 The `src/testing_helpers.zig` file provides a `makeTestVM` helper that creates
-a fully initialized VM suitable for testing:
+a fully bootstrapped VM suitable for testing:
 
 ```zig
-const helpers = @import("testing_helpers.zig");
+const std = @import("std");
+const th = @import("testing_helpers.zig");
+const memory = @import("memory.zig");
+const types = @import("types.zig");
 
 test "my feature" {
-    var ctx = try helpers.makeTestVM();
-    defer ctx.deinit();
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
 
-    const result = ctx.vm.eval("(+ 1 2)") catch unreachable;
+    const result = try vm.eval("(+ 1 2)");
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
 }
 ```
 
-### Writing a unit test
+`makeTestVM` returns a heap-allocated `*VM` — never a struct copy. The GC
+root marker and the `vm_instance` threadlocal reach the VM by pointer, so
+the VM must live at a stable address from before the first primitive is
+registered; a by-value VM left those pointers dangling, which is invisible
+under normal GC thresholds but fatal under `-Dgc-stress=true` (#1401).
+`vm.deinit()` also frees the VM struct itself (`heap_owned`).
 
-```zig
-test "string-length with Unicode" {
-    var ctx = try helpers.makeTestVM();
-    defer ctx.deinit();
-
-    const result = ctx.vm.eval("(string-length \"hello\")") catch unreachable;
-    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(result));
-}
-```
+For one-liner assertions use the wrappers: `th.expectEval(src, fixnum)`,
+`th.expectEvalTrue(src)`, `th.expectEvalBool(src, bool)`,
+`th.expectEvalVoid(src)`, or `th.TestContext` for multi-step tests.
 
 Use `std.testing.expectEqual` for value comparisons and `std.testing.expect`
 for boolean checks.
@@ -75,12 +79,25 @@ for boolean checks.
 ### Running
 
 ```bash
-zig build test              # Run all tests
-zig build test 2>&1 | head  # Quick check for failures
+zig build test                            # Run all tests
+zig build test 2>&1 | head                # Quick check for failures
+zig build test -Dtest-filter=tests_io     # Only tests whose names match
+zig build test -Dtest-filter="eval quote" # Substring match on test names
+zig build test -Dgc-stress=true           # Collection on every allocation
 ```
 
 Individual test files cannot be run in isolation -- `zig build test` runs all
-tests discovered through the import graph from `main.zig`.
+tests discovered through the import graph from `main.zig`. Use
+`-Dtest-filter` (repeatable) to narrow a run; test names are prefixed with
+their module (e.g. `tests_io.test.eval read-char`), so a file name is an
+effective per-file filter.
+
+A `-Dgc-stress=true` test run forces a collection at every allocation,
+turning latent rooting bugs into immediate failures. Every test must stay
+green under stress; loop-heavy tests that allocate per iteration should
+scale their iteration count down via `@import("build_options").gc_stress`
+(see `tests_records.zig` for the pattern) so the stress suite stays
+tractable.
 
 ---
 

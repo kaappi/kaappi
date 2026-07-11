@@ -39,21 +39,21 @@ test "ffi bool arg: non-0/1 integers coerced to 0/1, never trap (#796)" {
     // 2 must be coerced to 1 before reaching the _Bool parameter — passing it
     // through raw aborts the process under the safety check. Before the fix
     // this returned 2 (or trapped); the raw integer must never reach _Bool.
-    const r2 = try ffi.callFfi(&fn_int, &.{types.makeFixnum(2)}, &ctx.gc, &ctx.vm);
+    const r2 = try ffi.callFfi(&fn_int, &.{types.makeFixnum(2)}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r2));
 
     // Any nonzero value is true (C truthiness); zero is false.
-    const rneg = try ffi.callFfi(&fn_int, &.{types.makeFixnum(-5)}, &ctx.gc, &ctx.vm);
+    const rneg = try ffi.callFfi(&fn_int, &.{types.makeFixnum(-5)}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(rneg));
 
-    const r0 = try ffi.callFfi(&fn_int, &.{types.makeFixnum(0)}, &ctx.gc, &ctx.vm);
+    const r0 = try ffi.callFfi(&fn_int, &.{types.makeFixnum(0)}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(r0));
 
     // #t / #f keep working as before (#418).
-    const rt = try ffi.callFfi(&fn_int, &.{types.TRUE}, &ctx.gc, &ctx.vm);
+    const rt = try ffi.callFfi(&fn_int, &.{types.TRUE}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(rt));
 
-    const rf = try ffi.callFfi(&fn_int, &.{types.FALSE}, &ctx.gc, &ctx.vm);
+    const rf = try ffi.callFfi(&fn_int, &.{types.FALSE}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(rf));
 }
 
@@ -68,7 +68,7 @@ test "ffi bool arg: bignum coerced to 0/1 (#796)" {
     // A value too large for a fixnum arrives as a bignum; it is still just a
     // truthy value for a bool parameter and must coerce to 1.
     const big = try ctx.gc.allocBignumFromI64(0x1_0000_0000_0000);
-    const rbig = try ffi.callFfi(&fn_int, &.{big}, &ctx.gc, &ctx.vm);
+    const rbig = try ffi.callFfi(&fn_int, &.{big}, &ctx.gc, ctx.vm);
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(rbig));
 }
 
@@ -80,10 +80,10 @@ test "ffi bool arg with bool return normalizes both directions (#796)" {
     var ptypes = [_]types.FfiType{.bool_type};
     var fn_bool = makeBoolFn(ptypes[0..], .bool_type);
 
-    try std.testing.expectEqual(types.TRUE, try ffi.callFfi(&fn_bool, &.{types.makeFixnum(2)}, &ctx.gc, &ctx.vm));
-    try std.testing.expectEqual(types.FALSE, try ffi.callFfi(&fn_bool, &.{types.makeFixnum(0)}, &ctx.gc, &ctx.vm));
-    try std.testing.expectEqual(types.TRUE, try ffi.callFfi(&fn_bool, &.{types.TRUE}, &ctx.gc, &ctx.vm));
-    try std.testing.expectEqual(types.FALSE, try ffi.callFfi(&fn_bool, &.{types.FALSE}, &ctx.gc, &ctx.vm));
+    try std.testing.expectEqual(types.TRUE, try ffi.callFfi(&fn_bool, &.{types.makeFixnum(2)}, &ctx.gc, ctx.vm));
+    try std.testing.expectEqual(types.FALSE, try ffi.callFfi(&fn_bool, &.{types.makeFixnum(0)}, &ctx.gc, ctx.vm));
+    try std.testing.expectEqual(types.TRUE, try ffi.callFfi(&fn_bool, &.{types.TRUE}, &ctx.gc, ctx.vm));
+    try std.testing.expectEqual(types.FALSE, try ffi.callFfi(&fn_bool, &.{types.FALSE}, &ctx.gc, ctx.vm));
 }
 
 // ---------------------------------------------------------------------------

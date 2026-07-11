@@ -210,6 +210,13 @@ pub const VM = struct {
     /// and the trampoline cannot be unwound, so callFfi re-raises this after
     /// the enclosing FFI call returns. Traced by markVMRoots.
     callback_error_value: ?Value = null,
+    /// True when the VM struct itself was heap-allocated by its creator and
+    /// deinit() should destroy it (testing_helpers.makeTestVM). The struct
+    /// must live at a stable address: `vm_instance` and the GC root marker
+    /// reach it by pointer, so a by-value move would leave them dangling —
+    /// under -Dgc-stress=true that means every collection during construction
+    /// misses the globals and frees live objects (#1401).
+    heap_owned: bool = false,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
@@ -327,11 +334,15 @@ pub const VM = struct {
         };
         @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
+        // Root each port before allocating the next, exactly like init()
+        // (#1013): the child thread's `vm_instance` is not registered yet, so
+        // the root marker sees nothing — a collection triggered by the next
+        // allocPort would sweep the unrooted earlier port (#1401).
         vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
-        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
-        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
+        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
         if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
+        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         // Share parent's port parameter objects; override with child's own ports
         // so getParameterValue returns child-heap objects.
@@ -376,8 +387,10 @@ pub const VM = struct {
             if (bp.condition) |cond| self.gc.allocator.free(cond);
         }
         self.breakpoint_count = 0;
-        self.gc.allocator.free(self.frames);
-        self.gc.allocator.free(self.registers);
+        const allocator = self.gc.allocator;
+        allocator.free(self.frames);
+        allocator.free(self.registers);
+        if (self.heap_owned) allocator.destroy(self);
     }
 
     pub fn ensureFrameCapacity(self: *VM, needed: usize) VMError!void {

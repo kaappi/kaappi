@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) void {
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
     const gc_stress = b.option(bool, "gc-stress", "Force GC on every allocation (stress testing)") orelse false;
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Only run unit tests whose names match the filter (repeatable)") orelse &.{};
+
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
@@ -253,6 +255,7 @@ pub fn build(b: *std.Build) void {
     const unit_tests = b.addTest(.{
         .name = "unit-tests",
         .root_module = test_mod,
+        .filters = test_filters,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
@@ -266,6 +269,7 @@ pub fn build(b: *std.Build) void {
     const thottam_tests = b.addTest(.{
         .name = "thottam-tests",
         .root_module = thottam_test_mod,
+        .filters = test_filters,
     });
     const run_thottam_tests = b.addRunArtifact(thottam_tests);
     test_step.dependOn(&run_thottam_tests.step);

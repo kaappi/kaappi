@@ -8,18 +8,36 @@ pub const VM = vm_mod.VM;
 pub const VMError = vm_mod.VMError;
 pub const Value = types.Value;
 
-pub fn makeTestVM(gc: *memory.GC) !VM {
-    var vm = try VM.init(gc);
+/// Build a fully bootstrapped VM for a unit test. The VM is heap-allocated
+/// and returned by pointer: `vm_instance` and the GC root marker reach the
+/// VM by address, so it must never move. Returning the struct by value (as
+/// this helper used to) left `vm_instance` pointing at a dead stack frame —
+/// harmless while the GC threshold was never reached mid-test, but fatal
+/// under -Dgc-stress=true, where every collection between construction and
+/// the first execute() then failed to mark the globals and swept live
+/// objects (#1401). `vm.deinit()` also destroys the struct (heap_owned).
+pub fn makeTestVM(gc: *memory.GC) !*VM {
+    const vm = try gc.allocator.create(VM);
+    vm.* = VM.init(gc) catch |err| {
+        gc.allocator.destroy(vm);
+        return err;
+    };
+    vm.heap_owned = true;
+    errdefer vm.deinit();
     memory.setGCInstance(gc);
-    try primitives_mod.registerAll(&vm);
-    try vm_mod.vm_bootstrap.install(&vm);
+    // Register before the first primitive allocation: under stress every
+    // allocation collects, and only a registered vm_instance lets the root
+    // marker keep the globals map alive while it is being populated.
+    vm_mod.setVMInstance(vm);
+    try primitives_mod.registerAll(vm);
+    try vm_mod.vm_bootstrap.install(vm);
     try library_mod.registerStandardLibraries(&vm.libraries, vm.globals);
     return vm;
 }
 
 pub const TestContext = struct {
     gc: memory.GC,
-    vm: VM,
+    vm: *VM,
 
     pub fn init(self: *TestContext) !void {
         self.gc = memory.GC.init(std.testing.allocator);

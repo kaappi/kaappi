@@ -42,7 +42,7 @@ permissions:
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,15 +55,19 @@ jobs:
           - variant: default
             build-args: ''
             limit: 2K
-          # The planned gc-stress variant (collection attempted on every
-          # allocation, converting latent rooting bugs into immediate
-          # failures) is DISABLED: ~440 of 690 unit tests currently crash
-          # under -Dgc-stress=true, so the pre-fuzz test phase can never
-          # pass. Re-enable when https://github.com/kaappi/kaappi/issues/1401
-          # is fixed.
-          # - variant: gc-stress
-          #   build-args: '-Dgc-stress=true'
-          #   limit: 200
+            timeout: 55
+          # gc-stress: collection attempted on every allocation, converting
+          # latent rooting bugs into immediate, attributable failures
+          # (#1401, fixed). The pre-fuzz unit-test phase dominates the wall
+          # time here — every test's VM bootstrap runs tens of thousands of
+          # collections (~35 min locally on M-series; budget more on a
+          # hosted runner) — so the fuzz limit stays small and the timeout
+          # generous. Throughput-sensitive fuzz targets skip themselves on
+          # stress builds (src/tests_fuzz.zig).
+          - variant: gc-stress
+            build-args: '-Dgc-stress=true'
+            limit: 100
+            timeout: 300
     steps:
       # Both jobs in this workflow execute fuzzer-generated programs (and
       # the native-diff job runs binaries compiled from them), so don't

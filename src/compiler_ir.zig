@@ -434,6 +434,13 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
             const transformer_spec = types.car(ds_rest);
             const tx_val = macro.parseSyntaxRules(&child, transformer_spec, all_def_names[0..all_def_count]) catch break;
+            // Root the transformer for the rest of this body compile: it
+            // lives only in the compiler-local macro map, which the GC
+            // cannot see, and it must survive collections triggered while
+            // compiling sibling body forms that use it (#1401). Released by
+            // this function's extra_roots truncation (roots_base defer),
+            // after the body — the macro's entire scope — is compiled.
+            child.gc.extra_roots.append(child.gc.allocator, tx_val) catch return CompileError.OutOfMemory;
             const ds_name = types.symbolName(keyword);
             try child.recordBodyMacro(ds_name);
             const tx_obj = types.toObject(tx_val).as(types.Transformer);

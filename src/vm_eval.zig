@@ -9,6 +9,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
 pub fn eval(vm: *VM, source: []const u8) VMError!Value {
+    vm_mod.setVMInstance(vm);
     const reader_mod = @import("reader.zig");
     var reader = reader_mod.Reader.init(vm.gc, source);
     defer reader.deinit();

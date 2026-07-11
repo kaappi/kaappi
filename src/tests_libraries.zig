@@ -314,7 +314,7 @@ test "cond-expand (library ...) detects an unloaded .sld on the lib path" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    vm_mod.setVMInstance(&vm);
+    vm_mod.setVMInstance(vm);
     vm.lib_paths = &[_][]const u8{dir_path};
 
     // Expression context: checked by the compiler's evalFeatureReq.
@@ -399,7 +399,7 @@ test "stale .sbc next to .sld must not drop include-library-declarations exports
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    vm_mod.setVMInstance(&vm);
+    vm_mod.setVMInstance(vm);
     vm.lib_paths = &[_][]const u8{dir_path};
 
     _ = try vm.eval("(import (cachedlib mylib))");
@@ -498,8 +498,13 @@ test "retired lib_env values survive GC (#820)" {
     );
 
     // Allocation churn to force collections; `stash` is only reachable
-    // through the retired env, which markVMRoots must trace.
-    _ = try vm.eval(
+    // through the retired env, which markVMRoots must trace. Under
+    // -Dgc-stress=true every cons already collects and the growing list
+    // makes marking O(n²), so a small count churns just as decisively.
+    _ = try vm.eval(if (@import("build_options").gc_stress)
+        \\(let churn ((n 500) (acc '()))
+        \\  (if (= n 0) acc (churn (- n 1) (cons n acc))))
+    else
         \\(let churn ((n 50000) (acc '()))
         \\  (if (= n 0) acc (churn (- n 1) (cons n acc))))
     );

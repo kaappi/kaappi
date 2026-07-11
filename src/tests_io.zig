@@ -103,7 +103,11 @@ test "write to file and read back with read-line" {
     _ = try vm.eval(
         \\(define p2 (open-input-file "/tmp/kaappi-test-readline.txt"))
     );
-    const result = try vm.eval("(read-line p2)");
+    // Root the returned string across the close-port eval: under
+    // -Dgc-stress=true its collections would sweep the unrooted local.
+    var result = try vm.eval("(read-line p2)");
+    gc.pushRoot(&result);
+    defer gc.popRoot();
     _ = try vm.eval("(close-port p2)");
 
     try std.testing.expect(types.isString(result));
@@ -298,7 +302,10 @@ test "display and write with port argument" {
     _ = try vm.eval(
         \\(define p2 (open-input-file "/tmp/kaappi-test-display.txt"))
     );
-    const result = try vm.eval("(read-line p2)");
+    // Root across the close-port eval (see the read-line test above).
+    var result = try vm.eval("(read-line p2)");
+    gc.pushRoot(&result);
+    defer gc.popRoot();
     _ = try vm.eval("(close-port p2)");
 
     try std.testing.expect(types.isString(result));
@@ -402,7 +409,10 @@ test "write to port with write procedure" {
     _ = try vm.eval(
         \\(define p2 (open-input-file "/tmp/kaappi-test-write.txt"))
     );
-    const result = try vm.eval("(read-line p2)");
+    // Root across the close-port eval (see the read-line test above).
+    var result = try vm.eval("(read-line p2)");
+    gc.pushRoot(&result);
+    defer gc.popRoot();
     _ = try vm.eval("(close-port p2)");
 
     try std.testing.expect(types.isString(result));
