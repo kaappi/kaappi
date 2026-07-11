@@ -265,6 +265,26 @@ architectures:
 
 Uses `kaappi-builder` Docker images from `ci-images/builder/`.
 
+### `/do-linux-test`
+
+Build and run the full test suite (unit + Scheme) on a real x86-64 Linux
+machine via a temporary DigitalOcean droplet. Complements `/linux-test` by
+providing real hardware instead of emulation. Steps: create `s-2vcpu-4gb`
+droplet, install Zig 0.16, clone and build, run unit tests, run `run-all.sh`,
+fetch results, destroy the droplet. Self-destruct timer (55 min) guarantees
+cleanup even if the session dies. Uses `~/.ssh/id_rsa` and the DO API token
+from `~/.zshrc`. Cost: ~$0.03/hr, full run takes 10–15 minutes.
+
+### `/do-stress-test`
+
+Run the unit suite with `-Dgc-stress=true` (collection on every allocation) on
+a temporary DigitalOcean droplet. Same provisioning flow as `/do-linux-test` but
+with more resources (`s-4vcpu-8gb-amd`, 8 GB swap) and a 3-hour lifetime. The
+stress suite is CPU-bound for 1.5–3 hours, so it runs detached on the droplet
+and is polled for completion. Self-destruct timer arms immediately before the
+stress suite launch (after provisioning and a plain sanity check). Cost:
+~$0.084/hr, full 3-hour window costs ~$0.25.
+
 ## Ecosystem Plugin (`kaappi-dev`)
 
 The `infra/` repo hosts a Claude Code plugin called `kaappi-dev` that provides
