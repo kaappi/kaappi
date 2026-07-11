@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783754074820,
+  "lastUpdate": 1783754245071,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f1cfea2787256200b33708a009c77e488f1d43c9",
-          "message": "Increase CI timeout for Debug test job (#1295) (#1296)\n\nDebug builds are ~500x slower for allocation-heavy workloads, so the\nScheme test suite barely finishes within 20 minutes, leaving no headroom\nfor the post-job Zig cache upload (~982 MB). Bump the Debug matrix entry\nto 30 minutes while keeping the default 20 minutes for other variants.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T16:57:11+05:30",
-          "tree_id": "5fc0f19d213c68041d33612cbbebfaa002d4fb13",
-          "url": "https://github.com/kaappi/kaappi/commit/f1cfea2787256200b33708a009c77e488f1d43c9"
-        },
-        "date": 1783425198932,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.006242,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.887214,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.949378,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.021352,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013897,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.22096,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476789,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069349,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.510786,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.826423,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.124792,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.084873,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.115968,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.933636,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045718,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042949,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fae98918f9548ae2c2243e69fdce2f9ee75b1202",
+          "message": "Fix correctness gaps in the /do-stress-test skill (#1430) (#1433)\n\n- Split sanity check into separate SSH commands with direct exit code\n  capture instead of piping through tail (which masked build failures)\n- Pin exact commit SHA in pre-flight and fetch by SHA on the droplet\n  so reports are attributable to a specific commit\n- Add explicit substitution instruction for the quoted heredoc\n- Move self-destruct timer to after provisioning and sanity check so\n  it doesn't eat the stress suite's 3-hour budget\n- Add /do-stress-test and /do-linux-test entries to harness docs\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T12:15:13+05:30",
+          "tree_id": "c11299f1fccbe9b6171a4316733f26c081b2d3cc",
+          "url": "https://github.com/kaappi/kaappi/commit/fae98918f9548ae2c2243e69fdce2f9ee75b1202"
+        },
+        "date": 1783754242970,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332236,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.665299,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.989477,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.362535,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013118,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.337898,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502284,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070103,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.425168,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.947435,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.748699,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.036082,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.553135,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.695493,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043242,
             "unit": "seconds"
           }
         ]
