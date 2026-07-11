@@ -441,10 +441,15 @@ pub fn abandonFiberMutexes(gc: *memory.GC, fiber: *Fiber, sched: ?*FiberSchedule
         while (obj) |o| : (obj = o.next) {
             if (o.tag == .mutex) {
                 const m = o.as(types.Mutex);
-                if (m.locked and m.owner == fiber_val) {
-                    m.abandoned = true;
-                    m.locked = false;
+                if (@atomicLoad(bool, &m.locked, .acquire) and m.owner == fiber_val) {
+                    // Order matters: abandoned and owner must both be
+                    // published *before* the release-store below, so a
+                    // cross-thread acquirer that wins the locked CAS is
+                    // guaranteed to see them already updated (not stomp a
+                    // fresh owner write with VOID, or miss the abandonment).
+                    @atomicStore(bool, &m.abandoned, true, .release);
                     m.owner = types.VOID;
+                    @atomicStore(bool, &m.locked, false, .release);
                     if (sched) |s| s.wakeMutexWaiters(types.makePointer(@ptrCast(o)));
                 }
             }

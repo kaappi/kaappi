@@ -1,4 +1,4 @@
-(import (scheme base) (scheme write) (srfi 18))
+(import (scheme base) (scheme write) (srfi 18) (kaappi fibers))
 
 (define pass 0)
 (define fail 0)
@@ -119,18 +119,22 @@
   (mutex-unlock! m))
 
 ;;; ---- Mutex contention ----
+;; OS threads (thread-start!) run on isolated heaps and cannot share mutexes
+;; or condition variables captured by a thread thunk's closure (deep-copying
+;; a thunk that closes over one raises "uncopyable type"), so contention is
+;; exercised on the same-heap fiber path instead -- matching the pattern in
+;; tests/scheme/srfi/srfi18.scm.
 (let ((m (make-mutex))
       (result '()))
   (mutex-lock! m)
-  (let ((t (make-thread
+  (let ((t (spawn
             (lambda ()
               (mutex-lock! m)
               (set! result (cons 'got-lock result))
               (mutex-unlock! m)))))
-    (thread-start! t)
     (set! result (cons 'main-holds result))
     (mutex-unlock! m)
-    (thread-join! t)
+    (fiber-join t)
     (check-true "mutex contention" (memq 'got-lock result))))
 
 ;;; ---- Mutex with timeout ----
@@ -149,40 +153,44 @@
   (check "condition-variable-specific" (condition-variable-specific cv) 'cv-data))
 
 ;;; ---- Condition variable signal ----
+;; Fiber path again -- see the "Mutex contention" note above.
 (let ((m (make-mutex))
       (cv (make-condition-variable))
       (ready #f))
-  (let ((t (make-thread
+  (let ((t (spawn
             (lambda ()
               (mutex-lock! m)
               (set! ready #t)
               (condition-variable-signal! cv)
               (mutex-unlock! m)))))
     (mutex-lock! m)
-    (thread-start! t)
     (mutex-unlock! m cv)
+    (fiber-join t)
     (check-true "cv-signal wakes waiter" ready)))
 
 ;;; ---- Condition variable broadcast ----
+;; Fiber path again -- see the "Mutex contention" note above. fiber-join on
+;; t1 before either fiber has reached the cv wait drives the scheduler (via
+;; its own "run something else while target isn't done" loop) far enough
+;; for both t1 and t2 to lock m, release it via mutex-unlock!+cv, and park
+;; on cv -- exactly the state broadcast! needs to find waiters to wake.
 (let ((m (make-mutex))
       (cv (make-condition-variable))
       (count 0))
-  (let ((t1 (make-thread
+  (let ((t1 (spawn
              (lambda ()
                (mutex-lock! m)
                (mutex-unlock! m cv)
                (set! count (+ count 1)))))
-        (t2 (make-thread
+        (t2 (spawn
              (lambda ()
                (mutex-lock! m)
                (mutex-unlock! m cv)
                (set! count (+ count 1))))))
-    (thread-start! t1)
-    (thread-start! t2)
-    (thread-sleep! 0.05)
+    (fiber-join t1)
     (condition-variable-broadcast! cv)
-    (thread-join! t1)
-    (thread-join! t2)
+    (fiber-join t1)
+    (fiber-join t2)
     (check "cv-broadcast wakes all" count 2)))
 
 ;;; ---- Time objects ----

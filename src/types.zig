@@ -665,6 +665,12 @@ pub const ConditionVariable = struct {
     header: Object,
     name: Value,
     specific: Value,
+    // Bumped (atomically) by condition-variable-signal!/-broadcast!. Each OS
+    // thread runs its own independent FiberScheduler, so a waiter parked by a
+    // *different* thread never observes that thread's local wakeOneCondVarWaiter/
+    // wakeAllCondVarWaiters bookkeeping; polling this counter is how a
+    // cross-thread waiter detects a signal happened.
+    signal_generation: u64 = 0,
 };
 
 pub const TimeType = enum(u8) {

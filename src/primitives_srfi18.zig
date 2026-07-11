@@ -104,6 +104,42 @@ fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
     return fiber_mod.ensureScheduler(vm);
 }
 
+// 1ms, matching thread-join!'s existing OS-thread poll cadence.
+const CROSS_THREAD_POLL_NS: u64 = 1_000_000;
+
+// Number of thread-start!-spawned OS threads currently alive (incremented in
+// threadStartFn, decremented via defer in threadEntryFn on every exit path).
+// Lets crossThreadWaitPossible tell a real cross-OS-thread wait apart from a
+// genuine local deadlock -- see its comment.
+var live_child_threads: usize = 0;
+
+// True when some *other* OS thread could plausibly still change the mutex/
+// condvar state this scheduler is blocked on, so polling (instead of
+// accepting runSchedulerStep's "done == false" as a genuine deadlock) might
+// eventually pay off:
+//   - A spawned child thread's own scheduler (vm.owns_globals == false) may
+//     always be waiting on the main thread, which is "alive" for as long as
+//     the process runs -- always poll.
+//   - The main thread's scheduler only has something to gain from polling
+//     if at least one child thread currently exists to possibly unlock/
+//     signal from the outside; with none, runSchedulerStep reporting "not
+//     done" is a real, unrecoverable local deadlock (fiber.zig's
+//     parkOnReactor already found nothing locally runnable and no pending
+//     timer/fd event).
+//
+// Asymmetry this creates: a child thread that manages to genuinely
+// self-deadlock (e.g. waits on a mutex only it could ever unlock) now polls
+// forever rather than raising the deadlock error runSchedulerStep's "not
+// done" normally produces, since it always assumes the main thread might
+// still help -- indefinite blocking here is conformant with SRFI-18, but the
+// same shape of deadlock hangs on a child thread and errors on the main
+// thread, which is worth knowing when debugging one.
+fn crossThreadWaitPossible() bool {
+    const vm = vm_mod.vm_instance orelse return false;
+    if (!vm.owns_globals) return true;
+    return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
+}
+
 fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
     if (timeout == types.FALSE) return null;
     if (types.isSrfi18Time(timeout)) {
@@ -227,14 +263,27 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     gc.extra_roots.append(gc.allocator, args[0]) catch return PrimitiveError.OutOfMemory;
 
     fiber.status = .running;
+    // Increment *before* spawning: if the child ran to completion before an
+    // increment placed after std.Thread.spawn executed, the decrement in
+    // threadEntryFn's defer could fire first and wrap the counter (or drop
+    // it one below the true count with other children alive), letting
+    // crossThreadWaitPossible wrongly conclude no other thread exists.
+    _ = @atomicRmw(usize, &live_child_threads, .Add, 1, .release);
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
         fiber, gc.allocator, gc, vm,
-    }) catch return PrimitiveError.OutOfMemory;
+    }) catch {
+        _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        return PrimitiveError.OutOfMemory;
+    };
 
     return args[0];
 }
 
 fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
+    // Balances the increment in threadStartFn on every exit path (including
+    // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
+    // another OS thread still alive" check stays accurate.
+    defer _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
     _ = parent_gc;
     const child_gc = allocator.create(memory.GC) catch {
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
@@ -619,8 +668,8 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
         return primitives.typeError("mutex-state", "mutex", args[0]);
     const m = types.toMutex(args[0]);
-    if (!m.locked) {
-        if (m.abandoned) {
+    if (!@atomicLoad(bool, &m.locked, .acquire)) {
+        if (@atomicLoad(bool, &m.abandoned, .acquire)) {
             const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return gc.allocSymbol("abandoned") catch return PrimitiveError.OutOfMemory;
         }
@@ -632,38 +681,43 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
     return gc.allocSymbol("not-owned") catch return PrimitiveError.OutOfMemory;
 }
 
+// The fiber/thread that resolves to be recorded as a mutex's new owner: an
+// explicit fiber (args[2]), explicitly "unowned" (args[2] == #f), or the
+// caller's own current fiber.
+fn resolveMutexOwner(args: []const Value, fallback: Value) Value {
+    if (args.len > 2 and types.isFiber(args[2])) return args[2];
+    if (args.len > 2 and args[2] == types.FALSE) return types.VOID;
+    return fallback;
+}
+
+// Atomically claims the mutex (false -> true). This is the single point of
+// arbitration between racing threads -- a plain load-then-store lets two
+// threads both observe "unlocked" and both believe they've acquired it,
+// corrupting mutual exclusion. Load-bearing now that cross-thread mutex
+// contention is a supported, polled-for wait (see crossThreadWaitPossible)
+// rather than something that resolved (buggily) on the first check.
+fn tryClaimMutex(m: *types.Mutex) bool {
+    return @cmpxchgStrong(bool, &m.locked, false, true, .acq_rel, .acquire) == null;
+}
+
+// Atomically claims (and clears) an abandoned flag. Only meaningful once
+// the caller has already won tryClaimMutex: it decides whether *this*
+// acquisition should also raise abandoned-mutex-exception, without letting
+// a second racing acquirer also see and report the same abandonment.
+fn tryClaimAbandoned(m: *types.Mutex) bool {
+    return @cmpxchgStrong(bool, &m.abandoned, true, false, .acq_rel, .acquire) == null;
+}
+
 fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
         return primitives.typeError("mutex-lock!", "mutex", args[0]);
 
     const m = types.toMutex(args[0]);
 
-    if (m.abandoned) {
-        m.abandoned = false;
-        m.locked = true;
+    if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
-        m.owner = if (args.len > 2 and types.isFiber(args[2]))
-            args[2]
-        else if (args.len > 2 and args[2] == types.FALSE)
-            types.VOID
-        else if (ctx.vm.current_fiber) |cf|
-            types.makePointer(@ptrCast(&cf.header))
-        else
-            types.VOID;
-        return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
-    }
-
-    if (!m.locked) {
-        m.locked = true;
-        const ctx = try ensureScheduler();
-        m.owner = if (args.len > 2 and types.isFiber(args[2]))
-            args[2]
-        else if (args.len > 2 and args[2] == types.FALSE)
-            types.VOID
-        else if (ctx.vm.current_fiber) |cf|
-            types.makePointer(@ptrCast(&cf.header))
-        else
-            types.VOID;
+        m.owner = resolveMutexOwner(args, if (ctx.vm.current_fiber) |cf| types.makePointer(@ptrCast(&cf.header)) else types.VOID);
+        if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
         return types.TRUE;
     }
 
@@ -691,38 +745,56 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         try ctx.reactor.addTimer(d, me);
     }
 
-    const done = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
+    // runSchedulerStep only returns done once it *observes* m.locked ==
+    // false; claiming it is still a race against any other thread making
+    // the same observation, so retry the claim and go back to waiting on
+    // failure instead of assuming we won. When runSchedulerStep reports
+    // "not done" (parkOnReactor found nothing locally runnable and no
+    // pending timer/fd event), that's only a genuine deadlock if no other
+    // OS thread could plausibly still unlock this mutex from the outside —
+    // otherwise poll briefly and retry.
+    while (true) {
+        const done = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
+        if (me.timed_out) {
+            me.timed_out = false;
+            me.deadline_ns = null;
+            return types.FALSE;
+        }
+        if (done) {
+            if (tryClaimMutex(m)) break;
+            me.status = .waiting;
+            continue;
+        }
+        if (!crossThreadWaitPossible()) {
+            if (deadline != null) ctx.reactor.removeTimer(me);
+            me.deadline_ns = null;
+            return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
+        }
+        sleepNs(CROSS_THREAD_POLL_NS);
+        me.status = .waiting;
+    }
+    // A cross-thread resolution never runs local wake bookkeeping (the
+    // unlocking thread's scheduler/reactor doesn't even know `me` exists),
+    // so any timer registered above may still be pending; a local wake
+    // already canceled it (removeTimer is a no-op then), but skipping this
+    // for the cross-thread path would leave a stale entry that could later
+    // fire against a reused fiber slot.
+    if (deadline != null) ctx.reactor.removeTimer(me);
     me.deadline_ns = null;
 
-    if (me.timed_out) {
-        me.timed_out = false;
-        return types.FALSE;
-    }
-    if (!done) {
-        // Genuine deadlock: parkOnReactor gave up because nothing local
-        // could ever unlock this mutex (no other runnable fiber, no
-        // pending timer). Must not fall through to "assume success" —
-        // that would silently steal a lock still held elsewhere.
-        return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
-    }
-
-    m.locked = true;
     m.owner = if (owner_arg) |oa|
         (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(@ptrCast(&me.header)))
     else
         types.makePointer(@ptrCast(&me.header));
 
-    if (m.abandoned) {
-        m.abandoned = false;
-        return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
-    }
+    if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
     return types.TRUE;
 }
 
 const MutexWait = struct {
     m: *types.Mutex,
     pub fn isDone(self: MutexWait) bool {
-        return !self.m.locked;
+        return !@atomicLoad(bool, &self.m.locked, .acquire);
     }
 };
 
@@ -731,13 +803,28 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("mutex-unlock!", "mutex", args[0]);
 
     const m = types.toMutex(args[0]);
-    m.locked = false;
+    const has_cv = args.len > 1 and types.isConditionVariable(args[1]);
+
+    // Snapshot the condvar's signal generation *before* releasing the mutex,
+    // while we still exclusively hold it. Per the SRFI-18 protocol, any
+    // signaler must acquire this same mutex before calling
+    // condition-variable-signal!/-broadcast!, so it cannot have bumped the
+    // generation yet -- snapshotting after the unlock would race a signaler
+    // that acquires the mutex in the gap and produce a lost wakeup (the
+    // waiter would then wait for a *second* signal that may never come).
+    const cv: ?*types.ConditionVariable = if (has_cv) types.toConditionVariable(args[1]) else null;
+    const start_gen: u64 = if (cv) |c| @atomicLoad(u64, &c.signal_generation, .acquire) else 0;
+
+    // Clear owner *before* the release-store: otherwise a cross-thread
+    // acquirer that wins the locked CAS right after the store below could
+    // write its own owner, and this line would then stomp it back to VOID.
     m.owner = types.VOID;
+    @atomicStore(bool, &m.locked, false, .release);
 
     const ctx = try ensureScheduler();
     ctx.sched.wakeMutexWaiters(args[0]);
 
-    if (args.len > 1 and types.isConditionVariable(args[1])) {
+    if (cv) |c| {
         var deadline: ?u64 = null;
         if (args.len > 2) {
             deadline = try timeoutToDeadlineNs(args[2]);
@@ -752,18 +839,36 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
             try ctx.reactor.addTimer(d, me);
         }
 
-        const done = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me }, ctx.vm, ctx.sched, me);
+        // Each OS thread owns an independent FiberScheduler, so
+        // condition-variable-signal!/-broadcast! called on *another*
+        // thread only wakes fibers local to that thread's own scheduler
+        // (me.status never changes) -- the generation bump in
+        // CondVarWait.isDone is what a cross-thread waiter actually relies
+        // on. When runSchedulerStep reports "not done", poll and retry
+        // instead of treating it as a genuine deadlock whenever another OS
+        // thread could plausibly still signal from the outside.
+        while (true) {
+            const done = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me, .cv = c, .start_gen = start_gen }, ctx.vm, ctx.sched, me);
+            if (me.timed_out) {
+                me.timed_out = false;
+                me.deadline_ns = null;
+                return types.FALSE;
+            }
+            if (done) break;
+            if (!crossThreadWaitPossible()) {
+                if (deadline != null) ctx.reactor.removeTimer(me);
+                me.deadline_ns = null;
+                return raiseError(.general, "mutex-unlock!: deadlock — condition variable will never be signaled (all fibers blocked)", types.VOID);
+            }
+            sleepNs(CROSS_THREAD_POLL_NS);
+            me.status = .waiting;
+        }
+        // See the matching comment in mutexLockFn: a cross-thread signal
+        // never runs local wake bookkeeping, so any timer registered above
+        // may still be pending (a local wake already canceled it --
+        // removeTimer is then a no-op).
+        if (deadline != null) ctx.reactor.removeTimer(me);
         me.deadline_ns = null;
-
-        if (me.timed_out) {
-            me.timed_out = false;
-            return types.FALSE;
-        }
-        if (!done) {
-            // Genuine deadlock: parkOnReactor gave up because nothing
-            // local could ever signal this condition variable.
-            return raiseError(.general, "mutex-unlock!: deadlock — condition variable will never be signaled (all fibers blocked)", types.VOID);
-        }
         return types.TRUE;
     }
 
@@ -772,8 +877,11 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
 
 const CondVarWait = struct {
     me: *fiber_mod.Fiber,
+    cv: *types.ConditionVariable,
+    start_gen: u64,
     pub fn isDone(self: CondVarWait) bool {
-        return self.me.status != .waiting;
+        return self.me.status != .waiting or
+            @atomicLoad(u64, &self.cv.signal_generation, .acquire) != self.start_gen;
     }
 };
 
@@ -816,6 +924,9 @@ fn condvarSignalFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("condition-variable-signal!", "condition-variable", args[0]);
     const ctx = try ensureScheduler();
     ctx.sched.wakeOneCondVarWaiter(args[0]);
+    // Bump the generation so a waiter parked on a different OS thread's
+    // scheduler (which never sees the local wake above) can poll for this.
+    _ = @atomicRmw(u64, &types.toConditionVariable(args[0]).signal_generation, .Add, 1, .release);
     return types.VOID;
 }
 
@@ -824,6 +935,7 @@ fn condvarBroadcastFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("condition-variable-broadcast!", "condition-variable", args[0]);
     const ctx = try ensureScheduler();
     ctx.sched.wakeAllCondVarWaiters(args[0]);
+    _ = @atomicRmw(u64, &types.toConditionVariable(args[0]).signal_generation, .Add, 1, .release);
     return types.VOID;
 }
 
