@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-07-11
+
+### Added
+- **Persistent GC mark worklist** on the GC struct, eliminating per-collection heap allocation (#1436)
+- **Bignum rational literals** — the reader now accepts rational literals with bignum numerators or denominators (#1423)
+- **Chained nested-lambda captures** in the native closure tiers (#1419)
+- **Unit suite green under `-Dgc-stress=true`** — the full unit test suite now passes with collection on every allocation (#1427)
+- **Fuzzing infrastructure** (Phases 1–3): seed corpora, Smith-driven grammar generator, three differential oracles (IR opt-vs-no-opt, VM-vs-native backend, Kaappi-vs-Chibi), scheduled CI job, and auto-filed GitHub issues for findings (#1388, #1398, #1403, #1405, #1408, #1418, #1424, #1426, #1434)
+
+### Fixed
+- Root bignum intermediates in rational arithmetic and `string->number` (#1421)
+- Fix nested `syntax-rules` substitution and template-let ellipsis bindings (#1411)
+- Descend into `let`/`let*` in the native closure free-variable analysis (#1409)
+- Return exact results from `sqrt` for rational and bignum perfect squares (#1415)
+- Reject native compilation when a `set!`-mutated param is captured by a nested lambda (#1425)
+- Exit non-zero on every `kaappi compile` / `--emit-llvm` failure (#1417)
+- Harden the `--no-ir-opt` compile guard (#1406)
+
+### Changed
+- Pin GitHub Actions by SHA and disable persisted checkout credentials (#1413)
+- Build chibi-scheme from source in oracle-diff CI (#1434)
+- Security-harden the DigitalOcean test skills (#1435)
+
 ## [0.14.0] - 2026-07-10
 
 ### Added
