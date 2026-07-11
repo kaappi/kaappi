@@ -238,7 +238,11 @@ pub const Reactor = struct {
         const now = fiber_mod.clockNs();
         while (self.timers.peek()) |top| {
             if (top.deadline_ns > now) break;
-            try ready.append(self.allocator, self.timers.pop().?.fiber);
+            // Append before popping: if the append allocation fails, the
+            // timer must stay in the heap so the fiber isn't stranded —
+            // popping first would drop it from both places on OOM.
+            try ready.append(self.allocator, top.fiber);
+            _ = self.timers.pop();
         }
     }
 
