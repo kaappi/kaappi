@@ -12,8 +12,9 @@
 # programs open with an explicit (import (scheme base) (scheme char)
 # (scheme lazy) (scheme write)), so no dialect flags are needed — unlike,
 # say, Guile, which would need R7RS mode selected explicitly. Install it
-# with `apt-get install chibi-scheme` or `brew install chibi-scheme`, or
-# point CHIBI at a specific binary to pin a version exactly.
+# with `brew install chibi-scheme` (or build from source — Ubuntu noble's
+# apt ships 0.9.1 which is too old, #1429), or point CHIBI at a specific
+# binary to pin a version exactly.
 #
 # Usage: bash tests/fuzz/oracle-diff.sh [N] [SEED_BASE]
 #   N          number of programs (default 100)
