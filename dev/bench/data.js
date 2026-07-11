@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783802101384,
+  "lastUpdate": 1783804481842,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bbac070145333eca311ecb0f3bbba7a29bbaa2f7",
-          "message": "Honor explicit #f thread arg in mutex-lock! as locked/not-owned (#1154) (#1306)\n\nSRFI-18 specifies that when the thread argument to mutex-lock! is #f,\nthe mutex becomes locked/not-owned. The owner assignment logic treated\nany non-fiber value as \"absent\" and fell back to the current thread.\nAdd an explicit check for #f in all three owner-assignment sites\n(abandoned path, fast path, contended path).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:47:40+05:30",
-          "tree_id": "990ad62630a64c202175480002a26c5f6dc21ca1",
-          "url": "https://github.com/kaappi/kaappi/commit/bbac070145333eca311ecb0f3bbba7a29bbaa2f7"
-        },
-        "date": 1783489937562,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.33734,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.341494,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.971673,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.442243,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012581,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.201556,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.503789,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072292,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.500748,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.955419,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.071645,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951036,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.332446,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.720042,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04409,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046421,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "852737ae21749fd6aa9e43b51eaaa686d0c7f402",
+          "message": "Fix mutex-lock!/mutex-unlock!+condvar giving up instantly across OS threads (#1455)\n\n* Fix mutex-lock!/mutex-unlock!+condvar giving up instantly across OS threads\n\nEach OS thread runs its own independent FiberScheduler, so mutex-lock! and\nmutex-unlock!+condition-variable-wait had nothing to do the moment nothing\nwas locally schedulable -- which is always true for a real OS thread whose\nonly fiber is its own top-level thunk. Both then unconditionally reported\nsuccess without re-checking whether the guarded state had actually changed,\nsilently corrupting the lock (two threads could believe they both hold it)\nor returning before any signal had happened.\n\nPoll the shared state (Mutex.locked / a new ConditionVariable.signal_\ngeneration counter) at a short interval instead of giving up immediately,\nbut only when another OS thread could plausibly still change it -- a\ngenuine local-only fiber deadlock still gives up right away, otherwise it\nwould hang forever instead of terminating. The condvar generation is\nsnapshotted before releasing the mutex in mutex-unlock! to avoid a\nlost-wakeup race against a signaler that acquires the mutex in the gap.\n\nAlso updates the stale coverage/srfi18-coverage.scm tests that captured a\nmutex/condvar in a thread thunk closure -- unsupported by design, since OS\nthreads run on isolated heaps -- to use the same-heap fiber pattern that\nsrfi18.scm already demonstrates works.\n\nFixes #1454.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: CAS-based mutex claim, owner-clear ordering, test hardening\n\nTwo review passes (CodeRabbit + a maintainer) found that the previous commit's\nfix, while correctly diagnosing and solving the give-up-too-early bug, made\nsome pre-existing races in the same code load-bearing rather than moot:\n\n- mutex-lock! claimed the mutex via a plain load-then-store; two threads\n  polling the same freshly-unlocked mutex could both observe `false` and\n  both set it `true`. Replaced with @cmpxchgStrong throughout (fast path,\n  abandoned-mutex path, and the post-wait retry), looping back into\n  runSchedulerUntilMutex on a lost race instead of assuming success.\n- mutex-unlock!/abandonFiberMutexes cleared `owner` *after* the release\n  store of `locked`, so a cross-thread acquirer that won the race in that\n  gap could have its own owner write silently stomped back to VOID.\n  Reordered so owner (and abandoned) are published before the release.\n- live_child_threads was incremented after std.Thread.spawn, leaving a\n  window where a fast-exiting child's decrement could race ahead of it.\n  Moved the increment before spawn, with rollback on spawn failure.\n- mutex-state read `m.locked`/`m.abandoned` non-atomically even though\n  they're now genuinely cross-thread fields; made those reads atomic too.\n\nAlso hardens the tests these changes touch:\n- The new cross-thread regression test's broadcast section issued the\n  broadcast without holding the mutex, so a slow-starting waiter thread\n  could snapshot its generation after the bump and then poll forever for a\n  signal that already happened. Added a bounded per-waiter timeout and\n  asserts the wait actually succeeded, turning a possible CI hang into a\n  reported failure.\n- The coverage file's rewritten broadcast test used two fibers parked on\n  the same condition variable with nothing else locally runnable, which\n  resolves via the (separate, pre-existing, out-of-scope) fiber-only\n  give-up path rather than the broadcast itself -- confirmed empirically\n  that it passed even with the broadcast call removed. Switched to a\n  single waiter, mirroring the already-correct signal test's structure.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix lost timeout timer on mutex retry and missing GC write barrier\n\nTwo issues from the maintainer's re-review of the rebased fix:\n\n- mutexLockFn's retry loop re-armed after losing the tryClaimMutex race\n  (or after a cross-thread poll) without re-registering the reactor timer\n  a local wake had already canceled. me.deadline_ns stayed set, so a timed\n  mutex-lock! could block well past its deadline, and in the worst case\n  (the thread that stole the lock exits without unlocking, dropping\n  live_child_threads to 0) ends in an unbounded reactor poll instead of\n  ever timing out. Both re-arm sites now remove-then-add the timer so a\n  real deadline stays live regardless of how many times the loop retries.\n\n- Both sites that store a Fiber pointer into Mutex.owner were missing the\n  GC write barrier every other heap-field write in this file already has\n  (mutexSpecificSetFn, threadSpecificSetFn, condvarSpecificSetFn). Without\n  it, a generational minor collection can miss the reference from an\n  old-generation Mutex to a young owner Fiber.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T20:44:23Z",
+          "tree_id": "95d153634075af8ae9f0867495fbf623d6924d00",
+          "url": "https://github.com/kaappi/kaappi/commit/852737ae21749fd6aa9e43b51eaaa686d0c7f402"
+        },
+        "date": 1783804480223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.083389,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.783157,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.923817,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.462512,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006815,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053223,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51442,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068337,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.205991,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.001339,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519698,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471471,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731572,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.888555,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046324,
             "unit": "seconds"
           }
         ]
