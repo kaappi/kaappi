@@ -828,9 +828,9 @@ pub const GC = struct {
         try self.maybeCollect();
         self.clearArgRoots();
         const fiber_mod = @import("fiber.zig");
-        const registers = try self.allocator.alloc(Value, types.INITIAL_REGISTER_CAPACITY);
+        const registers = try self.allocator.alloc(Value, types.INITIAL_FIBER_REGISTER_CAPACITY);
         errdefer self.allocator.free(registers);
-        const frames = try self.allocator.alloc(types.CallFrame, types.INITIAL_FRAME_CAPACITY);
+        const frames = try self.allocator.alloc(types.CallFrame, types.INITIAL_FIBER_FRAME_CAPACITY);
         errdefer self.allocator.free(frames);
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{

@@ -9,6 +9,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const fiber_mod = @import("fiber.zig");
+const memory = @import("memory.zig");
+const types = @import("types.zig");
 const Fiber = fiber_mod.Fiber;
 
 const linux = std.os.linux;
@@ -156,6 +158,21 @@ pub const Reactor = struct {
             if (!reg.isEmpty()) return false;
         }
         return true;
+    }
+
+    /// Belt-and-braces GC root: a reactor-parked fiber is always still
+    /// present in FiberScheduler.fibers[] (addFiber's slot-reuse only
+    /// overwrites .completed/.errored slots), so this is currently
+    /// redundant with FiberScheduler.markRoots. Kept as an explicit
+    /// second root so a fiber reachable only through the reactor can never
+    /// be collected even if that invariant is later weakened.
+    pub fn markRoots(self: *Reactor, gc: *memory.GC) void {
+        var it = self.regs.valueIterator();
+        while (it.next()) |reg| {
+            for (reg.read_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
+            for (reg.write_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
+        }
+        for (self.timers.items) |entry| gc.markValue(types.makePointer(@ptrCast(&entry.fiber.header)));
     }
 
     /// Blocks up to `timeout_ns` (or the nearest timer deadline, whichever

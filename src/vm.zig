@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
+const reactor_mod = @import("reactor.zig");
 pub const globals_mod = @import("globals.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
@@ -121,6 +122,10 @@ fn markVMRoots(gc: *memory.GC) void {
     // Mark fiber scheduler state (suspended fibers' execution state)
     if (vm.scheduler) |sched| {
         sched.markRoots(gc);
+    }
+    // Belt-and-braces: see Reactor.markRoots's doc comment.
+    if (vm.reactor) |r| {
+        r.markRoots(gc);
     }
 }
 
@@ -252,6 +257,9 @@ pub const VM = struct {
     default_random_source: Value = types.VOID,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
+    /// Per-OS-thread I/O readiness/timer multiplexer (KEP-0001). Lazily
+    /// created together with `scheduler` by fiber.ensureScheduler.
+    reactor: ?*reactor_mod.Reactor = null,
     yielded: bool = false,
     /// Set by a blocking primitive (channel-receive, fiber-join) together with
     /// error.Yielded: the dispatch loop must rewind ip to the start of the
@@ -368,8 +376,14 @@ pub const VM = struct {
             globals_mod.clearGlobalsContext();
         }
         if (self.scheduler) |sched| {
+            sched.deinit(self.gc.allocator);
             self.gc.allocator.destroy(sched);
             self.scheduler = null;
+        }
+        if (self.reactor) |r| {
+            r.deinit();
+            self.gc.allocator.destroy(r);
+            self.reactor = null;
         }
         if (self.owns_globals) {
             self.globals.deinit();

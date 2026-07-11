@@ -1,6 +1,8 @@
 ;; Regression test for #206: fiber scheduler slot exhaustion.
-;; Spawns more than MAX_FIBERS (64) total fibers over the program's
-;; lifetime. Without slot reclamation this crashes with StackOverflow.
+;; Spawns 100 fibers over the program's lifetime, more than the fiber
+;; table's original fixed 64-slot cap (since removed — KEP-0001 Phase 2,
+;; kaappi/kaappi#1440 — but slot reuse remains worth testing so completed
+;; fibers don't grow the table unboundedly).
 
 (import (scheme base)
         (scheme write))
@@ -22,7 +24,8 @@
         (newline))))
 
 ;; Spawn 100 fibers sequentially, each completing before the next.
-;; This requires slot reclamation since MAX_FIBERS = 64.
+;; Exercises slot reclamation (addFiber reuses a completed/errored slot
+;; before growing the table).
 (define results '())
 (let loop ((i 0))
   (when (< i 100)

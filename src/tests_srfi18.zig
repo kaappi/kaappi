@@ -120,14 +120,14 @@ test "abandonFiberMutexes marks owned mutex abandoned" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    const fiber_val = types.makePointer(@ptrCast(fiber));
+    const fiber_val = types.makePointer(@ptrCast(&fiber.header));
     const m_val = try gc.allocMutex(types.VOID);
     const m = types.toMutex(m_val);
 
     m.locked = true;
     m.owner = fiber_val;
 
-    srfi18.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
 
     try std.testing.expect(m.abandoned);
     try std.testing.expect(!m.locked);
@@ -142,14 +142,14 @@ test "abandonFiberMutexes skips mutex owned by different fiber" {
 
     const fiber_a = try gc.allocFiber(types.VOID, 0);
     const fiber_b = try gc.allocFiber(types.VOID, 1);
-    const fiber_a_val = types.makePointer(@ptrCast(fiber_a));
+    const fiber_a_val = types.makePointer(@ptrCast(&fiber_a.header));
     const m_val = try gc.allocMutex(types.VOID);
     const m = types.toMutex(m_val);
 
     m.locked = true;
     m.owner = fiber_a_val;
 
-    srfi18.abandonFiberMutexes(&gc, fiber_b, null);
+    fiber_mod.abandonFiberMutexes(&gc, fiber_b, null);
 
     try std.testing.expect(!m.abandoned);
     try std.testing.expect(m.locked);
@@ -169,7 +169,7 @@ test "abandonFiberMutexes skips unlocked mutex" {
     m.locked = false;
     m.owner = types.VOID;
 
-    srfi18.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
 
     try std.testing.expect(!m.abandoned);
 }
@@ -181,7 +181,7 @@ test "abandonFiberMutexes handles multiple mutexes" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    var fiber_val = types.makePointer(@ptrCast(fiber));
+    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
     // Root everything across the following allocations: under -Dgc-stress=true
     // each allocMutex collects, and an unrooted fiber/mutex local is swept.
     gc.pushRoot(&fiber_val);
@@ -205,7 +205,7 @@ test "abandonFiberMutexes handles multiple mutexes" {
     m3.locked = true;
     m3.owner = fiber_val;
 
-    srfi18.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
 
     try std.testing.expect(m1.abandoned);
     try std.testing.expect(!m1.locked);
@@ -261,7 +261,7 @@ test "mutex-lock! on abandoned mutex raises abandoned-mutex-exception" {
     const m_val = try vm.eval("m");
     const m = types.toMutex(m_val);
     const sched_fiber = vm.current_fiber.?;
-    srfi18.abandonFiberMutexes(&gc, sched_fiber, vm.scheduler);
+    fiber_mod.abandonFiberMutexes(&gc, sched_fiber, vm.scheduler);
 
     try std.testing.expect(m.abandoned);
 

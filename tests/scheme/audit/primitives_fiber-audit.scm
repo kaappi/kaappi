@@ -5,9 +5,9 @@
 ;; Run directly and read the printed counts — run-all.sh only sees exit codes.
 ;;
 ;; NOTE: test order matters. Deadlock tests leak permanently-parked fibers
-;; (that is inherent — there is no fiber-kill), and the spawn-limit test at
-;; the end deliberately fills every scheduler slot. Nothing that needs a
-;; free slot may run after it.
+;; (that is inherent — there is no fiber-kill), and the spawn test at the
+;; end deliberately spawns 70 more permanently-parked fibers. Nothing
+;; requiring a bounded fiber count may run after it.
 
 (import (scheme base) (scheme write) (kaappi fibers))
 (import (scheme process-context) (srfi 64))
@@ -111,8 +111,11 @@
                  (channel-receive (make-channel))
                  #f))
 
-;;; --- spawn limit (MAX_FIBERS = 64) — fills all remaining slots; keep last ---
-(test-equal '(limit-hit #t)
+;;; --- spawn limit — superseded by the growable fiber table (KEP-0001
+;;; Phase 2, kaappi/kaappi#1440): the fixed MAX_FIBERS=64 table this test
+;;; used to hit is gone, so 70 concurrently-parked spawns now succeed
+;;; outright instead of erroring at the old ceiling.
+(test-equal 'no-limit
     (guard (e (#t (list 'limit-hit (error-object? e))))
       (let loop ((i 0))
         (if (= i 70) 'no-limit

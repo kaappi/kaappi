@@ -112,7 +112,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     // marked .completed (set when its form finished); both are per-form
     // states that must not leak into the next form.
     if (vm.scheduler) |sched| {
-        if (sched.fibers[0]) |main_fiber| {
+        if (sched.fibers.items[0]) |main_fiber| {
             sched.current_idx = 0;
             main_fiber.status = .running;
             vm.current_fiber = main_fiber;
@@ -215,7 +215,7 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
             return err;
         };
 
-        const current = sched.fibers[sched.current_idx] orelse return result;
+        const current = sched.fibers.items[sched.current_idx] orelse return result;
         current.status = .completed;
         current.result = result;
         vm.gc.writeBarrier(&current.header, result);
@@ -243,7 +243,7 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
 /// when nothing can be scheduled; the caller should then finish the
 /// top-level form with mainFiberResult().
 fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
-    const current = sched.fibers[sched.current_idx] orelse return false;
+    const current = sched.fibers.items[sched.current_idx] orelse return false;
     sched.saveCurrentFiber();
 
     if (current.status == .running) current.status = .suspended;
@@ -256,7 +256,7 @@ fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
         sched.switchTo(next_idx);
         return true;
     }
-    if (sched.fibers[0]) |main_fiber| {
+    if (sched.fibers.items[0]) |main_fiber| {
         if (main_fiber.status == .waiting) {
             const target_val = main_fiber.waiting_on;
             if (types.isFiber(target_val)) {
@@ -279,7 +279,7 @@ fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
 /// result if its form completed (possibly inside a nested scheduler loop),
 /// VOID otherwise (deadlock — every fiber is blocked).
 fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
-    if (sched.fibers[0]) |main_fiber| {
+    if (sched.fibers.items[0]) |main_fiber| {
         if (main_fiber.status == .completed) return main_fiber.result;
     }
     return types.VOID;
