@@ -525,6 +525,12 @@ pub fn markValue(gc: *GC, v: Value) void {
         markValueInner(gc, item, &gc.mark_worklist);
     }
     gc.marking = false;
+
+    // Cap retained capacity so one pathologically wide object (e.g. a
+    // 10M-element vector) doesn't keep ~80 MB allocated forever.
+    const max_retained = 64 * 1024;
+    if (gc.mark_worklist.capacity > max_retained)
+        gc.mark_worklist.clearAndFree(gc.allocator);
 }
 
 fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
