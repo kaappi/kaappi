@@ -1,4 +1,4 @@
-(import (scheme base) (scheme write) (srfi 18))
+(import (scheme base) (scheme write) (srfi 18) (kaappi fibers))
 
 (define pass 0)
 (define fail 0)
@@ -119,18 +119,22 @@
   (mutex-unlock! m))
 
 ;;; ---- Mutex contention ----
+;; OS threads (thread-start!) run on isolated heaps and cannot share mutexes
+;; or condition variables captured by a thread thunk's closure (deep-copying
+;; a thunk that closes over one raises "uncopyable type"), so contention is
+;; exercised on the same-heap fiber path instead -- matching the pattern in
+;; tests/scheme/srfi/srfi18.scm.
 (let ((m (make-mutex))
       (result '()))
   (mutex-lock! m)
-  (let ((t (make-thread
+  (let ((t (spawn
             (lambda ()
               (mutex-lock! m)
               (set! result (cons 'got-lock result))
               (mutex-unlock! m)))))
-    (thread-start! t)
     (set! result (cons 'main-holds result))
     (mutex-unlock! m)
-    (thread-join! t)
+    (fiber-join t)
     (check-true "mutex contention" (memq 'got-lock result))))
 
 ;;; ---- Mutex with timeout ----
@@ -149,41 +153,45 @@
   (check "condition-variable-specific" (condition-variable-specific cv) 'cv-data))
 
 ;;; ---- Condition variable signal ----
+;; Fiber path again -- see the "Mutex contention" note above.
 (let ((m (make-mutex))
       (cv (make-condition-variable))
       (ready #f))
-  (let ((t (make-thread
+  (let ((t (spawn
             (lambda ()
               (mutex-lock! m)
               (set! ready #t)
               (condition-variable-signal! cv)
               (mutex-unlock! m)))))
     (mutex-lock! m)
-    (thread-start! t)
     (mutex-unlock! m cv)
+    (fiber-join t)
     (check-true "cv-signal wakes waiter" ready)))
 
 ;;; ---- Condition variable broadcast ----
+;; Same shape as the signal test above (main waits, t wakes it), just
+;; calling broadcast! instead of signal! -- deliberately *not* two waiters:
+;; with two fibers simultaneously parked on cv and nothing else locally
+;; runnable, the driving fiber-join would have nothing left to schedule and
+;; give up immediately rather than hang on a fiber-only deadlock it can't
+;; distinguish from a real one (this PR only teaches that judgment call to
+;; real OS threads, which can tell whether another thread might still
+;; resolve it -- see crossThreadWaitPossible in primitives_srfi18.zig), so
+;; both fibers would "complete" without broadcast! ever actually running,
+;; and the check would pass for the wrong reason.
 (let ((m (make-mutex))
       (cv (make-condition-variable))
-      (count 0))
-  (let ((t1 (make-thread
-             (lambda ()
-               (mutex-lock! m)
-               (mutex-unlock! m cv)
-               (set! count (+ count 1)))))
-        (t2 (make-thread
-             (lambda ()
-               (mutex-lock! m)
-               (mutex-unlock! m cv)
-               (set! count (+ count 1))))))
-    (thread-start! t1)
-    (thread-start! t2)
-    (thread-sleep! 0.05)
-    (condition-variable-broadcast! cv)
-    (thread-join! t1)
-    (thread-join! t2)
-    (check "cv-broadcast wakes all" count 2)))
+      (ready #f))
+  (let ((t (spawn
+            (lambda ()
+              (mutex-lock! m)
+              (set! ready #t)
+              (condition-variable-broadcast! cv)
+              (mutex-unlock! m)))))
+    (mutex-lock! m)
+    (mutex-unlock! m cv)
+    (fiber-join t)
+    (check-true "cv-broadcast wakes waiter" ready)))
 
 ;;; ---- Time objects ----
 (check-true "time? current-time" (time? (current-time)))

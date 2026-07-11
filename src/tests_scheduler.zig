@@ -91,7 +91,7 @@ test "parkOnReactor wakes a manually io_waiting fiber when its fd becomes readab
 
     writeByte(pipe[1], 'x');
 
-    const made_progress = try fiber_mod.parkOnReactor(vm, sched);
+    const made_progress = try fiber_mod.parkOnReactor(vm, sched, null);
     try std.testing.expect(made_progress);
     try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, f.status);
 }
@@ -108,7 +108,7 @@ test "parkOnReactor reports no progress (genuine deadlock) when nothing is pendi
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
     f.status = .completed; // neutralize: nothing left that could ever wake
 
-    const made_progress = try fiber_mod.parkOnReactor(vm, sched);
+    const made_progress = try fiber_mod.parkOnReactor(vm, sched, null);
     try std.testing.expect(!made_progress);
 }
 
