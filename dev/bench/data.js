@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783759751280,
+  "lastUpdate": 1783766589081,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "337fb517deeab958f113f92f209fdc2a702ce4fb",
-          "message": "Honor timeout deadlines when no fibers are runnable (#1153) (#1300)\n\n* Honor timeout deadlines when no fibers are runnable (#1153)\n\nWhen schedule() returned null (no runnable fibers), runSchedulerUntilMutex,\nrunSchedulerUntilCondVar, and runSchedulerUntilDone broke out of their loops\nwithout honoring the fiber's deadline. This caused mutex-lock! with a timeout\non a locked mutex to steal the lock (return #t immediately instead of #f),\nand mutex-unlock! with a condvar+timeout to falsely succeed.\n\nSleep until the deadline when the scheduler runs dry, then report timeout.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Clear stale deadline_ns after timed waits and restore comments\n\nAfter runSchedulerUntilMutex/CondVar, the fiber's deadline_ns was left\nset from the previous timed wait. A later untimed wait on the same fiber\nwould inherit the expired deadline and spuriously time out. Clear it in\nboth callers after the wait returns.\n\nAlso restore the yield_retry and fiber-0 explanatory comments that were\naccidentally removed in the previous commit.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Extract scheduleOrTimeout helper and fix stale-deadline test\n\nExtract the duplicated deadline-fallback logic from all three\nrunSchedulerUntil* functions into a shared scheduleOrTimeout helper.\n\nFix the stale-deadline regression test to actually exercise the blocking\npath: the previous version called mutex-unlock! before the untimed lock,\nso the fast path was taken and deadline_ns was never read. Now spawns a\nfiber to hold the mutex so the untimed lock must block through the\nscheduler.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T16:49:19Z",
-          "tree_id": "f700c7bbcc6ac7c45dfc71cafbccdfed6fdd4e69",
-          "url": "https://github.com/kaappi/kaappi/commit/337fb517deeab958f113f92f209fdc2a702ce4fb"
-        },
-        "date": 1783444586123,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.108259,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.664776,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.973014,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.225792,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013803,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.221152,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478721,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068942,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.445404,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.832269,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.150682,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.065689,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.152058,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.909619,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045646,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033993,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "488eaed277814b61e1b2445491869fa7daa60ba2",
+          "message": "Deduplicate the lambda body scan between compiler_ir and compiler_lambda (#1437)\n\n* Deduplicate the lambda body scan between compiler_ir and compiler_lambda (#1432)\n\nExtract the shared R7RS 5.3.2 body-scan logic (globals prescan, define\nname collection, define/define-syntax/define-record-type processing) into\na BodyScan struct and scanBodyDefs() function in compiler_lambda.zig.\nBoth compileLambdaWithIR and compileBodyForms now call the shared helper,\neliminating ~250 lines of near-identical code that previously required\nevery GC-safety or letrec*-semantics fix to be hand-applied twice.\n\nThe IR path's compilation phase also switches from an inline IR pipeline\nto compileExprViaIR + compileExprSequence (functionally identical),\nretaining only the function-name propagation that is specific to it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Use CPU-optimized droplets for the GC stress test skill\n\nSwitch from shared-CPU s-4vcpu-8gb to dedicated c5-4vcpu-8gb (gen 5\nCPU-optimized). The stress suite is single-threaded, so per-core speed\nmatters more than core count. Dedicated cores at full clock speed cut\nwall time from ~2.5h to ~1–1.5h at comparable total cost.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address PR review: errdefer cleanup, VOID init, GC-safety comments\n\n- Make scanBodyDefs failure-atomic: hoist roots_base/beginBodyMacroScope\n  before the prescan and add errdefer so mid-scan errors clean up VOID\n  sentinels, extra_roots, and body macro scope (baijum review).\n- Initialize result register to VOID for macro-only lambda bodies where\n  scan.def_count is 0 and remaining is NIL (CodeRabbit review).\n- Restore the #1010 and #1401 GC-safety comments explaining why\n  def_inits and define-syntax transformers are mirrored into\n  extra_roots (baijum review).\n- Drop unused re-exports from compiler_forms.zig — compiler_ir.zig\n  imports compiler_lambda directly (baijum review).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T10:15:14Z",
+          "tree_id": "d80f4a9e3eccf561ed81eea4a79645f69980f5b8",
+          "url": "https://github.com/kaappi/kaappi/commit/488eaed277814b61e1b2445491869fa7daa60ba2"
+        },
+        "date": 1783766587614,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.532794,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.888423,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.913073,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.472764,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007256,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052585,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500186,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.065884,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.371146,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.909183,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.44571,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.398036,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.902902,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.018756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042146,
             "unit": "seconds"
           }
         ]
