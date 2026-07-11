@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
 
@@ -83,14 +84,16 @@ pub fn load() Config {
         var it1 = std.mem.splitScalar(u8, data, '\n');
         while (it1.next()) |line| {
             const stripped = std.mem.trimEnd(u8, line, "\r\n");
-            const trimmed = std.mem.trim(u8, stripped, " \t");
-            if (std.mem.startsWith(u8, trimmed, "repl.theme:")) {
-                const val = std.mem.trim(u8, trimmed["repl.theme:".len..], " \t");
-                if (std.mem.eql(u8, val, "dark")) {
-                    cfg.theme = Theme.dark;
-                } else if (std.mem.eql(u8, val, "light")) {
-                    cfg.theme = Theme.light;
-                }
+            const trimmed = std.mem.trimStart(u8, stripped, " \t");
+            if (trimmed.len == 0 or trimmed[0] == '#') continue;
+            const colon = std.mem.indexOfScalar(u8, trimmed, ':') orelse continue;
+            const key = std.mem.trimEnd(u8, trimmed[0..colon], " \t");
+            if (!std.mem.eql(u8, key, "repl.theme")) continue;
+            const val = std.mem.trim(u8, trimmed[colon + 1 ..], " \t");
+            if (std.mem.eql(u8, val, "dark")) {
+                cfg.theme = Theme.dark;
+            } else if (std.mem.eql(u8, val, "light")) {
+                cfg.theme = Theme.light;
             }
         }
     }
@@ -261,18 +264,21 @@ fn baseColorCode(name: []const u8) ?*const [2]u8 {
 }
 
 fn warnLine(line_num: usize, msg: []const u8) void {
+    if (comptime builtin.is_test) return;
     var buf: [128]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: {s} (line {d})\n", .{ msg, line_num }) catch return;
     _ = std.posix.system.write(2, out.ptr, out.len);
 }
 
 fn warnColor(line_num: usize, key: []const u8, value: []const u8) void {
+    if (comptime builtin.is_test) return;
     var buf: [192]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: unknown color '{s}' for {s} (line {d})\n", .{ value, key, line_num }) catch return;
     _ = std.posix.system.write(2, out.ptr, out.len);
 }
 
 fn warnKey(line_num: usize, key: []const u8) void {
+    if (comptime builtin.is_test) return;
     var buf: [128]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: unknown key '{s}' (line {d})\n", .{ key, line_num }) catch return;
     _ = std.posix.system.write(2, out.ptr, out.len);
