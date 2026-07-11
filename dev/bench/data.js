@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783758554518,
+  "lastUpdate": 1783759280188,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "370d9d4b83710b08bc786cd2087e98f10eb9ea69",
-          "message": "Move entitlements plist from repo root to .github/ (#1299)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T15:46:12Z",
-          "tree_id": "f8aaa9f1c7a51cea70b2aaa609b8ee7c0bcd508d",
-          "url": "https://github.com/kaappi/kaappi/commit/370d9d4b83710b08bc786cd2087e98f10eb9ea69"
-        },
-        "date": 1783440638654,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.097328,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.509981,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.963547,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.10943,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014631,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.221883,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.4803,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068399,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.449092,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.834661,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.146377,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.064411,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.130676,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.725798,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046087,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044506,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78b9d0232963a695979fc221ed6196c8bd6fcb85",
+          "message": "Build chibi-scheme from source in oracle-diff CI (#1434)\n\n* Build chibi-scheme from source in oracle-diff CI (#1429)\n\nUbuntu noble's apt ships chibi-scheme 0.9.1 which is too old for the\nportable-subset programs the fuzzer generates, causing 985/1000 false\ndivergences (exit 0 vs exit 70 on nearly every seed). Build from source\nat the 0.11 tag instead.\n\nAlso pin upload-artifact to v7.0.1 (SHA) to match the other upload steps\nin the same workflow — the unpinned @v7 tag resolved to a newer version\nwhose archive-mode default prevented the report job from finding the\n.scm marker files, misclassifying real divergences as infrastructure\nfailures.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review comments: SHA-pin chibi, match validated version\n\n- Pin chibi to tag 0.12 + SHA assertion (matches the 0.12.0 validated\n  locally; 0.11 was never exercised against the fuzz programs)\n- Add fail-closed SHA check after checkout so a re-pointed tag breaks\n  the build instead of silently changing the oracle\n- Add comment explaining why upload-artifact must stay at v7.0.1 (later\n  versions default to archive:true which hides seed-*.scm markers from\n  the report job)\n- Update oracle-diff.sh header to stop recommending the too-old apt\n  package\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T13:46:07+05:30",
+          "tree_id": "726582866647ce9e52f0556a6ad4f320a8531a53",
+          "url": "https://github.com/kaappi/kaappi/commit/78b9d0232963a695979fc221ed6196c8bd6fcb85"
+        },
+        "date": 1783759279435,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.372955,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.651231,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.917155,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.385663,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00638,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054111,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508765,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069886,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.375706,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.964051,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.577811,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429893,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.830146,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.707884,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044519,
             "unit": "seconds"
           }
         ]
