@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783754933461,
+  "lastUpdate": 1783758554518,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6d33cb0701042533918f9a24710ccfc3a0b2aeaa",
-          "message": "Make GC root buffer growable to handle deep native re-entrancy (#1191) (#1298)\n\n* Make GC root buffer growable to handle deep native re-entrancy (#1191)\n\nThe fixed-size root buffer (4096 entries) panicked on deeply nested\nnative→Scheme→native re-entrancy (e.g. recursive map at depth 2000).\nThe panic was uncatchable, violating R7RS's expectation that resource\nexhaustion can be intercepted by guard.\n\nChange the root buffer from a fixed array to a heap-allocated slice\nthat starts at 1024 entries and doubles on demand up to 65536.  This\nlets legitimate deep recursion succeed while the existing\nnative_reentry_depth guard (3000) still catches infinite re-entrancy\nwith a catchable StackOverflow error.\n\nAlso fix the callReentrant root-count guard to compare against the\nabsolute MAX_ROOT_CAPACITY rather than the current buffer length, so\nit doesn't fire prematurely during buffer growth.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: clamp root growth, fix tests for Debug mode\n\n- growRootBuffer now clamps to MAX_ROOT_CAPACITY before reallocating\n  instead of panicking on overshoot (CodeRabbit)\n- Deep-recursion tests accept either success or caught error, so they\n  pass in both Release (cap 3000) and Debug (cap 200) builds (baijum)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T20:24:08+05:30",
-          "tree_id": "eb1bac26ba28bacf1c28c83c20d67ec073509524",
-          "url": "https://github.com/kaappi/kaappi/commit/6d33cb0701042533918f9a24710ccfc3a0b2aeaa"
-        },
-        "date": 1783437665548,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.102858,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.71033,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.945949,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.179818,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013695,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.222695,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478717,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068273,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.471456,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.839392,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.167731,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.05962,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.15255,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.853577,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046321,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044575,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f7f3e7c9ab2ce43fde9472ede7b5ffc3ee58603",
+          "message": "Store a persistent mark worklist on the GC struct (#1436)\n\n* Store a persistent mark worklist on the GC struct (#1428)\n\nmarkValue allocated and freed a fresh 8 KB ArrayList on every invocation,\ncausing megabytes of allocator churn per collection. Under gc-stress with\nstd.testing.allocator the metadata retention amplified this to ~19.7 GB RSS.\n\nMove the worklist to a GC struct field so capacity persists across calls.\nA re-entrancy guard lets fiber marking (markFiberState → gc.markValue)\nshare the buffer safely — re-entrant calls push items and return, the\noutermost call owns the drain loop.\n\nRSS on the \"GC stress:\" filter drops from ~19.7 GB to ~1.15 GB.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Cap mark worklist retention at 512 KB after drain\n\nA pathologically wide object (e.g. 10M-element vector) can grow the\nworklist to ~80 MB in a single mark pass. Free the buffer when it\nexceeds 64K entries (512 KB) so it regrows on demand rather than\nretaining peak capacity for the GC's lifetime.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T13:32:42+05:30",
+          "tree_id": "b25ef57f5659ca52f2c5f9e2d850cbf1a4e45b28",
+          "url": "https://github.com/kaappi/kaappi/commit/1f7f3e7c9ab2ce43fde9472ede7b5ffc3ee58603"
+        },
+        "date": 1783758553220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.363781,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.511535,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.921074,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.382286,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006433,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053919,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509137,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069802,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.382453,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.962269,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578182,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426753,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.845681,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.6271,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044506,
             "unit": "seconds"
           }
         ]
