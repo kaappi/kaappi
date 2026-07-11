@@ -6,9 +6,7 @@ const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const compiler_lambda = @import("compiler_lambda.zig");
 const macro = @import("compiler_macro.zig");
-const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
-const vm_records = @import("vm_records.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 const Compiler = compiler_mod.Compiler;
@@ -293,248 +291,35 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     const saved_body_scope = child.in_body_scope;
     child.in_body_scope = true;
 
-    // Pre-scan globals for macro expansion visibility (R7RS 5.3.2).
-    var prescan_names: std.ArrayList([]const u8) = .empty;
-    defer prescan_names.deinit(child.gc.allocator);
-    if (child.globals) |globals| {
-        const glk = globals_mod.acquireGlobalsWrite(globals);
-        defer globals_mod.releaseGlobalsWrite(glk);
-        var scan = body;
-        while (scan != types.NIL and types.isPair(scan)) {
-            const form = types.car(scan);
-            if (types.isPair(form)) {
-                const head = types.car(form);
-                if (types.isSymbol(head)) {
-                    const form_name = types.symbolName(head);
-                    if (std.mem.eql(u8, form_name, "define")) {
-                        const form_args = types.cdr(form);
-                        if (form_args != types.NIL and types.isPair(form_args)) {
-                            const target = types.car(form_args);
-                            var def_name: ?[]const u8 = null;
-                            if (types.isSymbol(target)) {
-                                def_name = types.symbolName(target);
-                            } else if (types.isPair(target)) {
-                                const fn_name = types.car(target);
-                                if (types.isSymbol(fn_name)) def_name = types.symbolName(fn_name);
-                            }
-                            if (def_name) |dn| {
-                                if (!globals.contains(dn)) {
-                                    globals.put(dn, types.VOID) catch return CompileError.OutOfMemory;
-                                    prescan_names.append(child.gc.allocator, dn) catch return CompileError.OutOfMemory;
-                                }
-                            }
-                        }
-                    } else if (std.mem.eql(u8, form_name, "define-record-type")) {
-                        if (vm_records.parseRecordSpec(types.cdr(form))) |spec| {
-                            if (!globals.contains(spec.ctor_name)) {
-                                globals.put(spec.ctor_name, types.VOID) catch {};
-                                prescan_names.append(child.gc.allocator, spec.ctor_name) catch {};
-                            }
-                            if (!globals.contains(spec.pred_name)) {
-                                globals.put(spec.pred_name, types.VOID) catch {};
-                                prescan_names.append(child.gc.allocator, spec.pred_name) catch {};
-                            }
-                            for (0..spec.field_count) |fi| {
-                                if (!globals.contains(spec.accessor_names[fi])) {
-                                    globals.put(spec.accessor_names[fi], types.VOID) catch {};
-                                    prescan_names.append(child.gc.allocator, spec.accessor_names[fi]) catch {};
-                                }
-                                if (spec.mutator_names[fi]) |mn| {
-                                    if (!globals.contains(mn)) {
-                                        globals.put(mn, types.VOID) catch {};
-                                        prescan_names.append(child.gc.allocator, mn) catch {};
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            scan = types.cdr(scan);
-        }
-    }
-    defer {
-        if (child.globals) |globals| {
-            const glk = globals_mod.acquireGlobalsWrite(globals);
-            for (prescan_names.items) |pn| {
-                if (globals.get(pn)) |val| {
-                    if (val == types.VOID) _ = globals.remove(pn);
-                }
-            }
-            globals_mod.releaseGlobalsWrite(glk);
-        }
-    }
-
-    // Collect leading internal defines for letrec* desugaring (R7RS 5.3.2).
-    const MAX_BODY_DEFS = 512;
-    var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
-    var def_inits: [MAX_BODY_DEFS]Value = undefined;
-    var def_slots: [MAX_BODY_DEFS]u16 = undefined;
-    var def_count: usize = 0;
-
-    const roots_base = child.gc.extra_roots.items.len;
-    defer child.gc.extra_roots.shrinkRetainingCapacity(roots_base);
-
-    // First pass: collect ALL leading define names so that define-syntax
-    // forms see the complete letrec* region via extra_bound.
-    var all_def_names: [MAX_BODY_DEFS][]const u8 = undefined;
-    var all_def_count: usize = 0;
-    {
-        var scan = body;
-        while (scan != types.NIL and types.isPair(scan)) {
-            const expr = types.car(scan);
-            if (!types.isPair(expr)) break;
-            const head = types.car(expr);
-            if (!types.isSymbol(head)) break;
-            const hn = types.symbolName(head);
-            if (std.mem.eql(u8, hn, "define")) {
-                const da = types.cdr(expr);
-                if (da == types.NIL or !types.isPair(da)) break;
-                const tgt = types.car(da);
-                if (types.isSymbol(tgt)) {
-                    if (all_def_count < MAX_BODY_DEFS) {
-                        all_def_names[all_def_count] = types.symbolName(tgt);
-                        all_def_count += 1;
-                    }
-                } else if (types.isPair(tgt)) {
-                    const fn_nm = types.car(tgt);
-                    if (types.isSymbol(fn_nm) and all_def_count < MAX_BODY_DEFS) {
-                        all_def_names[all_def_count] = types.symbolName(fn_nm);
-                        all_def_count += 1;
-                    }
-                } else break;
-            } else if (std.mem.eql(u8, hn, "define-record-type")) {
-                vm_records.collectRecordTypeDefNames(child.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch |err| switch (err) {
-                    CompileError.InvalidSyntax => break,
-                    else => return err,
-                };
-            } else if (!std.mem.eql(u8, hn, "define-syntax")) {
-                break;
-            }
-            scan = types.cdr(scan);
-        }
-    }
-
-    const macro_mark = child.beginBodyMacroScope();
-    defer child.endBodyMacroScope(macro_mark) catch {};
-
-    var current = body;
-    while (current != types.NIL and types.isPair(current)) {
-        const expr = types.car(current);
-        if (!types.isPair(expr)) break;
-        const head = types.car(expr);
-        if (!types.isSymbol(head)) break;
-        const head_name = types.symbolName(head);
-        if (std.mem.eql(u8, head_name, "define-syntax")) {
-            const ds_args = types.cdr(expr);
-            if (ds_args == types.NIL or !types.isPair(ds_args)) break;
-            const keyword = types.car(ds_args);
-            if (!types.isSymbol(keyword)) break;
-            const ds_rest = types.cdr(ds_args);
-            if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
-            const transformer_spec = types.car(ds_rest);
-            const tx_val = macro.parseSyntaxRules(&child, transformer_spec, all_def_names[0..all_def_count]) catch break;
-            // Root the transformer for the rest of this body compile: it
-            // lives only in the compiler-local macro map, which the GC
-            // cannot see, and it must survive collections triggered while
-            // compiling sibling body forms that use it (#1401). Released by
-            // this function's extra_roots truncation (roots_base defer),
-            // after the body — the macro's entire scope — is compiled.
-            child.gc.extra_roots.append(child.gc.allocator, tx_val) catch return CompileError.OutOfMemory;
-            const ds_name = types.symbolName(keyword);
-            try child.recordBodyMacro(ds_name);
-            const tx_obj = types.toObject(tx_val).as(types.Transformer);
-            if (child.lib_env) |env| {
-                tx_obj.def_env = env;
-                tx_obj.def_env_val = child.lib_env_val;
-            }
-            try macro.captureLocalsOnTransformer(&child, tx_val);
-            child.macros.put(ds_name, tx_val) catch return CompileError.OutOfMemory;
-            current = types.cdr(current);
-            continue;
-        }
-        if (std.mem.eql(u8, head_name, "define-record-type")) {
-            vm_records.expandRecordTypeDefines(
-                child.gc,
-                types.cdr(expr),
-                def_names[0..],
-                def_inits[0..],
-                &def_count,
-                &child.gc.extra_roots,
-            ) catch |err| switch (err) {
-                CompileError.InvalidSyntax => break,
-                else => return err,
-            };
-            current = types.cdr(current);
-            continue;
-        }
-        if (!std.mem.eql(u8, head_name, "define")) break;
-
-        const def_args = types.cdr(expr);
-        if (def_args == types.NIL or !types.isPair(def_args)) break;
-        const target = types.car(def_args);
-        const def_rest = types.cdr(def_args);
-
-        if (types.isSymbol(target)) {
-            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(target);
-            def_inits[def_count] = types.car(def_rest);
-            def_count += 1;
-        } else if (types.isPair(target)) {
-            const fn_name = types.car(target);
-            if (!types.isSymbol(fn_name)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(fn_name);
-            const param_formals = types.cdr(target);
-            const lambda_sym = child.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            {
-                var lambda_args = child.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                child.gc.pushRoot(&lambda_args);
-                defer child.gc.popRoot();
-                def_inits[def_count] = child.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
-            }
-            child.gc.extra_roots.append(child.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
-            def_count += 1;
-        } else {
-            break;
-        }
-        current = types.cdr(current);
-    }
+    var scan = try compiler_lambda.scanBodyDefs(&child, body, true);
+    defer scan.deinit();
 
     var last_dst: u16 = 0;
+    var current = scan.remaining;
 
-    if (def_count > 0) {
+    if (scan.def_count > 0) {
         child.beginScope();
 
-        for (0..def_count) |i| {
+        var def_slots: [compiler_lambda.BodyScan.MAX_DEFS]u16 = undefined;
+        for (0..scan.def_count) |i| {
             const slot = try child.allocReg();
             def_slots[i] = slot;
             try child.emitOp(.load_void);
             try child.emitU16(slot);
-            try child.addLocal(def_names[i], slot);
+            try child.addLocal(scan.def_names[i], slot);
             try child.markLocalBoxedBySlot(slot);
         }
 
-        for (0..def_count) |i| {
+        for (0..scan.def_count) |i| {
             last_dst = try child.allocReg();
-
-            var ir = ir_mod.IR.init(child.gc.allocator);
-            ir.globals = child.globals;
-            ir.restricted_env = child.restricted_env;
-            ir.compiler = &child;
-            ir.set_targets = child.set_targets;
-            defer ir.deinit();
-            const root = try ir_mod.lowerAndOptimize(&ir, def_inits[i], &child.macros, false);
-
-            try compileFromNode(&child, root, last_dst, false);
+            try child.compileExprViaIR(scan.def_inits[i], last_dst, false);
 
             if (child.func.constants.items.len > 0) {
                 const last_const = child.func.constants.items[child.func.constants.items.len - 1];
                 if (types.isFunction(last_const)) {
                     const child_func = types.toObject(last_const).as(types.Function);
                     if (child_func.name == null) {
-                        child_func.name = def_names[i];
+                        child_func.name = scan.def_names[i];
                     }
                 }
             }
@@ -550,60 +335,12 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             try child.emitOp(.load_void);
             try child.emitU16(last_dst);
         } else {
-            while (current != types.NIL) {
-                if (!types.isPair(current)) return CompileError.InvalidSyntax;
-                const expr = types.car(current);
-                const rest = types.cdr(current);
-                last_dst = try child.allocReg();
-
-                var ir = ir_mod.IR.init(child.gc.allocator);
-                ir.globals = child.globals;
-                ir.restricted_env = child.restricted_env;
-                ir.compiler = &child;
-                ir.set_targets = child.set_targets;
-                defer ir.deinit();
-                const root = try ir_mod.lowerAndOptimize(&ir, expr, &child.macros, rest == types.NIL);
-
-                if (rest == types.NIL) {
-                    try compileFromNode(&child, root, last_dst, true);
-                } else {
-                    const saved_next = child.next_register;
-                    try compileFromNode(&child, root, last_dst, false);
-                    if (child.next_register == saved_next) {
-                        child.freeReg();
-                    }
-                }
-                current = rest;
-            }
+            try compiler_lambda.compileExprSequence(&child, &current, &last_dst, true, null);
         }
 
         child.endScope();
     } else {
-        while (current != types.NIL) {
-            if (!types.isPair(current)) return CompileError.InvalidSyntax;
-            const expr = types.car(current);
-            const rest = types.cdr(current);
-            last_dst = try child.allocReg();
-
-            var ir = ir_mod.IR.init(child.gc.allocator);
-            ir.globals = child.globals;
-            ir.restricted_env = child.restricted_env;
-            ir.compiler = &child;
-            ir.set_targets = child.set_targets;
-            defer ir.deinit();
-            const root = try ir_mod.lowerAndOptimize(&ir, expr, &child.macros, rest == types.NIL);
-
-            if (rest == types.NIL) {
-                try compileFromNode(&child, root, last_dst, true);
-            } else {
-                const saved_next = child.next_register;
-                try compileFromNode(&child, root, last_dst, false);
-                if (child.next_register == saved_next) {
-                    child.freeReg();
-                }
-            }
-            current = rest;
-        }
+        try compiler_lambda.compileExprSequence(&child, &current, &last_dst, true, null);
     }
 
     child.in_body_scope = saved_body_scope;
