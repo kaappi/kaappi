@@ -42,10 +42,12 @@ pub const Theme = struct {
     };
 };
 
+const default_prompt = "kaappi> ";
+
 pub const Config = struct {
     theme: Theme = .{},
-    prompt_buf: [64:0]u8 = initPromptBuf("kaappi> "),
-    prompt_len: u8 = 8,
+    prompt_buf: [64:0]u8 = initPromptBuf(default_prompt),
+    prompt_len: u8 = default_prompt.len,
     history_length: c_int = 1000,
     highlight: bool = true,
 
@@ -62,7 +64,8 @@ pub const Config = struct {
 
 pub fn load() Config {
     var cfg: Config = .{};
-    const no_color = std.c.getenv("NO_COLOR") != null;
+    const nc = std.c.getenv("NO_COLOR");
+    const no_color = nc != null and std.mem.sliceTo(nc.?, 0).len > 0;
     if (no_color) {
         cfg.theme = Theme.no_color;
         cfg.highlight = false;
@@ -75,6 +78,24 @@ pub fn load() Config {
     const data = file_utils.readWholeFile(std.heap.c_allocator, path, 64 * 1024) catch return cfg;
     defer std.heap.c_allocator.free(data);
 
+    // Pass 1: apply repl.theme preset (so repl.color.* overrides take precedence)
+    if (!no_color) {
+        var it1 = std.mem.splitScalar(u8, data, '\n');
+        while (it1.next()) |line| {
+            const stripped = std.mem.trimEnd(u8, line, "\r\n");
+            const trimmed = std.mem.trim(u8, stripped, " \t");
+            if (std.mem.startsWith(u8, trimmed, "repl.theme:")) {
+                const val = std.mem.trim(u8, trimmed["repl.theme:".len..], " \t");
+                if (std.mem.eql(u8, val, "dark")) {
+                    cfg.theme = Theme.dark;
+                } else if (std.mem.eql(u8, val, "light")) {
+                    cfg.theme = Theme.light;
+                }
+            }
+        }
+    }
+
+    // Pass 2: apply all keys (repl.theme is a no-op here)
     var line_num: usize = 0;
     var it = std.mem.splitScalar(u8, data, '\n');
     while (it.next()) |line| {
@@ -99,35 +120,40 @@ fn parseLine(cfg: *Config, line: []const u8, line_num: usize, no_color: bool) vo
     const value = std.mem.trimEnd(u8, raw_value, " \t");
 
     if (std.mem.eql(u8, key, "repl.theme")) {
-        if (std.mem.eql(u8, value, "dark")) {
-            if (!no_color) cfg.theme = Theme.dark;
-        } else if (std.mem.eql(u8, value, "light")) {
-            if (!no_color) cfg.theme = Theme.light;
-        } else {
+        if (!std.mem.eql(u8, value, "dark") and !std.mem.eql(u8, value, "light")) {
             warnLine(line_num, "repl.theme must be 'dark' or 'light'");
         }
         return;
     } else if (std.mem.eql(u8, key, "repl.color.keyword")) {
-        if (!no_color) cfg.theme.keyword = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.keyword = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.string")) {
-        if (!no_color) cfg.theme.string = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.string = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.number")) {
-        if (!no_color) cfg.theme.number = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.number = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.comment")) {
-        if (!no_color) cfg.theme.comment = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.comment = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.boolean")) {
-        if (!no_color) cfg.theme.boolean = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.boolean = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.paren")) {
-        if (!no_color) cfg.theme.paren = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.paren = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.match-paren")) {
-        if (!no_color) cfg.theme.match_paren = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.match_paren = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.prompt")) {
-        if (!no_color) cfg.theme.prompt = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.prompt = ansi;
     } else if (std.mem.eql(u8, key, "repl.color.continuation")) {
-        if (!no_color) cfg.theme.continuation = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        const ansi = colorToAnsi(value) orelse return warnColor(line_num, key, value);
+        if (!no_color) cfg.theme.continuation = ansi;
     } else if (std.mem.eql(u8, key, "repl.prompt")) {
         if (raw_value.len > 63) {
-            warnLine(line_num, "prompt too long (max 63 chars)");
+            warnLine(line_num, "prompt too long (max 63 bytes)");
             return;
         }
         @memcpy(cfg.prompt_buf[0..raw_value.len], raw_value);
@@ -138,8 +164,8 @@ fn parseLine(cfg: *Config, line: []const u8, line_num: usize, no_color: bool) vo
             warnLine(line_num, "invalid number for repl.history-length");
             return;
         };
-        if (cfg.history_length < 0) {
-            warnLine(line_num, "repl.history-length must be non-negative");
+        if (cfg.history_length < 1) {
+            warnLine(line_num, "repl.history-length must be >= 1");
             cfg.history_length = 1000;
         }
     } else if (std.mem.eql(u8, key, "repl.highlight")) {
@@ -300,19 +326,33 @@ test "light preset uses standard colors" {
     try std.testing.expectEqualStrings("\x1b[1;31m", t.match_paren);
 }
 
-test "parseLine repl.theme selects preset" {
+test "theme preset via two-pass loading" {
+    // Simulate what load() does: pass 1 applies preset, pass 2 applies overrides
     var cfg: Config = .{};
-    parseLine(&cfg, "repl.theme: light", 1, false);
+    cfg.theme = Theme.light;
     try std.testing.expectEqualStrings("\x1b[31m", cfg.theme.number);
     try std.testing.expectEqualStrings("\x1b[35m", cfg.theme.keyword);
 }
 
-test "parseLine color overrides preset" {
+test "color overrides preset regardless of order" {
     var cfg: Config = .{};
-    parseLine(&cfg, "repl.theme: light", 1, false);
-    parseLine(&cfg, "repl.color.number: blue", 2, false);
+    cfg.theme = Theme.light;
+    parseLine(&cfg, "repl.color.number: blue", 1, false);
     try std.testing.expectEqualStrings("\x1b[34m", cfg.theme.number);
     try std.testing.expectEqualStrings("\x1b[35m", cfg.theme.keyword);
+}
+
+test "parseLine validates color under NO_COLOR" {
+    var cfg: Config = .{};
+    cfg.theme = Theme.no_color;
+    parseLine(&cfg, "repl.color.keyword: purrple", 1, true);
+    try std.testing.expectEqualStrings("", cfg.theme.keyword);
+}
+
+test "parseLine history-length rejects zero" {
+    var cfg: Config = .{};
+    parseLine(&cfg, "repl.history-length: 0", 1, false);
+    try std.testing.expectEqual(@as(c_int, 1000), cfg.history_length);
 }
 
 test "parseLine color key" {

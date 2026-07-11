@@ -1247,6 +1247,75 @@ test "highlightCallback — no match when cursor not after close paren" {
     }
 }
 
+fn expectHighlightContains(input: []const u8, expected_code: []const u8) !void {
+    var out_len: usize = 0;
+    const result = highlightCallback(input.ptr, input.len, 0, &out_len);
+    if (result) |r| {
+        defer std.heap.c_allocator.free(r[0..out_len]);
+        const output = r[0..out_len];
+        try std.testing.expect(std.mem.indexOf(u8, output, expected_code) != null);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+}
+
+fn expectHighlightNotContains(input: []const u8, unexpected_code: []const u8) !void {
+    var out_len: usize = 0;
+    const result = highlightCallback(input.ptr, input.len, 0, &out_len);
+    if (result) |r| {
+        defer std.heap.c_allocator.free(r[0..out_len]);
+        const output = r[0..out_len];
+        try std.testing.expect(std.mem.indexOf(u8, output, unexpected_code) == null);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "highlightCallback — #true/#false get boolean color" {
+    try expectHighlightContains("#true", theme.boolean);
+    try expectHighlightContains("#false", theme.boolean);
+}
+
+test "highlightCallback — #trueish is not boolean" {
+    try expectHighlightNotContains("#trueish", theme.boolean);
+}
+
+test "highlightCallback — #( gets paren color" {
+    try expectHighlightContains("#(1 2)", theme.paren);
+}
+
+test "highlightCallback — #u8( gets paren color" {
+    try expectHighlightContains("#u8(1 2)", theme.paren);
+}
+
+test "highlightCallback — radix prefix gets number color" {
+    try expectHighlightContains("#xff", theme.number);
+    try expectHighlightContains("#b101", theme.number);
+    try expectHighlightContains("#o77", theme.number);
+    try expectHighlightContains("#e1.5", theme.number);
+}
+
+test "highlightCallback — ,@ gets keyword color" {
+    try expectHighlightContains(",@x", theme.keyword);
+}
+
+test "highlightCallback — #; gets comment color" {
+    try expectHighlightContains("#; foo", theme.comment);
+}
+
+test "highlightCallback — #! directive gets comment color" {
+    try expectHighlightContains("#!fold-case", theme.comment);
+}
+
+test "highlightCallback — |symbol| does not get keyword color" {
+    try expectHighlightNotContains("|define|", theme.keyword);
+}
+
+test "highlightCallback — +inf.0 gets number color" {
+    try expectHighlightContains("+inf.0", theme.number);
+    try expectHighlightContains("-nan.0", theme.number);
+}
+
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
     var r = reader.Reader.initWithName(vm.gc, input, "<repl>");
     defer r.deinit();
