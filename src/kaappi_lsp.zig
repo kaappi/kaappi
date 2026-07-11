@@ -738,8 +738,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer gc.deinit();
     var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
-    try primitives.registerAll(&vm);
+    vm_mod.setVMInstance(&vm);
     memory.setGCInstance(&gc);
+    try primitives.registerAll(&vm);
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 

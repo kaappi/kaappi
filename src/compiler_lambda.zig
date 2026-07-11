@@ -311,6 +311,9 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             const transformer_spec = types.car(ds_rest);
 
             const transformer = macro.parseSyntaxRules(self, transformer_spec, all_def_names[0..all_def_count]) catch break;
+            // Root for the rest of the compile — see the define-syntax
+            // handling in compiler_ir.zig's body scan (#1401).
+            self.gc.extra_roots.append(self.gc.allocator, transformer) catch return CompileError.OutOfMemory;
             const name = types.symbolName(keyword);
 
             try self.recordBodyMacro(name);

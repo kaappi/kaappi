@@ -141,7 +141,7 @@ test "vm deinit clears threadlocal vm_instance" {
 
     // execute() registers the VM in the threadlocal
     _ = try vm.eval("(+ 1 2)");
-    try std.testing.expect(vm_mod.vm_instance == &vm);
+    try std.testing.expect(vm_mod.vm_instance == vm);
 
     // deinit must unregister it: a stale pointer here is read by the macro
     // expander (renameForHygiene) during the next VM's first compile, before
@@ -412,6 +412,11 @@ test "interaction-environment allows define (#1147)" {
 
 // Regression for #1253: eval must be tail-called (R7RS 3.5)
 test "eval tail position runs in constant frame depth (#1253)" {
+    // The frame-depth property is only decisive with more iterations than
+    // MAX_FRAME_LIMIT (32768), and every iteration allocates through eval —
+    // under -Dgc-stress=true that is millions of full collections (hours).
+    // The property is orthogonal to GC rooting, so skip on stress builds.
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -517,6 +522,7 @@ test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     defer gc.deinit();
     var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
+    vm_mod.setVMInstance(&vm);
     memory.setGCInstance(&gc);
     try primitives_mod.registerAll(&vm);
 

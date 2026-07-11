@@ -11,6 +11,7 @@ zig build run -- f.scm             # run a Scheme file
 zig build run -- --help            # show CLI usage and flags
 zig build run -- --version         # show version string
 zig build test                     # run all unit tests
+zig build test -Dtest-filter=tests_io  # only tests whose names match (repeatable)
 zig build bench                    # call/cc vs call/ec capture micro-benchmark
 zig build coverage                 # unit test code coverage (requires kcov)
 zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
@@ -306,6 +307,12 @@ passes with it. Place it in the appropriate location:
 - Zig unit test → `src/tests_*.zig` (for VM, compiler, GC internals)
 - Scheme test → `tests/scheme/smoke/` or a dedicated file under `tests/scheme/`
   (for end-to-end behavior visible from Scheme)
+
+The unit suite must also stay green under `zig build test -Dgc-stress=true`
+(collection on every allocation — #1401). Tests that hold heap values in Zig
+locals across allocations must root them; loop-heavy tests that allocate per
+iteration should scale their counts down via
+`@import("build_options").gc_stress` (see `docs/dev/testing.md`).
 
 - **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc. Run all with `zig build test`.
 - **R7RS test suite**: `tests/scheme/r7rs/r7rs-tests.scm` — 1,391 tests using `(chibi test)`. Run with `zig build run -- tests/scheme/r7rs/r7rs-tests.scm`.

@@ -1032,6 +1032,11 @@ test "bytecode round-trip: various constant types" {
     defer gc.deinit();
 
     const func = try gc.allocFunction();
+    // Root the function: the constant allocations below can collect, and an
+    // unrooted func would be swept while we are still appending into it.
+    var func_root = types.makePointer(@ptrCast(func));
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
@@ -1234,6 +1239,11 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     defer gc.deinit();
 
     const func = try gc.allocFunction();
+    // Root the function: the constant allocations below can collect, and an
+    // unrooted func would be swept while we are still appending into it.
+    var func_root = types.makePointer(@ptrCast(func));
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low

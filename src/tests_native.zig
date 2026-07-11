@@ -31,6 +31,12 @@ fn emitSourceResult(source: []const u8) !EmitResult {
     var gc = memory.GC.init(emitter_alloc);
     errdefer gc.deinit();
 
+    // Mirror emitLlvmFile: the IR references sexpr Values that nothing
+    // roots, so defer collection across the read → lower → emit batch or a
+    // gc-stress build frees them mid-emission (#1401). Balanced before the
+    // return (a defer would decrement only after `gc` is copied out).
+    gc.no_collect += 1;
+
     var reader = reader_mod.Reader.init(&gc, source);
     defer reader.deinit();
     const expr = try reader.readDatum();
@@ -51,6 +57,7 @@ fn emitSourceResult(source: []const u8) !EmitResult {
     errdefer emitter.deinit();
     try emitter.emitProgram(&nodes);
 
+    gc.no_collect -= 1;
     return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
 }
 
@@ -67,6 +74,9 @@ fn emitMultiResult(source: []const u8) !EmitResult {
 fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
     var gc = memory.GC.init(emitter_alloc);
     errdefer gc.deinit();
+
+    // See emitSourceResult: collection is deferred until emission is done.
+    gc.no_collect += 1;
 
     var reader = reader_mod.Reader.init(&gc, source);
     defer reader.deinit();
@@ -95,6 +105,7 @@ fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
     errdefer emitter.deinit();
     try emitter.emitProgram(ir_nodes.items);
 
+    gc.no_collect -= 1;
     return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
 }
 

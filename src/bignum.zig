@@ -960,7 +960,11 @@ test "bignum add with carry propagation" {
 test "bignum add different signs (positive + negative)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    const pos = try gc.allocBignumFromLimbs(&[_]u64{ 100, 1 }, 2, true);
+    // Root each value across the next allocation: under -Dgc-stress=true
+    // every allocation collects, and an unrooted local would be swept.
+    var pos = try gc.allocBignumFromLimbs(&[_]u64{ 100, 1 }, 2, true);
+    gc.pushRoot(&pos);
+    defer gc.popRoot();
     const neg = try gc.allocBignumFromLimbs(&[_]u64{50}, 1, false);
     const result = try add(&gc, pos, neg);
     try std.testing.expect(!isValueZero(result));
@@ -969,7 +973,9 @@ test "bignum add different signs (positive + negative)" {
 test "bignum add different signs cancellation" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    const pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    var pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    gc.pushRoot(&pos);
+    defer gc.popRoot();
     const neg = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, false);
     const result = try add(&gc, pos, neg);
     try std.testing.expect(isValueZero(result));
@@ -978,7 +984,9 @@ test "bignum add different signs cancellation" {
 test "bignum add negative larger magnitude" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    const small_pos = try gc.allocBignumFromLimbs(&[_]u64{10}, 1, true);
+    var small_pos = try gc.allocBignumFromLimbs(&[_]u64{10}, 1, true);
+    gc.pushRoot(&small_pos);
+    defer gc.popRoot();
     const large_neg = try gc.allocBignumFromLimbs(&[_]u64{100}, 1, false);
     const result = try add(&gc, small_pos, large_neg);
     try std.testing.expect(isNegative(result));
@@ -996,7 +1004,9 @@ test "bignum multiply by zero" {
 test "bignum isPositive and isNegative" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    const pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    var pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    gc.pushRoot(&pos);
+    defer gc.popRoot();
     const neg = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, false);
     try std.testing.expect(isPositive(pos));
     try std.testing.expect(!isNegative(pos));
@@ -1011,7 +1021,9 @@ test "bignum isPositive and isNegative" {
 test "bignum isEven" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    const even_bn = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    var even_bn = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    gc.pushRoot(&even_bn);
+    defer gc.popRoot();
     const odd_bn = try gc.allocBignumFromLimbs(&[_]u64{43}, 1, true);
     try std.testing.expect(isEven(even_bn));
     try std.testing.expect(!isEven(odd_bn));

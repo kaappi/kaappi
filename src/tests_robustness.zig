@@ -236,13 +236,25 @@ test "GC stress: build long list" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval(
+    // These three tests exist to force collection cycles. A -Dgc-stress=true
+    // build already collects on every allocation, so large iteration counts
+    // add no coverage there — only wall time and allocator churn (the 5000-
+    // iteration string loop peaked ~19.7 GB RSS under the testing allocator
+    // and got the suite OOM-killed). Scale the counts down on stress builds,
+    // like tests_records.
+    const result = try vm.eval(if (@import("build_options").gc_stress)
+        \\(let loop ((i 0) (acc '()))
+        \\  (if (= i 500)
+        \\      (length acc)
+        \\      (loop (+ i 1) (cons i acc))))
+    else
         \\(let loop ((i 0) (acc '()))
         \\  (if (= i 10000)
         \\      (length acc)
         \\      (loop (+ i 1) (cons i acc))))
     );
-    try std.testing.expectEqual(@as(i64, 10000), types.toFixnum(result));
+    const expected_len: i64 = if (@import("build_options").gc_stress) 500 else 10000;
+    try std.testing.expectEqual(expected_len, types.toFixnum(result));
 }
 
 test "GC stress: many string allocations" {
@@ -251,7 +263,15 @@ test "GC stress: many string allocations" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval(
+    // See "GC stress: build long list" for the stress-build scaling.
+    const result = try vm.eval(if (@import("build_options").gc_stress)
+        \\(let loop ((i 0))
+        \\  (if (= i 300)
+        \\      i
+        \\      (begin
+        \\        (string-append "hello" "world" (number->string i))
+        \\        (loop (+ i 1)))))
+    else
         \\(let loop ((i 0))
         \\  (if (= i 5000)
         \\      i
@@ -259,7 +279,8 @@ test "GC stress: many string allocations" {
         \\        (string-append "hello" "world" (number->string i))
         \\        (loop (+ i 1)))))
     );
-    try std.testing.expectEqual(@as(i64, 5000), types.toFixnum(result));
+    const expected: i64 = if (@import("build_options").gc_stress) 300 else 5000;
+    try std.testing.expectEqual(expected, types.toFixnum(result));
 }
 
 test "GC stress: many vector allocations" {
@@ -268,7 +289,15 @@ test "GC stress: many vector allocations" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval(
+    // See "GC stress: build long list" for the stress-build scaling.
+    const result = try vm.eval(if (@import("build_options").gc_stress)
+        \\(let loop ((i 0))
+        \\  (if (= i 300)
+        \\      i
+        \\      (begin
+        \\        (make-vector 10 i)
+        \\        (loop (+ i 1)))))
+    else
         \\(let loop ((i 0))
         \\  (if (= i 5000)
         \\      i
@@ -276,7 +305,8 @@ test "GC stress: many vector allocations" {
         \\        (make-vector 10 i)
         \\        (loop (+ i 1)))))
     );
-    try std.testing.expectEqual(@as(i64, 5000), types.toFixnum(result));
+    const expected: i64 = if (@import("build_options").gc_stress) 300 else 5000;
+    try std.testing.expectEqual(expected, types.toFixnum(result));
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +459,11 @@ test "memory_limit defers collection inside no_collect section" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const a = try gc.allocPair(types.NIL, types.NIL);
+    // Root a across b's allocation: under -Dgc-stress=true it collects and
+    // would sweep the unrooted pair, which the assertions below dereference.
+    var a = try gc.allocPair(types.NIL, types.NIL);
+    gc.pushRoot(&a);
+    defer gc.popRoot();
     const b = try gc.allocPair(types.NIL, types.NIL);
 
     gc.no_collect += 1;

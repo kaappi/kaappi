@@ -85,10 +85,14 @@ across runs; coverage stats accumulate in `.zig-cache/v/`. Delete
 
 A `-Dgc-stress=true` build attempts a collection at every allocation (except
 under `no_collect` or while the GC is disabled), which turns latent rooting
-bugs into immediate, attributable failures instead of rare heisenbugs.
-**Currently blocked:** ~440 of the 690 unit tests crash under gc-stress
-([#1401](https://github.com/kaappi/kaappi/issues/1401)), so a gc-stress fuzz
-run cannot get past the test phase until that is fixed.
+bugs into immediate, attributable failures instead of rare heisenbugs. The
+unit suite is required to stay green under stress
+([#1401](https://github.com/kaappi/kaappi/issues/1401) fixed the harness and
+the rooting bugs it was masking, including the #1414 bignum aliasing
+corruption). Expect a stress test run to be slow — every test VM bootstrap
+performs tens of thousands of collections — and loop-heavy tests that
+allocate per iteration to scale their counts down via
+`@import("build_options").gc_stress` (see `docs/dev/testing.md`).
 
 ## The CI job
 
@@ -96,16 +100,18 @@ run cannot get past the test phase until that is fixed.
 bounded fuzz pass daily at 02:47 UTC (scheduled away from the 05:17 UTC
 ecosystem nightly), in two variants:
 
-| Variant | Build | Limit (per fuzz test) |
-|---------|-------|-----------------------|
-| `default` | standard `ReleaseSafe` test build | 2K runs |
-| `gc-stress` | `-Dgc-stress=true` | *disabled* — see below |
+| Variant | Build | Limit (per fuzz test) | Job timeout |
+|---------|-------|-----------------------|-------------|
+| `default` | standard `ReleaseSafe` test build | 2K runs | 55 min |
+| `gc-stress` | `-Dgc-stress=true` | 100 runs | 300 min |
 
-The `gc-stress` variant is disabled in the matrix until
-[#1401](https://github.com/kaappi/kaappi/issues/1401) is fixed: ~440 of the
-690 unit tests currently crash under `-Dgc-stress=true`, so the pre-fuzz
-test phase can never pass. (Its first and only CI execution is what found
-that.) Re-enable it once the suite is stress-clean.
+The `gc-stress` variant runs the whole unit suite with a collection on
+every allocation before fuzzing, so its wall time is dominated by the test
+phase, not the fuzz limit. (Its first CI execution is what found
+[#1401](https://github.com/kaappi/kaappi/issues/1401); the suite has been
+required to stay stress-clean since that fix.) Throughput-sensitive fuzz
+targets skip themselves on stress builds — see the `gc_stress` checks in
+`src/tests_fuzz.zig`.
 
 Trigger it manually (optionally overriding the limit) with:
 

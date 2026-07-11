@@ -366,7 +366,11 @@ test "deepCopy shared structure" {
     var gc2 = memory.GC.init(std.testing.allocator);
     defer gc2.deinit();
 
-    const shared = try gc1.allocPair(types.makeFixnum(99), types.NIL);
+    // Root shared across the vector allocation: under -Dgc-stress=true
+    // allocVectorFill collects gc1 and would sweep the unrooted pair.
+    var shared = try gc1.allocPair(types.makeFixnum(99), types.NIL);
+    gc1.pushRoot(&shared);
+    defer gc1.popRoot();
     const vec = try gc1.allocVectorFill(2, types.VOID);
     const v = types.toObject(vec).as(types.Vector);
     v.data[0] = shared;
@@ -454,7 +458,11 @@ test "deepCopy native procedures survive freeing the source heap" {
     {
         var gc1 = memory.GC.init(std.testing.allocator);
         defer gc1.deinit();
-        const nf_val = try gc1.allocNativeFn("survive-add1", &testAdd1, .{ .exact = 1 });
+        // Root nf_val across the closure allocation: under -Dgc-stress=true
+        // allocNativeClosure collects gc1 and would sweep the unrooted fn.
+        var nf_val = try gc1.allocNativeFn("survive-add1", &testAdd1, .{ .exact = 1 });
+        gc1.pushRoot(&nf_val);
+        defer gc1.popRoot();
         const upvalues = [_]types.Value{types.makeFixnum(5)};
         const nc_val = try gc1.allocNativeClosure(&testNativeClosureFn, &upvalues, 1, "survive-nc");
         copied_fn = try gc2.deepCopy(nf_val);

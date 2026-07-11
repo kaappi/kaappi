@@ -41,6 +41,14 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     defer redefined_names.deinit();
     ir_instance.set_targets = &redefined_names;
 
+    // The IR nodes built below (passthrough forms, define/quote literals)
+    // reference sexpr Values — including macro-expanded forms — that nothing
+    // roots. A collection triggered by a later readDatum/lower/execute would
+    // free them and the emitter would then walk dangling Values (#1401).
+    // Defer collection for the whole read → lower → emit batch.
+    vm.gc.no_collect += 1;
+    defer vm.gc.no_collect -= 1;
+
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         var errbuf: [256]u8 = undefined;

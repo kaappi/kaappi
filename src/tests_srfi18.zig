@@ -22,7 +22,7 @@ test "child VM globals view survives parent-side rehash (#958)" {
 
     var child_gc = memory.GC.initForThread(std.testing.allocator, &gc);
     defer child_gc.deinit();
-    var child_vm = try vm_mod.VM.initForThread(&child_gc, &vm);
+    var child_vm = try vm_mod.VM.initForThread(&child_gc, vm);
     defer child_vm.deinit();
 
     try vm.defineGlobal("race-counter", types.makeFixnum(1));
@@ -181,10 +181,18 @@ test "abandonFiberMutexes handles multiple mutexes" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    const fiber_val = types.makePointer(@ptrCast(fiber));
+    var fiber_val = types.makePointer(@ptrCast(fiber));
+    // Root everything across the following allocations: under -Dgc-stress=true
+    // each allocMutex collects, and an unrooted fiber/mutex local is swept.
+    gc.pushRoot(&fiber_val);
+    defer gc.popRoot();
 
-    const m1_val = try gc.allocMutex(types.VOID);
-    const m2_val = try gc.allocMutex(types.VOID);
+    var m1_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m1_val);
+    defer gc.popRoot();
+    var m2_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m2_val);
+    defer gc.popRoot();
     const m3_val = try gc.allocMutex(types.VOID);
     const m1 = types.toMutex(m1_val);
     const m2 = types.toMutex(m2_val);
@@ -382,6 +390,18 @@ test "child thread collections leave no stale marks on parent heap (#958)" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
+
+    // The mark-bit scan below detects CHILD-written marks, relying on the
+    // parent not collecting during this eval: the parent's own minor
+    // collections legitimately leave mark bits on old-gen objects until the
+    // next cycle's clearOldMarks. Make the parent quiescent — threshold-
+    // driven again, with one forced full cycle to clear every mark bit and
+    // recompute the post-bootstrap threshold — while the child GC created
+    // by thread-start! still stresses on stress builds, which is the
+    // direction this regression test cares about.
+    gc.stress = false;
+    gc.minor_cycle_count = 8; // force the next collect to be a full cycle
+    gc.collect();
 
     // build-list is a parent-heap closure; 20000 elements exceeds the child
     // GC threshold, so the child collects (and marks its roots — which

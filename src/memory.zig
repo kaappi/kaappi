@@ -109,6 +109,13 @@ pub const GC = struct {
     arg_roots: [4]Value = .{ 0, 0, 0, 0 },
     arg_root_count: u3 = 0,
     remembered_set: std.ArrayList(*Object),
+    /// Like `arg_roots`, but for a caller-provided slice of Values: allocators
+    /// that receive `[]const Value` (allocVector, allocNativeClosure, ...)
+    /// point this at the (raw, non-GC) buffer before maybeCollect() so the
+    /// values survive the collection without the caller having to root each
+    /// element. Always save/restore rather than assign/null so nested
+    /// allocations (makeList → allocPair) compose.
+    slice_roots: ?[]const Value = null,
     stress: bool = build_options.gc_stress,
     enabled: bool = true,
     no_collect: u32 = 0,
@@ -296,9 +303,11 @@ pub const GC = struct {
     }
 
     pub fn allocString(self: *GC, data: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `data` may point into another heap object
+        // (e.g. a SchemeString's bytes) that this collection could free.
         const owned = try self.allocator.dupe(u8, data);
         errdefer self.allocator.free(owned);
+        try self.maybeCollect();
         const str = try self.allocator.create(SchemeString);
         str.* = .{
             .header = .{ .tag = .string },
@@ -353,10 +362,15 @@ pub const GC = struct {
     }
 
     pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy upvalues before collecting and root them across the collection
+        // (see allocVector).
         const uv_copy = try self.allocator.alloc(Value, upvalues.len);
         errdefer self.allocator.free(uv_copy);
         @memcpy(uv_copy, upvalues);
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = uv_copy;
+        defer self.slice_roots = saved_slice_roots;
+        try self.maybeCollect();
         const nc = try self.allocator.create(types.NativeClosure);
         nc.* = .{
             .header = .{ .tag = .native_closure },
@@ -375,10 +389,16 @@ pub const GC = struct {
     }
 
     pub fn allocVector(self: *GC, data: []const Value) !Value {
-        try self.maybeCollect();
+        // Copy before collecting (`data` may alias another vector's storage),
+        // and root the copied values across the collection: callers routinely
+        // pass freshly allocated Values held nowhere else.
         const owned = try self.allocator.alloc(Value, data.len);
         errdefer self.allocator.free(owned);
         @memcpy(owned, data);
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = owned;
+        defer self.slice_roots = saved_slice_roots;
+        try self.maybeCollect();
         const vec = try self.allocator.create(Vector);
         vec.* = .{
             .header = .{ .tag = .vector },
@@ -440,9 +460,10 @@ pub const GC = struct {
     }
 
     pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `name` may alias a symbol/string's bytes.
         const owned_name = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(owned_name);
+        try self.maybeCollect();
         const rt = try self.allocator.create(RecordType);
         rt.* = .{
             .header = .{ .tag = .record_type },
@@ -454,7 +475,8 @@ pub const GC = struct {
     }
 
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
-        try self.maybeCollect();
+        // Copy the fields before collecting and root them (plus the record
+        // type itself) across the collection (see allocVector).
         const fields = try self.allocator.alloc(Value, record_type.num_fields);
         errdefer self.allocator.free(fields);
         for (0..record_type.num_fields) |i| {
@@ -464,6 +486,12 @@ pub const GC = struct {
                 fields[i] = types.UNDEFINED;
             }
         }
+        self.rootArgs1(types.makePointer(@ptrCast(record_type)));
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = fields;
+        defer self.slice_roots = saved_slice_roots;
+        try self.maybeCollect();
+        self.clearArgRoots();
         const ri = try self.allocator.create(RecordInstance);
         ri.* = .{
             .header = .{ .tag = .record_instance },
@@ -498,9 +526,10 @@ pub const GC = struct {
     }
 
     pub fn allocStringInputPort(self: *GC, data: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `data` usually aliases a SchemeString.
         const owned = try self.allocator.dupe(u8, data);
         errdefer self.allocator.free(owned);
+        try self.maybeCollect();
         const port = try self.allocator.create(Port);
         port.* = .{
             .header = .{ .tag = .port },
@@ -544,9 +573,10 @@ pub const GC = struct {
     }
 
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `data` may alias another bytevector/string.
         const owned = try self.allocator.dupe(u8, data);
         errdefer self.allocator.free(owned);
+        try self.maybeCollect();
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
             .header = .{ .tag = .bytevector },
@@ -726,9 +756,10 @@ pub const GC = struct {
     }
 
     pub fn allocFfiLibrary(self: *GC, handle: ?*anyopaque, name: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `name` may alias a SchemeString's bytes.
         const owned_name = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(owned_name);
+        try self.maybeCollect();
         const lib = try self.allocator.create(FfiLibrary);
         lib.* = .{
             .header = .{ .tag = .ffi_library },
@@ -740,13 +771,14 @@ pub const GC = struct {
     }
 
     pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, library: Value, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
-        self.rootArgs1(library);
-        try self.maybeCollect();
-        self.clearArgRoots();
+        // Copy before collecting: `name` may alias a SchemeString's bytes.
         const owned_name = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(owned_name);
         const owned_params = try self.allocator.dupe(FfiType, param_types);
         errdefer self.allocator.free(owned_params);
+        self.rootArgs1(library);
+        try self.maybeCollect();
+        self.clearArgRoots();
         const ffi_fn = try self.allocator.create(FfiFunction);
         ffi_fn.* = .{
             .header = .{ .tag = .ffi_function },
@@ -929,11 +961,16 @@ pub const GC = struct {
     }
 
     pub fn allocBignumFromLimbs(self: *GC, limbs: []const u64, len: usize, positive: bool) !Value {
-        try self.maybeCollect();
+        // Copy before collecting: `limbs` often aliases a source Bignum's limb
+        // array (negate, abs, remainder). Collecting first frees that bignum
+        // when the caller holds it only in a local, and the fresh `owned`
+        // block can then land in the freed limbs' place — the "@memcpy
+        // arguments alias" crash under -Dgc-stress=true (#1401).
         const owned = try self.allocator.alloc(u64, limbs.len);
         errdefer self.allocator.free(owned);
-        const bn = try self.allocator.create(Bignum);
         @memcpy(owned, limbs);
+        try self.maybeCollect();
+        const bn = try self.allocator.create(Bignum);
         bn.* = .{
             .header = .{ .tag = .bignum },
             .limbs = owned,
@@ -998,7 +1035,7 @@ pub const GC = struct {
     }
 
     pub fn allocUserInfo(self: *GC, name: []const u8, uid: u32, gid: u32, home_dir: []const u8, shell: []const u8, full_name: []const u8) !Value {
-        try self.maybeCollect();
+        // Copy before collecting (see allocString).
         const name_copy = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(name_copy);
         const home_copy = try self.allocator.dupe(u8, home_dir);
@@ -1007,6 +1044,7 @@ pub const GC = struct {
         errdefer self.allocator.free(shell_copy);
         const gecos_copy = try self.allocator.dupe(u8, full_name);
         errdefer self.allocator.free(gecos_copy);
+        try self.maybeCollect();
         const ui = try self.allocator.create(types.UserInfo);
         ui.* = .{
             .header = .{ .tag = .user_info },
@@ -1022,9 +1060,10 @@ pub const GC = struct {
     }
 
     pub fn allocGroupInfo(self: *GC, name: []const u8, gid: u32) !Value {
-        try self.maybeCollect();
+        // Copy before collecting (see allocString).
         const name_copy = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(name_copy);
+        try self.maybeCollect();
         const gi = try self.allocator.create(types.GroupInfo);
         gi.* = .{
             .header = .{ .tag = .group_info },
@@ -1061,8 +1100,14 @@ pub const GC = struct {
     }
 
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
-        try self.maybeCollect();
+        // Copy before collecting and root the values across the collection
+        // (see allocVector).
         const owned = try self.allocator.dupe(Value, values);
+        errdefer self.allocator.free(owned);
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = owned;
+        defer self.slice_roots = saved_slice_roots;
+        try self.maybeCollect();
         const mv = try self.allocator.create(MultipleValues);
         mv.* = .{
             .header = .{ .tag = .multiple_values },
@@ -1074,13 +1119,23 @@ pub const GC = struct {
 
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
+        if (items.len == 0) return types.NIL;
+        // Copy into raw memory first — `items` may alias a heap object's
+        // storage (vector->list passes vec.data) that a collection can free —
+        // then root the copy: each allocPair only arg-roots the item being
+        // consed, so the not-yet-consed items would otherwise be collectable.
+        const copy = try self.allocator.dupe(Value, items);
+        defer self.allocator.free(copy);
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = copy;
+        defer self.slice_roots = saved_slice_roots;
         var result: Value = types.NIL;
         self.pushRoot(&result);
         defer self.popRoot();
-        var i = items.len;
+        var i = copy.len;
         while (i > 0) {
             i -= 1;
-            result = try self.allocPair(items[i], result);
+            result = try self.allocPair(copy[i], result);
         }
         return result;
     }
@@ -1098,14 +1153,11 @@ pub const GC = struct {
     const gc_collect = @import("gc_collect.zig");
 
     fn maybeCollect(self: *GC) !void {
-        if (self.stress and self.enabled) {
-            if (self.no_collect == 0) self.collect();
-            if (self.memory_limit) |limit| {
-                if (self.bytes_allocated > limit) return error.OutOfMemory;
-            }
-            return;
-        }
-        if (self.enabled and self.object_count >= self.gc_threshold) {
+        // Stress mode only changes *when* a collection is due (every call
+        // instead of at the threshold); the no_collect and memory_limit
+        // semantics must match the normal path, or stress builds would
+        // OOM inside no_collect sections that normal builds merely defer.
+        if (self.enabled and (self.stress or self.object_count >= self.gc_threshold)) {
             if (self.no_collect > 0) {
                 self.stats.no_collect_deferred += 1;
             } else {

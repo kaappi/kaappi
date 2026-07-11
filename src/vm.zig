@@ -210,6 +210,13 @@ pub const VM = struct {
     /// and the trampoline cannot be unwound, so callFfi re-raises this after
     /// the enclosing FFI call returns. Traced by markVMRoots.
     callback_error_value: ?Value = null,
+    /// True when the VM struct itself was heap-allocated by its creator and
+    /// deinit() should destroy it (testing_helpers.makeTestVM). The struct
+    /// must live at a stable address: `vm_instance` and the GC root marker
+    /// reach it by pointer, so a by-value move would leave them dangling —
+    /// under -Dgc-stress=true that means every collection during construction
+    /// misses the globals and frees live objects (#1401).
+    heap_owned: bool = false,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
@@ -376,8 +383,10 @@ pub const VM = struct {
             if (bp.condition) |cond| self.gc.allocator.free(cond);
         }
         self.breakpoint_count = 0;
-        self.gc.allocator.free(self.frames);
-        self.gc.allocator.free(self.registers);
+        const allocator = self.gc.allocator;
+        allocator.free(self.frames);
+        allocator.free(self.registers);
+        if (self.heap_owned) allocator.destroy(self);
     }
 
     pub fn ensureFrameCapacity(self: *VM, needed: usize) VMError!void {
