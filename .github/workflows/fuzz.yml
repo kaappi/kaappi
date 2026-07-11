@@ -188,10 +188,9 @@ jobs:
   # subset (#1396). This is the only oracle that catches conformance bugs
   # where BOTH Kaappi evaluation paths agree but are wrong. Two interpreter
   # runs per program (no linking), so it is much cheaper per seed than
-  # native-diff. The oracle version is whatever ubuntu-latest's apt ships;
-  # the harness records the exact version in the log and in any divergence
-  # artifact, and CHIBI can pin a specific binary if the distro version
-  # ever proves flaky.
+  # native-diff. The oracle is built from source at a pinned tag — Ubuntu
+  # noble's apt ships 0.9.1 which is too old for the generated programs
+  # (#1429). Bump the tag below when a newer release is needed.
   oracle-diff:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -210,8 +209,10 @@ jobs:
 
       - name: Install Chibi Scheme (the oracle)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y chibi-scheme
+          git clone --depth=1 --branch=0.11 https://github.com/ashinn/chibi-scheme.git /tmp/chibi-src
+          cd /tmp/chibi-src
+          make -j"$(nproc)"
+          sudo make install
           chibi-scheme -V
 
       - name: Build interpreter and generator
@@ -234,7 +235,7 @@ jobs:
       # header (Kaappi bug / oracle bug / generator leak).
       - name: Upload divergences
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: oracle-diff-divergences
           path: oracle-diff-results/

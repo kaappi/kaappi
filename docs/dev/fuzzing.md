@@ -239,8 +239,9 @@ are wrong. The oracle is Chibi Scheme (closest R7RS-small alignment, small
 install) under its default invocation; the harness prints and records the
 exact version, and `CHIBI=/path/to/binary` pins one explicitly. Note the
 repo's `(chibi test)` shim is implemented *in Kaappi* — the oracle must be a
-real installed `chibi-scheme` (`apt-get install chibi-scheme` /
-`brew install chibi-scheme`).
+real installed `chibi-scheme` (`brew install chibi-scheme` for local use;
+CI builds from source at a pinned tag — Ubuntu noble's apt ships 0.9.1
+which is too old, #1429).
 
 ```bash
 bash tests/fuzz/oracle-diff.sh            # 100 programs, seeds 0..99
@@ -295,9 +296,10 @@ fixed-seed programs stay ASCII/void-valued/in-vocabulary, and
 The `oracle-diff` job in `fuzz.yml` runs 1000 programs nightly with a seed
 base that rotates per run (replayable via `workflow_dispatch` inputs
 `oracle-diff-count` / `oracle-diff-base` or locally), and uploads
-divergences as the `oracle-diff-divergences` artifact. Chibi comes from
-ubuntu-latest's apt; the recorded version makes any divergence reproducible
-against the exact oracle even after a distro bump. Gauche can be added
+divergences as the `oracle-diff-divergences` artifact. Chibi is built from
+source at a pinned tag (0.11 as of #1429 — Ubuntu noble's apt has 0.9.1
+which lacks features the generated programs use); the recorded version makes
+any divergence reproducible against the exact oracle. Gauche can be added
 later as a second, separately pinned opinion.
 
 ## Turning a failure into a regression test
