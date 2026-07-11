@@ -20,17 +20,21 @@ Key differences from `/do-linux-test`:
 
 ## Pre-flight
 
-### 1. Record branch and check for unpushed work
+### 1. Record branch, commit, and check for unpushed work
 
 ```bash
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+COMMIT=$(git rev-parse HEAD)
 echo "Branch: $BRANCH"
+echo "Commit: $COMMIT"
 git status --porcelain
 git ls-remote --heads origin "$BRANCH"
 ```
 
 Only pushed commits are tested. If the branch has no remote tracking, ask the
-user to push first.
+user to push first. The **exact commit SHA** (`$COMMIT`) is used on the droplet
+so the report is attributable to a specific commit, not whatever the branch
+happens to point at minutes later.
 
 ### 2. Get SSH key fingerprint
 
@@ -67,26 +71,11 @@ Record the **droplet ID** immediately — it is needed for cleanup.
    done
    ```
 
-## Arm the 3-hour self-destruct timer
-
-Immediately after SSH is up. This guarantees destruction even if the Claude
-session dies mid-run. **3 hours 5 minutes** (11100 s) gives the run its full
-3-hour budget with a small margin:
-
-```bash
-DO_TOKEN=$(source ~/.zshrc 2>/dev/null && echo "$DIGITALOCEAN_API_TOKEN")
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@$IP "nohup bash -c 'sleep 11100 && curl -sf -X DELETE \
-    -H \"Authorization: Bearer $DO_TOKEN\" \
-    https://api.digitalocean.com/v2/droplets/<DROPLET_ID>' \
-    > /dev/null 2>&1 &"
-```
-
-The token lives only in the process's memory on a throwaway droplet.
-
 ## Provision
 
-One SSH command (well under the Bash tool timeout):
+One SSH command (well under the Bash tool timeout). Replace `<COMMIT>` with the
+exact commit SHA from pre-flight (the heredoc is quoted, so no shell expansion
+happens — you must substitute it into the command text before running):
 
 ```bash
 ssh -i ~/.ssh/id_rsa \
@@ -113,23 +102,56 @@ echo "==== Installing dependencies ===="
 apt-get update -qq
 apt-get install -y -qq git make gcc libc6-dev > /dev/null 2>&1
 
-echo "==== Cloning repo (branch: <BRANCH>) ===="
-git clone --depth 1 --branch <BRANCH> https://github.com/kaappi/kaappi.git /workspace
+echo "==== Fetching exact commit <COMMIT> ===="
+git init /workspace
+cd /workspace
+git fetch --depth 1 https://github.com/kaappi/kaappi.git <COMMIT>
+git checkout FETCH_HEAD
+echo "HEAD: $(git rev-parse HEAD)"
 echo "PROVISION: OK"
 REMOTE
 ```
 
 ## Sanity check: plain build and test first
 
-Catch a broken commit in minutes before burning hours on the stress run:
+Catch a broken commit in minutes before burning hours on the stress run.
+Run build and test as **separate SSH commands** so each exit code is captured
+directly (never pipe through `tail` and inspect `$?` — that reports `tail`'s
+status, not the build's):
 
 ```bash
 ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@$IP 'cd /workspace && zig build 2>&1 | tail -5 && zig build test 2>&1 | tail -5; echo "PLAIN: $?"'
+  root@$IP 'cd /workspace && zig build 2>&1 && echo "BUILD: OK" || echo "BUILD: FAIL"'
+```
+
+If the build fails, report and go straight to Cleanup.
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP 'cd /workspace && zig build test 2>&1 && echo "TEST: OK" || echo "TEST: FAIL"'
 ```
 
 If the plain suite fails, report and go straight to Cleanup — a stress run on
 a broken commit is wasted money.
+
+## Arm the 3-hour self-destruct timer
+
+Arm the timer **after** provisioning and the sanity check, immediately before
+launching the stress suite. This way the timer covers the actual stress run
+window, not the provisioning overhead. The droplet is guaranteed to be
+destroyed even if the Claude session dies mid-run. **3 hours 5 minutes**
+(11100 s) gives the run its full 3-hour budget with a small margin:
+
+```bash
+DO_TOKEN=$(source ~/.zshrc 2>/dev/null && echo "$DIGITALOCEAN_API_TOKEN")
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP "nohup bash -c 'sleep 11100 && curl -sf -X DELETE \
+    -H \"Authorization: Bearer $DO_TOKEN\" \
+    https://api.digitalocean.com/v2/droplets/<DROPLET_ID>' \
+    > /dev/null 2>&1 &"
+```
+
+The token lives only in the process's memory on a throwaway droplet.
 
 ## Launch the stress suite (detached)
 
@@ -181,6 +203,7 @@ the droplet — reconnect and fetch.
 
 ## Report results
 
+- **Commit**: the exact SHA tested (from pre-flight)
 - **Plain build/test**: OK / FAIL
 - **Stress suite**: the `N pass, N skip, N fail, N crash (N total)` line and
   `EXIT:` code. Expect a handful of **skips** — throughput- or memory-bound
