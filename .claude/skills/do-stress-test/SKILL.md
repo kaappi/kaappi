@@ -46,8 +46,9 @@ ssh-keygen -l -E md5 -f ~/.ssh/id_rsa.pub | awk '{print $2}' | sed 's/MD5://'
 
 Use `mcp__digitalocean-droplets__droplet-create`:
 - **Name**: `kaappi-stress-<branch>` (replace `/` with `-`, truncate to 60 chars)
-- **Size**: `s-4vcpu-8gb-amd` (premium AMD — the suite is single-core-bound,
-  so per-core speed matters; fall back to `s-4vcpu-8gb` if unavailable)
+- **Size**: `c5-4vcpu-8gb` (CPU-optimized gen 5 — the suite is single-core-bound,
+  so dedicated per-core speed matters; fall back to `c2-4vcpu-8gb`, then `c-4`,
+  then `s-4vcpu-8gb` if unavailable)
 - **Region**: `nyc3`
 - **ImageSlug**: `ubuntu-24-04-x64`
 - **SSHKeys**: `["<fingerprint>"]`
@@ -267,8 +268,9 @@ they can destroy it manually via the DigitalOcean console.
 
 ## Notes
 
-- **Cost**: `s-4vcpu-8gb-amd` is ~$0.084/hr → a full 3-hour window costs
-  ~$0.25.
+- **Cost**: `c5-4vcpu-8gb` is ~$0.185/hr → a full 3-hour window costs
+  ~$0.56. Faster per-core speed typically cuts the run to ~1–1.5h, so
+  actual cost is comparable to the cheaper shared-CPU droplets.
 - **Why hours**: with a collection attempted on every allocation, each test's
   VM bootstrap alone performs tens of thousands of full collections. ~40 min
   on an M-series Mac; budget 1.5–3 h on droplet vCPUs.

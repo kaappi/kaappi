@@ -111,18 +111,49 @@ pub const BodyOpts = struct {
     handle_define_syntax: bool = false,
 };
 
-/// Shared implementation for lambda bodies and let-form bodies.
-/// In lambda mode (dst=null): allocates per-expression registers, last is
-/// always tail. In let-body mode (dst set): reuses caller's register.
-pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileError!u16 {
-    const allocates_regs = opts.dst == null;
+pub const BodyScan = struct {
+    pub const MAX_DEFS = 512;
+
+    def_names: [MAX_DEFS][]const u8 = undefined,
+    def_inits: [MAX_DEFS]Value = undefined,
+    def_count: usize = 0,
+    remaining: Value = types.NIL,
+    macro_count: usize = 0,
+
+    prescan_names: std.ArrayList([]const u8) = .empty,
+    roots_base: usize = 0,
+    macro_mark: usize = 0,
+    compiler: *Compiler = undefined,
+    handle_define_syntax: bool = false,
+
+    pub fn deinit(self: *BodyScan) void {
+        if (self.compiler.globals) |globals| {
+            const glk = globals_mod.acquireGlobalsWrite(globals);
+            for (self.prescan_names.items) |pn| {
+                if (globals.get(pn)) |val| {
+                    if (val == types.VOID) _ = globals.remove(pn);
+                }
+            }
+            globals_mod.releaseGlobalsWrite(glk);
+        }
+        self.prescan_names.deinit(self.compiler.gc.allocator);
+        self.compiler.gc.extra_roots.shrinkRetainingCapacity(self.roots_base);
+        if (self.handle_define_syntax) {
+            self.compiler.endBodyMacroScope(self.macro_mark) catch {};
+        }
+    }
+};
+
+pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool) CompileError!BodyScan {
+    var scan_result = BodyScan{};
+    scan_result.compiler = compiler;
+    scan_result.handle_define_syntax = handle_define_syntax;
+    scan_result.roots_base = compiler.gc.extra_roots.items.len;
+    scan_result.macro_mark = if (handle_define_syntax) compiler.beginBodyMacroScope() else 0;
+    errdefer scan_result.deinit();
 
     // --- Globals prescan sentinel dance (#958) ---
-    // Plant VOID sentinels for define names so macro expansion can see
-    // sibling defs. Clean up still-VOID entries on exit.
-    var prescan_names: std.ArrayList([]const u8) = .empty;
-    defer prescan_names.deinit(self.gc.allocator);
-    if (self.globals) |globals| {
+    if (compiler.globals) |globals| {
         const glk = globals_mod.acquireGlobalsWrite(globals);
         defer globals_mod.releaseGlobalsWrite(glk);
         var scan = body;
@@ -146,7 +177,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                             if (def_name) |dn| {
                                 if (!globals.contains(dn)) {
                                     try globals.put(dn, types.VOID);
-                                    try prescan_names.append(self.gc.allocator, dn);
+                                    try scan_result.prescan_names.append(compiler.gc.allocator, dn);
                                 }
                             }
                         }
@@ -154,21 +185,21 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                         if (vm_records.parseRecordSpec(types.cdr(form))) |spec| {
                             if (!globals.contains(spec.ctor_name)) {
                                 globals.put(spec.ctor_name, types.VOID) catch {};
-                                prescan_names.append(self.gc.allocator, spec.ctor_name) catch {};
+                                scan_result.prescan_names.append(compiler.gc.allocator, spec.ctor_name) catch {};
                             }
                             if (!globals.contains(spec.pred_name)) {
                                 globals.put(spec.pred_name, types.VOID) catch {};
-                                prescan_names.append(self.gc.allocator, spec.pred_name) catch {};
+                                scan_result.prescan_names.append(compiler.gc.allocator, spec.pred_name) catch {};
                             }
                             for (0..spec.field_count) |fi| {
                                 if (!globals.contains(spec.accessor_names[fi])) {
                                     globals.put(spec.accessor_names[fi], types.VOID) catch {};
-                                    prescan_names.append(self.gc.allocator, spec.accessor_names[fi]) catch {};
+                                    scan_result.prescan_names.append(compiler.gc.allocator, spec.accessor_names[fi]) catch {};
                                 }
                                 if (spec.mutator_names[fi]) |mn| {
                                     if (!globals.contains(mn)) {
                                         globals.put(mn, types.VOID) catch {};
-                                        prescan_names.append(self.gc.allocator, mn) catch {};
+                                        scan_result.prescan_names.append(compiler.gc.allocator, mn) catch {};
                                     }
                                 }
                             }
@@ -179,41 +210,10 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             scan = types.cdr(scan);
         }
     }
-    defer {
-        if (self.globals) |globals| {
-            const glk = globals_mod.acquireGlobalsWrite(globals);
-            for (prescan_names.items) |pn| {
-                if (globals.get(pn)) |val| {
-                    if (val == types.VOID) _ = globals.remove(pn);
-                }
-            }
-            globals_mod.releaseGlobalsWrite(glk);
-        }
-    }
-
-    // --- Collect leading internal defines (R7RS 5.3.2 letrec* desugar) ---
-    const MAX_BODY_DEFS = 256;
-    var def_names_arr: [MAX_BODY_DEFS][]const u8 = undefined;
-    var def_inits: [MAX_BODY_DEFS]Value = undefined;
-    var def_slots: [MAX_BODY_DEFS]u16 = undefined;
-    var def_count: usize = 0;
-
-    // def_inits lives in a stack array the GC cannot see. The (define (name
-    // args...) body) case below allocates fresh lambda pairs into it, and both
-    // the rest of this scan and the phase-2 compileExpr calls allocate, so a
-    // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
-    // them into extra_roots (by value, realloc-safe) for the duration.
-    const roots_base = self.gc.extra_roots.items.len;
-    defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
-
-    var macro_count: usize = 0;
-    const macro_mark = if (opts.handle_define_syntax) self.beginBodyMacroScope() else 0;
-    defer if (opts.handle_define_syntax) self.endBodyMacroScope(macro_mark) catch {};
 
     // First pass: collect ALL leading define names so that define-syntax
-    // forms (which may appear before or after a define in the same letrec*
-    // region) see the complete set via extra_bound.
-    var all_def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    // forms see the complete letrec* region via extra_bound.
+    var all_def_names: [BodyScan.MAX_DEFS][]const u8 = undefined;
     var all_def_count: usize = 0;
     {
         var scan = body;
@@ -228,23 +228,23 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                 if (da == types.NIL or !types.isPair(da)) break;
                 const tgt = types.car(da);
                 if (types.isSymbol(tgt)) {
-                    if (all_def_count < MAX_BODY_DEFS) {
+                    if (all_def_count < BodyScan.MAX_DEFS) {
                         all_def_names[all_def_count] = types.symbolName(tgt);
                         all_def_count += 1;
                     }
                 } else if (types.isPair(tgt)) {
                     const fn_name = types.car(tgt);
-                    if (types.isSymbol(fn_name) and all_def_count < MAX_BODY_DEFS) {
+                    if (types.isSymbol(fn_name) and all_def_count < BodyScan.MAX_DEFS) {
                         all_def_names[all_def_count] = types.symbolName(fn_name);
                         all_def_count += 1;
                     }
                 } else break;
             } else if (std.mem.eql(u8, hn, "define-record-type")) {
-                vm_records.collectRecordTypeDefNames(self.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch |err| switch (err) {
+                vm_records.collectRecordTypeDefNames(compiler.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch |err| switch (err) {
                     CompileError.InvalidSyntax => break,
                     else => return err,
                 };
-            } else if (!(opts.handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
+            } else if (!(handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
                 break;
             }
             scan = types.cdr(scan);
@@ -252,6 +252,11 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
     }
 
     // Second pass: collect define inits and process define-syntax forms.
+    // def_inits lives in a stack array the GC cannot see. The (define (name
+    // args...) body) case below allocates fresh lambda pairs into it, and both
+    // the rest of this scan and the caller's compilation phase allocate, so a
+    // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
+    // them into extra_roots (by value, realloc-safe) for the duration.
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
@@ -267,41 +272,41 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
 
             if (types.isSymbol(target)) {
                 if (def_rest == types.NIL or !types.isPair(def_rest)) break;
-                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-                def_names_arr[def_count] = types.symbolName(target);
-                def_inits[def_count] = types.car(def_rest);
-                def_count += 1;
+                if (scan_result.def_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+                scan_result.def_names[scan_result.def_count] = types.symbolName(target);
+                scan_result.def_inits[scan_result.def_count] = types.car(def_rest);
+                scan_result.def_count += 1;
             } else if (types.isPair(target)) {
                 const fn_name = types.car(target);
                 if (!types.isSymbol(fn_name)) break;
-                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-                def_names_arr[def_count] = types.symbolName(fn_name);
+                if (scan_result.def_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+                scan_result.def_names[scan_result.def_count] = types.symbolName(fn_name);
                 const param_formals = types.cdr(target);
-                const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+                const lambda_sym = compiler.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
                 {
-                    var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                    self.gc.pushRoot(&lambda_args);
-                    defer self.gc.popRoot();
-                    def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+                    var lambda_args = compiler.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                    compiler.gc.pushRoot(&lambda_args);
+                    defer compiler.gc.popRoot();
+                    scan_result.def_inits[scan_result.def_count] = compiler.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
                 }
-                self.gc.extra_roots.append(self.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
-                def_count += 1;
+                compiler.gc.extra_roots.append(compiler.gc.allocator, scan_result.def_inits[scan_result.def_count]) catch return CompileError.OutOfMemory;
+                scan_result.def_count += 1;
             } else {
                 break;
             }
         } else if (std.mem.eql(u8, head_name, "define-record-type")) {
             vm_records.expandRecordTypeDefines(
-                self.gc,
+                compiler.gc,
                 types.cdr(expr),
-                def_names_arr[0..],
-                def_inits[0..],
-                &def_count,
-                &self.gc.extra_roots,
+                scan_result.def_names[0..],
+                scan_result.def_inits[0..],
+                &scan_result.def_count,
+                &compiler.gc.extra_roots,
             ) catch |err| switch (err) {
                 CompileError.InvalidSyntax => break,
                 else => return err,
             };
-        } else if (opts.handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
+        } else if (handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
             const ds_args = types.cdr(expr);
             if (ds_args == types.NIL or !types.isPair(ds_args)) break;
             const keyword = types.car(ds_args);
@@ -310,53 +315,68 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
             const transformer_spec = types.car(ds_rest);
 
-            const transformer = macro.parseSyntaxRules(self, transformer_spec, all_def_names[0..all_def_count]) catch break;
-            // Root for the rest of the compile — see the define-syntax
-            // handling in compiler_ir.zig's body scan (#1401).
-            self.gc.extra_roots.append(self.gc.allocator, transformer) catch return CompileError.OutOfMemory;
+            const transformer = macro.parseSyntaxRules(compiler, transformer_spec, all_def_names[0..all_def_count]) catch break;
+            // Root the transformer for the rest of this body compile: it
+            // lives only in the compiler-local macro map, which the GC
+            // cannot see, and it must survive collections triggered while
+            // compiling sibling body forms that use it (#1401). Released
+            // by deinit()'s extra_roots truncation (roots_base), after
+            // the body — the macro's entire scope — is compiled.
+            compiler.gc.extra_roots.append(compiler.gc.allocator, transformer) catch return CompileError.OutOfMemory;
             const name = types.symbolName(keyword);
 
-            try self.recordBodyMacro(name);
-            macro_count += 1;
+            try compiler.recordBodyMacro(name);
+            scan_result.macro_count += 1;
 
             const tx = types.toObject(transformer).as(types.Transformer);
-            if (self.lib_env) |env| {
+            if (compiler.lib_env) |env| {
                 tx.def_env = env;
-                tx.def_env_val = self.lib_env_val;
+                tx.def_env_val = compiler.lib_env_val;
             }
-            try macro.captureLocalsOnTransformer(self, transformer);
-            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
+            try macro.captureLocalsOnTransformer(compiler, transformer);
+            compiler.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
             break;
         }
         current = types.cdr(current);
     }
 
-    // --- Compile defines + remaining body ---
-    var last_dst: u16 = opts.dst orelse 0;
+    scan_result.remaining = current;
+    return scan_result;
+}
 
-    if (def_count > 0) {
+pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileError!u16 {
+    const allocates_regs = opts.dst == null;
+
+    var scan = try scanBodyDefs(self, body, opts.handle_define_syntax);
+    defer scan.deinit();
+
+    var last_dst: u16 = opts.dst orelse 0;
+    var current = scan.remaining;
+
+    if (scan.def_count > 0) {
         self.beginScope();
 
-        for (0..def_count) |i| {
+        var def_slots: [BodyScan.MAX_DEFS]u16 = undefined;
+        for (0..scan.def_count) |i| {
             const slot = try self.allocReg();
             def_slots[i] = slot;
             try self.emitOp(.load_void);
             try self.emitU16(slot);
-            try self.addLocal(def_names_arr[i], slot);
+            try self.addLocal(scan.def_names[i], slot);
             try self.markLocalBoxedBySlot(slot);
         }
 
-        for (0..def_count) |i| {
+        for (0..scan.def_count) |i| {
             if (allocates_regs) {
                 last_dst = try self.allocReg();
-                try self.compileExprViaIR(def_inits[i], last_dst, false);
+                try self.compileExprViaIR(scan.def_inits[i], last_dst, false);
                 try self.emitOp(.set_box_local);
                 try self.emitU16(def_slots[i]);
                 try self.emitU16(last_dst);
                 self.freeReg();
             } else {
-                try self.compileExprViaIR(def_inits[i], last_dst, false);
+                try self.compileExprViaIR(scan.def_inits[i], last_dst, false);
                 try self.emitOp(.set_box_local);
                 try self.emitU16(def_slots[i]);
                 try self.emitU16(last_dst);
@@ -374,7 +394,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
         self.endScope();
     } else if (current != types.NIL) {
         try compileExprSequence(self, &current, &last_dst, allocates_regs, opts.is_tail);
-    } else if (macro_count > 0 and !allocates_regs) {
+    } else if (scan.macro_count > 0 and !allocates_regs) {
         try self.emitOp(.load_void);
         try self.emitU16(last_dst);
     }
@@ -382,7 +402,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
     return last_dst;
 }
 
-fn compileExprSequence(self: *Compiler, current: *Value, last_dst: *u16, allocates_regs: bool, caller_tail: ?bool) CompileError!void {
+pub fn compileExprSequence(self: *Compiler, current: *Value, last_dst: *u16, allocates_regs: bool, caller_tail: ?bool) CompileError!void {
     while (current.* != types.NIL) {
         if (!types.isPair(current.*)) return CompileError.InvalidSyntax;
         const expr = types.car(current.*);
