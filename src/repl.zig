@@ -11,11 +11,14 @@ const expander = @import("expander.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
 const ln = if (is_wasm) struct {} else @import("linenoise.zig");
 
+const config_mod = @import("config.zig");
 const version = @import("main.zig").version;
 
 var repl_vm: ?*vm_mod.VM = null;
 var terminal_width: u16 = 80;
 var accumulated_input: []const u8 = "";
+var theme: config_mod.Theme = .{};
+var highlight_enabled: bool = true;
 
 fn getTerminalWidth() u16 {
     if (comptime is_wasm) return 80;
@@ -79,25 +82,21 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
     }
 }
 
-const ANSI_RESET = "\x1b[0m";
-const ANSI_KEYWORD = "\x1b[35m"; // magenta
-const ANSI_STRING = "\x1b[32m"; // green
-const ANSI_NUMBER = "\x1b[33m"; // yellow
-const ANSI_COMMENT = "\x1b[90m"; // bright black (gray)
-const ANSI_BOOLEAN = "\x1b[36m"; // cyan
-const ANSI_PAREN = "\x1b[90m"; // gray
-const ANSI_MATCH_PAREN = "\x1b[1;93m"; // bold bright yellow
+// Colors are configured via theme (loaded from ~/.kaappi/config)
 
 fn isSchemeKeyword(word: []const u8) bool {
     const keywords = [_][]const u8{
-        "define",        "lambda",       "if",             "cond",
-        "let",           "let*",         "letrec",         "letrec*",
-        "begin",         "set!",         "and",            "or",
-        "when",          "unless",       "case",           "do",
-        "define-syntax", "syntax-rules", "quote",          "quasiquote",
-        "unquote",       "import",       "define-library", "define-record-type",
-        "guard",         "delay",        "delay-force",    "parameterize",
-        "include",
+        "define",         "lambda",             "if",            "cond",
+        "let",            "let*",               "letrec",        "letrec*",
+        "begin",          "set!",               "and",           "or",
+        "when",           "unless",             "case",          "do",
+        "define-syntax",  "syntax-rules",       "quote",         "quasiquote",
+        "unquote",        "unquote-splicing",   "import",        "export",
+        "define-library", "define-record-type", "define-values", "guard",
+        "delay",          "delay-force",        "parameterize",  "include",
+        "include-ci",     "else",               "=>",            "let-values",
+        "let*-values",    "case-lambda",        "let-syntax",    "letrec-syntax",
+        "syntax-error",
     };
     for (keywords) |kw| {
         if (std.mem.eql(u8, word, kw)) return true;
@@ -106,7 +105,17 @@ fn isSchemeKeyword(word: []const u8) bool {
 }
 
 fn isDelimiter(ch: u8) bool {
-    return ch == ' ' or ch == '\t' or ch == '(' or ch == ')' or ch == '"' or ch == ';' or ch == '\n' or ch == '\r';
+    return ch == ' ' or ch == '\t' or ch == '(' or ch == ')' or ch == '[' or ch == ']' or ch == '"' or ch == ';' or ch == '|' or ch == '\n' or ch == '\r';
+}
+
+fn isNumberLike(word: []const u8) bool {
+    if (word.len == 0) return false;
+    if (std.ascii.isDigit(word[0])) return true;
+    if (word.len > 1 and (word[0] == '+' or word[0] == '-') and std.ascii.isDigit(word[1])) return true;
+    // +inf.0, -inf.0, +nan.0, -nan.0
+    if (std.mem.eql(u8, word, "+inf.0") or std.mem.eql(u8, word, "-inf.0") or
+        std.mem.eql(u8, word, "+nan.0") or std.mem.eql(u8, word, "-nan.0")) return true;
+    return false;
 }
 
 fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
@@ -195,7 +204,7 @@ fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
 }
 
 fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usize) callconv(.c) [*c]u8 {
-    if (len == 0) {
+    if (len == 0 or !highlight_enabled) {
         out_len.* = 0;
         return null;
     }
@@ -235,16 +244,16 @@ fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usi
         const ch = input[i];
 
         if (ch == ';') {
-            result.appendSlice(allocator, ANSI_COMMENT) catch return null;
+            result.appendSlice(allocator, theme.comment) catch return null;
             while (i < input.len and input[i] != '\n') : (i += 1) {
                 result.append(allocator, input[i]) catch return null;
             }
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
             continue;
         }
 
         if (ch == '#' and i + 1 < input.len and input[i + 1] == '|') {
-            result.appendSlice(allocator, ANSI_COMMENT) catch return null;
+            result.appendSlice(allocator, theme.comment) catch return null;
             result.append(allocator, '#') catch return null;
             result.append(allocator, '|') catch return null;
             i += 2;
@@ -263,12 +272,54 @@ fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usi
                     i += 1;
                 }
             }
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
+            continue;
+        }
+
+        // #; datum comment prefix
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == ';') {
+            result.appendSlice(allocator, theme.comment) catch return null;
+            result.appendSlice(allocator, "#;") catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
+            i += 2;
+            continue;
+        }
+
+        // #!fold-case / #!no-fold-case directives
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '!') {
+            result.appendSlice(allocator, theme.comment) catch return null;
+            while (i < input.len and !isDelimiter(input[i])) {
+                result.append(allocator, input[i]) catch return null;
+                i += 1;
+            }
+            result.appendSlice(allocator, theme.reset) catch return null;
+            continue;
+        }
+
+        // #u8( bytevector literal
+        if (ch == '#' and i + 3 < input.len and input[i + 1] == 'u' and input[i + 2] == '8' and input[i + 3] == '(') {
+            const is_match = (match_open != null and i + 3 == match_open.?);
+            const color = if (is_match) theme.match_paren else theme.paren;
+            result.appendSlice(allocator, color) catch return null;
+            result.appendSlice(allocator, "#u8(") catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
+            i += 4;
+            continue;
+        }
+
+        // #( vector literal
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '(') {
+            const is_match = (match_open != null and i + 1 == match_open.?);
+            const color = if (is_match) theme.match_paren else theme.paren;
+            result.appendSlice(allocator, color) catch return null;
+            result.appendSlice(allocator, "#(") catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
+            i += 2;
             continue;
         }
 
         if (ch == '"') {
-            result.appendSlice(allocator, ANSI_STRING) catch return null;
+            result.appendSlice(allocator, theme.string) catch return null;
             result.append(allocator, '"') catch return null;
             i += 1;
             while (i < input.len) {
@@ -282,23 +333,23 @@ fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usi
                 }
                 i += 1;
             }
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
             continue;
         }
 
         if (ch == '(' or ch == ')' or ch == '[' or ch == ']') {
             const is_match = (match_open != null and i == match_open.?) or
                 (match_close != null and i == match_close.?);
-            const color = if (is_match) ANSI_MATCH_PAREN else ANSI_PAREN;
+            const color = if (is_match) theme.match_paren else theme.paren;
             result.appendSlice(allocator, color) catch return null;
             result.append(allocator, ch) catch return null;
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
             i += 1;
             continue;
         }
 
         if (ch == '#' and i + 1 < input.len and input[i + 1] == '\\') {
-            result.appendSlice(allocator, ANSI_NUMBER) catch return null;
+            result.appendSlice(allocator, theme.number) catch return null;
             result.append(allocator, '#') catch return null;
             result.append(allocator, '\\') catch return null;
             i += 2;
@@ -314,27 +365,88 @@ fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usi
                     i += 1;
                 }
             }
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
             continue;
         }
 
+        // #true / #false (R7RS extended boolean)
+        if (ch == '#' and i + 4 < input.len) {
+            if (std.mem.startsWith(u8, input[i..], "#true") and (i + 5 >= input.len or isDelimiter(input[i + 5]))) {
+                result.appendSlice(allocator, theme.boolean) catch return null;
+                result.appendSlice(allocator, "#true") catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
+                i += 5;
+                continue;
+            }
+            if (i + 5 < input.len and std.mem.startsWith(u8, input[i..], "#false") and (i + 6 >= input.len or isDelimiter(input[i + 6]))) {
+                result.appendSlice(allocator, theme.boolean) catch return null;
+                result.appendSlice(allocator, "#false") catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
+                i += 6;
+                continue;
+            }
+        }
+
+        // #t / #f (short boolean)
         if (ch == '#' and i + 1 < input.len and (input[i + 1] == 't' or input[i + 1] == 'f')) {
             const is_bool = (i + 2 >= input.len or isDelimiter(input[i + 2]));
             if (is_bool) {
-                result.appendSlice(allocator, ANSI_BOOLEAN) catch return null;
+                result.appendSlice(allocator, theme.boolean) catch return null;
                 result.append(allocator, '#') catch return null;
                 result.append(allocator, input[i + 1]) catch return null;
-                result.appendSlice(allocator, ANSI_RESET) catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
                 i += 2;
                 continue;
             }
         }
 
+        // #b #o #x #d #e #i number prefix
+        if (ch == '#' and i + 1 < input.len) {
+            const next = input[i + 1];
+            if (next == 'b' or next == 'o' or next == 'x' or next == 'd' or next == 'e' or next == 'i') {
+                const start = i;
+                while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
+                const word = input[start..i];
+                result.appendSlice(allocator, theme.number) catch return null;
+                result.appendSlice(allocator, word) catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
+                continue;
+            }
+        }
+
+        // ,@ unquote-splicing
+        if (ch == ',' and i + 1 < input.len and input[i + 1] == '@') {
+            result.appendSlice(allocator, theme.keyword) catch return null;
+            result.appendSlice(allocator, ",@") catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
+            i += 2;
+            continue;
+        }
+
         if (ch == '\'' or ch == '`' or ch == ',') {
-            result.appendSlice(allocator, ANSI_KEYWORD) catch return null;
+            result.appendSlice(allocator, theme.keyword) catch return null;
             result.append(allocator, ch) catch return null;
-            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            result.appendSlice(allocator, theme.reset) catch return null;
             i += 1;
+            continue;
+        }
+
+        // |...| pipe-quoted symbol
+        if (ch == '|') {
+            result.append(allocator, '|') catch return null;
+            i += 1;
+            while (i < input.len and input[i] != '|') {
+                if (input[i] == '\\' and i + 1 < input.len) {
+                    result.append(allocator, input[i]) catch return null;
+                    i += 1;
+                }
+                result.append(allocator, input[i]) catch return null;
+                i += 1;
+            }
+            if (i < input.len) {
+                result.append(allocator, '|') catch return null;
+                i += 1;
+            }
             continue;
         }
 
@@ -344,16 +456,13 @@ fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usi
             const word = input[start..i];
 
             if (isSchemeKeyword(word)) {
-                result.appendSlice(allocator, ANSI_KEYWORD) catch return null;
+                result.appendSlice(allocator, theme.keyword) catch return null;
                 result.appendSlice(allocator, word) catch return null;
-                result.appendSlice(allocator, ANSI_RESET) catch return null;
-            } else if (word.len > 0 and (std.ascii.isDigit(word[0]) or
-                (word[0] == '-' and word.len > 1 and std.ascii.isDigit(word[1])) or
-                (word[0] == '+' and word.len > 1 and std.ascii.isDigit(word[1]))))
-            {
-                result.appendSlice(allocator, ANSI_NUMBER) catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
+            } else if (isNumberLike(word)) {
+                result.appendSlice(allocator, theme.number) catch return null;
                 result.appendSlice(allocator, word) catch return null;
-                result.appendSlice(allocator, ANSI_RESET) catch return null;
+                result.appendSlice(allocator, theme.reset) catch return null;
             } else {
                 result.appendSlice(allocator, word) catch return null;
             }
@@ -500,13 +609,17 @@ fn parenDepth(src: []const u8) i32 {
 pub fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
+    const cfg = config_mod.load();
+    theme = cfg.theme;
+    highlight_enabled = cfg.highlight;
+
     writeStdout("Kaappi Scheme v" ++ version ++ "\n");
     writeStdout("Type ,help for commands, ,quit to exit.\n\n");
 
     terminal_width = getTerminalWidth();
     repl_vm = vm;
     ln.setMultiLine(true);
-    ln.historySetMaxLen(1000);
+    ln.historySetMaxLen(cfg.history_length);
 
     var hist_path_buf: [512]u8 = undefined;
     const hist_path: ?[*:0]const u8 = blk: {
@@ -521,13 +634,43 @@ pub fn repl(vm: *vm_mod.VM) !void {
     if (hist_path) |p| ln.historyLoad(p);
 
     ln.setCompletionCallback(&completionCallback);
-    ln.setHighlightCallback(&highlightCallback);
+    if (highlight_enabled) {
+        ln.setHighlightCallback(&highlightCallback);
+    }
+
+    // Build colored prompt strings: <color>text<reset>\0
+    var primary_prompt_buf: [128:0]u8 = @splat(0);
+    var cont_prompt_buf: [128:0]u8 = @splat(0);
+    const primary_prompt: [*:0]const u8 = blk: {
+        const color = cfg.theme.prompt;
+        const text = cfg.prompt_buf[0..cfg.prompt_len];
+        const reset = cfg.theme.reset;
+        const total = color.len + text.len + reset.len;
+        if (total >= primary_prompt_buf.len) break :blk cfg.prompt();
+        @memcpy(primary_prompt_buf[0..color.len], color);
+        @memcpy(primary_prompt_buf[color.len..][0..text.len], text);
+        @memcpy(primary_prompt_buf[color.len + text.len ..][0..reset.len], reset);
+        primary_prompt_buf[total] = 0;
+        break :blk @ptrCast(&primary_prompt_buf);
+    };
+    const continuation_prompt: [*:0]const u8 = blk: {
+        const color = cfg.theme.continuation;
+        const text = "  ... ";
+        const reset = cfg.theme.reset;
+        const total = color.len + text.len + reset.len;
+        if (total >= cont_prompt_buf.len) break :blk "  ... ";
+        @memcpy(cont_prompt_buf[0..color.len], color);
+        @memcpy(cont_prompt_buf[color.len..][0..text.len], text);
+        @memcpy(cont_prompt_buf[color.len + text.len ..][0..reset.len], reset);
+        cont_prompt_buf[total] = 0;
+        break :blk @ptrCast(&cont_prompt_buf);
+    };
 
     var input_buf: std.ArrayList(u8) = .empty;
     defer input_buf.deinit(allocator);
 
     while (true) {
-        const prompt: [*:0]const u8 = if (input_buf.items.len > 0) "  ... " else "kaappi> ";
+        const prompt: [*:0]const u8 = if (input_buf.items.len > 0) continuation_prompt else primary_prompt;
         accumulated_input = input_buf.items;
         const line_ptr = ln.linenoise(prompt) orelse {
             const err = std.c._errno().*;
@@ -1069,7 +1212,7 @@ test "highlightCallback — matching parens highlighted" {
     if (result) |r| {
         defer std.heap.c_allocator.free(r[0..out_len]);
         const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) != null);
+        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) != null);
     } else {
         return error.TestUnexpectedResult;
     }
@@ -1085,7 +1228,7 @@ test "highlightCallback — match across continuation lines" {
     if (result) |r| {
         defer std.heap.c_allocator.free(r[0..out_len]);
         const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) != null);
+        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) != null);
     } else {
         return error.TestUnexpectedResult;
     }
@@ -1098,7 +1241,7 @@ test "highlightCallback — no match when cursor not after close paren" {
     if (result) |r| {
         defer std.heap.c_allocator.free(r[0..out_len]);
         const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) == null);
+        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) == null);
     } else {
         return error.TestUnexpectedResult;
     }

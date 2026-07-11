@@ -43,6 +43,7 @@ pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 pub const toplevel_driver = @import("toplevel_driver.zig");
 pub const cli = @import("cli.zig");
+pub const config = @import("config.zig");
 
 pub const version = @import("build_options").version;
 
@@ -943,4 +944,5 @@ test {
     _ = toplevel_driver;
     _ = repl_mod;
     _ = cli;
+    _ = config;
 }
