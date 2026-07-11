@@ -1,14 +1,16 @@
-//! Per-OS-thread I/O readiness multiplexer (KEP-0001 Phase 1).
+//! Per-OS-thread I/O readiness multiplexer (KEP-0001 Phases 1-2).
 //!
 //! One `Reactor` belongs to one OS thread's scheduler. A fiber that would
 //! block on a fd registers its interest and parks; `poll` blocks once,
 //! bounded by the nearest timer deadline, and reports every fiber that
-//! became runnable (fd readiness or timer expiry). This file has no
-//! scheduler caller yet — that wiring is KEP-0001 Phase 2. See
+//! became runnable (fd readiness or timer expiry). Wired into the
+//! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
 const builtin = @import("builtin");
 const fiber_mod = @import("fiber.zig");
+const memory = @import("memory.zig");
+const types = @import("types.zig");
 const Fiber = fiber_mod.Fiber;
 
 const linux = std.os.linux;
@@ -26,8 +28,8 @@ const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
 const Backend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos => KqueueBackend,
     .linux => EpollBackend,
-    // WASI (poll_oneoff) arrives in KEP-0001 Phase 4.
-    else => @compileError("reactor: unsupported OS for KEP-0001 Phase 1 (kqueue/epoll only)"),
+    .wasi => WasiBackend,
+    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
 };
 
 const TimerEntry = struct {
@@ -158,6 +160,21 @@ pub const Reactor = struct {
         return true;
     }
 
+    /// GC root, not just belt-and-braces: addFiber's slot-reuse overwrites
+    /// .completed/.errored slots in FiberScheduler.fibers[], and
+    /// thread-terminate! moves a victim straight to .errored. If terminate
+    /// ever raced ahead of removeTimer for a fiber's pending wait, that
+    /// fiber's only remaining reference would be here, in the timer heap —
+    /// this mark is what keeps it alive long enough for the pop to run.
+    pub fn markRoots(self: *Reactor, gc: *memory.GC) void {
+        var it = self.regs.valueIterator();
+        while (it.next()) |reg| {
+            for (reg.read_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
+            for (reg.write_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
+        }
+        for (self.timers.items) |entry| gc.markValue(types.makePointer(@ptrCast(&entry.fiber.header)));
+    }
+
     /// Blocks up to `timeout_ns` (or the nearest timer deadline, whichever
     /// is sooner; forever if both are null) and appends every fiber made
     /// runnable — by fd readiness or timer expiry — to `ready`. `ready`
@@ -208,10 +225,24 @@ pub const Reactor = struct {
             }
         }
 
+        try self.popExpiredTimers(ready);
+    }
+
+    /// Moves every timer whose deadline has already passed into `ready`,
+    /// removing it from the heap. Called from `poll` (after an fd wait)
+    /// and separately from `FiberScheduler.schedule` on every dispatch
+    /// tick — not just when the scheduler goes idle — so a timed wait
+    /// resolves promptly even while other runnable fibers (a busy/yielding
+    /// sibling) mean `poll` is never reached at all.
+    pub fn popExpiredTimers(self: *Reactor, ready: *std.ArrayList(*Fiber)) !void {
         const now = fiber_mod.clockNs();
         while (self.timers.peek()) |top| {
             if (top.deadline_ns > now) break;
-            try ready.append(self.allocator, self.timers.pop().?.fiber);
+            // Append before popping: if the append allocation fails, the
+            // timer must stay in the heap so the fiber isn't stranded —
+            // popping first would drop it from both places on OOM.
+            try ready.append(self.allocator, top.fiber);
+            _ = self.timers.pop();
         }
     }
 
@@ -411,3 +442,58 @@ fn msFromNs(timeout_ns: ?u64) i32 {
     const ms = (ns +| 999_999) / 1_000_000;
     return if (ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(ms);
 }
+
+// ---------------------------------------------------------------------------
+// WASI backend — timer-only stopgap.
+//
+// The full design (build a subscription_t[] — one fd_read/fd_write per
+// registration plus one CLOCK subscription at the nearest deadline, call
+// std.os.wasi.poll_oneoff) is KEP-0001 Phase 4. Nothing registers a port's
+// fd with the reactor before Phase 3, so on wasm32-wasi today the only
+// path that must actually work is a plain wait bounded by the timer
+// heap's nearest deadline — exactly what thread-sleep! and timed
+// mutex/join/condvar waits need. arm() is unreachable until Phase 3 lands
+// I/O primitive changes (gated by the existing is_wasm flag, per the
+// KEP's cross-platform section: WASI falls back to single-fiber blocking
+// I/O where poll_oneoff socket support is unavailable).
+// ---------------------------------------------------------------------------
+
+const WasiBackend = struct {
+    fn init() !WasiBackend {
+        return .{};
+    }
+
+    fn deinit(self: *WasiBackend) void {
+        _ = self;
+    }
+
+    fn arm(self: *WasiBackend, fd: i32, wants_read: bool, wants_write: bool, first_time: bool) !void {
+        _ = self;
+        _ = fd;
+        _ = wants_read;
+        _ = wants_write;
+        _ = first_time;
+        return error.Unexpected;
+    }
+
+    fn disarmAll(self: *WasiBackend, fd: i32) void {
+        _ = self;
+        _ = fd;
+    }
+
+    fn wait(self: *WasiBackend, timeout_ns: ?u64) ![]const ReadyEvent {
+        _ = self;
+        if (timeout_ns) |ns| {
+            var ts: std.c.timespec = .{
+                .sec = @intCast(ns / 1_000_000_000),
+                .nsec = @intCast(ns % 1_000_000_000),
+            };
+            while (true) {
+                const ret = std.c.nanosleep(&ts, &ts);
+                if (ret == 0) break;
+                if (std.posix.errno(ret) != .INTR) return error.Unexpected;
+            }
+        }
+        return &[_]ReadyEvent{};
+    }
+};

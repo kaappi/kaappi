@@ -95,20 +95,13 @@ var child_registry: ChildRegistry = .{
     .mutex = .unlocked,
 };
 
-fn ensureScheduler() PrimitiveError!struct { vm: *vm_mod.VM, sched: *fiber_mod.FiberScheduler } {
+/// Thin per-file convenience wrapper: fetches vm_instance and delegates to
+/// fiber.ensureScheduler, which now lazily creates the reactor alongside
+/// the scheduler (KEP-0001 Phase 2) — the actual setup logic lives in one
+/// place instead of being duplicated per call site.
+fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    if (vm.scheduler == null) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const sched = gc.allocator.create(fiber_mod.FiberScheduler) catch return PrimitiveError.OutOfMemory;
-        sched.* = fiber_mod.FiberScheduler.init(vm);
-        const main_fiber = gc.allocFiber(types.VOID, sched.next_id) catch return PrimitiveError.OutOfMemory;
-        sched.next_id += 1;
-        main_fiber.status = .running;
-        sched.addFiber(main_fiber) catch return PrimitiveError.OutOfMemory;
-        vm.scheduler = sched;
-        vm.current_fiber = main_fiber;
-    }
-    return .{ .vm = vm, .sched = vm.scheduler.? };
+    return fiber_mod.ensureScheduler(vm);
 }
 
 fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
@@ -155,25 +148,6 @@ fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: 
     return PrimitiveError.ExceptionRaised;
 }
 
-pub fn abandonFiberMutexes(gc: *memory.GC, fiber: *fiber_mod.Fiber, sched: ?*fiber_mod.FiberScheduler) void {
-    const fiber_val = types.makePointer(@ptrCast(fiber));
-    var lists = [_]?*types.Object{ gc.objects, gc.old_objects };
-    for (&lists) |*head| {
-        var obj = head.*;
-        while (obj) |o| : (obj = o.next) {
-            if (o.tag == .mutex) {
-                const m = o.as(types.Mutex);
-                if (m.locked and m.owner == fiber_val) {
-                    m.abandoned = true;
-                    m.locked = false;
-                    m.owner = types.VOID;
-                    if (sched) |s| s.wakeMutexWaiters(types.makePointer(@ptrCast(o)));
-                }
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Thread primitives
 // ---------------------------------------------------------------------------
@@ -181,7 +155,7 @@ pub fn abandonFiberMutexes(gc: *memory.GC, fiber: *fiber_mod.Fiber, sched: ?*fib
 fn currentThreadFn(_: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     const fiber = ctx.vm.current_fiber orelse return types.VOID;
-    return types.makePointer(@ptrCast(fiber));
+    return types.makePointer(@ptrCast(&fiber.header));
 }
 
 fn threadPredFn(args: []const Value) PrimitiveError!Value {
@@ -207,7 +181,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
         gc.writeBarrier(&fiber.header, args[1]);
     }
 
-    return types.makePointer(@ptrCast(fiber));
+    return types.makePointer(@ptrCast(&fiber.header));
 }
 
 fn threadNameFn(args: []const Value) PrimitiveError!Value {
@@ -313,13 +287,13 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
-        if (child_vm.current_fiber) |cf| abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
+        if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
         child_registry.storeResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
-    if (child_vm.current_fiber) |cf| abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
+    if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
 
     // Store result in child_resources (not on the fiber) so the parent
     // GC never traverses a child-heap pointer (Race C).
@@ -343,20 +317,35 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
     return types.VOID;
 }
 
+const SleepWait = struct {
+    pub fn isDone(_: SleepWait) bool {
+        return false; // a pure sleep only ever ends via me.timed_out
+    }
+};
+
+/// A timed park on the reactor's timer heap instead of a whole-thread
+/// nanosleep (KEP-0001 Phase 2): siblings run while this fiber sleeps, and
+/// the reactor's blocking wait — not a busy nanosleep loop — is what
+/// actually waits out the duration.
 fn threadSleepFn(args: []const Value) PrimitiveError!Value {
     if (args[0] == types.FALSE) return PrimitiveError.TypeError; // bare-ok: type guard
     const seconds = try getSleepSeconds(args[0]);
     if (seconds <= 0) return types.VOID;
     const total_ns: u64 = @intFromFloat(@max(0.0, seconds * 1e9));
-    var ts: std.c.timespec = .{
-        .sec = @intCast(total_ns / 1_000_000_000),
-        .nsec = @intCast(total_ns % 1_000_000_000),
-    };
-    while (true) {
-        const ret = std.c.nanosleep(&ts, &ts);
-        if (ret == 0) break;
-        if (std.posix.errno(ret) != .INTR) break;
-    }
+
+    const ctx = try ensureScheduler();
+    const me = ctx.vm.current_fiber orelse return types.VOID;
+    const deadline = fiber_mod.clockNs() + total_ns;
+
+    me.waiting_on = types.VOID;
+    me.status = .waiting;
+    me.timed_out = false;
+    me.deadline_ns = deadline;
+    try ctx.reactor.addTimer(deadline, me);
+
+    _ = try fiber_mod.runSchedulerStep(SleepWait, .{}, ctx.vm, ctx.sched, me);
+    me.timed_out = false;
+    me.deadline_ns = null;
     return types.VOID;
 }
 
@@ -390,10 +379,15 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     // Atomic: for OS threads the child VM polls this flag concurrently.
     @atomicStore(bool, &fiber.terminated, true, .monotonic);
 
-    if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
+    if (memory.gc_instance) |gc| fiber_mod.abandonFiberMutexes(gc, fiber, ctx.sched);
 
     const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
     if (status != .completed and status != .errored) {
+        // A terminated fiber may have been mid-timed-wait (mutex-lock!,
+        // thread-join!, condvar wait, thread-sleep!) with a pending entry
+        // on the reactor's timer heap. Cancel it now — otherwise it fires
+        // later against whatever fiber ends up reusing this slot.
+        ctx.reactor.removeTimer(fiber);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         ctx.sched.wakeWaiters(fiber);
     }
@@ -485,14 +479,27 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         me.waiting_on = args[0];
         me.status = .waiting;
         me.timed_out = false;
-        if (deadline_ns) |d| me.deadline_ns = d;
+        if (deadline_ns) |d| {
+            me.deadline_ns = d;
+            try ctx.reactor.addTimer(d, me);
+        }
 
-        try runSchedulerUntilDone(target);
+        const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target }, ctx.vm, ctx.sched, me);
+        me.deadline_ns = null;
 
         if (me.timed_out) {
             me.timed_out = false;
             if (has_timeout_val) return timeout_val;
             return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
+        }
+        if (!done) {
+            // Genuine deadlock: parkOnReactor gave up because nothing local
+            // could ever complete the joined fiber. Must not fall through
+            // to threadJoinResult, which would silently return VOID (the
+            // target's never-set default result) instead of erroring.
+            // me.waiting_on (not args[0]): args is a slice into
+            // vm.registers, which runSchedulerStep may have reallocated.
+            return raiseError(.general, "thread-join!: deadlock — joined fiber can never complete (all fibers blocked)", me.waiting_on);
         }
     }
 
@@ -574,72 +581,6 @@ fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {
     return target.result;
 }
 
-fn scheduleOrTimeout(sched: *fiber_mod.FiberScheduler, me: *fiber_mod.Fiber) ?usize {
-    if (sched.schedule()) |idx| return idx;
-    if (me.deadline_ns) |deadline| {
-        const now = fiber_mod.clockNs();
-        if (now < deadline) sleepNs(deadline - now);
-        me.timed_out = true;
-    }
-    return null;
-}
-
-fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
-    const my_idx = sched.current_idx;
-    sched.saveCurrentFiber();
-
-    while (target.status != .completed and target.status != .errored) {
-        const me = sched.fibers[my_idx].?;
-        if (me.timed_out) break;
-
-        const next_idx = scheduleOrTimeout(sched, me) orelse break;
-        if (next_idx == my_idx) break;
-
-        sched.restoreFiber(next_idx);
-        sched.current_idx = next_idx;
-        const fiber = sched.fibers[next_idx].?;
-        fiber.status = .running;
-        vm.current_fiber = fiber;
-
-        // A dangling yield_retry (a forwarding native converted a park's
-        // Yielded into another error) must not survive into this run.
-        vm.yield_retry = false;
-        vm.sched_dispatch_pending = true;
-        const result = vm.runUntil(0, 0) catch |err| {
-            if (err == vm_mod.VMError.Yielded) {
-                sched.saveCurrentFiber();
-                if (fiber.status == .running) fiber.status = .suspended;
-                continue;
-            }
-            fiber.status = .errored;
-            // Fiber 0 is the main fiber: finishing or aborting one top-level
-            // form is not thread death, so its mutexes stay valid.
-            if (next_idx != 0) {
-                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
-            }
-            sched.saveCurrentFiber();
-            sched.wakeWaiters(fiber);
-            continue;
-        };
-        fiber.status = .completed;
-        fiber.result = result;
-        if (memory.gc_instance) |gc| {
-            gc.writeBarrier(&fiber.header, result);
-            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
-        }
-        sched.saveCurrentFiber();
-        sched.wakeWaiters(fiber);
-    }
-
-    sched.restoreFiber(my_idx);
-    sched.current_idx = my_idx;
-    const me = sched.fibers[my_idx].?;
-    me.status = .running;
-    vm.current_fiber = me;
-}
-
 // ---------------------------------------------------------------------------
 // Mutex primitives
 // ---------------------------------------------------------------------------
@@ -706,7 +647,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         else if (args.len > 2 and args[2] == types.FALSE)
             types.VOID
         else if (ctx.vm.current_fiber) |cf|
-            types.makePointer(@ptrCast(cf))
+            types.makePointer(@ptrCast(&cf.header))
         else
             types.VOID;
         return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
@@ -720,7 +661,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         else if (args.len > 2 and args[2] == types.FALSE)
             types.VOID
         else if (ctx.vm.current_fiber) |cf|
-            types.makePointer(@ptrCast(cf))
+            types.makePointer(@ptrCast(&cf.header))
         else
             types.VOID;
         return types.TRUE;
@@ -732,29 +673,44 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         if (deadline != null and deadline.? == 0) return types.FALSE;
     }
 
+    // Capture before the recursive dispatch below: args is a slice into
+    // vm.registers, which runSchedulerStep can reallocate out from under
+    // it while running other fibers (ensureRegisterCapacity). Reading
+    // args[...] after that point would be a use-after-free.
+    const mutex_val = args[0];
+    const owner_arg: ?Value = if (args.len > 2) args[2] else null;
+
     const ctx = try ensureScheduler();
     const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
 
-    me.waiting_on = args[0];
+    me.waiting_on = mutex_val;
     me.status = .waiting;
     me.timed_out = false;
-    if (deadline) |d| me.deadline_ns = d;
+    if (deadline) |d| {
+        me.deadline_ns = d;
+        try ctx.reactor.addTimer(d, me);
+    }
 
-    try runSchedulerUntilMutex(m, me);
+    const done = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
     me.deadline_ns = null;
 
     if (me.timed_out) {
         me.timed_out = false;
         return types.FALSE;
     }
+    if (!done) {
+        // Genuine deadlock: parkOnReactor gave up because nothing local
+        // could ever unlock this mutex (no other runnable fiber, no
+        // pending timer). Must not fall through to "assume success" —
+        // that would silently steal a lock still held elsewhere.
+        return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
+    }
 
     m.locked = true;
-    m.owner = if (args.len > 2 and types.isFiber(args[2]))
-        args[2]
-    else if (args.len > 2 and args[2] == types.FALSE)
-        types.VOID
+    m.owner = if (owner_arg) |oa|
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(@ptrCast(&me.header)))
     else
-        types.makePointer(@ptrCast(me));
+        types.makePointer(@ptrCast(&me.header));
 
     if (m.abandoned) {
         m.abandoned = false;
@@ -763,57 +719,12 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     return types.TRUE;
 }
 
-fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!void {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
-    const my_idx = sched.current_idx;
-    sched.saveCurrentFiber();
-
-    while (m.locked and !me.timed_out) {
-        const next_idx = scheduleOrTimeout(sched, me) orelse break;
-        if (next_idx == my_idx) break;
-
-        sched.restoreFiber(next_idx);
-        sched.current_idx = next_idx;
-        const fiber = sched.fibers[next_idx].?;
-        fiber.status = .running;
-        vm.current_fiber = fiber;
-
-        // A dangling yield_retry (a forwarding native converted a park's
-        // Yielded into another error) must not survive into this run.
-        vm.yield_retry = false;
-        vm.sched_dispatch_pending = true;
-        const result = vm.runUntil(0, 0) catch |err| {
-            if (err == vm_mod.VMError.Yielded) {
-                sched.saveCurrentFiber();
-                if (fiber.status == .running) fiber.status = .suspended;
-                continue;
-            }
-            fiber.status = .errored;
-            // Fiber 0 is the main fiber: finishing or aborting one top-level
-            // form is not thread death, so its mutexes stay valid.
-            if (next_idx != 0) {
-                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
-            }
-            sched.saveCurrentFiber();
-            sched.wakeWaiters(fiber);
-            continue;
-        };
-        fiber.status = .completed;
-        fiber.result = result;
-        if (memory.gc_instance) |gc| {
-            gc.writeBarrier(&fiber.header, result);
-            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
-        }
-        sched.saveCurrentFiber();
-        sched.wakeWaiters(fiber);
+const MutexWait = struct {
+    m: *types.Mutex,
+    pub fn isDone(self: MutexWait) bool {
+        return !self.m.locked;
     }
-
-    sched.restoreFiber(my_idx);
-    sched.current_idx = my_idx;
-    me.status = .running;
-    vm.current_fiber = me;
-}
+};
 
 fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
@@ -836,14 +747,22 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         me.waiting_on = args[1];
         me.status = .waiting;
         me.timed_out = false;
-        if (deadline) |d| me.deadline_ns = d;
+        if (deadline) |d| {
+            me.deadline_ns = d;
+            try ctx.reactor.addTimer(d, me);
+        }
 
-        try runSchedulerUntilCondVar(me);
+        const done = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me }, ctx.vm, ctx.sched, me);
         me.deadline_ns = null;
 
         if (me.timed_out) {
             me.timed_out = false;
             return types.FALSE;
+        }
+        if (!done) {
+            // Genuine deadlock: parkOnReactor gave up because nothing
+            // local could ever signal this condition variable.
+            return raiseError(.general, "mutex-unlock!: deadlock — condition variable will never be signaled (all fibers blocked)", types.VOID);
         }
         return types.TRUE;
     }
@@ -851,57 +770,12 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     return types.TRUE;
 }
 
-fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
-    const my_idx = sched.current_idx;
-    sched.saveCurrentFiber();
-
-    while (me.status == .waiting and !me.timed_out) {
-        const next_idx = scheduleOrTimeout(sched, me) orelse break;
-        if (next_idx == my_idx) break;
-
-        sched.restoreFiber(next_idx);
-        sched.current_idx = next_idx;
-        const fiber = sched.fibers[next_idx].?;
-        fiber.status = .running;
-        vm.current_fiber = fiber;
-
-        // A dangling yield_retry (a forwarding native converted a park's
-        // Yielded into another error) must not survive into this run.
-        vm.yield_retry = false;
-        vm.sched_dispatch_pending = true;
-        const result = vm.runUntil(0, 0) catch |err| {
-            if (err == vm_mod.VMError.Yielded) {
-                sched.saveCurrentFiber();
-                if (fiber.status == .running) fiber.status = .suspended;
-                continue;
-            }
-            fiber.status = .errored;
-            // Fiber 0 is the main fiber: finishing or aborting one top-level
-            // form is not thread death, so its mutexes stay valid.
-            if (next_idx != 0) {
-                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
-            }
-            sched.saveCurrentFiber();
-            sched.wakeWaiters(fiber);
-            continue;
-        };
-        fiber.status = .completed;
-        fiber.result = result;
-        if (memory.gc_instance) |gc| {
-            gc.writeBarrier(&fiber.header, result);
-            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
-        }
-        sched.saveCurrentFiber();
-        sched.wakeWaiters(fiber);
+const CondVarWait = struct {
+    me: *fiber_mod.Fiber,
+    pub fn isDone(self: CondVarWait) bool {
+        return self.me.status != .waiting;
     }
-
-    sched.restoreFiber(my_idx);
-    sched.current_idx = my_idx;
-    me.status = .running;
-    vm.current_fiber = me;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Condition variable primitives

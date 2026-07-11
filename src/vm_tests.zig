@@ -22,4 +22,5 @@ test {
     _ = @import("tests_bytecode_cache.zig");
     _ = @import("tests_native.zig");
     _ = @import("tests_reactor.zig");
+    _ = @import("tests_scheduler.zig");
 }

@@ -665,6 +665,7 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     .completed => "completed",
                     .errored => "errored",
                     .waiting => "waiting",
+                    .io_waiting => "io-waiting",
                 };
                 try writer.print("#<fiber {d} {s}>", .{ fiber.id, status_str });
             },

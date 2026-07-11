@@ -263,7 +263,12 @@ pub const Object = struct {
                 std.debug.assert(self.tag == expected);
             }
         }
-        return @ptrCast(@alignCast(self));
+        // Not a plain @ptrCast: "auto"-layout structs (every T here — none
+        // are extern) give Zig no guarantee that `header: Object` sits at
+        // byte offset 0, only that it's declared first. @fieldParentPtr
+        // computes the real offset regardless (see makePointer(&x.header)
+        // call sites, which is what self actually points at).
+        return @fieldParentPtr("header", self);
     }
 };
 
@@ -501,6 +506,15 @@ pub const MAX_FRAME_LIMIT: usize = 32768;
 pub const MAX_REGISTER_LIMIT: usize = 65536;
 pub const MAX_HANDLERS = 64;
 pub const MAX_WINDS = 64;
+
+/// Per-fiber initial storage (KEP-0001 Phase 2, resolved question 5) —
+/// deliberately much smaller than the VM's own INITIAL_REGISTER_CAPACITY/
+/// INITIAL_FRAME_CAPACITY. Fibers grow their own arrays geometrically as
+/// needed (see FiberScheduler.saveCurrentFiber); most fibers never touch
+/// more than a handful of frames, so starting small keeps per-fiber
+/// preallocation cheap even with thousands of concurrently-live fibers.
+pub const INITIAL_FIBER_REGISTER_CAPACITY: usize = 256;
+pub const INITIAL_FIBER_FRAME_CAPACITY: usize = 32;
 
 pub const ExceptionHandler = struct {
     handler: Value,
