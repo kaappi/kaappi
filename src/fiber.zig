@@ -488,13 +488,23 @@ fn wakeReadyFiber(f: *Fiber) void {
 /// `.suspended`+`timed_out` (an expired timed `.waiting` wait). Returns
 /// `false` only when nothing could ever produce a wakeup: genuine
 /// deadlock/done, the same meaning as the bare `break` this replaces.
-pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler) VMError!bool {
+///
+/// `cap_ns`, when given, additionally bounds the blocking wait itself
+/// (independent of any registered timer). Needed by waits that might
+/// resolve through state no reactor event announces — a mutex/condvar
+/// shared with another OS thread's own scheduler, which has no way to
+/// signal this one — so a long real timeout registered on `me` doesn't
+/// make this call block for that entire duration on the offhand chance a
+/// cross-thread resolution arrives sooner; the caller re-checks after each
+/// capped return. `null` preserves the original bounded-only-by-registered-
+/// timers behavior.
+pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool {
     const reactor = vm.reactor orelse return false;
     if (!sched.hasRunnableFibers() and reactor.isEmpty()) return false;
 
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(vm.gc.allocator);
-    reactor.poll(null, &ready) catch return VMError.OutOfMemory;
+    reactor.poll(cap_ns, &ready) catch return VMError.OutOfMemory;
 
     for (ready.items) |f| wakeReadyFiber(f);
     return true;
@@ -512,14 +522,18 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler) VMError!bool {
 /// thread-join!, mutex-lock!, condition-variable waits, and thread-sleep!
 /// (KEP-0001 Phase 2) — call sites differ only in `Ctx.isDone`. `Ctx` is a
 /// small value type with an `isDone(self: Ctx) bool` method (comptime duck
-/// typing), e.g. `TargetWait{ .target = f }`.
+/// typing), e.g. `TargetWait{ .target = f }`. `Ctx` may optionally also
+/// define `pollCapNs(self: Ctx) ?u64` (see parkOnReactor) — omitted by
+/// every Ctx type except the SRFI-18 mutex/condvar waits, which need it for
+/// cross-OS-thread polling.
 pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberScheduler, me: *Fiber) VMError!bool {
     const my_idx = sched.current_idx;
     try sched.saveCurrentFiber();
+    const poll_cap_ns: ?u64 = if (@hasDecl(Ctx, "pollCapNs")) ctx.pollCapNs() else null;
 
     while (!ctx.isDone() and !me.timed_out) {
         const next_idx = sched.schedule() orelse {
-            if (!(try parkOnReactor(vm, sched))) break;
+            if (!(try parkOnReactor(vm, sched, poll_cap_ns))) break;
             continue;
         };
         if (next_idx == my_idx) break;

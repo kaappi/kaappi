@@ -88,21 +88,34 @@
 ;; ---- condition-variable-broadcast! blocks both waiters for the signal ----
 ;; Same reasoning as above: each waiter measures its own elapsed wait time
 ;; rather than relying on a flag that thread-join! would make visible anyway.
+;;
+;; Unlike the signal test, this broadcast isn't ordered by bc-m: main issues
+;; it after a fixed sleep rather than while holding the mutex, so there's no
+;; guarantee a waiter thread has already reached mutex-unlock!+cv by then.
+;; If one hasn't (e.g. a slow/contended CI runner), it snapshots a
+;; generation *after* the bump and then waits for a second broadcast that
+;; never comes -- and a real OS thread never gives up that wait on its own
+;; (crossThreadWaitPossible is unconditionally true for a spawned thread, so
+;; it always assumes the main thread could still resolve it). A bounded
+;; per-waiter timeout turns that race into a reported failure instead of a
+;; hung CI job.
 (define bc-m (make-mutex))
 (define bc-cv (make-condition-variable))
 (define bc-elapsed-1 -1.0)
 (define bc-elapsed-2 -1.0)
+(define bc-woke-1 #f)
+(define bc-woke-2 #f)
 
 (define (bc-waiter-thunk-1)
   (mutex-lock! bc-m)
   (let ((t0 (current-time)))
-    (mutex-unlock! bc-m bc-cv)
+    (set! bc-woke-1 (mutex-unlock! bc-m bc-cv 5))
     (set! bc-elapsed-1 (- (time->seconds (current-time)) (time->seconds t0)))))
 
 (define (bc-waiter-thunk-2)
   (mutex-lock! bc-m)
   (let ((t0 (current-time)))
-    (mutex-unlock! bc-m bc-cv)
+    (set! bc-woke-2 (mutex-unlock! bc-m bc-cv 5))
     (set! bc-elapsed-2 (- (time->seconds (current-time)) (time->seconds t0)))))
 
 (let ((t1 (make-thread bc-waiter-thunk-1))
@@ -116,7 +129,9 @@
   (check-true "condition-variable-broadcast! blocks waiter 1 for the signal (not instant)"
     (>= bc-elapsed-1 0.1))
   (check-true "condition-variable-broadcast! blocks waiter 2 for the signal (not instant)"
-    (>= bc-elapsed-2 0.1)))
+    (>= bc-elapsed-2 0.1))
+  (check-true "condition-variable-broadcast! actually woke waiter 1 (not a timeout)" bc-woke-1)
+  (check-true "condition-variable-broadcast! actually woke waiter 2 (not a timeout)" bc-woke-2))
 
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)

@@ -796,6 +796,15 @@ const MutexWait = struct {
     pub fn isDone(self: MutexWait) bool {
         return !@atomicLoad(bool, &self.m.locked, .acquire);
     }
+    // Caps parkOnReactor's blocking wait so a long real timeout (registered
+    // separately on `me`) can't make it block for the whole duration on the
+    // offhand chance the mutex is unlocked by another OS thread sooner --
+    // that thread's own scheduler has no way to signal this one directly.
+    // See crossThreadWaitPossible's doc comment for when this applies.
+    pub fn pollCapNs(self: MutexWait) ?u64 {
+        _ = self;
+        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
+    }
 };
 
 fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
@@ -882,6 +891,11 @@ const CondVarWait = struct {
     pub fn isDone(self: CondVarWait) bool {
         return self.me.status != .waiting or
             @atomicLoad(u64, &self.cv.signal_generation, .acquire) != self.start_gen;
+    }
+    // See MutexWait.pollCapNs.
+    pub fn pollCapNs(self: CondVarWait) ?u64 {
+        _ = self;
+        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
     }
 };
 

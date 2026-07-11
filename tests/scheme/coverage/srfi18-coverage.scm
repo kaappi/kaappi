@@ -169,29 +169,29 @@
     (check-true "cv-signal wakes waiter" ready)))
 
 ;;; ---- Condition variable broadcast ----
-;; Fiber path again -- see the "Mutex contention" note above. fiber-join on
-;; t1 before either fiber has reached the cv wait drives the scheduler (via
-;; its own "run something else while target isn't done" loop) far enough
-;; for both t1 and t2 to lock m, release it via mutex-unlock!+cv, and park
-;; on cv -- exactly the state broadcast! needs to find waiters to wake.
+;; Same shape as the signal test above (main waits, t wakes it), just
+;; calling broadcast! instead of signal! -- deliberately *not* two waiters:
+;; with two fibers simultaneously parked on cv and nothing else locally
+;; runnable, the driving fiber-join would have nothing left to schedule and
+;; give up immediately rather than hang on a fiber-only deadlock it can't
+;; distinguish from a real one (this PR only teaches that judgment call to
+;; real OS threads, which can tell whether another thread might still
+;; resolve it -- see crossThreadWaitPossible in primitives_srfi18.zig), so
+;; both fibers would "complete" without broadcast! ever actually running,
+;; and the check would pass for the wrong reason.
 (let ((m (make-mutex))
       (cv (make-condition-variable))
-      (count 0))
-  (let ((t1 (spawn
-             (lambda ()
-               (mutex-lock! m)
-               (mutex-unlock! m cv)
-               (set! count (+ count 1)))))
-        (t2 (spawn
-             (lambda ()
-               (mutex-lock! m)
-               (mutex-unlock! m cv)
-               (set! count (+ count 1))))))
-    (fiber-join t1)
-    (condition-variable-broadcast! cv)
-    (fiber-join t1)
-    (fiber-join t2)
-    (check "cv-broadcast wakes all" count 2)))
+      (ready #f))
+  (let ((t (spawn
+            (lambda ()
+              (mutex-lock! m)
+              (set! ready #t)
+              (condition-variable-broadcast! cv)
+              (mutex-unlock! m)))))
+    (mutex-lock! m)
+    (mutex-unlock! m cv)
+    (fiber-join t)
+    (check-true "cv-broadcast wakes waiter" ready)))
 
 ;;; ---- Time objects ----
 (check-true "time? current-time" (time? (current-time)))
