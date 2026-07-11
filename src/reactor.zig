@@ -1,10 +1,10 @@
-//! Per-OS-thread I/O readiness multiplexer (KEP-0001 Phase 1).
+//! Per-OS-thread I/O readiness multiplexer (KEP-0001 Phases 1-2).
 //!
 //! One `Reactor` belongs to one OS thread's scheduler. A fiber that would
 //! block on a fd registers its interest and parks; `poll` blocks once,
 //! bounded by the nearest timer deadline, and reports every fiber that
-//! became runnable (fd readiness or timer expiry). This file has no
-//! scheduler caller yet — that wiring is KEP-0001 Phase 2. See
+//! became runnable (fd readiness or timer expiry). Wired into the
+//! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
 const builtin = @import("builtin");
@@ -28,8 +28,8 @@ const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
 const Backend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos => KqueueBackend,
     .linux => EpollBackend,
-    // WASI (poll_oneoff) arrives in KEP-0001 Phase 4.
-    else => @compileError("reactor: unsupported OS for KEP-0001 Phase 1 (kqueue/epoll only)"),
+    .wasi => WasiBackend,
+    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
 };
 
 const TimerEntry = struct {
@@ -428,3 +428,58 @@ fn msFromNs(timeout_ns: ?u64) i32 {
     const ms = (ns +| 999_999) / 1_000_000;
     return if (ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(ms);
 }
+
+// ---------------------------------------------------------------------------
+// WASI backend — timer-only stopgap.
+//
+// The full design (build a subscription_t[] — one fd_read/fd_write per
+// registration plus one CLOCK subscription at the nearest deadline, call
+// std.os.wasi.poll_oneoff) is KEP-0001 Phase 4. Nothing registers a port's
+// fd with the reactor before Phase 3, so on wasm32-wasi today the only
+// path that must actually work is a plain wait bounded by the timer
+// heap's nearest deadline — exactly what thread-sleep! and timed
+// mutex/join/condvar waits need. arm() is unreachable until Phase 3 lands
+// I/O primitive changes (gated by the existing is_wasm flag, per the
+// KEP's cross-platform section: WASI falls back to single-fiber blocking
+// I/O where poll_oneoff socket support is unavailable).
+// ---------------------------------------------------------------------------
+
+const WasiBackend = struct {
+    fn init() !WasiBackend {
+        return .{};
+    }
+
+    fn deinit(self: *WasiBackend) void {
+        _ = self;
+    }
+
+    fn arm(self: *WasiBackend, fd: i32, wants_read: bool, wants_write: bool, first_time: bool) !void {
+        _ = self;
+        _ = fd;
+        _ = wants_read;
+        _ = wants_write;
+        _ = first_time;
+        return error.Unexpected;
+    }
+
+    fn disarmAll(self: *WasiBackend, fd: i32) void {
+        _ = self;
+        _ = fd;
+    }
+
+    fn wait(self: *WasiBackend, timeout_ns: ?u64) ![]const ReadyEvent {
+        _ = self;
+        if (timeout_ns) |ns| {
+            var ts: std.c.timespec = .{
+                .sec = @intCast(ns / 1_000_000_000),
+                .nsec = @intCast(ns % 1_000_000_000),
+            };
+            while (true) {
+                const ret = std.c.nanosleep(&ts, &ts);
+                if (ret == 0) break;
+                if (std.posix.errno(ret) != .INTR) break;
+            }
+        }
+        return &[_]ReadyEvent{};
+    }
+};
