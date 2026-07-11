@@ -188,9 +188,9 @@ jobs:
   # subset (#1396). This is the only oracle that catches conformance bugs
   # where BOTH Kaappi evaluation paths agree but are wrong. Two interpreter
   # runs per program (no linking), so it is much cheaper per seed than
-  # native-diff. The oracle is built from source at a pinned tag — Ubuntu
+  # native-diff. The oracle is built from source at a pinned tag+SHA — Ubuntu
   # noble's apt ships 0.9.1 which is too old for the generated programs
-  # (#1429). Bump the tag below when a newer release is needed.
+  # (#1429). Bump the tag and SHA below when a newer release is needed.
   oracle-diff:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -209,8 +209,9 @@ jobs:
 
       - name: Install Chibi Scheme (the oracle)
         run: |
-          git clone --depth=1 --branch=0.11 https://github.com/ashinn/chibi-scheme.git /tmp/chibi-src
+          git clone --depth=1 --branch=0.12 https://github.com/ashinn/chibi-scheme.git /tmp/chibi-src
           cd /tmp/chibi-src
+          test "$(git rev-parse HEAD)" = 08e23be118e7de8cf29d606bc4793371c0ace680
           make -j"$(nproc)"
           sudo make install
           chibi-scheme -V
@@ -233,6 +234,11 @@ jobs:
       # Each divergence comes with the program, both sides' stdout/stderr,
       # and the oracle version; the triage protocol lives in the script
       # header (Kaappi bug / oracle bug / generator leak).
+      #
+      # IMPORTANT: keep at v7.0.1 — later versions default to archive: true,
+      # which wraps the files in a zip that hides the seed-*.scm markers
+      # from the report job's `find`, silently misclassifying real findings
+      # as infrastructure failures (#1429).
       - name: Upload divergences
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
