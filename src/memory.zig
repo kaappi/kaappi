@@ -126,6 +126,8 @@ pub const GC = struct {
     source_lines: std.AutoHashMap(Value, u32) = undefined,
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
+    mark_worklist: std.ArrayList(Value) = .empty,
+    marking: bool = false,
 
     pub const INITIAL_ROOT_CAPACITY: usize = 1024;
     pub const MAX_ROOT_CAPACITY: usize = 65536;
@@ -182,6 +184,7 @@ pub const GC = struct {
         self.allocator.free(self.root_buffer);
         self.extra_roots.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
+        self.mark_worklist.deinit(self.allocator);
         self.source_lines.deinit();
     }
 
@@ -1375,4 +1378,28 @@ test "rootedScope release" {
     scope.release();
     try std.testing.expectEqual(@as(usize, 1), gc.extra_roots.items.len);
     try std.testing.expectEqual(types.makeFixnum(1), gc.extra_roots.items[0]);
+}
+
+test "mark worklist retains capacity across collections" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    // Build a nested pair tree so markValueInner pushes onto the worklist.
+    var inner = try gc.allocPair(types.makeFixnum(1), types.makeFixnum(2));
+    gc.pushRoot(&inner);
+    var rooted = try gc.allocPair(inner, inner);
+    gc.pushRoot(&rooted);
+
+    gc.collect();
+    try std.testing.expect(!gc.marking);
+    const cap_after_first = gc.mark_worklist.capacity;
+    try std.testing.expect(cap_after_first > 0);
+
+    gc.collect();
+    try std.testing.expect(!gc.marking);
+    try std.testing.expectEqual(cap_after_first, gc.mark_worklist.capacity);
+
+    gc.popRoot();
+    gc.popRoot();
 }

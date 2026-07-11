@@ -508,21 +508,23 @@ fn markRoots(gc: *GC) void {
 
 pub fn markValue(gc: *GC, v: Value) void {
     // Use an explicit worklist to avoid native stack overflow on deeply
-    // nested pair/vector structures (issue #864). Values that would
-    // previously be handled by a recursive markValue call are pushed
-    // onto the worklist and processed iteratively.
-    var worklist: std.ArrayList(Value) = .empty;
-    defer worklist.deinit(gc.allocator);
+    // nested pair/vector structures (issue #864). The worklist lives on
+    // the GC struct so its capacity persists across calls — no per-call
+    // alloc/free churn (issue #1428).
+    const is_root_call = !gc.marking;
+    gc.marking = true;
 
-    worklist.ensureTotalCapacity(gc.allocator, 1024) catch
-        @panic("GC mark: worklist OOM");
+    markValueInner(gc, v, &gc.mark_worklist);
 
-    markValueInner(gc, v, &worklist);
+    // Re-entrant call (e.g. markFiberState → gc.markValue): the outer
+    // drain loop will process items we just pushed.
+    if (!is_root_call) return;
 
-    while (worklist.items.len > 0) {
-        const item = worklist.pop().?;
-        markValueInner(gc, item, &worklist);
+    while (gc.mark_worklist.items.len > 0) {
+        const item = gc.mark_worklist.pop().?;
+        markValueInner(gc, item, &gc.mark_worklist);
     }
+    gc.marking = false;
 }
 
 fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
