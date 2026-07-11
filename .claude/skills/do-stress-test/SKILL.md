@@ -61,15 +61,27 @@ Record the **droplet ID** immediately — it is needed for cleanup.
 1. Poll with `mcp__digitalocean-droplets__droplet-get` every 10 seconds until
    `status` is `active` and a public IPv4 is assigned (max 2 minutes).
 
-2. Wait for sshd:
+2. Scan the host key and pin it (TOFU — trust on first contact, then verify
+   all subsequent connections against this pinned key):
    ```bash
    IP=<droplet-ip>
    for i in $(seq 1 24); do
-     ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-       -o UserKnownHostsFile=/dev/null root@$IP echo ready 2>/dev/null && break
+     ssh-keyscan -H $IP > /tmp/kaappi-test-hostkeys 2>/dev/null && \
+       [ -s /tmp/kaappi-test-hostkeys ] && break
      sleep 5
    done
    ```
+
+3. Verify SSH is ready using the pinned host key:
+   ```bash
+   ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+     -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
+     -o ConnectTimeout=5 root@$IP echo ready
+   ```
+
+All subsequent SSH commands **must** use
+`-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys`.
+Never fall back to `StrictHostKeyChecking=no`.
 
 ## Provision
 
@@ -79,7 +91,7 @@ happens — you must substitute it into the command text before running):
 
 ```bash
 ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
   root@$IP 'bash -s' << 'REMOTE'
 set -euo pipefail
 
@@ -102,11 +114,16 @@ echo "==== Installing dependencies ===="
 apt-get update -qq
 apt-get install -y -qq git make gcc libc6-dev > /dev/null 2>&1
 
+echo "==== Creating unprivileged tester user ===="
+useradd -m -s /bin/bash tester
+mkdir -p /workspace
+chown tester:tester /workspace
+
 echo "==== Fetching exact commit <COMMIT> ===="
-git init /workspace
 cd /workspace
-git fetch --depth 1 https://github.com/kaappi/kaappi.git <COMMIT>
-git checkout FETCH_HEAD
+sudo -u tester git init .
+sudo -u tester git fetch --depth 1 https://github.com/kaappi/kaappi.git <COMMIT>
+sudo -u tester git checkout FETCH_HEAD
 echo "HEAD: $(git rev-parse HEAD)"
 echo "PROVISION: OK"
 REMOTE
@@ -120,15 +137,17 @@ directly (never pipe through `tail` and inspect `$?` — that reports `tail`'s
 status, not the build's):
 
 ```bash
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@$IP 'cd /workspace && zig build 2>&1 && echo "BUILD: OK" || echo "BUILD: FAIL"'
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
+  root@$IP 'cd /workspace && sudo -u tester zig build 2>&1 && echo "BUILD: OK" || echo "BUILD: FAIL"'
 ```
 
 If the build fails, report and go straight to Cleanup.
 
 ```bash
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@$IP 'cd /workspace && zig build test 2>&1 && echo "TEST: OK" || echo "TEST: FAIL"'
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
+  root@$IP 'cd /workspace && sudo -u tester zig build test 2>&1 && echo "TEST: OK" || echo "TEST: FAIL"'
 ```
 
 If the plain suite fails, report and go straight to Cleanup — a stress run on
@@ -140,27 +159,42 @@ Arm the timer **after** provisioning and the sanity check, immediately before
 launching the stress suite. This way the timer covers the actual stress run
 window, not the provisioning overhead. The droplet is guaranteed to be
 destroyed even if the Claude session dies mid-run. **3 hours 5 minutes**
-(11100 s) gives the run its full 3-hour budget with a small margin:
+(11100 s) gives the run its full 3-hour budget with a small margin.
+
+Source the API token locally and write it to a root-only file on the droplet
+(keeps the token out of `ps` output):
 
 ```bash
 DO_TOKEN=$(source ~/.zshrc 2>/dev/null && echo "$DIGITALOCEAN_API_TOKEN")
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
+  root@$IP 'umask 077; cat > /root/.do-token; chmod 600 /root/.do-token' <<< "$DO_TOKEN"
+```
+
+Then start the timer, reading the token from the file:
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
   root@$IP "nohup bash -c 'sleep 11100 && curl -sf -X DELETE \
-    -H \"Authorization: Bearer $DO_TOKEN\" \
+    -H \"Authorization: Bearer \$(cat /root/.do-token)\" \
     https://api.digitalocean.com/v2/droplets/<DROPLET_ID>' \
     > /dev/null 2>&1 &"
 ```
 
-The token lives only in the process's memory on a throwaway droplet.
+The token file is owned by root (mode 0600) and inaccessible to the
+unprivileged `tester` user that runs the build and tests.
 
 ## Launch the stress suite (detached)
 
 **Never run the stress suite as a foreground SSH command** — it takes
-1.5–3 hours. Launch it detached, writing to a results file:
+1.5–3 hours. Launch it detached as the unprivileged `tester` user, writing
+to a results file:
 
 ```bash
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-  root@$IP 'cd /workspace && nohup bash -c \
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
+  root@$IP 'cd /workspace && sudo -u tester nohup bash -c \
     "zig build test -Dgc-stress=true > /tmp/stress-results.txt 2>&1; \
      echo EXIT:\$? >> /tmp/stress-results.txt; touch /tmp/stress-done" \
     > /dev/null 2>&1 & echo LAUNCHED'
@@ -174,8 +208,8 @@ Poll every few minutes with short SSH commands. Each poll checks for the done
 marker and shows the process is still alive:
 
 ```bash
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-  -o UserKnownHostsFile=/dev/null root@$IP \
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o ConnectTimeout=10 \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys root@$IP \
   'test -f /tmp/stress-done && echo DONE || \
    { pgrep -f "gc-stress|unit-tests" > /dev/null && echo RUNNING || echo DEAD; }'
 ```
@@ -194,7 +228,8 @@ ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
 ## Fetch results
 
 ```bash
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
   root@$IP 'grep -E "error: |pass|skip|fail|crash|EXIT" /tmp/stress-results.txt | tail -40'
 ```
 
@@ -221,6 +256,12 @@ self-destruct timer.
 
 Use `mcp__digitalocean-droplets__droplet-delete` with the recorded droplet ID.
 
+After deletion, remove the local host-key file:
+
+```bash
+rm -f /tmp/kaappi-test-hostkeys
+```
+
 If deletion fails, **warn the user immediately** with the droplet ID and IP so
 they can destroy it manually via the DigitalOcean console.
 
@@ -237,6 +278,11 @@ they can destroy it manually via the DigitalOcean console.
   OOM killer, check whether a new test needs the stress-build scaling pattern
   from `docs/dev/testing.md`.
 - **SSH key**: uses `~/.ssh/id_rsa`; the public key must be on the DO account.
+- **Security model**: the droplet is throwaway (3 h lifetime), single-purpose.
+  Host keys are pinned on first contact (TOFU). The DO API token is stored in a
+  root-only file, never exposed on the command line. Repository code (which could
+  be from an untrusted branch) runs as the unprivileged `tester` user with no
+  access to the token or root privileges.
 - **Stale droplets**: if a session dies, list droplets via
   `mcp__digitalocean-droplets__droplet-list` and destroy anything named
   `kaappi-stress-*` (they also carry the `kaappi-test` tag).
