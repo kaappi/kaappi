@@ -717,6 +717,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
         m.owner = resolveMutexOwner(args, if (ctx.vm.current_fiber) |cf| types.makePointer(@ptrCast(&cf.header)) else types.VOID);
+        if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
         if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
         return types.TRUE;
     }
@@ -762,6 +763,18 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         }
         if (done) {
             if (tryClaimMutex(m)) break;
+            // A local wake (the usual way runSchedulerStep reports "done")
+            // cancels me's pending reactor timer via cancelPendingTimer.
+            // Losing the claim race here means we're going back to waiting
+            // with the timer gone but me.deadline_ns still set -- re-add it
+            // (remove-first keeps this idempotent) or a timed mutex-lock!
+            // could block past its deadline, in the worst case unboundedly
+            // if crossThreadWaitPossible later turns false with no timer
+            // left to bound parkOnReactor's blocking wait.
+            if (deadline) |d| {
+                ctx.reactor.removeTimer(me);
+                try ctx.reactor.addTimer(d, me);
+            }
             me.status = .waiting;
             continue;
         }
@@ -771,6 +784,13 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
             return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
         }
         sleepNs(CROSS_THREAD_POLL_NS);
+        // Same timer restoration as above: a local wake earlier in this
+        // loop (see the `done` branch) may have already canceled the
+        // timer, and that state persists into this branch too.
+        if (deadline) |d| {
+            ctx.reactor.removeTimer(me);
+            try ctx.reactor.addTimer(d, me);
+        }
         me.status = .waiting;
     }
     // A cross-thread resolution never runs local wake bookkeeping (the
@@ -786,6 +806,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(@ptrCast(&me.header)))
     else
         types.makePointer(@ptrCast(&me.header));
+    if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
 
     if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
     return types.TRUE;
