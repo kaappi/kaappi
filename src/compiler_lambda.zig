@@ -148,6 +148,9 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     var scan_result = BodyScan{};
     scan_result.compiler = compiler;
     scan_result.handle_define_syntax = handle_define_syntax;
+    scan_result.roots_base = compiler.gc.extra_roots.items.len;
+    scan_result.macro_mark = if (handle_define_syntax) compiler.beginBodyMacroScope() else 0;
+    errdefer scan_result.deinit();
 
     // --- Globals prescan sentinel dance (#958) ---
     if (compiler.globals) |globals| {
@@ -208,9 +211,6 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
         }
     }
 
-    scan_result.roots_base = compiler.gc.extra_roots.items.len;
-    scan_result.macro_mark = if (handle_define_syntax) compiler.beginBodyMacroScope() else 0;
-
     // First pass: collect ALL leading define names so that define-syntax
     // forms see the complete letrec* region via extra_bound.
     var all_def_names: [BodyScan.MAX_DEFS][]const u8 = undefined;
@@ -252,6 +252,11 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     }
 
     // Second pass: collect define inits and process define-syntax forms.
+    // def_inits lives in a stack array the GC cannot see. The (define (name
+    // args...) body) case below allocates fresh lambda pairs into it, and both
+    // the rest of this scan and the caller's compilation phase allocate, so a
+    // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
+    // them into extra_roots (by value, realloc-safe) for the duration.
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
@@ -311,6 +316,12 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
             const transformer_spec = types.car(ds_rest);
 
             const transformer = macro.parseSyntaxRules(compiler, transformer_spec, all_def_names[0..all_def_count]) catch break;
+            // Root the transformer for the rest of this body compile: it
+            // lives only in the compiler-local macro map, which the GC
+            // cannot see, and it must survive collections triggered while
+            // compiling sibling body forms that use it (#1401). Released
+            // by deinit()'s extra_roots truncation (roots_base), after
+            // the body — the macro's entire scope — is compiled.
             compiler.gc.extra_roots.append(compiler.gc.allocator, transformer) catch return CompileError.OutOfMemory;
             const name = types.symbolName(keyword);
 

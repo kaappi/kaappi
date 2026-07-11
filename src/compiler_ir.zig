@@ -339,8 +339,12 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
         }
 
         child.endScope();
-    } else {
+    } else if (current != types.NIL) {
         try compiler_lambda.compileExprSequence(&child, &current, &last_dst, true, null);
+    } else {
+        last_dst = try child.allocReg();
+        try child.emitOp(.load_void);
+        try child.emitU16(last_dst);
     }
 
     child.in_body_scope = saved_body_scope;
