@@ -269,6 +269,7 @@ pub fn build(b: *std.Build) void {
     const thottam_tests = b.addTest(.{
         .name = "thottam-tests",
         .root_module = thottam_test_mod,
+        .filters = test_filters,
     });
     const run_thottam_tests = b.addRunArtifact(thottam_tests);
     test_step.dependOn(&run_thottam_tests.step);

@@ -46,8 +46,10 @@ The `src/testing_helpers.zig` file provides a `makeTestVM` helper that creates
 a fully bootstrapped VM suitable for testing:
 
 ```zig
+const std = @import("std");
 const th = @import("testing_helpers.zig");
 const memory = @import("memory.zig");
+const types = @import("types.zig");
 
 test "my feature" {
     var gc = memory.GC.init(std.testing.allocator);

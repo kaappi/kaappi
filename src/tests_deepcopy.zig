@@ -466,6 +466,11 @@ test "deepCopy native procedures survive freeing the source heap" {
         const upvalues = [_]types.Value{types.makeFixnum(5)};
         const nc_val = try gc1.allocNativeClosure(&testNativeClosureFn, &upvalues, 1, "survive-nc");
         copied_fn = try gc2.deepCopy(nf_val);
+        // Root copied_fn (a gc2 value) across the second deepCopy: it only
+        // survives today because deepCopyValue holds no_collect, and the
+        // gc-safety rule is to root values held across allocating calls.
+        gc2.pushRoot(&copied_fn);
+        defer gc2.popRoot();
         copied_nc = try gc2.deepCopy(nc_val);
     }
 

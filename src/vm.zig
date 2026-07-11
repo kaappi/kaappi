@@ -334,11 +334,15 @@ pub const VM = struct {
         };
         @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
+        // Root each port before allocating the next, exactly like init()
+        // (#1013): the child thread's `vm_instance` is not registered yet, so
+        // the root marker sees nothing — a collection triggered by the next
+        // allocPort would sweep the unrooted earlier port (#1401).
         vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
-        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
-        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
+        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
         if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
+        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         // Share parent's port parameter objects; override with child's own ports
         // so getParameterValue returns child-heap objects.
