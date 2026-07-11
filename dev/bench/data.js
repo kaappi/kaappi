@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783797251184,
+  "lastUpdate": 1783802101384,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bf5d5813d33cc72386b39e2fb1f5b2c7fa6e8631",
-          "message": "Fix group-info by name returning gid 0 (#1161) (#1307)\n\nZig 0.16's std.c.getgrnam is misdeclared as returning ?*passwd instead\nof ?*group. Reading .gid through the wrong struct layout always yielded\n0. Declare a local extern with the correct return type.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:48:09+05:30",
-          "tree_id": "9b98490c0268dfb64185896d3cda77fc57f084d4",
-          "url": "https://github.com/kaappi/kaappi/commit/bf5d5813d33cc72386b39e2fb1f5b2c7fa6e8631"
-        },
-        "date": 1783489897842,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.421279,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.184628,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.768483,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.450076,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012821,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.202567,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.391444,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058584,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.574101,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.50246,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.239117,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.969953,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.238536,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.012129,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04154,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044309,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a840bd6364b105b39002e68a3940dca5e44cf085",
+          "message": "Add configurable REPL syntax highlighting with dark/light presets (#1457)\n\n* Add configurable REPL syntax highlighting with dark/light presets (#1456)\n\nIntroduce ~/.kaappi/config for user preferences, starting with REPL\ntheme configuration. Support NO_COLOR env var, dark/light presets\noptimized for terminal background contrast, per-token color overrides,\nconfigurable prompts, and full R7RS token coverage in the highlighter.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address PR review: fix precedence, validation, and add token tests\n\n- Two-pass config loading: repl.theme applied first, repl.color.*\n  overrides always win regardless of file order\n- NO_COLOR=\"\" no longer disables colors (per no-color.org spec)\n- Color names validated even under NO_COLOR (typos always warn)\n- repl.history-length rejects 0 (linenoise requires >= 1)\n- Prompt length error says \"bytes\" not \"chars\"\n- Default prompt uses shared constant (no manual sync)\n- Add 13 highlighter token tests (#true/#false, #(, #u8(, radix\n  prefixes, ,@, #;, #!, |...|, infnan)\n- Add config tests for NO_COLOR validation and history-length: 0\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix pass-1 theme detection with spaces around colon, suppress test noise\n\n- Pass-1 repl.theme scan now uses colon-splitting (not startsWith),\n  so \"repl.theme : light\" with whitespace around the colon works\n- Suppress stderr warnings during unit tests via comptime is_test\n  guard — tests assert config state, not message text\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T01:39:41+05:30",
+          "tree_id": "0ad505a82a970c3d0b2d9aac52580bbb40ad517b",
+          "url": "https://github.com/kaappi/kaappi/commit/a840bd6364b105b39002e68a3940dca5e44cf085"
+        },
+        "date": 1783802100631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391201,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.897543,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.918887,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.512568,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006341,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054154,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.529814,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070074,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.428353,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.003532,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.61674,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432101,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.853417,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.726335,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046421,
             "unit": "seconds"
           }
         ]
