@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783754245071,
+  "lastUpdate": 1783754933461,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f4f2ffe6c3a224c94e433474393da30a09394f2",
-          "message": "Add GC write barriers to readListTail setCdr calls (#1267) (#1292)\n\n* Add GC write barriers to readListTail setCdr calls (#1267)\n\nThe two in-place pair mutations in readListTail (dotted-tail and\nproper-list append) lacked generational-GC write barriers, creating\nuntracked old→young edges that could cause use-after-free during\nminor collections when reading long lists.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Reframe reader tests as GC-stress smoke tests, add car-payload checks\n\nThe write barriers can't be regression-tested at the reader level because\nmarkRoots traces transitively through old objects, so the rooted result\nkeeps the entire spine alive regardless of remembered-set state. Reframe\nthe tests honestly as smoke tests and add car-value assertions per review.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T18:53:23+05:30",
-          "tree_id": "e7a0c9dfbb21b956978677084adfa9895d5ad678",
-          "url": "https://github.com/kaappi/kaappi/commit/0f4f2ffe6c3a224c94e433474393da30a09394f2"
-        },
-        "date": 1783432367960,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.013557,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.987853,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.938874,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.168075,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013716,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.220872,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47305,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068054,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.436248,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.82848,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.132329,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.070307,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.109936,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.860202,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045327,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043242,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18a26cb3aeddfd87b3f6ea8f846f56dbb8dd923e",
+          "message": "Security-harden the DigitalOcean test skills (#1431) (#1435)\n\nThree hardening changes to both /do-linux-test and /do-stress-test:\n\n1. SSH host-key pinning: ssh-keyscan on first contact saves to a temp\n   known_hosts file; all subsequent SSH commands use\n   StrictHostKeyChecking=yes against the pinned key (TOFU model).\n\n2. Token not on command line: the DO API token is written to\n   /root/.do-token (mode 0600) via stdin; the self-destruct timer reads\n   it from the file instead of interpolating it into the process argv.\n\n3. Unprivileged test user: a dedicated \"tester\" user runs git clone,\n   zig build, and all tests. Root handles system provisioning and the\n   token file, which tester cannot access. This prevents a malicious\n   branch from reaching the API token.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T12:23:34+05:30",
+          "tree_id": "c0891b1bd203c3b79017e9b7ee62e510d0a1f394",
+          "url": "https://github.com/kaappi/kaappi/commit/18a26cb3aeddfd87b3f6ea8f846f56dbb8dd923e"
+        },
+        "date": 1783754931850,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.372253,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.024906,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.003892,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.402044,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013181,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.34109,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50457,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070405,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.467842,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.945451,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.766173,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.045453,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.59977,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.755314,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044575,
             "unit": "seconds"
           }
         ]
