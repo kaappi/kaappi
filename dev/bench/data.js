@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783759280188,
+  "lastUpdate": 1783759751280,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d435ee868c976f29c510b559d564df754c428e54",
-          "message": "Fix hygiene: use-site arg no longer captured by same-name def-site local (#1288) (#1301)\n\nTemplate free references are now hygienically renamed to __hyg_N_<name>\ninstead of being kept bare via VOID sentinels. This lets\ninjectHygienicCapturedLocals map them to the correct captured slot while\nuse-site argument symbols keep their original binding. Also fix\ninjectHygCapturedWalk to use last-match (innermost scope) when multiple\ncaptured locals share a name.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T16:08:47Z",
-          "tree_id": "92d2bbfdba74237f795ba650b3e7a897ccc6eae3",
-          "url": "https://github.com/kaappi/kaappi/commit/d435ee868c976f29c510b559d564df754c428e54"
-        },
-        "date": 1783442265758,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.401621,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.570831,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.774411,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.343406,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013966,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.208609,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.382255,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058766,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.023705,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.441838,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.535288,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.014078,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.486272,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.20803,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039481,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044519,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "2a68ce7dc920bd10ba8a97b3344827c31a2b77a1",
+          "message": "Release v0.14.1",
+          "timestamp": "2026-07-11T13:50:24+05:30",
+          "tree_id": "e77af6ec5e70539e2e2b6ec0f17875929d40e1d2",
+          "url": "https://github.com/kaappi/kaappi/commit/2a68ce7dc920bd10ba8a97b3344827c31a2b77a1"
+        },
+        "date": 1783759749255,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.983611,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.575408,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.62159,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.014707,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005697,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.040594,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.341668,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.049059,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.602242,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.325664,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.152215,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.366774,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.291349,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.792088,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033993,
             "unit": "seconds"
           }
         ]
