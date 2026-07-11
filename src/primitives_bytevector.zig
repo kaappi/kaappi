@@ -229,33 +229,16 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
     return types.toObject(port_val).as(types.Port);
 }
 
-fn portReadOneByte(port: *types.Port) ?u8 {
-    if (port.peek_byte) |b| {
-        port.peek_byte = null;
-        return b;
-    }
-    if (port.is_string_port) {
-        const data = port.string_data orelse return null;
-        if (port.string_pos >= data.len) return null;
-        const b = data[port.string_pos];
-        port.string_pos += 1;
-        return b;
-    }
-    var buf: [1]u8 = undefined;
-    while (true) {
-        const raw = std.posix.system.read(port.fd, &buf, buf.len);
-        if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
-            return null;
-        }
-        if (raw == 0) return null;
-        return buf[0];
-    }
-}
+// Byte source/sink shared with the textual primitives (primitives_io) so
+// binary reads drain the same software buffers — peek_extra, read_buf, a
+// parked read's stashed partial progress — and binary writes share the
+// same write buffer and reactor suspension points (KEP-0001 Phase 3).
+const portReadOneByte = primitives_io.readOneByte;
+const portWriteBytes = primitives_io.portWriteBytes;
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "read-u8");
-    const byte = portReadOneByte(port) orelse return types.EOF;
+    const byte = try portReadOneByte(port) orelse return types.EOF;
     return types.makeFixnum(@intCast(byte));
 }
 
@@ -264,7 +247,7 @@ fn peekU8Fn(args: []const Value) PrimitiveError!Value {
     if (port.peek_byte) |b| {
         return types.makeFixnum(@intCast(b));
     }
-    const byte = portReadOneByte(port) orelse return types.EOF;
+    const byte = try portReadOneByte(port) orelse return types.EOF;
     port.peek_byte = byte;
     return types.makeFixnum(@intCast(byte));
 }
@@ -275,33 +258,8 @@ fn writeU8Fn(args: []const Value) PrimitiveError!Value {
     if (n < 0 or n > 255) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
     const port = try getOutputPort(args, 1, "write-u8");
     const byte: u8 = @intCast(@as(u64, @bitCast(n)));
-    if (port.is_string_port) {
-        portWriteBytes(port, &[_]u8{byte});
-    } else {
-        primitives_io.writeToFd(port.fd, &[_]u8{byte});
-    }
+    try portWriteBytes(port, &[_]u8{byte});
     return types.VOID;
-}
-
-fn portWriteBytes(port: *types.Port, bytes: []const u8) void {
-    if (!port.is_string_port) {
-        primitives_io.writeToFd(port.fd, bytes);
-        return;
-    }
-    // String output port: grow buffer as needed
-    const gc = memory.gc_instance orelse return;
-    var buf = port.string_out_buf orelse return;
-    const len = port.string_out_len;
-    const cap = port.string_out_cap;
-    if (len + bytes.len > cap) {
-        const new_cap = @max(cap * 2, len + bytes.len);
-        const new_buf = gc.allocator.realloc(buf, new_cap) catch return;
-        port.string_out_buf = new_buf;
-        buf = new_buf;
-        port.string_out_cap = new_cap;
-    }
-    @memcpy(buf[len .. len + bytes.len], bytes);
-    port.string_out_len = len + bytes.len;
 }
 
 fn u8ReadyP(args: []const Value) PrimitiveError!Value {
@@ -326,7 +284,8 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
 
     var read_count: usize = 0;
     while (read_count < count) {
-        const byte = portReadOneByte(port) orelse break;
+        const byte = (portReadOneByte(port) catch |err|
+            return primitives_io.propagateReadErr(port, err, &.{buf[0..read_count]})) orelse break;
         buf[read_count] = byte;
         read_count += 1;
     }
@@ -344,11 +303,7 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
     const start = range.start;
     const end = range.end;
 
-    if (port.is_string_port) {
-        portWriteBytes(port, bv.data[start..end]);
-    } else {
-        primitives_io.writeToFd(port.fd, bv.data[start..end]);
-    }
+    try portWriteBytes(port, bv.data[start..end]);
     return types.VOID;
 }
 
@@ -398,7 +353,10 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
 
     var read_count: usize = 0;
     while (start + read_count < end) {
-        const byte = portReadOneByte(port) orelse break;
+        // Bytes already delivered into the caller's bytevector are re-read
+        // and re-written identically by the parked retry.
+        const byte = (portReadOneByte(port) catch |err|
+            return primitives_io.propagateReadErr(port, err, &.{bv.data[start .. start + read_count]})) orelse break;
         bv.data[start + read_count] = byte;
         read_count += 1;
     }

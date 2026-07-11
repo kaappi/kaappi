@@ -790,6 +790,7 @@ fn objectSize(obj: *Object) usize {
             if (port.string_data) |sd| s += sd.len;
             if (port.string_out_buf) |_| s += port.string_out_cap;
             if (port.read_buf) |rb| s += rb.len;
+            if (port.write_buf) |wb| s += wb.len;
             break :blk s;
         },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
@@ -929,7 +930,24 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             const port = obj.as(Port);
             // Close the fd if still open and not stdin/stdout/stderr
             if (port.is_open and port.fd > 2 and !port.is_string_port) {
+                // Best-effort flush of buffered output before the fd is lost.
+                // No parking is possible during a sweep, so a would-block
+                // (EAGAIN) or any other failure just drops the remainder —
+                // programs that need the data call flush-output-port or
+                // close-port instead of leaking the port to the collector.
+                if (port.write_buf) |wb| {
+                    var start = port.write_buf_start;
+                    while (start < port.write_buf_len) {
+                        const rc = std.posix.system.write(port.fd, wb.ptr + start, port.write_buf_len - start);
+                        if (rc < 0 and std.posix.errno(rc) == .INTR) continue;
+                        if (rc <= 0) break;
+                        start += @as(usize, @intCast(rc));
+                    }
+                }
                 _ = std.posix.system.close(port.fd);
+            }
+            if (port.write_buf) |wb| {
+                gc.allocator.free(wb);
             }
             if (port.owns_name) {
                 gc.allocator.free(port.name);

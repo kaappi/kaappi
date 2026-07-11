@@ -272,6 +272,19 @@ pub const FiberScheduler = struct {
         self.vm.current_fiber = next;
     }
 
+    /// True iff any fiber is parked on fd readiness. Gates the per-tick
+    /// zero-timeout reactor poll in schedule() — an O(fiber count) scan,
+    /// but it early-exits at the first hit, and when it misses (no I/O
+    /// waiters) it saves a kevent/epoll_wait syscall per dispatch tick.
+    fn anyIoWaiting(self: *FiberScheduler) bool {
+        for (self.fibers.items) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .io_waiting) return true;
+            }
+        }
+        return false;
+    }
+
     /// Round-robins over `created`/`suspended` fibers. Before selecting,
     /// pops any already-expired timers off the reactor's heap and flips
     /// their fibers to `.suspended` — checked on *every* call, not just
@@ -281,11 +294,21 @@ pub const FiberScheduler = struct {
     /// the old per-fiber sweep folds into the shared timer heap, but the
     /// heap must still be checked every tick — a heap peek/pop is cheaper
     /// than the old O(fiber count) sweep it replaces, not less prompt).
+    ///
+    /// When fibers are parked on fd readiness (KEP-0001 Phase 3), the same
+    /// promptness argument applies to I/O: a zero-timeout reactor poll per
+    /// tick wakes ready I/O waiters even while a busy/yielding sibling
+    /// keeps the loop from ever reaching parkOnReactor's blocking poll.
     pub fn schedule(self: *FiberScheduler) ?usize {
         if (self.vm.reactor) |reactor| {
             var expired: std.ArrayList(*Fiber) = .empty;
             defer expired.deinit(self.vm.gc.allocator);
-            reactor.popExpiredTimers(&expired) catch {};
+            if (self.anyIoWaiting()) {
+                // poll(0) also pops expired timers internally.
+                reactor.poll(0, &expired) catch {};
+            } else {
+                reactor.popExpiredTimers(&expired) catch {};
+            }
             for (expired.items) |f| wakeReadyFiber(f);
         }
 
@@ -472,13 +495,98 @@ pub const TargetWait = struct {
 /// per-tick expired-timer check (non-blocking).
 fn wakeReadyFiber(f: *Fiber) void {
     switch (f.status) {
-        .io_waiting => f.status = .suspended,
+        .io_waiting => {
+            f.status = .suspended;
+            f.io_fd = null;
+        },
         .waiting => {
             f.status = .suspended;
             f.timed_out = true;
         },
         else => {},
     }
+}
+
+/// Wakes every fiber parked on fd readiness for `fd` — close-port's half of
+/// the close discipline (KEP-0001 Phase 3, resolved question 4). The woken
+/// fibers retry their I/O primitive, observe `is_open == false`, and raise a
+/// clean "port closed" error instead of sleeping on an fd that will never
+/// fire (the caller unregisters it from the reactor right after this).
+/// Mirrors wakeChannelWaiters' iterate-and-flip discipline.
+pub fn wakeIoWaitersOnFd(sched: *FiberScheduler, fd: std.posix.fd_t) void {
+    for (sched.fibers.items) |f| {
+        if (f) |fiber| {
+            if (fiber.status == .io_waiting and fiber.io_fd == fd) {
+                fiber.status = .suspended;
+                fiber.io_fd = null;
+            }
+        }
+    }
+}
+
+/// Wait until the current fiber's own fd readiness resolves: done as soon
+/// as something (reactor poll, close-port wake) flips it out of io_waiting.
+const IoWait = struct {
+    me: *Fiber,
+    pub fn isDone(self: IoWait) bool {
+        return self.me.status != .io_waiting;
+    }
+};
+
+/// Blocks the current fiber until `fd` is ready for `interest` (KEP-0001
+/// Phase 3). Two modes, chosen by whether the fiber can be safely parked:
+///
+/// - **Park** (a spawned fiber dispatched directly by a scheduler loop):
+///   registers with the reactor, flips to `.io_waiting`, arms the
+///   yield-retry ip rewind, and returns `error.Yielded` — the same
+///   park-and-retry protocol as blockOrDeadlock. The whole primitive
+///   re-executes when the fd fires, so callers with partial progress must
+///   stash it (e.g. into `port.read_buf`) before propagating the error.
+///
+/// - **Drive** (the main fiber, or any fiber under re-entrant native frames
+///   that cannot be rewound): registers likewise, then drives the scheduler
+///   in place — exactly the thread-sleep! pattern — until the reactor
+///   reports the fd ready or a close-port wake intervenes, then returns so
+///   the caller retries its syscall. Blocking main on I/O this way keeps
+///   sibling fibers running while preserving blocking-read semantics.
+pub fn waitForFd(vm: *VM, fd: std.posix.fd_t, interest: reactor_mod.Interest) VMError!void {
+    const ctx = try ensureScheduler(vm);
+    const me = vm.current_fiber orelse return VMError.InvalidArgument;
+    const my_idx = ctx.sched.current_idx;
+
+    me.io_fd = fd;
+    me.io_interest = interest;
+    // Status must flip before register(): the reactor's debug assertion
+    // checks that every registered waiter is .io_waiting.
+    const prev_status = me.status;
+    me.status = .io_waiting;
+    ctx.reactor.register(fd, interest, me) catch {
+        me.status = prev_status;
+        me.io_fd = null;
+        return VMError.OutOfMemory;
+    };
+
+    if (my_idx != 0 and vm.dispatched_from_scheduler) {
+        vm.yield_retry = true;
+        return VMError.Yielded;
+    }
+
+    // An fd wait has no deadline; a stale timed_out left by an earlier
+    // timed wait would make runSchedulerStep return before the fd is
+    // ready, degrading this wait into an EAGAIN retry spin.
+    me.timed_out = false;
+
+    // The normal wake paths (reactor poll, close-port) both remove `me`
+    // from the waiter lists before flipping its status; this cleanup only
+    // has work to do when an error below unwinds the wait mid-flight —
+    // without it, the fiber would linger in the lists in a non-io_waiting
+    // status and trip register()'s staleness assertion later.
+    defer {
+        ctx.reactor.removeWaiter(fd, me);
+        me.io_fd = null;
+        me.status = .running;
+    }
+    _ = try runSchedulerStep(IoWait, .{ .me = me }, vm, ctx.sched, me);
 }
 
 /// Called when sched.schedule() finds nothing immediately runnable. Blocks

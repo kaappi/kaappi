@@ -116,6 +116,10 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
             _ = vm.callWithArgs(vm.wind_stack[i].after, &[_]Value{}) catch {};
         }
     }
+    // exit skips GC teardown (std.process.exit), which is where leaked
+    // ports otherwise flush their buffered output; emergency-exit
+    // deliberately skips this cleanup (R7RS 6.14).
+    if (memory.gc_instance) |gc| @import("primitives_io.zig").flushAllOpenPorts(gc);
     std.process.exit(code);
 }
 

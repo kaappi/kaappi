@@ -91,10 +91,21 @@ pub const Reactor = struct {
     /// Registers `fiber` as waiting for `interest` on `fd`. On success the
     /// fd is armed with the OS (ONESHOT — resolved question 3: the
     /// registration exists only while a fiber is parked, by construction).
+    /// The caller must have already flipped `fiber` to `.io_waiting`.
     pub fn register(self: *Reactor, fd: i32, interest: Interest, fiber: *Fiber) !void {
         const gop = try self.regs.getOrPut(fd);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         const reg = gop.value_ptr;
+
+        // Every waiter already listed for this fd must still be parked: a
+        // completed/errored/suspended fiber here means a close-port ran
+        // without waking waiters and unregistering, and this fd number has
+        // been recycled onto an unrelated port (resolved KEP-0001
+        // question 4 — the assertion that keeps that invariant honest).
+        if (comptime builtin.mode == .Debug) {
+            for (reg.read_waiters.items) |f| std.debug.assert(f.status == .io_waiting);
+            for (reg.write_waiters.items) |f| std.debug.assert(f.status == .io_waiting);
+        }
 
         switch (interest) {
             .read => try reg.read_waiters.append(self.allocator, fiber),
@@ -123,6 +134,27 @@ pub const Reactor = struct {
             self.backend.disarmAll(fd);
             reg.read_waiters.deinit(self.allocator);
             reg.write_waiters.deinit(self.allocator);
+        }
+    }
+
+    /// Removes `fiber` from `fd`'s waiter lists without waking it or
+    /// disturbing other waiters. Cleanup for a wait that resolves outside
+    /// the poll/close paths (an error unwinding waitForFd's scheduler
+    /// drive) — those paths clear the lists themselves. A kernel ONESHOT
+    /// left armed with no listed waiter fires once into the stale-event
+    /// path of poll() and is dropped there. No-op if absent.
+    pub fn removeWaiter(self: *Reactor, fd: i32, fiber: *Fiber) void {
+        const reg = self.regs.getPtr(fd) orelse return;
+        var lists = [_]*std.ArrayList(*Fiber){ &reg.read_waiters, &reg.write_waiters };
+        for (&lists) |list| {
+            var i: usize = 0;
+            while (i < list.items.len) {
+                if (list.items[i] == fiber) {
+                    _ = list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+            }
         }
     }
 
@@ -393,13 +425,26 @@ const EpollBackend = struct {
     /// read/write knotes. `first_time` selects EPOLL_CTL_ADD (fresh fd) vs
     /// EPOLL_CTL_MOD (re-arm) since ADD on an already-tracked fd fails
     /// EEXIST, even while dormant after a ONESHOT fire.
+    ///
+    /// `first_time` is advisory, not authoritative: a port freed by the GC
+    /// closes its fd without unregistering, which silently removes the fd
+    /// from the epoll set while the Reactor's Reg (kernel_registered=true)
+    /// survives. When the fd number is recycled onto a new port, the
+    /// resulting MOD hits ENOENT — retry as ADD (and symmetrically ADD →
+    /// EEXIST retries as MOD). kqueue needs no equivalent: EV_ADD is
+    /// create-or-recreate either way.
     fn arm(self: *EpollBackend, fd: i32, wants_read: bool, wants_write: bool, first_time: bool) !void {
         var events: u32 = linux.EPOLL.ONESHOT;
         if (wants_read) events |= linux.EPOLL.IN;
         if (wants_write) events |= linux.EPOLL.OUT;
         var ev: linux.epoll_event = .{ .events = events, .data = .{ .fd = fd } };
         const op: u32 = if (first_time) linux.EPOLL.CTL_ADD else linux.EPOLL.CTL_MOD;
-        const rc = linux.epoll_ctl(self.epfd, op, fd, &ev);
+        var rc = linux.epoll_ctl(self.epfd, op, fd, &ev);
+        if (linux.errno(rc) == .NOENT and op == linux.EPOLL.CTL_MOD) {
+            rc = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_ADD, fd, &ev);
+        } else if (linux.errno(rc) == .EXIST and op == linux.EPOLL.CTL_ADD) {
+            rc = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_MOD, fd, &ev);
+        }
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
     }
 
