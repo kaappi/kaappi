@@ -23,6 +23,15 @@ fn newReady() std.ArrayList(*Fiber) {
     return .empty;
 }
 
+/// Writes one byte and asserts it actually landed, so a short write or
+/// failure fails loudly at the syscall instead of surfacing later as an
+/// unrelated assertion mismatch or poll() timeout.
+fn writeByte(fd: std.c.fd_t, byte: u8) void {
+    const buf = [1]u8{byte};
+    const n = std.posix.system.write(fd, &buf, 1);
+    std.testing.expectEqual(@as(isize, 1), n) catch unreachable;
+}
+
 test "register + poll wakes the fiber when the fd becomes readable" {
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
@@ -34,7 +43,7 @@ test "register + poll wakes the fiber when the fd becomes readable" {
     var fiber_a: Fiber = undefined;
     try reactor.register(pipe[0], .read, &fiber_a);
 
-    _ = std.posix.system.write(pipe[1], "x", 1);
+    writeByte(pipe[1], 'x');
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -75,7 +84,7 @@ test "multiple waiters on one fd direction are all woken (wake-all)" {
     try reactor.register(pipe[0], .read, &fiber_a);
     try reactor.register(pipe[0], .read, &fiber_b);
 
-    _ = std.posix.system.write(pipe[1], "x", 1);
+    writeByte(pipe[1], 'x');
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -177,7 +186,7 @@ test "unregister drops the registration; a later write wakes nobody" {
     try reactor.register(pipe[0], .read, &fiber_a);
     reactor.unregister(pipe[0]);
 
-    _ = std.posix.system.write(pipe[1], "x", 1);
+    writeByte(pipe[1], 'x');
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -196,7 +205,7 @@ test "isEmpty is true after a fired oneshot drains its waiters, even though the 
 
     var fiber_a: Fiber = undefined;
     try reactor.register(pipe[0], .read, &fiber_a);
-    _ = std.posix.system.write(pipe[1], "x", 1);
+    writeByte(pipe[1], 'x');
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -224,7 +233,7 @@ test "re-registering a fd after a fired oneshot re-arms correctly" {
 
     var fiber_a: Fiber = undefined;
     try reactor.register(pipe[0], .read, &fiber_a);
-    _ = std.posix.system.write(pipe[1], "x", 1);
+    writeByte(pipe[1], 'x');
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -234,7 +243,7 @@ test "re-registering a fd after a fired oneshot re-arms correctly" {
 
     var fiber_b: Fiber = undefined;
     try reactor.register(pipe[0], .read, &fiber_b);
-    _ = std.posix.system.write(pipe[1], "y", 1);
+    writeByte(pipe[1], 'y');
 
     try reactor.poll(5_000_000_000, &ready);
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
@@ -257,7 +266,7 @@ test "two fds: only the one that becomes ready wakes its fiber" {
     try reactor.register(pipe_a[0], .read, &fiber_a);
     try reactor.register(pipe_b[0], .read, &fiber_b);
 
-    _ = std.posix.system.write(pipe_b[1], "x", 1); // only b becomes ready
+    writeByte(pipe_b[1], 'x'); // only b becomes ready
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
@@ -303,9 +312,36 @@ test "one fd with both read and write interest: a fired direction re-arms the ot
     try std.testing.expectEqual(&fiber_write, ready.items[0]);
     ready.clearRetainingCapacity();
 
-    _ = std.posix.system.write(pair[1], "x", 1);
+    writeByte(pair[1], 'x');
     try reactor.poll(5_000_000_000, &ready);
 
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_read, ready.items[0]);
+}
+
+test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
+    // Exercises the `broken` mapping on both backends (kqueue's EV_EOF,
+    // epoll's EPOLLHUP|EPOLLERR): a peer close must be reported as read
+    // (and write) readiness so the parked fiber wakes to observe EOF,
+    // rather than waiting forever for bytes that will never arrive.
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pair = makeSocketPair();
+    defer closeFd(pair[0]);
+    var closed_peer = false;
+    defer if (!closed_peer) closeFd(pair[1]);
+
+    var fiber_a: Fiber = undefined;
+    try reactor.register(pair[0], .read, &fiber_a);
+
+    closeFd(pair[1]);
+    closed_peer = true;
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(5_000_000_000, &ready);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }

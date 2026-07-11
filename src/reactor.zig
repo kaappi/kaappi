@@ -46,7 +46,6 @@ const TimerHeap = std.PriorityQueue(TimerEntry, void, timerLessThan);
 /// question 1) — the same discipline `FiberScheduler.wakeChannelWaiters`
 /// uses for channels. Losers of the resulting retry race simply re-park.
 const Reg = struct {
-    fd: i32,
     read_waiters: std.ArrayList(*Fiber) = .empty,
     write_waiters: std.ArrayList(*Fiber) = .empty,
     /// Whether this fd has ever been armed with the backend. epoll must
@@ -92,7 +91,7 @@ pub const Reactor = struct {
     /// registration exists only while a fiber is parked, by construction).
     pub fn register(self: *Reactor, fd: i32, interest: Interest, fiber: *Fiber) !void {
         const gop = try self.regs.getOrPut(fd);
-        if (!gop.found_existing) gop.value_ptr.* = .{ .fd = fd };
+        if (!gop.found_existing) gop.value_ptr.* = .{};
         const reg = gop.value_ptr;
 
         switch (interest) {
@@ -163,6 +162,13 @@ pub const Reactor = struct {
     /// is sooner; forever if both are null) and appends every fiber made
     /// runnable — by fd readiness or timer expiry — to `ready`. `ready`
     /// must use the same allocator this Reactor was `init`ed with.
+    ///
+    /// `ready` may contain the same fiber twice in one call: a fiber parked
+    /// with both an fd registration and a timer (a timed wait) is appended
+    /// once if the fd wins and again if the timer also expires in this same
+    /// call, since nothing removes the timer entry when the fd path wins.
+    /// Callers must tolerate a duplicate wake (e.g. an idempotent status
+    /// flip on the second occurrence).
     pub fn poll(self: *Reactor, timeout_ns: ?u64, ready: *std.ArrayList(*Fiber)) !void {
         const wait_ns = self.effectiveTimeout(timeout_ns);
         const events = try self.backend.wait(wait_ns);
@@ -171,13 +177,20 @@ pub const Reactor = struct {
             const reg = self.regs.getPtr(ev.fd) orelse continue; // stale event; already unregistered
 
             var fired = false;
+            // Reserved up front so the drain below can't fail mid-way: a
+            // failure after the kernel's ONESHOT event was consumed but
+            // before all waiters were moved to `ready` would strand the
+            // remaining waiters forever (nothing re-arms the fd for them),
+            // and `isEmpty()` would still report a waiter, so no deadlock
+            // detector would catch it either.
+            try ready.ensureUnusedCapacity(self.allocator, reg.read_waiters.items.len + reg.write_waiters.items.len);
             if (ev.readable and reg.read_waiters.items.len > 0) {
-                for (reg.read_waiters.items) |f| try ready.append(self.allocator, f);
+                for (reg.read_waiters.items) |f| ready.appendAssumeCapacity(f);
                 reg.read_waiters.clearRetainingCapacity();
                 fired = true;
             }
             if (ev.writable and reg.write_waiters.items.len > 0) {
-                for (reg.write_waiters.items) |f| try ready.append(self.allocator, f);
+                for (reg.write_waiters.items) |f| ready.appendAssumeCapacity(f);
                 reg.write_waiters.clearRetainingCapacity();
                 fired = true;
             }
@@ -269,13 +282,17 @@ const KqueueBackend = struct {
     }
 
     fn disarmAll(self: *KqueueBackend, fd: i32) void {
-        var changes = [2]std.c.Kevent{
-            mkChange(fd, .read, false),
-            mkChange(fd, .write, false),
-        };
-        // Best-effort: ENOENT is expected whenever a direction was never
-        // armed (e.g. a write-only port has no read filter to delete).
-        self.apply(&changes) catch {};
+        // Two independent calls, not one batched changelist: with a
+        // zero-length eventlist, kevent() has nowhere to report a
+        // per-change error, so it aborts the whole changelist at the first
+        // failure. ENOENT is expected whenever a direction was never armed
+        // (e.g. a write-only port has no read filter to delete) — batching
+        // would let that expected ENOENT on one filter silently leave the
+        // other filter's knote behind.
+        var read_change = mkChange(fd, .read, false);
+        self.apply((&read_change)[0..1]) catch {};
+        var write_change = mkChange(fd, .write, false);
+        self.apply((&write_change)[0..1]) catch {};
     }
 
     fn apply(self: *KqueueBackend, changes: []const std.c.Kevent) !void {
@@ -327,7 +344,11 @@ const EpollBackend = struct {
     ready: [max_events_per_poll]ReadyEvent = undefined,
 
     fn init() !EpollBackend {
-        const rc = linux.epoll_create1(0);
+        // CLOEXEC: without it the epoll fd leaks into every child the core
+        // spawns (thottam_proc.zig, native_compiler.zig via
+        // std.process.Child). kqueue needs no equivalent — kqueue(2) fds
+        // are never inherited across fork by design.
+        const rc = linux.epoll_create1(linux.EPOLL.CLOEXEC);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         return .{ .epfd = @intCast(rc) };
     }
@@ -387,6 +408,6 @@ const EpollBackend = struct {
 fn msFromNs(timeout_ns: ?u64) i32 {
     const ns = timeout_ns orelse return -1;
     if (ns == 0) return 0;
-    const ms = (ns + 999_999) / 1_000_000;
+    const ms = (ns +| 999_999) / 1_000_000;
     return if (ms > std.math.maxInt(i32)) std.math.maxInt(i32) else @intCast(ms);
 }
