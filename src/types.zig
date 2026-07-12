@@ -657,6 +657,12 @@ pub const Channel = struct {
     header: Object,
     head: Value,
     tail: Value,
+    /// Set exactly once, by the owning thread (KEP-0002 §2). Actually
+    /// `*shared_channel.SharedChannel` once promoted; kept opaque so
+    /// types.zig -- the dependency-free base layer -- doesn't import a
+    /// feature module, matching the FfiLibrary.handle / DirectoryObject.dir
+    /// precedent for external handles.
+    shared: ?*anyopaque = null,
 };
 
 // ---------------------------------------------------------------------------

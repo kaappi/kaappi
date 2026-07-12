@@ -4,6 +4,7 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const memory = @import("memory.zig");
 const fiber_mod = @import("fiber.zig");
+const shared_channel = @import("shared_channel.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -103,7 +104,33 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("channel-send", "channel", args[0]);
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ch = types.toObject(args[0]).as(types.Channel);
+    const ch_obj = types.toObject(args[0]);
+    // KEP-0002 §2: the only legal cross-thread handle is a locally owned
+    // stub created by deepCopy. A foreign object -- reached through a
+    // shared global, promoted or not -- is what silently corrupted memory
+    // before this check existed (Motivation Path 2); now it's a diagnosis.
+    if (ch_obj.owner != gc.id)
+        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
+    const ch = ch_obj.as(types.Channel);
+
+    if (ch.shared) |raw| {
+        const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
+        const outcome = shared_channel.send(sc, args[1], null) catch |err| {
+            return translateSharedChannelError(err, "channel-send");
+        };
+        return switch (outcome) {
+            .sent => types.VOID,
+            // Phase 1 channels are always unbounded and open -- no
+            // Scheme-level API sets capacity or closed yet (KEP-0002
+            // Phase 4) -- so these branches are unreachable through
+            // make-channel's output. @panic (not `unreachable`, which is UB
+            // under ReleaseFast) so a Phase 4 gap that forgets to wire this
+            // switch fails loudly in every build mode instead of silently
+            // corrupting execution.
+            .would_park, .closed => @panic("channel-send: reached a shared-channel branch Phase 1's primitives don't wire up yet (capacity/close is Phase 4)"),
+        };
+    }
+
     const new_pair = gc.allocPair(args[1], types.NIL) catch return PrimitiveError.OutOfMemory;
 
     if (ch.tail != types.NIL and types.isPair(ch.tail)) {
@@ -111,7 +138,6 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
         tail_obj.as(types.Pair).cdr = new_pair;
         gc.writeBarrier(tail_obj, new_pair);
     }
-    const ch_obj = types.toObject(args[0]);
     ch.tail = new_pair;
     gc.writeBarrier(ch_obj, new_pair);
     if (ch.head == types.NIL) {
@@ -135,7 +161,26 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChannel(args[0]))
         return primitives.typeError("channel-receive", "channel", args[0]);
 
-    const ch = types.toObject(args[0]).as(types.Channel);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const ch_obj = types.toObject(args[0]);
+    if (ch_obj.owner != gc.id)
+        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
+    const ch = ch_obj.as(types.Channel);
+
+    if (ch.shared) |raw| {
+        const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
+        const outcome = shared_channel.receive(sc, gc, null) catch |err| {
+            return translateSharedChannelError(err, "channel-receive");
+        };
+        return switch (outcome) {
+            .value => |v| v,
+            // Phase 1 channels are always open (channel-close! is Phase 4)
+            // and fiber-parking isn't wired to the shared path yet (Phase
+            // 3) -- unreachable through make-channel's output. @panic, not
+            // `unreachable` (UB under ReleaseFast) -- see channelSendFn.
+            .would_park, .eof => @panic("channel-receive: reached a shared-channel branch Phase 1's primitives don't wire up yet (capacity/close is Phase 4)"),
+        };
+    }
 
     if (ch.head != types.NIL and types.isPair(ch.head)) {
         return dequeueChannel(ch, args[0]);
@@ -144,7 +189,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     if (vm.scheduler == null) {
         // No fibers exist, so nothing can ever send: blocking would hang.
-        return raiseDeadlockError("channel-receive: deadlock — channel is empty and no fibers are running");
+        return raiseFiberError("channel-receive: deadlock — channel is empty and no fibers are running");
     }
 
     // Capture before the recursive dispatch below: args is a slice into
@@ -188,10 +233,15 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
     }
-    return raiseDeadlockError(deadlock_msg);
+    return raiseFiberError(deadlock_msg);
 }
 
-fn raiseDeadlockError(msg: []const u8) PrimitiveError {
+/// Raises a generic ErrorObject carrying `msg`. Named for this file's scope
+/// (fiber/channel primitives), not any one caller: deadlocks, the
+/// foreign-owner check (KEP-0002 §2), and a shared-path uncopyable payload
+/// all just need a message wrapped into a catchable exception -- the
+/// function name never reaches the user, only `msg` does.
+fn raiseFiberError(msg: []const u8) PrimitiveError {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
@@ -206,6 +256,24 @@ fn raiseDeadlockError(msg: []const u8) PrimitiveError {
     return PrimitiveError.ExceptionRaised;
 }
 
+/// shared_channel.send/.receive propagate Envelope.create's deepCopy error
+/// verbatim. Mirrors how primitives_srfi18.zig's thread-start!/thread-join!
+/// special-case UncopyableType into a descriptive message and otherwise
+/// fall back to OutOfMemory.
+fn translateSharedChannelError(err: anyerror, proc: []const u8) PrimitiveError {
+    if (err == error.UncopyableType) {
+        var buf: [96]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "{s}: value contains an uncopyable type (port, continuation, etc.)", .{proc}) catch
+            return PrimitiveError.OutOfMemory;
+        return raiseFiberError(msg);
+    }
+    return PrimitiveError.OutOfMemory;
+}
+
+/// A total predicate over arbitrary values, like every other `foo?` in the
+/// codebase -- deliberately NOT given the foreign-owner check (unlike
+/// channel-send/channel-receive), so a program defensively guarding with
+/// `(channel? x)` gets `#f`-and-skip instead of a raise.
 fn channelPredFn(args: []const Value) PrimitiveError!Value {
     return if (types.isChannel(args[0])) types.TRUE else types.FALSE;
 }

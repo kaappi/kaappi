@@ -2,18 +2,27 @@ const std = @import("std");
 const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
 const hashtable = @import("primitives_hashtable.zig");
+const shared_channel = @import("shared_channel.zig");
 
 const GC = memory_mod.GC;
 const Value = types.Value;
 
-pub fn deepCopy(gc: *GC, src: Value) !Value {
+/// Explicit (not inferred) so shared_channel.zig's Envelope.create ->
+/// GC.deepCopy -> gc_deep_copy.deepCopy -> deepCopyValue ->
+/// shared_channel.promoteChannel -> Envelope.create call chain doesn't form
+/// an unresolvable inferred-error-set cycle: promoteChannel/Envelope.create
+/// need to know deepCopy's error set before deepCopy's own inference (which
+/// recurses into promoteChannel for the .channel arm) can complete.
+pub const DeepCopyError = error{ OutOfMemory, UncopyableType };
+
+pub fn deepCopy(gc: *GC, src: Value) DeepCopyError!Value {
     if (!types.isPointer(src)) return src;
     var visited = std.AutoHashMap(usize, Value).init(gc.allocator);
     defer visited.deinit();
     return deepCopyValue(gc, src, &visited);
 }
 
-fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !Value {
+fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) DeepCopyError!Value {
     if (!types.isPointer(src)) return src;
 
     const src_ptr = @intFromPtr(types.toObject(src));
@@ -325,10 +334,43 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             new_rs.prng = rs.prng;
             return new_val;
         },
+        // KEP-0002 §2: a channel is promoted (if not already) and aliased,
+        // never rejected outright. `gc` here is the *destination* heap, not
+        // the channel's owner -- ownership (invariant 4: promotion is legal
+        // only for the thread that owns the channel) is checked against
+        // `memory_mod.gc_instance`, the threadlocal for whichever thread is
+        // actually executing this copy. A foreign, not-yet-promoted channel
+        // reuses UncopyableType rather than a new error class, so
+        // thread-start!/thread-join! (primitives_srfi18.zig) -- whose
+        // deepCopy calls run on the destination thread, never the channel's
+        // owner, until KEP-0002 Phase 2 moves the thunk copy to the parent
+        // thread -- keep today's exact behavior and error message.
+        .channel => {
+            const ch = obj.as(types.Channel);
+            // Aliasing an already-promoted stub needs no ownership check
+            // (and no memory_mod.gc_instance at all) -- any thread that
+            // legitimately holds a stub Value may pass it along further.
+            // Only a not-yet-promoted channel needs the current-thread
+            // check, since promoting is the operation invariant 4 restricts.
+            const sc = if (ch.shared) |s|
+                @as(*shared_channel.SharedChannel, @ptrCast(@alignCast(s)))
+            else blk: {
+                const current_gc = memory_mod.gc_instance orelse return error.UncopyableType;
+                if (obj.owner != current_gc.id) return error.UncopyableType;
+                break :blk try shared_channel.promoteChannel(current_gc, ch);
+            };
+            // Allocate before retaining: if allocChannelStub fails, no new
+            // stub exists to own the +1, and the source stub's own count
+            // (still held regardless) keeps the retain/release balance
+            // intact -- retaining first would leak sc's refcount on OOM.
+            const new_val = try gc.allocChannelStub(sc);
+            sc.retain();
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
         .port,
         .continuation,
         .fiber,
-        .channel,
         .mutex,
         .condition_variable,
         .ffi_callback,

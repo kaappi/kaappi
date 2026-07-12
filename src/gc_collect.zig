@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
+const shared_channel = @import("shared_channel.zig");
 const GC = memory_mod.GC;
 
 const Value = types.Value;
@@ -1055,7 +1056,16 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             poisonAndDestroy(gc, @import("fiber.zig").Fiber, fiber);
         },
         .channel => {
-            poisonAndDestroy(gc, types.Channel, obj.as(types.Channel));
+            const ch = obj.as(types.Channel);
+            // KEP-0002 §1 rule 3: stubs are released by freeObject, from
+            // ANY path -- a real GC sweep, a test's GC.deinit(), or an
+            // envelope's own mini-GC tearing itself down through this same
+            // function. No separate envelope-specific bookkeeping exists.
+            if (ch.shared) |s| {
+                const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(s));
+                sc.release();
+            }
+            poisonAndDestroy(gc, types.Channel, ch);
         },
         .mutex => {
             poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));
