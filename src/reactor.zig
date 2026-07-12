@@ -1,10 +1,11 @@
-//! Per-OS-thread I/O readiness multiplexer (KEP-0001 Phases 1-2).
+//! Per-OS-thread I/O readiness multiplexer (KEP-0001).
 //!
 //! One `Reactor` belongs to one OS thread's scheduler. A fiber that would
 //! block on a fd registers its interest and parks; `poll` blocks once,
 //! bounded by the nearest timer deadline, and reports every fiber that
 //! became runnable (fd readiness or timer expiry). Wired into the
-//! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). See
+//! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). Backends:
+//! kqueue (macOS/BSD), epoll (Linux), poll_oneoff (WASI, Phase 4). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
 const builtin = @import("builtin");
@@ -28,7 +29,7 @@ const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
 const Backend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos => KqueueBackend,
     .linux => EpollBackend,
-    .wasi => WasiBackend,
+    .wasi => WasiPollBackend,
     else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
 };
 
@@ -71,7 +72,7 @@ pub const Reactor = struct {
     pub fn init(allocator: std.mem.Allocator) !Reactor {
         return .{
             .allocator = allocator,
-            .backend = try Backend.init(),
+            .backend = try Backend.init(allocator),
             .regs = std.AutoHashMap(i32, Reg).init(allocator),
             .timers = .empty,
         };
@@ -298,7 +299,9 @@ const KqueueBackend = struct {
     raw: [max_events_per_poll]std.c.Kevent = undefined,
     ready: [max_events_per_poll]ReadyEvent = undefined,
 
-    fn init() !KqueueBackend {
+    /// Owns no allocations — the allocator is part of the uniform
+    /// three-backend init signature (WasiPollBackend needs it).
+    fn init(_: std.mem.Allocator) !KqueueBackend {
         const kq = std.c.kqueue();
         if (kq < 0) return error.Unexpected;
         return .{ .kq = kq };
@@ -406,7 +409,7 @@ const EpollBackend = struct {
     raw: [max_events_per_poll]linux.epoll_event = undefined,
     ready: [max_events_per_poll]ReadyEvent = undefined,
 
-    fn init() !EpollBackend {
+    fn init(_: std.mem.Allocator) !EpollBackend {
         // CLOEXEC: without it the epoll fd leaks into every child the core
         // spawns (thottam_proc.zig, native_compiler.zig via
         // std.process.Child). kqueue needs no equivalent — kqueue(2) fds
@@ -489,56 +492,164 @@ fn msFromNs(timeout_ns: ?u64) i32 {
 }
 
 // ---------------------------------------------------------------------------
-// WASI backend — timer-only stopgap.
+// WASI poll_oneoff backend (KEP-0001 Phase 4)
 //
-// The full design (build a subscription_t[] — one fd_read/fd_write per
-// registration plus one CLOCK subscription at the nearest deadline, call
-// std.os.wasi.poll_oneoff) is KEP-0001 Phase 4. Nothing registers a port's
-// fd with the reactor before Phase 3, so on wasm32-wasi today the only
-// path that must actually work is a plain wait bounded by the timer
-// heap's nearest deadline — exactly what thread-sleep! and timed
-// mutex/join/condvar waits need. arm() is unreachable until Phase 3 lands
-// I/O primitive changes (gated by the existing is_wasm flag, per the
-// KEP's cross-platform section: WASI falls back to single-fiber blocking
-// I/O where poll_oneoff socket support is unavailable).
+// poll_oneoff is stateless: there is no kernel object that remembers
+// interest between calls (the kqueue/epoll fd of the other backends).
+// `interests` is that state, kept in userspace — arm() records the armed
+// directions per fd, and every wait() rebuilds the full subscription list
+// from it: one FD_READ/FD_WRITE subscription per armed direction plus one
+// CLOCK subscription bounding the wait (the mio wasi model). An event
+// disarms the direction it reports, giving ONESHOT parity with the other
+// backends: "armed ⇔ a fiber is parked" holds by construction, and a
+// stale interest (waiter removed via removeWaiter) fires at most once
+// before self-clearing.
+//
+// Fd readiness is best-effort by design (KEP-0001 cross-platform
+// section) — the capability probe lives in primitives_io's
+// maybeSetNonblocking: a host that rejects fd_fdstat_set_flags(NONBLOCK)
+// keeps its ports on blocking fds, so no EAGAIN, no registrations, and
+// this backend degrades to single-fiber blocking I/O with CLOCK-only
+// waits. That is exactly the playground's browser shim, which supports
+// only a single CLOCK subscription per call — satisfied here since no fd
+// can ever register there. wasmtime implements the full API.
 // ---------------------------------------------------------------------------
 
-const WasiBackend = struct {
-    fn init() !WasiBackend {
-        return .{};
+const WasiPollBackend = struct {
+    const wasi = std.os.wasi;
+
+    const Dirs = struct { read: bool, write: bool };
+
+    allocator: std.mem.Allocator,
+    /// fd → armed directions; the userspace stand-in for kernel knotes.
+    interests: std.AutoArrayHashMapUnmanaged(i32, Dirs) = .empty,
+    /// Scratch buffers rebuilt each wait(); persistent so they grow to the
+    /// working set once and stay there.
+    subs: std.ArrayList(wasi.subscription_t) = .empty,
+    events: std.ArrayList(wasi.event_t) = .empty,
+    ready: std.ArrayList(ReadyEvent) = .empty,
+
+    fn init(allocator: std.mem.Allocator) !WasiPollBackend {
+        return .{ .allocator = allocator };
     }
 
-    fn deinit(self: *WasiBackend) void {
-        _ = self;
+    fn deinit(self: *WasiPollBackend) void {
+        self.interests.deinit(self.allocator);
+        self.subs.deinit(self.allocator);
+        self.events.deinit(self.allocator);
+        self.ready.deinit(self.allocator);
     }
 
-    fn arm(self: *WasiBackend, fd: i32, wants_read: bool, wants_write: bool, first_time: bool) !void {
-        _ = self;
-        _ = fd;
-        _ = wants_read;
-        _ = wants_write;
-        _ = first_time;
-        return error.Unexpected;
-    }
-
-    fn disarmAll(self: *WasiBackend, fd: i32) void {
-        _ = self;
-        _ = fd;
-    }
-
-    fn wait(self: *WasiBackend, timeout_ns: ?u64) ![]const ReadyEvent {
-        _ = self;
-        if (timeout_ns) |ns| {
-            var ts: std.c.timespec = .{
-                .sec = @intCast(ns / 1_000_000_000),
-                .nsec = @intCast(ns % 1_000_000_000),
-            };
-            while (true) {
-                const ret = std.c.nanosleep(&ts, &ts);
-                if (ret == 0) break;
-                if (std.posix.errno(ret) != .INTR) return error.Unexpected;
-            }
+    /// Both reactor call sites pass the fd's complete desired state
+    /// (register: the current waiter lists; poll's re-arm: what remains
+    /// after a fire), so this replaces rather than accumulates — epoll's
+    /// CTL_MOD, minus the kernel. `first_time` is irrelevant: there is no
+    /// kernel registry to ADD-versus-MOD against.
+    fn arm(self: *WasiPollBackend, fd: i32, wants_read: bool, wants_write: bool, _: bool) !void {
+        if (!wants_read and !wants_write) {
+            _ = self.interests.swapRemove(fd);
+            return;
         }
-        return &[_]ReadyEvent{};
+        try self.interests.put(self.allocator, fd, .{ .read = wants_read, .write = wants_write });
+    }
+
+    fn disarmAll(self: *WasiPollBackend, fd: i32) void {
+        _ = self.interests.swapRemove(fd);
+    }
+
+    fn subFd(fd: i32, comptime tag: wasi.eventtype_t) wasi.subscription_t {
+        return .{
+            // The fd, not a fiber pointer — same discipline as kqueue's
+            // udata/epoll's data.fd (a collected fiber must never be
+            // reachable from a stale host event).
+            .userdata = @intCast(fd),
+            .u = .{ .tag = tag, .u = switch (tag) {
+                .FD_READ => .{ .fd_read = .{ .fd = fd } },
+                .FD_WRITE => .{ .fd_write = .{ .fd = fd } },
+                else => @compileError("subFd is for fd subscriptions"),
+            } },
+        };
+    }
+
+    fn wait(self: *WasiPollBackend, timeout_ns: ?u64) ![]const ReadyEvent {
+        self.subs.clearRetainingCapacity();
+        var it = self.interests.iterator();
+        while (it.next()) |entry| {
+            const fd = entry.key_ptr.*;
+            if (entry.value_ptr.read) try self.subs.append(self.allocator, subFd(fd, .FD_READ));
+            if (entry.value_ptr.write) try self.subs.append(self.allocator, subFd(fd, .FD_WRITE));
+        }
+        if (timeout_ns) |ns| {
+            // Relative (flags = 0), not ABSTIME: the reactor core already
+            // reduced the timer heap's nearest deadline to a relative
+            // bound in effectiveTimeout(), same as the kqueue timespec and
+            // epoll ms paths. Re-deriving an absolute deadline here would
+            // just add a clock read and couple this code to clockNs()'s
+            // clock domain. Nanosecond-native, so no ceil-rounding is
+            // needed (the epoll-only concern of resolved question 2);
+            // "may fire late, never early" holds either way.
+            try self.subs.append(self.allocator, .{
+                .userdata = 0,
+                .u = .{ .tag = .CLOCK, .u = .{ .clock = .{
+                    .id = .MONOTONIC,
+                    .timeout = ns,
+                    .precision = 0,
+                    .flags = 0,
+                } } },
+            });
+        }
+        // No subscriptions means no bound and nothing armed: poll_oneoff
+        // rejects nsubscriptions == 0 (INVAL). Unreachable through the
+        // scheduler — parkOnReactor checks isEmpty() first — so this is
+        // only a direct-caller guard; an empty return beats a hard error.
+        if (self.subs.items.len == 0) return &[_]ReadyEvent{};
+
+        try self.events.ensureTotalCapacity(self.allocator, self.subs.items.len);
+        self.events.items.len = self.subs.items.len;
+        var nevents: usize = 0;
+        const rc = wasi.poll_oneoff(&self.subs.items[0], &self.events.items[0], self.subs.items.len, &nevents);
+        switch (rc) {
+            .SUCCESS => {},
+            .INTR => return &[_]ReadyEvent{},
+            else => return error.Unexpected,
+        }
+
+        self.ready.clearRetainingCapacity();
+        outer: for (self.events.items[0..nevents]) |ev| {
+            // Timer expiry is decided by the reactor against clockNs()
+            // (popExpiredTimers); the CLOCK event only ends the wait.
+            if (ev.type == .CLOCK) continue;
+            const fd: i32 = @intCast(ev.userdata);
+            // A per-subscription error (BADF on a raced-away fd, rights)
+            // or hangup wakes both directions defensively — the retried
+            // syscall surfaces the real outcome, and retrying a
+            // not-actually-ready direction is always safe under the
+            // park-and-retry protocol (same policy as epoll's HUP/ERR).
+            const broken = ev.@"error" != .SUCCESS or
+                (ev.fd_readwrite.flags & wasi.EVENT_FD_READWRITE_HANGUP) != 0;
+            const readable = ev.type == .FD_READ or broken;
+            const writable = ev.type == .FD_WRITE or broken;
+            self.clearInterest(fd, readable, writable);
+            for (self.ready.items) |*re| {
+                if (re.fd == fd) {
+                    if (readable) re.readable = true;
+                    if (writable) re.writable = true;
+                    continue :outer;
+                }
+            }
+            try self.ready.append(self.allocator, .{ .fd = fd, .readable = readable, .writable = writable });
+        }
+        return self.ready.items;
+    }
+
+    /// The ONESHOT half of the emulation: a delivered direction disarms
+    /// itself, so the next wait() cannot re-report it unless the reactor
+    /// re-arms (kqueue's per-filter knote deletion, not epoll's whole-fd
+    /// disarm — an untouched direction stays armed for its own waiters).
+    fn clearInterest(self: *WasiPollBackend, fd: i32, readable: bool, writable: bool) void {
+        const dirs = self.interests.getPtr(fd) orelse return;
+        if (readable) dirs.read = false;
+        if (writable) dirs.write = false;
+        if (!dirs.read and !dirs.write) _ = self.interests.swapRemove(fd);
     }
 };

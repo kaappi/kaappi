@@ -199,7 +199,11 @@ pub const all_specs = core_specs ++
     primitives_random.specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
     @import("primitives_fiber.zig").specs ++
-    (if (is_wasm) no_specs else @import("primitives_srfi18.zig").specs);
+    // SRFI-18's OS-thread machinery cannot exist on WASM, but its
+    // fiber-safe subset (thread-sleep!, the KEP-0001 Phase 4 timer path)
+    // can: wasm_specs is the comptime-filtered `.wasm = true` slice, so
+    // the WASM build never references std.Thread.spawn and friends.
+    (if (is_wasm) @import("primitives_srfi18.zig").wasm_specs else @import("primitives_srfi18.zig").specs);
 
 comptime {
     @setEvalBranchQuota(all_specs.len * all_specs.len * 30);

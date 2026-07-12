@@ -425,17 +425,22 @@ The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 ## Fiber I/O reactor (KEP-0001)
 
 Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig`:
-kqueue/epoll/WASI-timer backends + a userspace timer heap), created lazily
-with the scheduler by `fiber.ensureScheduler`. Port reads/writes that would
-block (`EAGAIN`) suspend the calling fiber instead of the thread
+kqueue/epoll/WASI-`poll_oneoff` backends + a userspace timer heap), created
+lazily with the scheduler by `fiber.ensureScheduler`. Port reads/writes that
+would block (`EAGAIN`) suspend the calling fiber instead of the thread
 (`fiber.waitForFd`): a fiber dispatched directly by a scheduler loop parks
 (`.io_waiting` + the yield-retry re-execution protocol — callers stash
 partial progress into `port.read_buf` first via
 `primitives_io.propagateReadErr`); the main fiber or one under re-entrant
-native frames drives the scheduler in place instead. Port fds (never 0/1/2,
-never in WASI builds) flip to `O_NONBLOCK` lazily, only once a scheduler
-exists — sequential programs keep blocking fds and their exact syscall
-profile. Ports on fd > 2 buffer writes in `port.write_buf` until
+native frames drives the scheduler in place instead. Port fds (never 0/1/2)
+flip to `O_NONBLOCK` lazily, only once a scheduler exists — sequential
+programs keep blocking fds and their exact syscall profile. On WASI the
+flip is the host-capability probe: `fd_fdstat_set_flags(NONBLOCK)` failing
+(e.g. the playground's browser shim) leaves ports blocking, so nothing ever
+registers an fd and the reactor degrades to CLOCK-only `poll_oneoff` waits —
+timers and `thread-sleep!` (the one SRFI-18 primitive registered on WASM,
+as a global; the `(srfi 18)` library itself stays native-only) always work.
+Ports on fd > 2 buffer writes in `port.write_buf` until
 `flush-output-port`, `close-port`, a read on the same port, or the 8 KiB
 high-water mark; `close-port` flushes, wakes fibers parked on the fd
 (`fiber.wakeIoWaitersOnFd` — their retry sees `is_open == false` and raises

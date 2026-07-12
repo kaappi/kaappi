@@ -158,6 +158,9 @@ jobs:
       - name: Smoke test
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/smoke.scm
 
+      - name: Timer test (reactor poll_oneoff backend)
+        run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/timers.scm
+
   coverage:
     needs: test
     runs-on: ubuntu-22.04
