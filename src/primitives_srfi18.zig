@@ -413,21 +413,49 @@ const SleepWait = struct {
 /// nanosleep (KEP-0001 Phase 2): siblings run while this fiber sleeps, and
 /// the reactor's blocking wait — not a busy nanosleep loop — is what
 /// actually waits out the duration.
+///
+/// Gives this the same `dispatched_from_scheduler`-aware yield-retry branch
+/// `fiber.waitForFd` has (#1463): a fiber dispatched directly by a scheduler
+/// loop must unwind flatly (`error.Yielded`) rather than nest a recursive
+/// `runSchedulerStep` call, or concurrent fibers each retrying via short
+/// `thread-sleep!` calls grow the native stack without bound. Unlike a read
+/// primitive, thread-sleep! has no buffer to stash partial progress in —
+/// the equivalent state is `me.deadline_ns`/`me.timed_out` on the fiber
+/// itself, which (unlike the Scheme-level `seconds` argument) survives the
+/// unwind. The `me.deadline_ns != null` check on entry distinguishes a
+/// fresh call from a redispatch after yielding, so a retry consumes the
+/// existing timer instead of computing a new deadline and restarting the
+/// sleep on every redispatch.
 fn threadSleepFn(args: []const Value) PrimitiveError!Value {
     if (args[0] == types.FALSE) return PrimitiveError.TypeError; // bare-ok: type guard
-    const seconds = try getSleepSeconds(args[0]);
-    if (seconds <= 0) return types.VOID;
-    const total_ns: u64 = @intFromFloat(@max(0.0, seconds * 1e9));
 
     const ctx = try ensureScheduler();
     const me = ctx.vm.current_fiber orelse return types.VOID;
-    const deadline = fiber_mod.clockNs() + total_ns;
+    const my_idx = ctx.sched.current_idx;
 
-    me.waiting_on = types.VOID;
-    me.status = .waiting;
-    me.timed_out = false;
-    me.deadline_ns = deadline;
-    try ctx.reactor.addTimer(deadline, me);
+    if (me.deadline_ns == null) {
+        const seconds = try getSleepSeconds(args[0]);
+        if (seconds <= 0) return types.VOID;
+        const total_ns: u64 = @intFromFloat(@max(0.0, seconds * 1e9));
+        const deadline = fiber_mod.clockNs() + total_ns;
+
+        me.waiting_on = types.VOID;
+        me.status = .waiting;
+        me.timed_out = false;
+        me.deadline_ns = deadline;
+        try ctx.reactor.addTimer(deadline, me);
+    } else if (me.timed_out) {
+        // Redispatched after the timer we armed on a prior entry already
+        // fired -- nothing left to wait for.
+        me.timed_out = false;
+        me.deadline_ns = null;
+        return types.VOID;
+    }
+
+    if (my_idx != 0 and ctx.vm.dispatched_from_scheduler) {
+        ctx.vm.yield_retry = true;
+        return PrimitiveError.Yielded;
+    }
 
     _ = try fiber_mod.runSchedulerStep(SleepWait, .{}, ctx.vm, ctx.sched, me);
     me.timed_out = false;

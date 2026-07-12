@@ -498,3 +498,44 @@ test "thread-yield! in child OS thread does not busy-spin or leak Yielded" {
     );
     try std.testing.expectEqual(types.TRUE, result);
 }
+
+// Regression for #1463: threadSleepFn used to always drive the scheduler in
+// place (a nested runSchedulerStep call) regardless of how the calling fiber
+// was dispatched, unlike fiber.waitForFd's dispatched_from_scheduler-aware
+// flat unwind. Two scheduler-dispatched fibers each retrying through many
+// short thread-sleep! calls — one polling for a flag the other sets after a
+// bounded number of iterations — nested one more native stack frame per
+// hand-off, growing without bound until the underlying condition resolved.
+// This test's fiber count and iteration bound are large enough that the
+// pre-fix nesting would run deep; it must complete promptly rather than
+// crash or stall.
+test "concurrent thread-sleep! retries across fibers resolve without unbounded stack growth (#1463)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (srfi 18))");
+    const result = try vm.eval(
+        \\(define signal #f)
+        \\(define (poll-until-signal)
+        \\  (let loop ((n 0))
+        \\    (if signal
+        \\        n
+        \\        (begin (thread-sleep! 0.0001) (loop (+ n 1))))))
+        \\(define setter
+        \\  (spawn (lambda ()
+        \\    (let loop ((n 0))
+        \\      (if (>= n 3000)
+        \\          (begin (set! signal #t) n)
+        \\          (begin (thread-sleep! 0.0001) (loop (+ n 1))))))))
+        \\(define waiter (spawn poll-until-signal))
+        \\(define setter-result (fiber-join setter))
+        \\(define waiter-result (fiber-join waiter))
+        \\(and (= setter-result 3000)
+        \\     (>= waiter-result 0)
+        \\     (<= waiter-result 3000)
+        \\     signal)
+    );
+    try std.testing.expectEqual(types.TRUE, result);
+}
