@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783852832493,
+  "lastUpdate": 1783873916016,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dcef387312a310b4c761ce38589e548bfef0225b",
-          "message": "Fix FFI char type to accept Scheme characters and return characters (#1186) (#1309)\n\n* Fix FFI char type to accept Scheme characters and return characters (#1186)\n\nThe char FFI type was behaviorally identical to uint8 — it rejected\nScheme character values like #\\A with a bare error, and char returns\nproduced fixnums instead of characters. Now char params accept both\nintegers and Scheme characters (codepoint must fit 0–255), and char\nreturns produce Scheme character values.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Tighten char return range to 0–255 and update audit ledger\n\nSymmetric with the param path which already range-checks to 0–255.\nUpdate docs/audit-strategy.md to reflect 48 tests + 2 disabled.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T05:50:19Z",
-          "tree_id": "3e0c6f211bb780448b0c77ba5f02a5fb226c3b17",
-          "url": "https://github.com/kaappi/kaappi/commit/dcef387312a310b4c761ce38589e548bfef0225b"
-        },
-        "date": 1783491813648,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.102085,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.77775,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.0296,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.416734,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014262,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.22493,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510548,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070471,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.57425,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.982155,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.240059,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.092537,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.229045,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.855042,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046001,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043168,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58036d9d793812cb141d8c559f7d2b6c251a40a3",
+          "message": "SharedChannel core: shared-object protocol, promotion, reservation send/receive (KEP-0002 P1) (#1482)\n\n* SharedChannel core: shared-object protocol, promotion, reservation send/receive (KEP-0002 P1)\n\nAdds the generic refcounted shared-object protocol (src/shared_object.zig)\nand its first instance, SharedChannel (src/shared_channel.zig): a\nheap-independent, mutex-protected queue of envelopes (private mini-heaps\nfilled by the existing deepCopy) that a Channel promotes into on demand.\n\ntypes.Channel gains a `shared` field; deepCopy's `.channel` arm promotes\nan owned, unpromoted channel (or aliases an already-shared one) instead of\nerroring; freeObject releases a stub's refcount on every teardown path.\nchannel-send/channel-receive gain a foreign-owner check, which turns the\nshared-globals memory corruption described in KEP-0002's Motivation into a\ndescriptive error.\n\nPhase 1 is single-thread-testable only: thread-start!/thread-join! are\nunchanged (their deepCopy calls run on the destination thread, never the\nchannel's owner) until Phase 2 moves the thunk copy to the parent thread.\n\nVerified: full unit/gc-stress/Scheme/R7RS suites green; local fast-path\nbenchmark shows no regression vs. baseline; the KEP's TLA+ suite\n(kaappi/keps@8aa2f1fc) passes all 9 configs at their expected outcome.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: fix two refcount/memory leaks, harden park-path notifiers\n\nTwo error-path bugs found in review (both CodeRabbit and a human pass\nflagged them independently):\n\n- Envelope.create leaked the Envelope struct itself when gc.deepCopy(payload)\n  failed (e.g. an uncopyable payload) -- the errdefer only covered the mini\n  GC. Every failed send leaked one Envelope.\n- gc_deep_copy.zig's .channel arm called sc.retain() before\n  gc.allocChannelStub(sc); if the allocation then failed, the retained\n  refcount had no matching stub to release it, pinning the SharedChannel\n  (and its whole queue) forever. Reordered: allocate first, retain only on\n  success.\n\nAlso:\n- shared_channel.send/receive's park branches force-unwrapped `notifier`\n  even though every real caller passes null; handle null by skipping\n  registration instead of panicking (CodeRabbit: Major).\n- unreachable -> @panic in the two Phase-4-only switch arms in\n  primitives_fiber.zig -- unreachable is UB under ReleaseFast, @panic fails\n  loudly in every build mode.\n- Documented the deliberate KEP-0002 §1 deviation (envelopes use a private\n  per-envelope symbol table, not GC.initForThread's shared one) directly on\n  Envelope.create, with the use-after-free reasoning that makes it the\n  right call.\n- Merged raiseChannelError/raiseDeadlockError (byte-identical) into one\n  raiseFiberError.\n- bench_channel.zig: bigger source buffer (avoid NoSpaceLeft on large\n  iteration counts), iters as a Workload field instead of a name-string\n  comparison.\n- New tests: the *received* half of the KEP §1 reply-to worked example\n  (rc 1->2->3->2, identity surviving the round trip, exercising the alias\n  arm against an envelope-owned stub whose owner isn't the current\n  gc_instance); a white-box test that promotes a channel and then drives\n  channel-send/channel-receive through vm.eval to actually exercise\n  primitives_fiber.zig's shared-path dispatch (previously only exercised\n  via direct shared_channel.send/receive calls).\n- Test hygiene: restore memory.gc_instance via defer (not a plain\n  end-of-test assignment) so a failed `try` can't leave it dangling for\n  later tests; use th.TestContext instead of manual GC/VM setup in the\n  Motivation Path 2 regression test.\n- Fixed a gc-stress crash in the new reply-to test itself (not library\n  code): the \"tasks\" channel's Value wasn't rooted across the second\n  allocation on the same GC, so a stress collection could sweep it and\n  freeObject would release+destroy its SharedChannel out from under the\n  test -- classic \"root fresh results between allocations\".\n\nVerified: zig build test and zig build test -Dgc-stress=true green (5x\nrepeated runs of the shared-channel suite under both, since this class of\nbug is exactly what caused the gc-stress crash above); full Scheme/R7RS\nsuite 1834/0; zig fmt clean.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T21:31:46+05:30",
+          "tree_id": "8bed54451d406af2ec72891d12a09e4907b64dac",
+          "url": "https://github.com/kaappi/kaappi/commit/58036d9d793812cb141d8c559f7d2b6c251a40a3"
+        },
+        "date": 1783873915068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.319944,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.232585,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.688377,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.38349,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006467,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045164,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.387001,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055718,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.094685,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.491836,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.298333,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429087,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.437015,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.932833,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038025,
             "unit": "seconds"
           }
         ]
