@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783873916016,
+  "lastUpdate": 1783883847197,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2ff6238606093d29f92fdec1cc1ef817d2504d8",
-          "message": "Guard test expressions in (chibi test) against exceptions (#1196) (#1311)\n\n* Guard test expressions in (chibi test) against exceptions (#1196)\n\nWrap the test expression in a `guard` form so that a raised exception\nis reported as a failure and counted, instead of escaping the macro and\naborting sibling tests in the same enclosing form.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix load crashing inside guard; use procedure-level guard in test macro\n\nThe test macro fix (wrapping expressions in guard) exposed two\npre-existing bugs:\n\n1. load used vm.execute() which resets all VM state (frame count,\n   handler count), corrupting the call stack when called from inside\n   guard's callReentrant. Fix: use callWithArgs (like eval does) which\n   properly saves/restores execution state.\n\n2. guard's escape continuation limits apply to 255 args (u8 nargs).\n   Adjusted two audit tests to stay under this limit.\n\nAlso: use a helper procedure for the guard (test-run) so that\ntest-error's inner guard doesn't nest at the macro level, and fix\nthe shell regression test for macOS bash heredoc compatibility.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix let*-values body scoping; use inline guard in test macro\n\nlet*-values with zero bindings desugared to (begin body...), which\nspliced definitions into the enclosing scope instead of creating a\nproper body scope. Changed to desugar to (let () body...) so that\ninternal define forms are correctly scoped — matching R7RS semantics\nand the behavior of let-values with zero bindings.\n\nThis also allows the test macro to use inline guard (no lambda wrapper)\nwithout changing define scoping for the tested expression.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback\n\n- Revert list-audit map boundary back to 256 (only apply with 256+\n  scalar args is affected by the escape continuation limit, not map\n  with 256 list args)\n- File yield-in-handler bug as #1314 and reference it in fiber-audit\n  skip comment\n- Fix shell test to not trip set -e before diagnostics can print\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T12:53:00+05:30",
-          "tree_id": "47de79b8f0ff6983ca23d4a4a71c62a1d4664bd6",
-          "url": "https://github.com/kaappi/kaappi/commit/b2ff6238606093d29f92fdec1cc1ef817d2504d8"
-        },
-        "date": 1783496990879,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.357902,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.842229,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.54484,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.357706,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.008534,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.138697,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.257738,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.035642,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 7.925191,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.987995,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 7.132107,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.706807,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 5.692508,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.192044,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.025734,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038025,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55ccff0b61fcecac2a108309f838563cf5a769fc",
+          "message": "Envelopes at thread boundaries: thread-start!/join! via envelopes (KEP-0002 P2) (#1483)\n\n* Envelopes at thread boundaries: thread-start!/join! via envelopes (KEP-0002 P2)\n\nthread-start! now copies the thunk into a shared_channel.Envelope on the\nparent thread, before ever calling std.Thread.spawn, instead of letting\nthe child deepCopy fiber.thunk out of the still-running parent heap\nasynchronously. The child copies out of that envelope into its own fresh\nheap. This closes the old concurrent-copy race (a mutation racing the\ncopy could tear a captured structure) and is the only place a channel\ncaptured by the thunk can legally promote, since promotion requires\ngc_instance to match the channel's owner -- true only on the parent\nthread, now, before spawn.\n\nthread-join!'s result/exception cross the same way: built into an\nenvelope on the child thread right before it exits, instead of being\ndeep-copied directly out of the child's still-allocated heap by the\nparent at join time. This retires child_registry's raw-Value special\ncase and, symmetrically, is what makes a channel created and returned\nby the child promote correctly (the same ownership requirement, now\nsatisfied on the child's own thread instead of the parent's at join).\n\nThe process-global live-thread counter KEP-0002 Phase 2 calls for\nalready exists (live_child_threads, added in #1455's cross-thread\nmutex/condvar fix) -- no new code needed there.\n\nAlso fixes a double-free the envelope model exposes: child_registry's\nresult/exception lookup was a peek (get), so two racing thread-join!\ncalls on the same fiber -- reachable via a shared global, since fiber\nownership is otherwise unchecked -- could both retrieve and free the\nsame *Envelope. Replaced with an atomic take (takeResult) that clears\nboth fields under the registry lock.\n\nMotivation Path 1 (a channel captured in the thread thunk) now works\nend to end; Motivation Path 2 (a channel reached through a shared\nglobal) is unaffected and still raises the foreign-owner error.\n\nNew tests: thunk-snapshot (parent mutation after thread-start! not\nvisible to the child), Path 1 end-to-end, a channel created and\nreturned by the child, reply-channel identity across two\npromotion/alias hops, 20-thread churn with no refcount leak\n(-Dgc-stress=true clean), and the synchronous (never-spawns-an-OS-\nthread) shape of an uncopyable-thunk error.\n\nVerified: zig build test and -Dgc-stress=true green; full Scheme/R7RS\nsuite 1835/0; zig fmt clean; thread-start!/join! overhead for a trivial\nthunk is within measurement noise of the pre-Phase-2 baseline (~34-38us\neither way, dominated by OS thread creation, not the extra copy).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: preserve exception-envelope failures, message clarity, test gaps\n\nReview of #1483 (both CodeRabbit and a manual pass) found real gaps:\n\n- The exception path collapsed both \"uncopyable exception content\" and\n  \"OOM building the envelope\" into a silent null, unlike the result path's\n  `.failed` (which raises a specific error). Since R7RS `raise` permits\n  raising arbitrary values, an exception carrying a port or a foreign-\n  owned channel is a realistic case, not a corner one. `exception` is now\n  the same `JoinResult` shape as `result`; a `.failed` build synthesizes a\n  diagnostic error instead of leaving the join reason void.\n\n- Both the thunk and result-path \"uncopyable type\" messages were\n  misleading for one real cause: gc_deep_copy.zig's `.channel` arm returns\n  UncopyableType for a genuinely uncopyable value AND for a channel owned\n  by neither thread (reached via a shared global instead of the thunk/\n  message that would have legally handed it over) -- the same error for\n  two different reasons. Broadened both messages to name the second cause\n  (verified against an A/B repro from review: a shared-global channel\n  raised or returned by the thunk).\n\n- Comment fix: \"the usual child_registry.storeResult path used by every\n  post-spawn failure\" overstated -- only the callWithArgs-failure path\n  actually stores a result; the earlier post-spawn failures set .errored\n  directly, same as the pre-spawn path being commented on.\n\n- Test-quality fixes: th.expectEval for two one-shot fixnum tests;\n  types.isChannel instead of a raw .tag comparison; the exception-envelope\n  test now receives and checks the drained 'irritant-marker value instead\n  of only checking that promotion happened; the 20-iteration thread-churn\n  test scales to 5 under -Dgc-stress=true (matches tests_robustness.zig's\n  pattern); new regression test pinning the .failed -> \"thread-join!:\n  result contains...\" path specifically (a thunk returning a port).\n\nDeliberately deferred to a follow-up issue (both reviewers frame these as\nnon-blocking): the deeper \"should a shared-global channel forwarded\nthrough an exception/result regain exact main-branch parity\" question,\nand the residual concurrent-double-join hazards (thread.join() called\ntwice on the same handle, a result-read race) that predate this PR and\nare best closed by giving fiber operations the same foreign-owner check\nchannels already have, rather than patching thread-join! point by point.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T18:47:22Z",
+          "tree_id": "e3489bcd1568df13844f2c3cda76b0f6ebcc3a77",
+          "url": "https://github.com/kaappi/kaappi/commit/55ccff0b61fcecac2a108309f838563cf5a769fc"
+        },
+        "date": 1783883846059,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.350855,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.047066,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.987968,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.565634,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006545,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055023,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.543095,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070188,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.377668,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.100511,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.564963,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437464,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.871535,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.720003,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043176,
             "unit": "seconds"
           }
         ]
