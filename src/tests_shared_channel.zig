@@ -533,3 +533,174 @@ test "Motivation Path 2 regression: a channel reached through a shared global ra
     try std.testing.expect(types.isSymbol(recv_result));
     try std.testing.expectEqualStrings("deadlocked", types.symbolName(recv_result));
 }
+
+// ---------------------------------------------------------------------------
+// KEP-0002 Phase 2 (#1467): envelopes at thread boundaries.
+//
+// thread-start! now copies the thunk into an envelope on the *parent*
+// thread, before Thread.spawn -- the child copies out of the envelope into
+// its own fresh heap instead of deepCopy-ing fiber.thunk directly out of the
+// still-running parent heap. thread-join!'s result/exception cross the same
+// way, built on the *child* thread right before it exits. Both directions
+// are exercised here with real OS threads (make-thread/thread-start!), since
+// the whole point of Phase 2 is the parent/child-thread timing -- a
+// white-box, single-thread test of Envelope.create (already covered by
+// Phase 1's tests above) can't observe the race Phase 2 closes.
+// ---------------------------------------------------------------------------
+
+test "KEP-0002 Phase 2: thunk snapshot -- mutation after thread-start! returns is not visible to the child" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The envelope copy runs synchronously inside thread-start!, before it
+    // ever returns -- so this is deterministic, not a race the test might
+    // get lucky on. Before Phase 2, the child deepCopy'd fiber.thunk at some
+    // arbitrary later point, so this mutation could (nondeterministically)
+    // have already been visible.
+    const result = try ctx.vm.eval(
+        \\(let* ((v (vector 1))
+        \\       (t (make-thread (lambda () (vector-ref v 0)))))
+        \\  (thread-start! t)
+        \\  (vector-set! v 0 999)
+        \\  (thread-join! t))
+    );
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result));
+}
+
+test "KEP-0002 Phase 2: Motivation Path 1 -- a channel captured in the thread thunk now works end-to-end" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Before Phase 1+2: the child errored with "thread thunk contains
+    // uncopyable type" (deepCopy rejected channels outright). Now: `ch` is
+    // promoted on the parent thread as part of the envelope build (the only
+    // legal place, per invariant 4), aliased into the child's heap on copy-
+    // out, and the send completes entirely before thread-join! returns --
+    // so the parent's subsequent receive needs no wakeup machinery
+    // (Phase 2's scope explicitly excludes a receiver parking first).
+    const result = try ctx.vm.eval(
+        \\(let* ((ch (make-channel))
+        \\       (t (make-thread (lambda () (channel-send ch 42)))))
+        \\  (thread-start! t)
+        \\  (thread-join! t)
+        \\  (channel-receive ch))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "KEP-0002 Phase 2: a channel created and returned by the child promotes correctly" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The join result now crosses via an envelope built on the CHILD thread
+    // (the channel's owner) rather than deepCopy'd by the parent at join
+    // time -- which is what makes this legal at all: promotion requires
+    // gc_instance to match the channel's owner, true only while the child
+    // itself is still running.
+    const result = try ctx.vm.eval(
+        \\(let* ((t (make-thread (lambda ()
+        \\                          (let ((inner (make-channel)))
+        \\                            (channel-send inner 'hello)
+        \\                            inner)))))
+        \\  (thread-start! t)
+        \\  (let ((returned-ch (thread-join! t)))
+        \\    (channel-receive returned-ch)))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("hello", types.symbolName(result));
+}
+
+test "KEP-0002 Phase 2: uncopyable thunk is detected synchronously in thread-start!, never spawns an OS thread" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // `m` must be a genuine lexical upvalue of the thunk (let*-bound, not a
+    // top-level define) -- a global mutex reference is the *supported*
+    // sharing path (see srfi18.scm's own header comment) and would resolve
+    // through vm.globals without ever touching deepCopy at all, defeating
+    // the point of this test.
+    _ = try ctx.vm.eval(
+        \\(define t (let* ((m (make-mutex))) (make-thread (lambda () (mutex-lock! m)))))
+    );
+    _ = try ctx.vm.eval("(thread-start! t)");
+
+    const t_val = try ctx.vm.eval("t");
+    const fiber = types.toObject(t_val).as(@import("fiber.zig").Fiber);
+    // White-box: thread-start! caught the UncopyableType error while
+    // building the envelope and never called std.Thread.spawn at all.
+    try std.testing.expect(fiber.os_thread == null);
+    try std.testing.expectEqual(@import("fiber.zig").FiberStatus.errored, fiber.status);
+
+    // Scheme-visible behavior is unchanged: thread-join! still reraises it
+    // as an uncaught-exception in the thread (matches
+    // tests/scheme/srfi/srfi18.scm's "OS threads cannot capture sync
+    // primitives" test).
+    const caught = try ctx.vm.eval(
+        \\(guard (e (#t (uncaught-exception? e))) (thread-join! t) #f)
+    );
+    try std.testing.expectEqual(types.TRUE, caught);
+}
+
+test "KEP-0002 Phase 2: thread churn -- repeated cross-thread channel round trips leave no refcount leak" {
+    const baseline = shared_object.liveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        // Each iteration promotes a fresh channel (captured by the thunk),
+        // sends across the thread boundary, joins (tearing down the child's
+        // heap immediately), and receives -- exercising exactly the
+        // "envelope queued by a thread that has already exited its heap"
+        // path the KEP's acceptance criteria call out.
+        const result = try ctx.vm.eval(
+            \\(let loop ((i 0) (acc 0))
+            \\  (if (= i 20)
+            \\      acc
+            \\      (let* ((ch (make-channel))
+            \\             (t (make-thread (lambda () (channel-send ch i)))))
+            \\        (thread-start! t)
+            \\        (thread-join! t)
+            \\        (loop (+ i 1) (+ acc (channel-receive ch))))))
+        );
+        try std.testing.expectEqual(@as(i64, 190), types.toFixnum(result)); // sum 0..19
+    }
+    // ctx.deinit() above frees every tracked object regardless of Scheme-
+    // level reachability, including each iteration's channel stub -- so
+    // every promoted SharedChannel's refcount must have already reached
+    // zero (destroyed) via ordinary send/receive/envelope teardown well
+    // before this point, or it would still show up here.
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "KEP-0002 Phase 2: an exception raised in the child carrying a channel promotes via the exception envelope" {
+    const baseline = shared_object.liveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        // The exception object (an error-object wrapping the channel as an
+        // irritant) is built into an envelope on the child thread -- the
+        // same promotion-legality argument as a returned value, but via the
+        // errored path in threadEntryFn instead of the completed path.
+        const result = try ctx.vm.eval(
+            \\(let* ((t (make-thread (lambda ()
+            \\                          (let ((inner (make-channel)))
+            \\                            (channel-send inner 'irritant-marker)
+            \\                            (error "boom" inner))))))
+            \\  (thread-start! t)
+            \\  (guard (e (#t (car (error-object-irritants (uncaught-exception-reason e)))))
+            \\    (thread-join! t)
+            \\    'not-caught))
+        );
+        const inner_ch = types.toObject(result);
+        try std.testing.expectEqual(types.ObjectTag.channel, inner_ch.tag);
+        try std.testing.expect(inner_ch.as(types.Channel).shared != null);
+    }
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}

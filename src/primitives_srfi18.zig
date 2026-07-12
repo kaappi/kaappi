@@ -5,6 +5,8 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const fiber_mod = @import("fiber.zig");
 const memory = @import("memory.zig");
+const shared_channel = @import("shared_channel.zig");
+const gc_deep_copy = @import("gc_deep_copy.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -73,17 +75,33 @@ pub const wasm_specs = blk: {
     break :blk out;
 };
 
+/// KEP-0002 Phase 2: what a completed thunk produced, crossing the thread
+/// boundary the same way the thunk itself crossed at thread-start! -- via an
+/// Envelope built on the *owning* thread (the child, for a result), not
+/// deep-copied directly out of the child's still-allocated heap by the
+/// parent at join time. This is what makes a channel created and returned
+/// by the child legally promotable (promotion requires gc_instance to be
+/// the channel's owner, which only holds true while the child itself is
+/// still running). `.failed` records why building the envelope itself
+/// failed (UncopyableType or OutOfMemory) so reapOsThread can raise the
+/// exact same errors the old direct-deepCopy-at-join path did.
+const JoinResult = union(enum) {
+    none, // thunk returned void; nothing to copy out
+    envelope: *shared_channel.Envelope,
+    failed: gc_deep_copy.DeepCopyError,
+};
+
 const ChildThreadResources = struct {
     child_gc: *memory.GC,
     child_vm: *vm_mod.VM,
-    result: Value = types.VOID,
-    exception: ?Value = null,
+    result: JoinResult = .none,
+    exception: ?*shared_channel.Envelope = null,
 };
 
 // Entries are freed only when a thread is joined (freeChildResources called
 // from reapOsThread). Threads that complete but are never joined leak their
-// child VM and GC — the result must survive until the parent deep-copies it,
-// and automatic cleanup would race with that copy.
+// child VM and GC — the result must survive until the parent copies it out
+// of its envelope, and automatic cleanup would race with that copy.
 const ChildRegistry = struct {
     map: std.AutoHashMap(usize, ChildThreadResources),
     mutex: std.atomic.Mutex,
@@ -94,7 +112,7 @@ const ChildRegistry = struct {
         try self.map.put(key, res);
     }
 
-    fn storeResult(self: *ChildRegistry, key: usize, result: Value, exception: ?Value) void {
+    fn storeResult(self: *ChildRegistry, key: usize, result: JoinResult, exception: ?*shared_channel.Envelope) void {
         memory.spinLock(&self.mutex);
         defer memory.spinUnlock(&self.mutex);
         if (self.map.getPtr(key)) |entry| {
@@ -103,10 +121,26 @@ const ChildRegistry = struct {
         }
     }
 
-    fn get(self: *ChildRegistry, key: usize) ?ChildThreadResources {
+    // Atomically reads AND clears result/exception (leaving child_gc/child_vm
+    // in place for freeChildResources' own fetchRemove). A plain get() would
+    // let two racing reapOsThread calls for the same fiber_key -- reachable
+    // today only through a fiber value reached via a shared global, since
+    // fiber ownership is otherwise unchecked -- both retrieve the SAME
+    // *Envelope pointer and both call env.deinit() on it: a double-free.
+    // Clearing under the lock means at most one caller ever sees a non-.none
+    // result/non-null exception to consume.
+    const TakenResult = struct { result: JoinResult, exception: ?*shared_channel.Envelope };
+
+    fn takeResult(self: *ChildRegistry, key: usize) TakenResult {
         memory.spinLock(&self.mutex);
         defer memory.spinUnlock(&self.mutex);
-        return self.map.get(key);
+        if (self.map.getPtr(key)) |entry| {
+            const taken: TakenResult = .{ .result = entry.result, .exception = entry.exception };
+            entry.result = .none;
+            entry.exception = null;
+            return taken;
+        }
+        return .{ .result = .none, .exception = null };
     }
 
     fn fetchRemove(self: *ChildRegistry, key: usize) ?ChildThreadResources {
@@ -292,12 +326,39 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
-    // Root the thunk (the child deep-copies it from the parent heap) and the
-    // fiber itself (the child writes fiber.status / reads fiber.terminated
-    // for the whole run, so it must survive even if the program drops its
-    // last reference). Both are removed at thread-join!.
-    gc.extra_roots.append(gc.allocator, fiber.thunk) catch return PrimitiveError.OutOfMemory;
-    gc.extra_roots.append(gc.allocator, args[0]) catch return PrimitiveError.OutOfMemory;
+    // KEP-0002 Phase 2: copy the thunk into an envelope on THIS (the owning)
+    // thread, before ever spawning the child. This closes the old
+    // concurrent-copy race (the child used to deepCopy fiber.thunk directly
+    // out of the still-running parent heap) and is the only place a channel
+    // captured by the thunk can legally promote -- promotion requires
+    // gc_instance to be the channel's owner, which is only true here, now,
+    // on the parent thread.
+    const envelope = shared_channel.Envelope.create(fiber.thunk) catch |err| {
+        if (err != error.UncopyableType) return PrimitiveError.OutOfMemory;
+        // Mirror the old error shape exactly: thread-start! itself never
+        // raises -- the fiber is left .errored (no OS thread ever spawned)
+        // and thread-join! surfaces this as "uncaught exception in thread",
+        // matching a thunk that fails mid-flight instead of at the boundary.
+        // No child_gc/child_vm exists yet for this failure (nothing was ever
+        // spawned), so the usual child_registry.storeResult path used by
+        // every post-spawn failure in threadEntryFn doesn't apply here --
+        // this is the one place a fiber's error state is set directly.
+        fiber.current_exception = try makeErrorWithType(.general, "thread thunk contains uncopyable type (port, continuation, etc.)", types.NIL);
+        gc.writeBarrier(&fiber.header, fiber.current_exception.?);
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
+        return args[0];
+    };
+
+    // Root the fiber itself: the child writes fiber.status / reads
+    // fiber.terminated for the whole run, so it must survive even if the
+    // program drops its last reference. Removed at thread-join!. (The
+    // thunk needs no separate root -- its envelope snapshot is independent
+    // of the parent heap, and fiber.thunk itself is already traced by
+    // markFiberState whenever the fiber is.)
+    gc.extra_roots.append(gc.allocator, args[0]) catch {
+        envelope.deinit();
+        return PrimitiveError.OutOfMemory;
+    };
 
     fiber.status = .running;
     // Increment *before* spawning: if the child ran to completion before an
@@ -307,21 +368,26 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // crossThreadWaitPossible wrongly conclude no other thread exists.
     _ = @atomicRmw(usize, &live_child_threads, .Add, 1, .release);
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
-        fiber, gc.allocator, gc, vm,
+        fiber, gc.allocator, vm, envelope,
     }) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        envelope.deinit();
         return PrimitiveError.OutOfMemory;
     };
 
     return args[0];
 }
 
-fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
+fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
     // Balances the increment in threadStartFn on every exit path (including
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
     // another OS thread still alive" check stays accurate.
     defer _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
-    _ = parent_gc;
+    // envelope is owned solely by this function (unlike the result/exception
+    // envelopes built below, which escape into child_registry for the
+    // parent to consume) -- every exit path needs it freed exactly once.
+    defer envelope.deinit();
+
     const child_gc = allocator.create(memory.GC) catch {
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
@@ -360,30 +426,44 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
         return;
     };
 
-    const child_thunk = child_gc.deepCopy(fiber.thunk) catch |err| {
-        if (err == error.UncopyableType) {
-            const exc = child_gc.allocErrorObject(
-                child_gc.allocString("thread thunk contains uncopyable type (port, continuation, etc.)") catch types.VOID,
-                types.NIL,
-            ) catch null;
-            child_registry.storeResult(@intFromPtr(fiber), types.VOID, exc);
-        }
+    // Copy the thunk out of the envelope into this thread's own fresh heap.
+    // thread-start! already ran the forward copy on the parent thread and
+    // rejected anything uncopyable before ever spawning this thread, so
+    // this copy-out can only fail on OOM.
+    const child_thunk = child_gc.deepCopy(envelope.value) catch {
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
         if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
-        child_registry.storeResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
+        // Built on this (owning) thread, mirroring thread-start!'s thunk
+        // copy: this is the only place a channel raised in the exception
+        // can legally promote (gc_instance == child_gc here, not the
+        // parent's gc it would be at join time).
+        const exc_envelope = if (child_vm.current_exception) |exc|
+            shared_channel.Envelope.create(exc) catch null
+        else
+            null;
+        child_registry.storeResult(@intFromPtr(fiber), .none, exc_envelope);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
     if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
 
-    // Store result in child_resources (not on the fiber) so the parent
-    // GC never traverses a child-heap pointer (Race C).
-    child_registry.storeResult(@intFromPtr(fiber), result, null);
+    // Store the result in child_resources (not on the fiber) so the parent
+    // GC never traverses a child-heap pointer (Race C) -- and, since Phase
+    // 2, as an envelope rather than a raw Value, so a channel the thunk
+    // created and returned promotes correctly (see the exception path
+    // above for why this must run on this thread).
+    const join_result: JoinResult = if (result == types.VOID)
+        .none
+    else if (shared_channel.Envelope.create(result)) |env|
+        .{ .envelope = env }
+    else |err|
+        .{ .failed = err };
+    child_registry.storeResult(@intFromPtr(fiber), join_result, null);
     @atomicStore(fiber_mod.FiberStatus, &fiber.status, .completed, .release);
 }
 
@@ -649,14 +729,10 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const fiber_obj = types.toObject(fiber_val);
 
-    // Remove the thunk and fiber from extra_roots (added by thread-start!
-    // to keep them alive while the child runs; the child is done now).
-    for (gc.extra_roots.items, 0..) |v, idx| {
-        if (v == target.thunk) {
-            _ = gc.extra_roots.swapRemove(idx);
-            break;
-        }
-    }
+    // Remove the fiber from extra_roots (added by thread-start! to keep it
+    // alive while the child runs; the child is done now). The thunk itself
+    // is no longer separately rooted -- thread-start! consumed it into an
+    // envelope before ever spawning the child.
     for (gc.extra_roots.items, 0..) |v, idx| {
         if (v == fiber_val) {
             _ = gc.extra_roots.swapRemove(idx);
@@ -665,26 +741,45 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
     }
     const fiber_key = @intFromPtr(target);
 
-    // Retrieve result/exception from child_registry (stored there to
-    // avoid the parent GC traversing child-heap pointers via the fiber).
-    if (child_registry.get(fiber_key)) |res| {
-        if (target.status == .completed and res.result != types.VOID) {
-            target.result = gc.deepCopy(res.result) catch |err| {
-                target.result = types.VOID;
+    // Retrieve the result/exception envelope from child_registry (stored
+    // there, not on the fiber, so the parent GC never traverses a
+    // child-heap pointer). KEP-0002 Phase 2: both crossed by envelope, built
+    // on the child thread that owns them -- the same mechanism thread-start!
+    // uses for the thunk, and the only way a channel the thunk created or
+    // raised can legally promote. takeResult (not a plain get) atomically
+    // clears both fields under the registry lock, so a fiber joined twice
+    // concurrently -- reachable via a shared global, since fiber ownership
+    // itself is otherwise unchecked -- can't hand the same *Envelope to two
+    // callers, which would double-free it.
+    const res = child_registry.takeResult(fiber_key);
+    if (target.status == .completed) {
+        switch (res.result) {
+            .none => {},
+            .envelope => |env| {
+                target.result = gc.deepCopy(env.value) catch {
+                    target.result = types.VOID;
+                    env.deinit();
+                    freeChildResources(fiber_key);
+                    return PrimitiveError.OutOfMemory;
+                };
+                gc.writeBarrier(fiber_obj, target.result);
+                env.deinit();
+            },
+            .failed => |err| {
                 freeChildResources(fiber_key);
                 if (err == error.UncopyableType) {
                     return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
                 }
                 return PrimitiveError.OutOfMemory;
-            };
-            gc.writeBarrier(fiber_obj, target.result);
+            },
         }
-        if (target.status == .errored) {
-            if (res.exception) |exc| {
-                target.current_exception = gc.deepCopy(exc) catch null;
-                if (target.current_exception) |cv|
-                    gc.writeBarrier(fiber_obj, cv);
-            }
+    }
+    if (target.status == .errored) {
+        if (res.exception) |exc_env| {
+            target.current_exception = gc.deepCopy(exc_env.value) catch null;
+            if (target.current_exception) |cv|
+                gc.writeBarrier(fiber_obj, cv);
+            exc_env.deinit();
         }
     }
     freeChildResources(fiber_key);

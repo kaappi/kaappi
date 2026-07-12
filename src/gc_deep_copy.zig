@@ -340,11 +340,16 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // only for the thread that owns the channel) is checked against
         // `memory_mod.gc_instance`, the threadlocal for whichever thread is
         // actually executing this copy. A foreign, not-yet-promoted channel
-        // reuses UncopyableType rather than a new error class, so
-        // thread-start!/thread-join! (primitives_srfi18.zig) -- whose
-        // deepCopy calls run on the destination thread, never the channel's
-        // owner, until KEP-0002 Phase 2 moves the thunk copy to the parent
-        // thread -- keep today's exact behavior and error message.
+        // reuses UncopyableType rather than a new error class. Since
+        // KEP-0002 Phase 2 (primitives_srfi18.zig), thread-start!'s deepCopy
+        // of the thunk runs on the parent thread (the channel's owner, if it
+        // owns one) via an Envelope built before the child is ever spawned,
+        // and thread-join!'s result/exception cross the same way built on
+        // the child thread -- both legal promotion sites. This arm is only
+        // reached with a mismatched owner when a channel is reached through
+        // a shared global instead of being captured by a thunk or message
+        // (Motivation Path 2), which is exactly the case this error exists
+        // to catch.
         .channel => {
             const ch = obj.as(types.Channel);
             // Aliasing an already-promoted stub needs no ownership check
