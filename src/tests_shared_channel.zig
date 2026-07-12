@@ -126,10 +126,10 @@ test "deepCopy .channel arm promotes on first encounter and aliases thereafter (
     try std.testing.expect(ch.shared == null);
 
     const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
     memory.gc_instance = &gc1; // gc1 is the calling thread's own gc -- legal to promote
     const stub2 = try gc2.deepCopy(ch_val);
     const stub3 = try gc3.deepCopy(ch_val);
-    memory.gc_instance = saved_gc;
 
     try std.testing.expect(ch.shared != null); // promoted by the first deepCopy
 
@@ -210,9 +210,9 @@ test "refcount teardown: a channel-in-channel message drains and destroys recurs
     const inner_val = try inner_gc.allocChannel(); // channel B, a DIFFERENT SharedChannel
 
     const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
     memory.gc_instance = &inner_gc; // B's owner, for its promotion
     const b_stub_on_outer = try outer_gc.deepCopy(inner_val); // promotes B, aliases onto outer_gc
-    memory.gc_instance = saved_gc;
 
     var b_stub_root = b_stub_on_outer;
     outer_gc.pushRoot(&b_stub_root);
@@ -226,7 +226,6 @@ test "refcount teardown: a channel-in-channel message drains and destroys recurs
 
     memory.gc_instance = &outer_gc; // A's owner, for its own promotion
     const sc_a = try shared_channel.promoteChannel(&outer_gc, outer_ch);
-    memory.gc_instance = saved_gc;
 
     try std.testing.expectEqual(@as(u32, 1), sc_a.queue_len);
 
@@ -237,6 +236,94 @@ test "refcount teardown: a channel-in-channel message drains and destroys recurs
     inner_gc.deinit();
 
     try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "reply-to worked example (§1): the received half, with the rc 1->2->3->2 progression" {
+    const baseline = shared_object.liveCount();
+    var sender_gc = memory.GC.init(std.testing.allocator);
+    var dest_gc = memory.GC.init(std.testing.allocator);
+
+    const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
+    memory.gc_instance = &sender_gc;
+
+    // "tasks" is already shared before this send, per the KEP's own framing.
+    // Rooted for the whole test: nothing else keeps it GC-reachable, and a
+    // gc-stress collection triggered by the *next* allocation would
+    // otherwise sweep it -- freeObject's .channel arm would then release
+    // tasks_sc's only refcount and destroy it out from under this test.
+    var tasks_val = try sender_gc.allocChannel();
+    sender_gc.pushRoot(&tasks_val);
+    const tasks_ch = types.toObject(tasks_val).as(types.Channel);
+    const tasks_sc = try shared_channel.promoteChannel(&sender_gc, tasks_ch);
+
+    // "reply" starts local to the sender -- rc 1 (its own stub) once sent.
+    var reply_val = try sender_gc.allocChannel();
+    sender_gc.pushRoot(&reply_val);
+    const reply_ch = types.toObject(reply_val).as(types.Channel);
+    try std.testing.expect(reply_ch.shared == null);
+
+    const send_outcome = try shared_channel.send(tasks_sc, reply_val, null);
+    try std.testing.expectEqual(shared_channel.SendOutcome.sent, send_outcome);
+    try std.testing.expect(reply_ch.shared != null); // promoted as a side effect of the send
+    const reply_sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(reply_ch.shared.?));
+
+    // Receive on a *different* heap: the copied-out value's alias arm runs
+    // against an envelope-owned stub (obj.owner = the envelope GC's id, not
+    // memory.gc_instance) -- exactly why the alias path deliberately skips
+    // the ownership check.
+    const recv_outcome = try shared_channel.receive(tasks_sc, &dest_gc, null);
+    const received_val = switch (recv_outcome) {
+        .value => |v| v,
+        else => return error.TestUnexpectedResult,
+    };
+    const received_ch = types.toObject(received_val).as(types.Channel);
+    try std.testing.expect(received_ch.shared != null);
+    const received_sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(received_ch.shared.?));
+
+    // Identity survives the round trip: a different heap object aliasing
+    // the same SharedChannel -- this is what makes reply-to patterns work.
+    try std.testing.expectEqual(reply_sc, received_sc);
+    try std.testing.expect(received_val != reply_val);
+
+    // rc is now 2 (reply's own stub + the received stub) -- the envelope's
+    // own transient stub already released via envelope.deinit() inside
+    // receive(). Tear down both remaining stubs (plus tasks' unrelated one).
+    sender_gc.popRoot(); // reply_val
+    sender_gc.popRoot(); // tasks_val
+    sender_gc.deinit();
+    dest_gc.deinit();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "primitive dispatch: channel-send/channel-receive route through the shared path once promoted" {
+    // th.TestContext doesn't reset memory.gc_instance on deinit (a pre-
+    // existing gap shared by every VM-based test); harmless there since
+    // nothing else reads the threadlocal outside an active eval, but this
+    // test also pokes shared_channel.zig directly, so restore explicitly.
+    const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define ch (make-channel))");
+    const ch_val = try ctx.vm.eval("ch");
+    const ch = types.toObject(ch_val).as(types.Channel);
+
+    // White-box promotion: Phase 1 has no Scheme-level way to reach this
+    // state (see the module doc comment), but channelSendFn/channelReceiveFn
+    // must still dispatch correctly once a channel *is* promoted, since
+    // Phases 2/3 build on exactly this contract.
+    _ = try shared_channel.promoteChannel(&ctx.gc, ch);
+    try std.testing.expect(ch.shared != null);
+
+    const send_result = try ctx.vm.eval("(channel-send ch 1)");
+    try std.testing.expectEqual(types.VOID, send_result);
+
+    const recv_result = try ctx.vm.eval("(channel-receive ch)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(recv_result));
 }
 
 test "send: succeeds on an unbounded, open channel and pushes an envelope" {
@@ -418,10 +505,9 @@ test "receive: empty and open registers a recv waiter and would park" {
 }
 
 test "Motivation Path 2 regression: a channel reached through a shared global raises instead of corrupting memory" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
     // Before this fix: the child's channel-send spliced a child-heap pair
     // into the parent-heap channel, and a subsequent channel-receive read
@@ -429,7 +515,7 @@ test "Motivation Path 2 regression: a channel reached through a shared global ra
     // channel-send raises inside the child, reraised at thread-join!; the
     // channel is left untouched, so channel-receive correctly deadlocks
     // (nothing was ever sent) instead of returning corrupted data.
-    const result = try vm.eval(
+    const result = try ctx.vm.eval(
         \\(define ch (make-channel))
         \\(define send-result
         \\  (guard (e (#t 'caught))

@@ -40,6 +40,20 @@ pub const Envelope = struct {
     /// built envelope, or it tears down everything it allocated and
     /// propagates deepCopy's error -- callers never have to decide whether
     /// a half-built envelope needs cleanup.
+    ///
+    /// Deliberate deviation from KEP-0002 §1's "the same way GC.initForThread
+    /// does (sharing the process-wide symbol table)": this uses plain
+    /// GC.init, a private per-envelope symbol table, so a message's symbols
+    /// are copied rather than aliased. An envelope can outlive the thread
+    /// that built it (§7: a sender may exit while its message is still
+    /// queued), so aliasing that thread's symbol table would leave the
+    /// envelope holding Symbol objects the owning GC could already have
+    /// freed by the time a receiver -- or destroyHook, on whichever thread
+    /// drops the last refcount -- reads the graph: a use-after-free. The
+    /// cost is that a symbol crossing a channel is `equal?` but not
+    /// necessarily `eq?` to the receiver's own copy of the same name;
+    /// revisit only alongside a genuinely process-global (not per-thread
+    /// chained) symbol table.
     pub fn create(payload: Value) !*Envelope {
         const gc = try std.heap.c_allocator.create(memory.GC);
         gc.* = memory.GC.init(std.heap.c_allocator);
@@ -54,6 +68,7 @@ pub const Envelope = struct {
         }
 
         const env = try std.heap.c_allocator.create(Envelope);
+        errdefer std.heap.c_allocator.destroy(env);
         env.* = .{ .gc = gc };
         env.value = try gc.deepCopy(payload);
         return env;
@@ -260,7 +275,9 @@ pub const SendOutcome = union(enum) {
 /// registered only by the full-channel park branch, which is provably
 /// unreachable through the public Scheme API in Phase 1 (capacity is
 /// always null) -- callers that only ever pass unbounded/open channels may
-/// pass null.
+/// pass null; a null notifier on that branch simply registers nothing
+/// (there is nothing yet to wake) rather than panicking, so a future caller
+/// that *can* reach this branch without a real notifier degrades safely.
 pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !SendOutcome {
     memory.spinLock(&sc.lock);
     if (sc.closed) {
@@ -269,7 +286,7 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
     }
     if (sc.capacity) |cap| {
         if (sc.queue_len + sc.reserved >= cap) {
-            sc.registerSendWaiter(notifier.?);
+            if (notifier) |n| sc.registerSendWaiter(n);
             memory.spinUnlock(&sc.lock);
             return .would_park;
         }
@@ -314,7 +331,8 @@ pub const RecvOutcome = union(enum) {
     eof,
 };
 
-/// KEP-0002 §4 receive, on the shared representation, verbatim.
+/// KEP-0002 §4 receive, on the shared representation, verbatim. `notifier`
+/// follows send()'s same null-is-safe convention on the park branch.
 pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifier) !RecvOutcome {
     memory.spinLock(&sc.lock);
     if (sc.popFront()) |env| {
@@ -347,7 +365,7 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
     // Reached with the channel open, or closed with admitted sends still in
     // flight: eof must not race a reservation, so the receiver parks and is
     // rung by the late push (or by send's failure-path closed-channel ring).
-    sc.registerRecvWaiter(notifier.?);
+    if (notifier) |n| sc.registerRecvWaiter(n);
     memory.spinUnlock(&sc.lock);
     return .would_park;
 }

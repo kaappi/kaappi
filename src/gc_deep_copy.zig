@@ -359,8 +359,12 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 if (obj.owner != current_gc.id) return error.UncopyableType;
                 break :blk try shared_channel.promoteChannel(current_gc, ch);
             };
-            sc.retain();
+            // Allocate before retaining: if allocChannelStub fails, no new
+            // stub exists to own the +1, and the source stub's own count
+            // (still held regardless) keeps the retain/release balance
+            // intact -- retaining first would leak sc's refcount on OOM.
             const new_val = try gc.allocChannelStub(sc);
+            sc.retain();
             try visited.put(src_ptr, new_val);
             return new_val;
         },

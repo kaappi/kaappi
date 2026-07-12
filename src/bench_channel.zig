@@ -53,7 +53,7 @@ fn benchLocalFastPath(iters: u64) !f64 {
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
-    var buf: [160]u8 = undefined;
+    var buf: [256]u8 = undefined;
     const src = try std.fmt.bufPrint(&buf,
         \\(import (scheme base) (kaappi fibers))
         \\(define ch (make-channel))
@@ -68,6 +68,7 @@ fn benchLocalFastPath(iters: u64) !f64 {
 
 const Workload = struct {
     name: []const u8,
+    iters: u64,
     build: *const fn (gc: *memory.GC) anyerror!Value,
 };
 
@@ -105,11 +106,11 @@ fn buildDeepChain(gc: *memory.GC) anyerror!Value {
 }
 
 const workloads = [_]Workload{
-    .{ .name = "fixnum", .build = buildFixnum },
-    .{ .name = "small pair", .build = buildSmallPair },
-    .{ .name = "1 KiB string", .build = buildString1KiB },
-    .{ .name = "64 KiB bytevector", .build = buildBytevector64KiB },
-    .{ .name = "50-deep chain", .build = buildDeepChain },
+    .{ .name = "fixnum", .iters = 20_000, .build = buildFixnum },
+    .{ .name = "small pair", .iters = 20_000, .build = buildSmallPair },
+    .{ .name = "1 KiB string", .iters = 20_000, .build = buildString1KiB },
+    .{ .name = "64 KiB bytevector", .iters = 2_000, .build = buildBytevector64KiB },
+    .{ .name = "50-deep chain", .iters = 20_000, .build = buildDeepChain },
 };
 
 /// Promoted-channel send+receive, single OS thread (no cross-thread wakeup
@@ -145,8 +146,7 @@ pub fn main() !void {
 
     std.debug.print("promoted (single-thread) send+receive, by payload shape:\n", .{});
     for (workloads) |wl| {
-        const iters: u64 = if (std.mem.eql(u8, wl.name, "64 KiB bytevector")) 2_000 else 20_000;
-        const ns = try benchPromotedPath(wl, iters);
-        std.debug.print("  {s:<20} {d:>10.1} ns/op over {d} iters\n", .{ wl.name, ns, iters });
+        const ns = try benchPromotedPath(wl, wl.iters);
+        std.debug.print("  {s:<20} {d:>10.1} ns/op over {d} iters\n", .{ wl.name, ns, wl.iters });
     }
 }

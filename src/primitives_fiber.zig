@@ -110,7 +110,7 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
     // shared global, promoted or not -- is what silently corrupted memory
     // before this check existed (Motivation Path 2); now it's a diagnosis.
     if (ch_obj.owner != gc.id)
-        return raiseChannelError("channel belongs to another thread; pass it through the thread thunk to share it");
+        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
     const ch = ch_obj.as(types.Channel);
 
     if (ch.shared) |raw| {
@@ -123,8 +123,11 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
             // Phase 1 channels are always unbounded and open -- no
             // Scheme-level API sets capacity or closed yet (KEP-0002
             // Phase 4) -- so these branches are unreachable through
-            // make-channel's output.
-            .would_park, .closed => unreachable,
+            // make-channel's output. @panic (not `unreachable`, which is UB
+            // under ReleaseFast) so a Phase 4 gap that forgets to wire this
+            // switch fails loudly in every build mode instead of silently
+            // corrupting execution.
+            .would_park, .closed => @panic("channel-send: reached a shared-channel branch Phase 1's primitives don't wire up yet (capacity/close is Phase 4)"),
         };
     }
 
@@ -161,7 +164,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ch_obj = types.toObject(args[0]);
     if (ch_obj.owner != gc.id)
-        return raiseChannelError("channel belongs to another thread; pass it through the thread thunk to share it");
+        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
     const ch = ch_obj.as(types.Channel);
 
     if (ch.shared) |raw| {
@@ -173,8 +176,9 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
             .value => |v| v,
             // Phase 1 channels are always open (channel-close! is Phase 4)
             // and fiber-parking isn't wired to the shared path yet (Phase
-            // 3) -- unreachable through make-channel's output.
-            .would_park, .eof => unreachable,
+            // 3) -- unreachable through make-channel's output. @panic, not
+            // `unreachable` (UB under ReleaseFast) -- see channelSendFn.
+            .would_park, .eof => @panic("channel-receive: reached a shared-channel branch Phase 1's primitives don't wire up yet (capacity/close is Phase 4)"),
         };
     }
 
@@ -185,7 +189,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     if (vm.scheduler == null) {
         // No fibers exist, so nothing can ever send: blocking would hang.
-        return raiseDeadlockError("channel-receive: deadlock — channel is empty and no fibers are running");
+        return raiseFiberError("channel-receive: deadlock — channel is empty and no fibers are running");
     }
 
     // Capture before the recursive dispatch below: args is a slice into
@@ -229,28 +233,15 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
     }
-    return raiseDeadlockError(deadlock_msg);
+    return raiseFiberError(deadlock_msg);
 }
 
-fn raiseDeadlockError(msg: []const u8) PrimitiveError {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
-    var msg_root = message;
-    gc.pushRoot(&msg_root);
-    const err_val = gc.allocErrorObject(msg_root, types.NIL) catch {
-        gc.popRoot();
-        return PrimitiveError.OutOfMemory;
-    };
-    gc.popRoot();
-    vm.current_exception = err_val;
-    return PrimitiveError.ExceptionRaised;
-}
-
-/// Same shape as raiseDeadlockError, kept separate since the message isn't
-/// about deadlocks: the foreign-owner check (KEP-0002 §2) and a shared-path
-/// uncopyable payload both need this.
-fn raiseChannelError(msg: []const u8) PrimitiveError {
+/// Raises a generic ErrorObject carrying `msg`. Named for this file's scope
+/// (fiber/channel primitives), not any one caller: deadlocks, the
+/// foreign-owner check (KEP-0002 §2), and a shared-path uncopyable payload
+/// all just need a message wrapped into a catchable exception -- the
+/// function name never reaches the user, only `msg` does.
+fn raiseFiberError(msg: []const u8) PrimitiveError {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
@@ -274,7 +265,7 @@ fn translateSharedChannelError(err: anyerror, proc: []const u8) PrimitiveError {
         var buf: [96]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "{s}: value contains an uncopyable type (port, continuation, etc.)", .{proc}) catch
             return PrimitiveError.OutOfMemory;
-        return raiseChannelError(msg);
+        return raiseFiberError(msg);
     }
     return PrimitiveError.OutOfMemory;
 }
