@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783850565758,
+  "lastUpdate": 1783852832493,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e9928fb66e2dc2c4901c3e6eabc062d53e2fdf8",
-          "message": "Add nine missing SRFI-133 procedures (#1172) (#1308)\n\nvector=, vector-fold, vector-fold-right, vector-map!,\nvector-reverse-copy!, vector-unfold!, vector-unfold-right!,\nreverse-vector->list, and reverse-list->vector were spec-required\nbut unbound after (import (srfi 133)). All nine are now native\nZig primitives with multi-vector support, GC write barriers,\nand accumulator rooting where needed.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:55:29+05:30",
-          "tree_id": "ab3bfcf589981918be597ea14926dbbb145e72aa",
-          "url": "https://github.com/kaappi/kaappi/commit/7e9928fb66e2dc2c4901c3e6eabc062d53e2fdf8"
-        },
-        "date": 1783490781814,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.315744,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.980289,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.970254,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.393393,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012518,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.202917,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500663,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072197,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.598452,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.957882,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.114518,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.977277,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.346635,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.639549,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045397,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042535,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d4d7a11379fe86c707cb61c8139b11402bfd306",
+          "message": "Fix epoll stale-fire stranding of opposite-direction waiters (#1481)\n\nReactor.poll() gated the re-arm step behind `if (!fired) continue;`, so a\nstale ONESHOT fire (an event for a direction whose waiter list was already\nemptied by removeWaiter) skipped re-arming. On epoll, that stale fire still\ndisarms the whole fd, permanently stranding any waiter left on the opposite\ndirection — a silent hang invisible to isEmpty(). Re-arm unconditionally\nwhenever waiters remain after the drain.\n\nVerified on real Linux/epoll via podman: the new regression test fails\nwithout the fix and passes with it; kqueue is immune (independent\nper-direction knotes) so this is a no-op guard on macOS.\n\nFixes #1462.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T10:15:03Z",
+          "tree_id": "4fd51eb0a48884690ebfe6ae962116803c2993c6",
+          "url": "https://github.com/kaappi/kaappi/commit/6d4d7a11379fe86c707cb61c8139b11402bfd306"
+        },
+        "date": 1783852830609,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.415682,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.881712,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.912764,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.529929,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006455,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054808,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510752,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069211,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.476762,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984158,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.616468,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436849,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.86987,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.701503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043168,
             "unit": "seconds"
           }
         ]
