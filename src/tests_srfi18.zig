@@ -515,8 +515,30 @@ test "concurrent thread-sleep! retries across fibers resolve without unbounded s
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    // gc-stress collects on every allocation, so the full retry count adds
+    // wall time and allocator churn without more coverage -- scale it down,
+    // like tests_robustness.zig does for its own iteration-heavy loops.
+    const n: i64 = if (@import("build_options").gc_stress) 300 else 3000;
+
     _ = try vm.eval("(import (srfi 18))");
-    const result = try vm.eval(
+    const result = try vm.eval(if (@import("build_options").gc_stress)
+        \\(define signal #f)
+        \\(define (poll-until-signal)
+        \\  (let loop ((n 0))
+        \\    (if signal
+        \\        n
+        \\        (begin (thread-sleep! 0.0001) (loop (+ n 1))))))
+        \\(define setter
+        \\  (spawn (lambda ()
+        \\    (let loop ((n 0))
+        \\      (if (>= n 300)
+        \\          (begin (set! signal #t) n)
+        \\          (begin (thread-sleep! 0.0001) (loop (+ n 1))))))))
+        \\(define waiter (spawn poll-until-signal))
+        \\(define setter-result (fiber-join setter))
+        \\(define waiter-result (fiber-join waiter))
+        \\(list setter-result waiter-result signal)
+    else
         \\(define signal #f)
         \\(define (poll-until-signal)
         \\  (let loop ((n 0))
@@ -532,10 +554,26 @@ test "concurrent thread-sleep! retries across fibers resolve without unbounded s
         \\(define waiter (spawn poll-until-signal))
         \\(define setter-result (fiber-join setter))
         \\(define waiter-result (fiber-join waiter))
-        \\(and (= setter-result 3000)
-        \\     (>= waiter-result 0)
-        \\     (<= waiter-result 3000)
-        \\     signal)
+        \\(list setter-result waiter-result signal)
     );
-    try std.testing.expectEqual(types.TRUE, result);
+
+    const setter_result = types.toFixnum(types.car(result));
+    const rest = types.cdr(result);
+    const waiter_result = types.toFixnum(types.car(rest));
+    const signal = types.car(types.cdr(rest));
+
+    try std.testing.expectEqual(n, setter_result);
+    // The waiter must have actually retried through thread-sleep! at least
+    // once (the regression this test exists to catch is specifically about
+    // *repeated* retries) -- `(>= waiter-result 0)` would be vacuously true
+    // for any non-negative starting value and prove nothing.
+    try std.testing.expect(waiter_result > 0);
+    // A loose sanity ceiling only, not `<= n`: that tighter bound holds today
+    // solely because the O(fiber count) round-robin scheduler happens to
+    // dispatch the setter before the waiter every wake round (#1477) -- once
+    // that scan is replaced with a ready queue, dispatch order within a wake
+    // round is no longer guaranteed, and the waiter could legitimately run
+    // more retries than the setter without indicating any regression.
+    try std.testing.expect(waiter_result < 100_000);
+    try std.testing.expectEqual(types.TRUE, signal);
 }
