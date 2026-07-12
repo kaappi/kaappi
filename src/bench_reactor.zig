@@ -70,8 +70,10 @@ fn benchRearmVsIo(iters: u32) !RearmResult {
     const io_start = nowNs();
     i = 0;
     while (i < iters) : (i += 1) {
-        _ = std.posix.system.write(pipe[1], &buf, 1);
-        _ = std.posix.system.read(pipe[0], &buf, 1);
+        const wrote = std.posix.system.write(pipe[1], &buf, 1);
+        if (wrote != 1) return error.ShortWrite;
+        const bytes_read = std.posix.system.read(pipe[0], &buf, 1);
+        if (bytes_read != 1) return error.ShortRead;
     }
     const io_elapsed = nowNs() - io_start;
 
@@ -103,10 +105,15 @@ fn benchWakeAllFanout(allocator: std.mem.Allocator, n: u32) !FanoutResult {
     }
 
     var buf: [1]u8 = .{'x'};
-    _ = std.posix.system.write(pipe[1], &buf, 1);
+    const wrote = std.posix.system.write(pipe[1], &buf, 1);
+    if (wrote != 1) return error.ShortWrite;
 
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(allocator);
+    // Reserve capacity for all N wakeups before starting the clock, so the
+    // timed region measures poll()'s own dispatch/fan-out work rather than
+    // the result-buffer's growth reallocations.
+    try ready.ensureTotalCapacity(allocator, n);
 
     const start = nowNs();
     try reactor.poll(5_000_000_000, &ready);
@@ -126,14 +133,20 @@ fn benchTimerGranularity(requested_ns: u64) !TimerResult {
     var fiber: Fiber = undefined;
     fiber.status = .waiting;
 
-    const deadline = nowNs() + requested_ns;
-    try reactor.addTimer(deadline, &fiber);
-
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(std.heap.page_allocator);
+    try ready.ensureTotalCapacity(std.heap.page_allocator, 1);
+
+    const deadline = nowNs() + requested_ns;
+    try reactor.addTimer(deadline, &fiber);
     try reactor.poll(requested_ns + 5_000_000_000, &ready);
 
     const actual = nowNs();
+    var fired = false;
+    for (ready.items) |f| {
+        if (f == &fiber) fired = true;
+    }
+    if (!fired) return error.TimerDidNotFire;
     return .{ .requested_ns = requested_ns, .actual_late_ns = @as(i64, @intCast(actual)) - @as(i64, @intCast(deadline)) };
 }
 
