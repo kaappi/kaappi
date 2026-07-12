@@ -15,6 +15,7 @@ test {
     _ = @import("tests_robustness.zig");
     _ = @import("tests_fuzz.zig");
     _ = @import("tests_deepcopy.zig");
+    _ = @import("tests_shared_channel.zig");
     _ = @import("tests_ir.zig");
     _ = @import("tests_srfi18.zig");
     _ = @import("tests_fibers.zig");

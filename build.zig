@@ -230,6 +230,20 @@ pub fn build(b: *std.Build) void {
     const bench_reactor_step = b.step("bench-reactor", "Run the reactor wake-all/re-arm/timer benchmark");
     bench_reactor_step.dependOn(&run_bench_reactor.step);
 
+    // Benchmark executable (local fast-path + promoted envelope cost, KEP-0002 P1)
+    const bench_channel_mod = kaappiModule(b, options_mod, .{
+        .root = "src/bench_channel.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_channel_exe = b.addExecutable(.{
+        .name = "bench-channel",
+        .root_module = bench_channel_mod,
+    });
+    const run_bench_channel = b.addRunArtifact(bench_channel_exe);
+    const bench_channel_step = b.step("bench-channel", "Run the channel local fast-path & envelope-cost benchmark");
+    bench_channel_step.dependOn(&run_bench_channel.step);
+
     // Package manager (thottam)
     const thottam_mod = kaappiModule(b, options_mod, .{
         .root = "src/thottam.zig",
