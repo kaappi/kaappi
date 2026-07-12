@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783821117631,
+  "lastUpdate": 1783829661688,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2ac9c16ac9061650674f78a3abab700ef1091d4b",
-          "message": "Fix bitwise and/ior/xor for negative operands in SRFI-151/143 (#1214) (#1310)\n\nThe bit-walking helpers used truncating quotient and terminated only at\nzero, ignoring the two's-complement fixed point at -1.  This produced\nwrong results for every bitwise operation involving a negative operand.\narithmetic-shift right had the same truncation bug.\n\nFix: add -1 base cases to and/ior/xor recursion, switch quotient →\nfloor-quotient in the recursive step and in arithmetic-shift right.\nSRFI-60 inherits the fix via its SRFI-151 re-exports.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:54:09+05:30",
-          "tree_id": "7e298a4a3ba8b6e3081f6248bf951258f43d27d6",
-          "url": "https://github.com/kaappi/kaappi/commit/2ac9c16ac9061650674f78a3abab700ef1091d4b"
-        },
-        "date": 1783490521362,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.361436,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.829021,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.975712,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.393753,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012498,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.201222,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502235,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071977,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.447869,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.940495,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.039837,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.95437,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.334826,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.683233,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043735,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04312,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10137698404f561312614634b2517358b23315c3",
+          "message": "WASI backend: poll_oneoff reactor (KEP-0001 P4) (#1461)\n\n* WASI backend: poll_oneoff reactor (KEP-0001 P4)\n\nReplace the timer-only WASI stopgap in src/reactor.zig with a real\nWasiPollBackend. poll_oneoff is stateless, so the backend keeps the\nkernel's job in userspace: arm() records armed directions per fd, and\nevery wait() rebuilds the subscription list from that map — one\nFD_READ/FD_WRITE subscription per armed direction plus one CLOCK\nsubscription bounding the wait (the mio wasi model). Events map back to\nregistrations by fd via userdata, wake both directions defensively on\nper-subscription errors or HANGUP, and disarm the direction they report\n(ONESHOT parity with kqueue/epoll, per-filter like kqueue). The CLOCK\nsubscription is relative rather than the KEP sketch's ABSTIME: the\nreactor core already reduces the timer heap's nearest deadline to a\nrelative bound in effectiveTimeout(), so ABSTIME would only re-derive\nthe deadline it came from and couple the backend to clockNs()'s clock\ndomain.\n\nFd readiness is best-effort per the KEP's cross-platform section, with\nthe capability probe in maybeSetNonblocking: on WASI it now attempts\nfd_fdstat_set_flags(NONBLOCK), and a refusing host (the playground's\nbrowser shim, which also only accepts single CLOCK-subscription\npoll_oneoff calls) keeps ports on blocking fds — no EAGAIN, no fd\nregistrations, CLOCK-only waits — degrading to single-fiber blocking\nI/O exactly where the host can't do better. The three is_wasm EAGAIN\ngates in primitives_io.zig are gone, so a host that does deliver EAGAIN\nparks the fiber on the reactor like any other platform. (No fd>2 ports\ncan currently exist on WASM — open-input/output-file are native-only —\nso the fd path is dormant there until file/socket ports land.)\n\nTimers become Scheme-visible on WASM by registering thread-sleep!\n(spec .wasm = true), the one SRFI-18 entry point with no OS-thread\ndependency; the (srfi 18) library itself stays native-only. The WASM\nspec table is a comptime-filtered wasm_specs subset, which forces the\nwhole file to compile on wasm32-wasi: threadStartFn's std.Thread.spawn\nmoves behind a comptime is_wasm branch, and the u64 signal_generation\natomics (wasm32 has no 64-bit atomics; the build is single-threaded)\ntake a plain-access branch via loadSignalGeneration/\nbumpSignalGeneration.\n\ntests/wasm/timers.scm runs under wasmtime in the CI wasm job: main-\nfiber sleep duration, zero/negative fast path, deadline ordering across\nfibers, and a sleeping fiber not stalling a runnable sibling. Timing of\nthe run (0.03s CPU over 0.4s wall) confirms the process blocks in\npoll_oneoff during sleeps instead of spinning.\n\nCloses #1442\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Reserve ready capacity before consuming events in WasiPollBackend\n\nReview finding on #1461: the per-event try-append in wait() could fail\n(OOM) after clearInterest already disarmed the direction — the event\nconsumed but never delivered, stranding the parked fiber with no re-arm\nand turning parkOnReactor into a busy spin (isEmpty() still false via\nthe listed waiter, wait() forever returning empty). That is precisely\nthe consumed-but-undelivered invariant Reactor.poll guards with its\nup-front ensureUnusedCapacity; the fixed-array kqueue/epoll backends\nnever had a fallible step there. Reserve nevents entries before the\ntranslation loop (dedup only shrinks the count) and appendAssumeCapacity\ninside it. The remaining fallible allocations (subs build, events\nbuffer) all happen before the poll_oneoff syscall, with interests\nintact.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T09:19:00+05:30",
+          "tree_id": "dfcdaf64e53e072ee5cfc0f28f7d2552b0e15a99",
+          "url": "https://github.com/kaappi/kaappi/commit/10137698404f561312614634b2517358b23315c3"
+        },
+        "date": 1783829660551,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.253493,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.998361,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.680273,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.301387,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006315,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045336,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.376227,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054687,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.977187,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.463101,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.301371,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.416558,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.414767,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.857756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036505,
             "unit": "seconds"
           }
         ]
