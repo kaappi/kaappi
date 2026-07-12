@@ -615,6 +615,13 @@ const WasiPollBackend = struct {
         }
 
         self.ready.clearRetainingCapacity();
+        // Reserved before the loop runs any clearInterest: a fallible
+        // append after an interest was disarmed would consume the event
+        // without delivering it — the waiter would never be woken and
+        // never re-armed (the same consumed-but-undelivered invariant
+        // Reactor.poll guards with its own up-front ensureUnusedCapacity).
+        // Dedup can only shrink the count, so nevents bounds the appends.
+        try self.ready.ensureTotalCapacity(self.allocator, nevents);
         outer: for (self.events.items[0..nevents]) |ev| {
             // Timer expiry is decided by the reactor against clockNs()
             // (popExpiredTimers); the CLOCK event only ends the wait.
@@ -637,7 +644,7 @@ const WasiPollBackend = struct {
                     continue :outer;
                 }
             }
-            try self.ready.append(self.allocator, .{ .fd = fd, .readable = readable, .writable = writable });
+            self.ready.appendAssumeCapacity(.{ .fd = fd, .readable = readable, .writable = writable });
         }
         return self.ready.items;
     }
