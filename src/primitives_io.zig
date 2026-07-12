@@ -705,7 +705,7 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
                 // continuation bytes consumed; the re-executed peek-char
                 // finds peek_byte empty and re-reads them from read_buf.
                 utf8_buf[i] = (readOneByte(port) catch |err|
-                    return propagateReadErr(port, err, &.{ utf8_buf[0..1], utf8_buf[1..i] })) orelse break;
+                    return propagateReadErr(port, err, &.{utf8_buf[0..i]})) orelse break;
             }
             port.peek_byte = b;
             if (i >= seq_len) {
@@ -913,7 +913,12 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
     // Read from fd, parsing incrementally so that interactive terminals
     // return as soon as a complete datum is available (#847).
-    if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
+    if (port.write_buf_len > port.write_buf_start) {
+        // A park in this drain must preserve the bytes already moved out
+        // of peek_byte/peek_extra/read_buf into `buf` above — a bare try
+        // would unwind without stashing and the retry would lose them.
+        drainWriteBuffer(port) catch |err| return propagateReadErr(port, err, &.{buf.items});
+    }
     maybeSetNonblocking(port);
     var tmp: [4096]u8 = undefined;
     while (true) {

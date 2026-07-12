@@ -560,10 +560,14 @@ pub fn waitForFd(vm: *VM, fd: std.posix.fd_t, interest: reactor_mod.Interest) VM
     // checks that every registered waiter is .io_waiting.
     const prev_status = me.status;
     me.status = .io_waiting;
-    ctx.reactor.register(fd, interest, me) catch {
+    ctx.reactor.register(fd, interest, me) catch |err| {
         me.status = prev_status;
         me.io_fd = null;
-        return VMError.OutOfMemory;
+        if (err == error.OutOfMemory) return VMError.OutOfMemory;
+        // A kernel-level arm failure (EBADF on a raced-away fd, resource
+        // limits) is not an OOM; surface it diagnosably.
+        vm.setErrorDetail("cannot wait on fd {d}: reactor registration failed", .{fd});
+        return VMError.InvalidArgument;
     };
 
     if (my_idx != 0 and vm.dispatched_from_scheduler) {

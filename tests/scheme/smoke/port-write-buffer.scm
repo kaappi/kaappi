@@ -2,16 +2,10 @@
 ;; flush-output-port, close-port, or a read on the same port. Checks the
 ;; user-visible buffering contract end to end: bytes must NOT be on disk
 ;; before the first flush, and MUST be after flush/close.
-(import (scheme base) (scheme write) (scheme file) (srfi 170))
+(import (scheme base) (scheme write) (scheme file) (scheme process-context)
+        (srfi 64) (srfi 170))
 
-(define pass 0)
-(define fail 0)
-(define (check name got expected)
-  (if (equal? got expected) (set! pass (+ pass 1))
-      (begin (set! fail (+ fail 1))
-             (display "FAIL: ") (display name)
-             (display " expected ") (write expected)
-             (display " got ") (write got) (newline))))
+(test-begin "port-write-buffer")
 
 (define test-file "/tmp/kaappi-port-write-buffer-test.txt")
 (when (file-exists? test-file) (delete-file test-file))
@@ -21,17 +15,17 @@
 
 (define out (open-output-file test-file))
 (write-string "hello" out)
-(check "writes buffer until flushed" (size-of test-file) 0)
+(test-equal "writes buffer until flushed" 0 (size-of test-file))
 
 (flush-output-port out)
-(check "flush-output-port drains the buffer" (size-of test-file) 5)
+(test-equal "flush-output-port drains the buffer" 5 (size-of test-file))
 
 (write-string " world" out)
 (close-port out)
-(check "close-port flushes the remainder" (size-of test-file) 11)
+(test-equal "close-port flushes the remainder" 11 (size-of test-file))
 
 (define in (open-input-file test-file))
-(check "round trip" (read-line in) "hello world")
+(test-equal "round trip" "hello world" (read-line in))
 (close-port in)
 (delete-file test-file)
 
@@ -39,13 +33,10 @@
 (define sp (open-output-string))
 (write-string "ab" sp)
 (flush-output-port sp)
-(check "string port flush is harmless" (get-output-string sp) "ab")
+(test-equal "string port flush is harmless" "ab" (get-output-string sp))
 (flush-output-port)
+(test-assert "default-port flush returns" #t)
 
-(display "port-write-buffer: ")
-(display pass)
-(display " passed, ")
-(display fail)
-(display " failed")
-(newline)
-(when (> fail 0) (exit 1))
+(let ((runner (test-runner-current)))
+  (test-end "port-write-buffer")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

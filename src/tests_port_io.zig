@@ -251,6 +251,50 @@ test "a read on the same port flushes its pending writes first" {
     try std.testing.expectEqual(@as(u8, 'x'), buf[0]);
 }
 
+test "(read) must not lose read_buf when its write drain parks" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Bidirectional port over a socketpair with tiny kernel buffers so a
+    // buffered-write drain hits EAGAIN.
+    var fds: [2]std.c.fd_t = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &fds));
+    const small: c_int = 4096;
+    try std.posix.setsockopt(fds[0], std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, &std.mem.toBytes(small));
+    try std.posix.setsockopt(fds[1], std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, &std.mem.toBytes(small));
+    _ = try definePortGlobal(vm, "sp", fds[0], true, true);
+    _ = try definePortGlobal(vm, "peer", fds[1], true, true);
+
+    // The first (read sp) consumes (a) and stashes " (b)" into port.read_buf.
+    _ = std.posix.system.write(fds[1], "(a) (b)", 7);
+    const first = try vm.eval("(equal? (read sp) '(a))");
+    try std.testing.expectEqual(types.TRUE, first);
+
+    _ = try vm.eval("(import (kaappi fibers))");
+    // f buffers a 20 KB write (a single write-string is appended whole —
+    // the high-water drain only flushes *prior* pending bytes), then calls
+    // (read sp). readDatumFn moves read_buf's " (b)" into its local buf,
+    // then drains the write buffer, which EAGAINs against the tiny socket
+    // buffers and parks f. If the Yielded unwound without stashing buf,
+    // " (b)" would be gone and f's retry would read "(c)" off the fd
+    // instead.
+    _ = try vm.eval(
+        \\(define f (spawn (lambda ()
+        \\  (write-string (make-string 20000 #\x) sp)
+        \\  (read sp))))
+    );
+    _ = try vm.eval(
+        \\(define g (spawn (lambda ()
+        \\  (read-string 20000 peer)
+        \\  (write-string "(c)" peer)
+        \\  (flush-output-port peer))))
+    );
+    const got_b = try vm.eval("(equal? (fiber-join f) '(b))");
+    try std.testing.expectEqual(types.TRUE, got_b);
+}
+
 test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
