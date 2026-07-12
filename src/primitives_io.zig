@@ -147,11 +147,26 @@ fn isBufferedFdPort(port: *types.Port) bool {
 /// mode), so flipping them would leak non-blocking mode outside this
 /// process. Without a scheduler nothing is flipped and sequential programs
 /// keep blocking fds. Pub only for tests_port_io's guard checks.
+///
+/// On WASI this doubles as the host-capability probe (KEP-0001 Phase 4):
+/// fd readiness is best-effort per the KEP, and a host that rejects
+/// fd_fdstat_set_flags(NONBLOCK) — the playground's browser shim does —
+/// keeps the port on a blocking fd, so no read ever EAGAINs, nothing
+/// registers with the reactor, and I/O degrades to single-fiber blocking
+/// exactly where the host can't support better.
 pub fn maybeSetNonblocking(port: *types.Port) void {
-    if (comptime is_wasm) return; // WASI fd readiness is KEP-0001 Phase 4
     if (port.nonblocking or port.is_string_port or port.fd <= 2) return;
     const vm = vm_mod.vm_instance orelse return;
     if (vm.scheduler == null) return;
+    if (comptime is_wasm) {
+        var stat: std.os.wasi.fdstat_t = undefined;
+        if (std.os.wasi.fd_fdstat_get(port.fd, &stat) != .SUCCESS) return;
+        var flags = stat.fs_flags;
+        flags.NONBLOCK = true;
+        if (std.os.wasi.fd_fdstat_set_flags(port.fd, flags) != .SUCCESS) return;
+        port.nonblocking = true;
+        return;
+    }
     const flags = std.c.fcntl(port.fd, std.posix.F.GETFL, @as(c_int, 0));
     if (flags < 0) return;
     const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
@@ -253,7 +268,6 @@ fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
             const e = std.posix.errno(rc);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
-                if (comptime is_wasm) break;
                 try waitPortFd(port, .write);
                 continue;
             }
@@ -624,7 +638,6 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
             const e = std.posix.errno(raw);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
-                if (comptime is_wasm) return null;
                 try waitPortFd(port, .read);
                 continue;
             }
@@ -954,7 +967,6 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             const e = std.posix.errno(raw_n);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
-                if (comptime is_wasm) break;
                 // Mid-datum would-block: a parked retry re-executes this
                 // primitive from the top, so the partial accumulation goes
                 // back into port.read_buf and is re-drained on entry. The

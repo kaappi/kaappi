@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
@@ -18,7 +19,12 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "thread-specific-set!", .func = &threadSpecificSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "thread-start!", .func = &threadStartFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "thread-yield!", .func = &threadYieldFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
-    .{ .name = "thread-sleep!", .func = &threadSleepFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    // wasm: the one SRFI-18 entry point with no OS-thread dependency that
+    // KEP-0001 Phase 4 needs Scheme-visible — it parks the current fiber
+    // on the reactor's timer heap, which the WASI backend waits out with a
+    // poll_oneoff CLOCK subscription. Registered as a global only; the
+    // (srfi 18) library itself stays unavailable on WASM.
+    .{ .name = "thread-sleep!", .func = &threadSleepFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = true },
     .{ .name = "thread-terminate!", .func = &threadTerminateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "thread-join!", .func = &threadJoinFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "mutex?", .func = &mutexPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
@@ -44,6 +50,27 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "terminated-thread-exception?", .func = &terminatedThreadPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "uncaught-exception?", .func = &uncaughtExceptionPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "uncaught-exception-reason", .func = &uncaughtExceptionReasonFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+};
+
+/// The `.wasm = true` subset of `specs`, what primitives.zig registers on
+/// wasm32-wasi (KEP-0001 Phase 4). Filtered at comptime so the WASM
+/// build's spec table never references the OS-thread functions: a
+/// function pointer in runtime data forces codegen of its body, and
+/// std.Thread.spawn (threadStartFn) is a compile error single-threaded.
+pub const wasm_specs = blk: {
+    var count: usize = 0;
+    for (specs) |s| {
+        if (s.wasm) count += 1;
+    }
+    var out: [count]primitives.PrimSpec = undefined;
+    var i: usize = 0;
+    for (specs) |s| {
+        if (s.wasm) {
+            out[i] = s;
+            i += 1;
+        }
+    }
+    break :blk out;
 };
 
 const ChildThreadResources = struct {
@@ -244,6 +271,16 @@ fn threadSpecificSetFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn threadStartFn(args: []const Value) PrimitiveError!Value {
+    // Unregistered on WASM (spec .wasm = false) but the body must still
+    // compile there: the comptime spec-table filter (wasm_specs) evaluates
+    // the full `specs` array, which analyzes every referenced function.
+    // The else-branch is what keeps std.Thread.spawn out of the
+    // single-threaded wasm32 build — only the taken branch of a
+    // comptime-known if is analyzed.
+    if (comptime is_wasm) return PrimitiveError.TypeError else return threadStartImpl(args);
+}
+
+fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-start!", "thread", args[0]);
 
@@ -850,7 +887,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     // that acquires the mutex in the gap and produce a lost wakeup (the
     // waiter would then wait for a *second* signal that may never come).
     const cv: ?*types.ConditionVariable = if (has_cv) types.toConditionVariable(args[1]) else null;
-    const start_gen: u64 = if (cv) |c| @atomicLoad(u64, &c.signal_generation, .acquire) else 0;
+    const start_gen: u64 = if (cv) |c| loadSignalGeneration(c) else 0;
 
     // Clear owner *before* the release-store: otherwise a cross-thread
     // acquirer that wins the locked CAS right after the store below could
@@ -912,13 +949,34 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     return types.TRUE;
 }
 
+/// signal_generation is a u64 and wasm32 has no 64-bit atomics; the WASM
+/// build is single-threaded, so a plain load is equivalent there. Only the
+/// taken branch of the comptime if is analyzed, keeping @atomicLoad(u64)
+/// out of the wasm32 build.
+fn loadSignalGeneration(cv: *types.ConditionVariable) u64 {
+    if (comptime is_wasm) {
+        return cv.signal_generation;
+    } else {
+        return @atomicLoad(u64, &cv.signal_generation, .acquire);
+    }
+}
+
+/// See loadSignalGeneration for why WASM takes the plain-access branch.
+fn bumpSignalGeneration(cv: *types.ConditionVariable) void {
+    if (comptime is_wasm) {
+        cv.signal_generation +%= 1;
+    } else {
+        _ = @atomicRmw(u64, &cv.signal_generation, .Add, 1, .release);
+    }
+}
+
 const CondVarWait = struct {
     me: *fiber_mod.Fiber,
     cv: *types.ConditionVariable,
     start_gen: u64,
     pub fn isDone(self: CondVarWait) bool {
         return self.me.status != .waiting or
-            @atomicLoad(u64, &self.cv.signal_generation, .acquire) != self.start_gen;
+            loadSignalGeneration(self.cv) != self.start_gen;
     }
     // See MutexWait.pollCapNs.
     pub fn pollCapNs(self: CondVarWait) ?u64 {
@@ -968,7 +1026,7 @@ fn condvarSignalFn(args: []const Value) PrimitiveError!Value {
     ctx.sched.wakeOneCondVarWaiter(args[0]);
     // Bump the generation so a waiter parked on a different OS thread's
     // scheduler (which never sees the local wake above) can poll for this.
-    _ = @atomicRmw(u64, &types.toConditionVariable(args[0]).signal_generation, .Add, 1, .release);
+    bumpSignalGeneration(types.toConditionVariable(args[0]));
     return types.VOID;
 }
 
@@ -977,7 +1035,7 @@ fn condvarBroadcastFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("condition-variable-broadcast!", "condition-variable", args[0]);
     const ctx = try ensureScheduler();
     ctx.sched.wakeAllCondVarWaiters(args[0]);
-    _ = @atomicRmw(u64, &types.toConditionVariable(args[0]).signal_generation, .Add, 1, .release);
+    bumpSignalGeneration(types.toConditionVariable(args[0]));
     return types.VOID;
 }
 
