@@ -443,6 +443,17 @@ fn threadSleepFn(args: []const Value) PrimitiveError!Value {
         me.status = .waiting;
         me.timed_out = false;
         me.deadline_ns = deadline;
+        // OOM below (addTimer or runSchedulerStep's own allocations) would
+        // otherwise leave deadline_ns set with no timer actually pending --
+        // the next thread-sleep! call on this fiber would then misread its
+        // fresh call as a redispatch and wait on a stale deadline forever.
+        // error.Yielded is not a real error here (it's the intentional
+        // flat-unwind signal the deadline_ns discriminator exists to
+        // survive), so it must not trip this cleanup.
+        errdefer |err| if (err != PrimitiveError.Yielded) {
+            me.deadline_ns = null;
+            ctx.reactor.removeTimer(me);
+        };
         try ctx.reactor.addTimer(deadline, me);
     } else if (me.timed_out) {
         // Redispatched after the timer we armed on a prior entry already
