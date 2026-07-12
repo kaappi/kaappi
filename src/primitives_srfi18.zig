@@ -435,8 +435,15 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
         // A terminated fiber may have been mid-timed-wait (mutex-lock!,
         // thread-join!, condvar wait, thread-sleep!) with a pending entry
         // on the reactor's timer heap. Cancel it now — otherwise it fires
-        // later against whatever fiber ends up reusing this slot.
+        // later against whatever fiber ends up reusing this slot. Likewise
+        // an io_waiting fiber (a parked port read/write, KEP-0001 Phase 3)
+        // still sits in the reactor's fd waiter lists; pull it out so the
+        // dead fiber can't linger there as a stale registration.
         ctx.reactor.removeTimer(fiber);
+        if (fiber.io_fd) |io_fd| {
+            ctx.reactor.removeWaiter(io_fd, fiber);
+            fiber.io_fd = null;
+        }
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         ctx.sched.wakeWaiters(fiber);
     }

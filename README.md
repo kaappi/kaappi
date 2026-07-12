@@ -363,6 +363,17 @@ Move blocking `channel-receive` calls into plain Scheme loops (named `let`,
 `do`) or the bytecode-driven procedures above when a fiber must wait inside
 iteration.
 
+Port I/O that would block (a socket or pipe read/write with no data or a
+full kernel buffer) parks the fiber on the per-thread reactor instead of
+blocking the OS thread, so fibers reading different connections interleave.
+The main fiber — or a fiber inside a native-driver callback — cannot be
+parked; it instead dispatches sibling fibers in place while it waits, so
+progress continues either way. Ports on fds other than 0/1/2 buffer output
+until `flush-output-port`, `close-port`, a read on the same port, the
+buffer filling (8 KiB), or program exit; stdin/stdout/stderr remain
+unbuffered. WASI builds keep blocking single-fiber I/O (the reactor's WASI
+backend is timer-only until KEP-0001 Phase 4).
+
 ### OS threads (SRFI-18)
 
 Each OS thread gets its own GC with an independent heap. Values are deep-copied

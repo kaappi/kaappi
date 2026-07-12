@@ -1,8 +1,10 @@
 // KEP-0001 Phase 1: reactor core, tested in isolation (no scheduler caller
 // yet — that's Phase 2). These are plain Zig tests against real fds; no VM
-// or GC is involved. Fake *Fiber values are bare stack locals: reactor.zig
-// never dereferences a parked fiber, it only stores and later returns the
-// pointer, so distinct addresses are all a test needs.
+// or GC is involved. Fake *Fiber values are stack locals with only `status`
+// initialized (to .io_waiting, what a genuinely parked fiber carries): the
+// reactor stores and returns the pointers without touching execution state,
+// but register()'s Debug-build staleness assertion reads the status of
+// every already-listed waiter (Phase 3).
 const std = @import("std");
 const reactor_mod = @import("reactor.zig");
 const fiber_mod = @import("fiber.zig");
@@ -41,6 +43,7 @@ test "register + poll wakes the fiber when the fd becomes readable" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a);
 
     writeByte(pipe[1], 'x');
@@ -62,6 +65,7 @@ test "poll times out with an empty ready list when nothing fires" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a); // never written to
 
     var ready = newReady();
@@ -80,7 +84,9 @@ test "multiple waiters on one fd direction are all woken (wake-all)" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     var fiber_b: Fiber = undefined;
+    fiber_b.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a);
     try reactor.register(pipe[0], .read, &fiber_b);
 
@@ -109,6 +115,7 @@ test "a write end is immediately ready for write interest" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[1], .write, &fiber_a);
 
     var ready = newReady();
@@ -124,6 +131,7 @@ test "addTimer fires when its deadline passes" {
     defer reactor.deinit();
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     const deadline = fiber_mod.clockNs() + 1_000_000; // 1ms out
     try reactor.addTimer(deadline, &fiber_a);
 
@@ -144,7 +152,9 @@ test "the nearer of an fd timeout and a timer deadline bounds the wait" {
     defer closeFd(pipe[1]);
 
     var fiber_fd: Fiber = undefined;
+    fiber_fd.status = .io_waiting;
     var fiber_timer: Fiber = undefined;
+    fiber_timer.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_fd); // never written to
     try reactor.addTimer(fiber_mod.clockNs() + 1_000_000, &fiber_timer); // 1ms
 
@@ -163,6 +173,7 @@ test "removeTimer cancels a pending timer so it never fires" {
     defer reactor.deinit();
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.addTimer(fiber_mod.clockNs() + 1_000_000, &fiber_a);
     reactor.removeTimer(&fiber_a);
 
@@ -183,6 +194,7 @@ test "unregister drops the registration; a later write wakes nobody" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a);
     reactor.unregister(pipe[0]);
 
@@ -204,6 +216,7 @@ test "isEmpty is true after a fired oneshot drains its waiters, even though the 
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a);
     writeByte(pipe[1], 'x');
 
@@ -232,6 +245,7 @@ test "re-registering a fd after a fired oneshot re-arms correctly" {
     defer closeFd(pipe[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_a);
     writeByte(pipe[1], 'x');
 
@@ -242,8 +256,61 @@ test "re-registering a fd after a fired oneshot re-arms correctly" {
     ready.clearRetainingCapacity();
 
     var fiber_b: Fiber = undefined;
+    fiber_b.status = .io_waiting;
     try reactor.register(pipe[0], .read, &fiber_b);
     writeByte(pipe[1], 'y');
+
+    try reactor.poll(5_000_000_000, &ready);
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_b, ready.items[0]);
+}
+
+test "a recycled fd number registers cleanly over a stale Reg left by a close without unregister" {
+    // A port freed by the GC closes its fd without reactor.unregister —
+    // the kernel silently drops the fd from the epoll set, but the Reg
+    // (kernel_registered=true, empty waiter lists) survives in the map.
+    // When the fd number is recycled onto a new port, register() must
+    // still succeed: epoll's CTL_MOD hits ENOENT on the untracked fd and
+    // must self-heal by retrying as CTL_ADD. kqueue is immune (EV_ADD
+    // recreates), so this is a Linux regression guard that also passes
+    // on macOS.
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pipe_old = makePipe();
+    defer closeFd(pipe_old[1]);
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pipe_old[0], .read, &fiber_a);
+
+    // Drain the registration so the waiter lists empty out but the Reg
+    // (and its kernel_registered flag) stay behind, then "GC-free" the
+    // port: close the fd with no unregister.
+    writeByte(pipe_old[1], 'x');
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(5_000_000_000, &ready);
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    ready.clearRetainingCapacity();
+    closeFd(pipe_old[0]);
+
+    // Recycle the exact fd number onto a fresh pipe. POSIX hands out the
+    // lowest free fd, so pipe() usually reuses it directly; dup2 forces
+    // the number when the allocator happened to pick another.
+    const pipe_new = makePipe();
+    defer closeFd(pipe_new[1]);
+    var recycled: std.c.fd_t = pipe_new[0];
+    if (pipe_new[0] != pipe_old[0]) {
+        recycled = std.c.dup2(pipe_new[0], pipe_old[0]);
+        try std.testing.expectEqual(pipe_old[0], recycled);
+        closeFd(pipe_new[0]);
+    }
+    defer closeFd(recycled);
+
+    var fiber_b: Fiber = undefined;
+    fiber_b.status = .io_waiting;
+    try reactor.register(recycled, .read, &fiber_b);
+    writeByte(pipe_new[1], 'y');
 
     try reactor.poll(5_000_000_000, &ready);
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
@@ -262,7 +329,9 @@ test "two fds: only the one that becomes ready wakes its fiber" {
     defer closeFd(pipe_b[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     var fiber_b: Fiber = undefined;
+    fiber_b.status = .io_waiting;
     try reactor.register(pipe_a[0], .read, &fiber_a);
     try reactor.register(pipe_b[0], .read, &fiber_b);
 
@@ -297,7 +366,9 @@ test "one fd with both read and write interest: a fired direction re-arms the ot
     defer closeFd(pair[1]);
 
     var fiber_read: Fiber = undefined;
+    fiber_read.status = .io_waiting;
     var fiber_write: Fiber = undefined;
+    fiber_write.status = .io_waiting;
     // pair[0] is immediately writable (empty send buffer) but not yet
     // readable (nothing sent from pair[1] yet).
     try reactor.register(pair[0], .write, &fiber_write);
@@ -333,6 +404,7 @@ test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
     defer if (!closed_peer) closeFd(pair[1]);
 
     var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
     try reactor.register(pair[0], .read, &fiber_a);
 
     closeFd(pair[1]);

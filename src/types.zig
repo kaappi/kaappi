@@ -461,6 +461,17 @@ pub const Port = struct {
     is_binary: bool = false,
     read_buf: ?[]u8 = null,
     read_buf_len: usize = 0,
+    // Non-blocking port state (KEP-0001 Phase 3):
+    /// O_NONBLOCK has been set on `fd` (lazily, the first time a read/write
+    /// runs while a fiber scheduler exists). Never set for fd 0/1/2.
+    nonblocking: bool = false,
+    /// Pending output not yet written to `fd` (owned, growable). The live
+    /// span is [write_buf_start..write_buf_len) — `start` records drain
+    /// progress so a write that would block can suspend mid-buffer and a
+    /// retry resumes with the remaining slice.
+    write_buf: ?[]u8 = null,
+    write_buf_start: usize = 0,
+    write_buf_len: usize = 0,
 };
 
 // ---------------------------------------------------------------------------

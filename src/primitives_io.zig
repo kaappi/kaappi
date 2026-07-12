@@ -7,6 +7,8 @@ const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const reader_mod = @import("reader.zig");
 const primitives_control = @import("primitives_control.zig");
+const fiber_mod = @import("fiber.zig");
+const reactor_mod = @import("reactor.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -112,12 +114,233 @@ fn currentErrorPortValue(vm: *vm_mod.VM) Value {
     return vm.stderr_port;
 }
 
-fn writeToPort(port: *types.Port, bytes: []const u8) void {
+// ---------------------------------------------------------------------------
+// Non-blocking port I/O (KEP-0001 Phase 3)
+//
+// Reads and buffered-write drains that would block suspend the calling
+// fiber on the reactor (fiber.waitForFd) instead of blocking the OS thread.
+// A fiber dispatched directly by a scheduler loop parks — its primitive
+// re-executes on readiness, so every read site with partial progress
+// stashes it into port.read_buf first (propagateReadErr). The main fiber
+// (or one under re-entrant native frames) drives the scheduler in place and
+// resumes here. Sequential programs never create a scheduler, so their
+// ports stay blocking and their syscall profile is unchanged.
+// ---------------------------------------------------------------------------
+
+/// Pending-output span above which a buffered port drains to the fd before
+/// accepting more bytes (suspending the writer as needed). Bounds per-port
+/// buffer memory at roughly this plus the largest single write.
+const write_high_water: usize = 8192;
+
+/// Ports whose writes accumulate in `write_buf`: real-fd ports other than
+/// stdin/stdout/stderr. fd 0/1/2 keep the historical unbuffered
+/// direct-write behavior (REPL echo and diagnostic ordering depend on it);
+/// string ports have their own growable buffer.
+fn isBufferedFdPort(port: *types.Port) bool {
+    return !port.is_string_port and port.fd > 2;
+}
+
+/// Lazily flips the port's fd to O_NONBLOCK the first time it is used while
+/// a fiber scheduler exists — the precondition for any reactor wait to
+/// engage. Never touches fd 0/1/2: those share their open file description
+/// with the shell/terminal (and linenoise reads fd 0 directly in REPL
+/// mode), so flipping them would leak non-blocking mode outside this
+/// process. Without a scheduler nothing is flipped and sequential programs
+/// keep blocking fds. Pub only for tests_port_io's guard checks.
+pub fn maybeSetNonblocking(port: *types.Port) void {
+    if (comptime is_wasm) return; // WASI fd readiness is KEP-0001 Phase 4
+    if (port.nonblocking or port.is_string_port or port.fd <= 2) return;
+    const vm = vm_mod.vm_instance orelse return;
+    if (vm.scheduler == null) return;
+    const flags = std.c.fcntl(port.fd, std.posix.F.GETFL, @as(c_int, 0));
+    if (flags < 0) return;
+    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+    if (std.c.fcntl(port.fd, std.posix.F.SETFL, flags | nonblock) < 0) return;
+    port.nonblocking = true;
+}
+
+/// Suspends the current fiber until the port's fd is ready for `interest`,
+/// then confirms the port survived the wait. A parked fiber propagates
+/// error.Yielded from inside waitForFd (the re-executed primitive re-checks
+/// the port via getInputPort/getOutputPort); a scheduler-driving waiter
+/// resumes here, so the is_open re-check — a sibling may have closed the
+/// port while we waited — must raise the clean "port closed" error itself.
+fn waitPortFd(port: *types.Port, interest: reactor_mod.Interest) PrimitiveError!void {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    try fiber_mod.waitForFd(vm, port.fd, interest);
+    if (!port.is_open) return raisePortClosedDuringIo();
+}
+
+fn raisePortClosedDuringIo() PrimitiveError {
+    const gc = memory.gc_instance orelse return PrimitiveError.InvalidArgument;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    var msg = gc.allocString("port closed while I/O was blocked on it") catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+    types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
+}
+
+/// Preserves a read primitive's partial progress across a park-and-retry.
+/// The bytes go to the *front* of port.read_buf — the first software buffer
+/// the retry drains — ahead of any bytes an inner reader (a mid-sequence
+/// UTF-8 read) already stashed while unwinding, since each outer frame's
+/// bytes are chronologically earlier. `parts` concatenate in order.
+fn stashPartialRead(port: *types.Port, parts: []const []const u8) PrimitiveError!void {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var total: usize = 0;
+    for (parts) |p| total += p.len;
+    if (total == 0) return;
+    // The peek buffers drain before the fd is ever touched, so no partial
+    // read can be unwinding while they still hold bytes.
+    std.debug.assert(port.peek_byte == null and port.peek_extra_len == 0);
+    const old = port.read_buf;
+    const old_len = port.read_buf_len;
+    const saved = gc.allocator.alloc(u8, total + old_len) catch return PrimitiveError.OutOfMemory;
+    var off: usize = 0;
+    for (parts) |p| {
+        @memcpy(saved[off..][0..p.len], p);
+        off += p.len;
+    }
+    if (old) |rb| {
+        // Live span is the *last* read_buf_len bytes (consumption advances
+        // from the front by shrinking the count).
+        @memcpy(saved[off..][0..old_len], rb[rb.len - old_len ..]);
+        gc.allocator.free(rb);
+    }
+    port.read_buf = saved;
+    port.read_buf_len = saved.len;
+}
+
+/// Propagates a read-path error; for a park (error.Yielded) first preserves
+/// the caller's partial progress so the re-executed primitive resumes
+/// losslessly. If preserving fails, the park is aborted — the fiber comes
+/// back off the reactor so its waiter lists never hold a non-parked fiber —
+/// and OutOfMemory propagates instead.
+pub fn propagateReadErr(port: *types.Port, err: PrimitiveError, parts: []const []const u8) PrimitiveError {
+    if (err != PrimitiveError.Yielded) return err;
+    stashPartialRead(port, parts) catch {
+        unparkCurrentFiber(port);
+        return PrimitiveError.OutOfMemory;
+    };
+    return PrimitiveError.Yielded;
+}
+
+fn unparkCurrentFiber(port: *types.Port) void {
+    const vm = vm_mod.vm_instance orelse return;
+    const me = vm.current_fiber orelse return;
+    if (vm.reactor) |r| r.removeWaiter(port.fd, me);
+    me.status = .running;
+    me.io_fd = null;
+    vm.yield_retry = false;
+}
+
+/// Drains the port's pending write buffer to the fd until empty. On EAGAIN
+/// the writer suspends on write readiness; `write_buf_start` records drain
+/// progress, so the wait can be a parked primitive's full re-execution and
+/// still resume with exactly the remaining slice.
+fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
+    while (port.write_buf_start < port.write_buf_len) {
+        // Re-fetch each pass: a scheduler drive inside waitPortFd can run a
+        // sibling fiber that appends to this same port and reallocs the
+        // buffer (or a concurrent close-port drains it for us).
+        const buf = port.write_buf orelse break;
+        maybeSetNonblocking(port);
+        const rc = std.posix.system.write(port.fd, buf.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+        if (rc < 0) {
+            const e = std.posix.errno(rc);
+            if (e == .INTR) continue;
+            if (e == .AGAIN) {
+                if (comptime is_wasm) break;
+                try waitPortFd(port, .write);
+                continue;
+            }
+            // Parity with the historical writeToFd loop: other write errors
+            // (EPIPE, EIO) are swallowed. Drop the unwritable remainder so
+            // the buffer cannot grow without bound against a dead fd.
+            break;
+        }
+        if (rc == 0) break;
+        port.write_buf_start += @as(usize, @intCast(rc));
+    }
+    port.write_buf_start = 0;
+    port.write_buf_len = 0;
+}
+
+fn appendWriteBuf(port: *types.Port, bytes: []const u8) PrimitiveError!void {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var buf = port.write_buf orelse blk: {
+        const b = gc.allocator.alloc(u8, @max(bytes.len, 1024)) catch return PrimitiveError.OutOfMemory;
+        port.write_buf = b;
+        break :blk b;
+    };
+    if (port.write_buf_len + bytes.len > buf.len) {
+        // Compact the live span to the front, then grow if still needed.
+        const pending = port.write_buf_len - port.write_buf_start;
+        if (port.write_buf_start > 0) {
+            std.mem.copyForwards(u8, buf[0..pending], buf[port.write_buf_start..port.write_buf_len]);
+            port.write_buf_start = 0;
+            port.write_buf_len = pending;
+        }
+        if (port.write_buf_len + bytes.len > buf.len) {
+            const new_cap = @max(buf.len * 2, port.write_buf_len + bytes.len);
+            const nb = gc.allocator.realloc(buf, new_cap) catch return PrimitiveError.OutOfMemory;
+            port.write_buf = nb;
+            buf = nb;
+        }
+    }
+    @memcpy(buf[port.write_buf_len..][0..bytes.len], bytes);
+    port.write_buf_len += bytes.len;
+}
+
+/// Best-effort blocking drain of every open buffered port's pending
+/// output. Called by `exit` (R7RS runs cleanup; emergency-exit does not) —
+/// std.process.exit skips GC teardown, which is where leaked ports
+/// otherwise flush (gc_collect.freeObject). No parking: a would-block
+/// remainder is dropped, exactly like freeObject's flush.
+pub fn flushAllOpenPorts(gc: *memory.GC) void {
+    const lists = [_]?*types.Object{ gc.objects, gc.old_objects };
+    for (lists) |head| {
+        var obj = head;
+        while (obj) |o| : (obj = o.next) {
+            if (o.tag != .port) continue;
+            const port = o.as(types.Port);
+            if (!port.is_open or port.is_string_port or port.fd <= 2) continue;
+            const wb = port.write_buf orelse continue;
+            while (port.write_buf_start < port.write_buf_len) {
+                const rc = std.posix.system.write(port.fd, wb.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+                if (rc < 0 and std.posix.errno(rc) == .INTR) continue;
+                if (rc <= 0) break;
+                port.write_buf_start += @as(usize, @intCast(rc));
+            }
+        }
+    }
+}
+
+/// Port-layer byte sink for every write primitive (display, write,
+/// write-char, write-string, write-u8, write-bytevector). String ports
+/// append to their growable buffer; fd 0/1/2 write straight through;
+/// buffered fd ports accumulate in `write_buf`, draining when the pending
+/// span crosses `write_high_water`, at flush-output-port, at close-port,
+/// and before a read on the same port. The drain — never the append — is
+/// the only point that can suspend the calling fiber, and it runs *before*
+/// the new bytes are appended, so a parked primitive's re-execution cannot
+/// duplicate output.
+pub fn portWriteBytes(port: *types.Port, bytes: []const u8) PrimitiveError!void {
     if (port.is_string_port) {
         stringPortWrite(port, bytes);
         return;
     }
-    writeToFd(port.fd, bytes);
+    if (!isBufferedFdPort(port)) {
+        writeToFd(port.fd, bytes);
+        return;
+    }
+    if ((port.write_buf_len - port.write_buf_start) + bytes.len > write_high_water) {
+        try drainWriteBuffer(port);
+    }
+    try appendWriteBuf(port, bytes);
 }
 
 fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
@@ -145,7 +368,7 @@ fn display(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 1, "display");
     const s = printer.valueToString(gc.allocator, args[0], .display) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
-    writeToPort(port, s);
+    try portWriteBytes(port, s);
     return types.VOID;
 }
 
@@ -154,7 +377,7 @@ fn write(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 1, "write");
     const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
-    writeToPort(port, s);
+    try portWriteBytes(port, s);
     return types.VOID;
 }
 
@@ -163,13 +386,13 @@ fn writeShared(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 1, "write-shared");
     const s = printer.valueToString(gc.allocator, args[0], .shared) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
-    writeToPort(port, s);
+    try portWriteBytes(port, s);
     return types.VOID;
 }
 
 fn newline(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 0, "newline");
-    writeToPort(port, "\n");
+    try portWriteBytes(port, "\n");
     return types.VOID;
 }
 
@@ -308,6 +531,12 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
 fn closePort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("close-port", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
+    // Flush buffered output while the fd is still writable. This can
+    // suspend the calling fiber; a parked close-port re-executes from the
+    // top with the drain progress preserved in the port.
+    if (port.is_open and !port.is_string_port and port.write_buf_len > port.write_buf_start) {
+        try drainWriteBuffer(port);
+    }
     if (port.read_buf) |rb| {
         if (memory.gc_instance) |gc| {
             gc.allocator.free(rb);
@@ -315,14 +544,40 @@ fn closePort(args: []const Value) PrimitiveError!Value {
         port.read_buf = null;
         port.read_buf_len = 0;
     }
-    if (port.is_open and port.fd > 2 and !port.is_string_port) {
-        _ = std.posix.system.close(port.fd);
+    if (port.write_buf) |wb| {
+        if (memory.gc_instance) |gc| {
+            gc.allocator.free(wb);
+        }
+        port.write_buf = null;
+        port.write_buf_start = 0;
+        port.write_buf_len = 0;
+    }
+    if (port.is_open and !port.is_string_port) {
+        // Close discipline (KEP-0001 Phase 3, resolved question 4): wake
+        // every fiber parked on this fd — the retry observes
+        // is_open == false and raises a clean error — and drop the reactor
+        // registration before the fd number can be closed and recycled.
+        if (vm_mod.vm_instance) |vm| {
+            if (vm.scheduler) |sched| fiber_mod.wakeIoWaitersOnFd(sched, port.fd);
+            if (vm.reactor) |r| r.unregister(port.fd);
+        }
+        if (port.fd > 2) _ = std.posix.system.close(port.fd);
     }
     port.is_open = false;
     return types.VOID;
 }
 
-fn readOneByte(port: *types.Port) ?u8 {
+/// Single byte source for every textual and binary port read primitive
+/// (read-char, peek-char, read-line, read-string, read-u8, peek-u8,
+/// read-bytevector, ...). Drains the software buffers — peek_byte,
+/// peek_extra, read_buf, string data — before touching the fd, so buffered
+/// data costs zero syscalls. The fd path flushes this port's own pending
+/// writes first (a socket port's request must reach the peer before we
+/// wait on its response); on EAGAIN the calling fiber suspends on read
+/// readiness. Errors only with Yielded (parked; caller stashes partial
+/// progress via propagateReadErr), OutOfMemory, or ExceptionRaised (port
+/// closed mid-wait); `null` still means EOF.
+pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     // Check peek buffer first
     if (port.peek_byte) |b| {
         port.peek_byte = null;
@@ -336,7 +591,8 @@ fn readOneByte(port: *types.Port) ?u8 {
         port.peek_extra_len -= 1;
         return b;
     }
-    // Check read buffer (from prior (read) that buffered excess)
+    // Check read buffer (from prior (read) that buffered excess, or a
+    // parked read primitive's stashed partial progress)
     if (port.read_buf) |rb| {
         if (port.read_buf_len > 0) {
             const pos = rb.len - port.read_buf_len;
@@ -359,11 +615,19 @@ fn readOneByte(port: *types.Port) ?u8 {
         port.string_pos += 1;
         return byte;
     }
+    if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
+    maybeSetNonblocking(port);
     var buf: [1]u8 = undefined;
     while (true) {
         const raw = std.posix.system.read(port.fd, &buf, buf.len);
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
+            const e = std.posix.errno(raw);
+            if (e == .INTR) continue;
+            if (e == .AGAIN) {
+                if (comptime is_wasm) return null;
+                try waitPortFd(port, .read);
+                continue;
+            }
             return null;
         }
         if (raw == 0) return null;
@@ -377,27 +641,30 @@ const Utf8ReadResult = struct {
     len: u3,
 };
 
-fn readUtf8CharWithBytes(port: *types.Port) ?Utf8ReadResult {
-    const lead = readOneByte(port) orelse return null;
+fn readUtf8CharWithBytes(port: *types.Port) PrimitiveError!?Utf8ReadResult {
+    const lead = try readOneByte(port) orelse return null;
     const seq_len = std.unicode.utf8ByteSequenceLength(lead) catch return .{ .codepoint = @intCast(lead), .bytes = .{ lead, 0, 0, 0 }, .len = 1 };
     if (seq_len == 1) return .{ .codepoint = @intCast(lead), .bytes = .{ lead, 0, 0, 0 }, .len = 1 };
     var buf: [4]u8 = .{ 0, 0, 0, 0 };
     buf[0] = lead;
     for (1..seq_len) |i| {
-        buf[i] = readOneByte(port) orelse return .{ .codepoint = @intCast(lead), .bytes = buf, .len = @intCast(i) };
+        // A park mid-sequence stashes the bytes already consumed so the
+        // re-executed primitive re-reads the identical prefix.
+        buf[i] = (readOneByte(port) catch |err| return propagateReadErr(port, err, &.{buf[0..i]})) orelse
+            return .{ .codepoint = @intCast(lead), .bytes = buf, .len = @intCast(i) };
     }
     const cp = std.unicode.utf8Decode(buf[0..seq_len]) catch return .{ .codepoint = @intCast(lead), .bytes = buf, .len = @intCast(seq_len) };
     return .{ .codepoint = cp, .bytes = buf, .len = @intCast(seq_len) };
 }
 
-fn readUtf8Char(port: *types.Port) ?u21 {
-    const result = readUtf8CharWithBytes(port) orelse return null;
+fn readUtf8Char(port: *types.Port) PrimitiveError!?u21 {
+    const result = try readUtf8CharWithBytes(port) orelse return null;
     return result.codepoint;
 }
 
 fn readCharFn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "read-char");
-    const cp = readUtf8Char(port) orelse return types.EOF;
+    const cp = try readUtf8Char(port) orelse return types.EOF;
     return types.makeChar(cp);
 }
 
@@ -434,7 +701,11 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
             port.peek_byte = null;
             var i: usize = 1;
             while (i < seq_len) : (i += 1) {
-                utf8_buf[i] = readOneByte(port) orelse break;
+                // A park here stashes the cleared peek byte plus any
+                // continuation bytes consumed; the re-executed peek-char
+                // finds peek_byte empty and re-reads them from read_buf.
+                utf8_buf[i] = (readOneByte(port) catch |err|
+                    return propagateReadErr(port, err, &.{utf8_buf[0..i]})) orelse break;
             }
             port.peek_byte = b;
             if (i >= seq_len) {
@@ -448,7 +719,7 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
         return types.makeChar(@intCast(b));
     }
     const port2 = port;
-    const result = readUtf8CharWithBytes(port2) orelse return types.EOF;
+    const result = try readUtf8CharWithBytes(port2) orelse return types.EOF;
     const len: usize = @intCast(result.len);
     if (port2.is_string_port and port2.string_pos >= len) {
         port2.string_pos -= len;
@@ -470,15 +741,20 @@ fn readLineFn(args: []const Value) PrimitiveError!Value {
     defer line_buf.deinit(gc.allocator);
 
     while (true) {
-        const byte = readOneByte(port) orelse {
-            // EOF
-            if (line_buf.items.len == 0) return types.EOF;
-            break;
-        };
+        const byte = (readOneByte(port) catch |err|
+            return propagateReadErr(port, err, &.{line_buf.items})) orelse
+            {
+                // EOF
+                if (line_buf.items.len == 0) return types.EOF;
+                break;
+            };
         if (byte == '\n') break;
         if (byte == '\r') {
-            // Check for \r\n
-            const next = readOneByte(port);
+            // Check for \r\n. A park here must re-stash the '\r' too — it
+            // was consumed but not appended, and the re-executed read-line
+            // needs to see it again to reach this same decision point.
+            const next = readOneByte(port) catch |err|
+                return propagateReadErr(port, err, &.{ line_buf.items, "\r" });
             if (next) |nb| {
                 if (nb != '\n') {
                     port.peek_byte = nb; // put it back
@@ -505,7 +781,7 @@ fn writeCharFn(args: []const Value) PrimitiveError!Value {
     const cp = types.toChar(args[0]);
     var buf: [4]u8 = undefined;
     const len = std.unicode.utf8Encode(cp, &buf) catch return primitives.typeError("write-char", "valid unicode character", args[0]);
-    writeToPort(port, buf[0..len]);
+    try portWriteBytes(port, buf[0..len]);
     return types.VOID;
 }
 
@@ -533,7 +809,7 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     if (start_cp > end_cp or end_cp > cp_count) return primitives.typeError("write-string", "valid range", args[0]);
     const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("write-string", "valid start index", args[0]);
     const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.typeError("write-string", "valid end index", args[0]);
-    writeToPort(port, data[byte_start..byte_end]);
+    try portWriteBytes(port, data[byte_start..byte_end]);
     return types.VOID;
 }
 
@@ -637,6 +913,13 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
     // Read from fd, parsing incrementally so that interactive terminals
     // return as soon as a complete datum is available (#847).
+    if (port.write_buf_len > port.write_buf_start) {
+        // A park in this drain must preserve the bytes already moved out
+        // of peek_byte/peek_extra/read_buf into `buf` above — a bare try
+        // would unwind without stashing and the retry would lose them.
+        drainWriteBuffer(port) catch |err| return propagateReadErr(port, err, &.{buf.items});
+    }
+    maybeSetNonblocking(port);
     var tmp: [4096]u8 = undefined;
     while (true) {
         // Try to parse a datum from what we already have.
@@ -668,7 +951,19 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
         const raw_n = std.posix.system.read(port.fd, &tmp, tmp.len);
         if (raw_n < 0) {
-            if (std.posix.errno(raw_n) == .INTR) continue;
+            const e = std.posix.errno(raw_n);
+            if (e == .INTR) continue;
+            if (e == .AGAIN) {
+                if (comptime is_wasm) break;
+                // Mid-datum would-block: a parked retry re-executes this
+                // primitive from the top, so the partial accumulation goes
+                // back into port.read_buf and is re-drained on entry. The
+                // scheduler-driving path resumes right here with `buf`
+                // intact and just reads again.
+                waitPortFd(port, .read) catch |err|
+                    return propagateReadErr(port, err, &.{buf.items});
+                continue;
+            }
             break;
         }
         if (raw_n == 0) break; // EOF
@@ -779,7 +1074,11 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 
     var chars_read: usize = 0;
     while (chars_read < count) {
-        const cp = readUtf8Char(port) orelse break;
+        // On a park, readUtf8Char has already stashed its own mid-sequence
+        // bytes; prepending the accumulated characters keeps the retry's
+        // byte stream chronological.
+        const cp = (readUtf8Char(port) catch |err|
+            return propagateReadErr(port, err, &.{result.items})) orelse break;
         var buf: [4]u8 = undefined;
         const len = std.unicode.utf8Encode(cp, &buf) catch break;
         result.appendSlice(gc.allocator, buf[0..len]) catch return PrimitiveError.OutOfMemory;
@@ -790,10 +1089,11 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn flushOutputPort(args: []const Value) PrimitiveError!Value {
-    // For our implementation, flushing is a no-op since we write directly
-    if (args.len > 0) {
-        if (!types.isPort(args[0])) return primitives.typeError("flush-output-port", "port", args[0]);
-    }
+    const port = try getOutputPort(args, 0, "flush-output-port");
+    // String ports and the unbuffered standard fds have nothing pending;
+    // buffered fd ports drain fully (suspending the fiber as needed —
+    // idempotent across a parked retry since progress lives in the port).
+    if (isBufferedFdPort(port)) try drainWriteBuffer(port);
     return types.VOID;
 }
 
