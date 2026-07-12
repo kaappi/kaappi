@@ -8,6 +8,8 @@ overturns, with data) the design decisions recorded in [keps#2](https://github.c
 All benchmark sources live in `src/bench_reactor.zig` (Q1/Q2/Q3, run with
 `zig build bench-reactor`) and `src/bench_fibers.zig` (Q5, run with
 `zig build bench-fibers`). Server benchmarks used a one-off load generator
+committed at
+[`kaappi-http/benchmarks/`](https://github.com/kaappi/kaappi-http/tree/main/benchmarks)
 (no `wrk`/`hey`/`ab` available in this workspace) — see the ecosystem
 benchmark section below for how to reproduce.
 
@@ -30,23 +32,27 @@ Prerequisite fix landed before any of this could be measured safely: see
 waiters on one shared fd, one real write, measuring how long `poll()` takes
 to wake all N (confirming wake-all, not wake-head-only).
 
+The result list is preallocated to N entries before the timed region starts,
+so the numbers below measure `poll()`'s own dispatch/fan-out work, not
+`ArrayList` growth.
+
 macOS (kqueue):
 
 | N | woken | poll (ns) | ns/woken-fiber |
 |---|---|---|---|
 | 2 | 2 | 2000 | 1000.0 |
-| 10 | 10 | 2000 | 200.0 |
+| 10 | 10 | 1000 | 100.0 |
 | 100 | 100 | 1000 | 10.0 |
-| 1000 | 1000 | 4000 | 4.0 |
+| 1000 | 1000 | 2000 | 2.0 |
 
 Linux (epoll, aarch64 container):
 
 | N | woken | poll (ns) | ns/woken-fiber |
 |---|---|---|---|
-| 2 | 2 | 3584 | 1792.0 |
-| 10 | 10 | 1542 | 154.2 |
-| 100 | 100 | 2125 | 21.3 |
-| 1000 | 1000 | 10500 | 10.5 |
+| 2 | 2 | 1291 | 645.5 |
+| 10 | 10 | 500 | 50.0 |
+| 100 | 100 | 792 | 7.9 |
+| 1000 | 1000 | 4084 | 4.1 |
 
 `poll()`'s own wake-all fan-out cost does **not** grow with N — it's
 dominated by a small fixed per-call cost (array copy), not a per-waiter one.
@@ -61,24 +67,29 @@ below, where it plausibly contributes at high concurrency.)
 `src/bench_reactor.zig`'s `benchTimerGranularity`: schedules one timer at a
 known deadline, measures how late `poll()` actually returns.
 
+The result list is checked to actually contain the fiber before its
+lateness is recorded (rather than trusting any `poll()` return to mean the
+timer fired), so a spurious wake or wall-clock oddity would surface as a
+hard error rather than a silently bogus number.
+
 macOS (kqueue, ns-precision `timespec` API):
 
 | requested | late by |
 |---|---|
-| 1ms | +133µs |
-| 5ms | +631µs |
-| 20ms | +1033µs |
-| 100ms | +1018µs |
+| 1ms | +254µs |
+| 5ms | +1264µs |
+| 20ms | +2007µs |
+| 100ms | +2014µs |
 
 Linux (epoll, in a podman/QEMU-virtualized container — expect extra jitter
 from virtualization on top of the numbers below):
 
 | requested | late by |
 |---|---|
-| 1ms | +260µs |
-| 5ms | +215µs |
-| 20ms | +660µs |
-| 100ms | +2412µs |
+| 1ms | +197µs |
+| 5ms | +144µs |
+| 20ms | +1420µs |
+| 100ms | +5151µs |
 
 Two things worth noting: (1) even kqueue's nanosecond-precision timer API
 shows a practical floor around ~1ms once the requested duration is more
@@ -99,13 +110,20 @@ the same pipe.
 
 | Backend | register() (arm) | read+write (io) | ratio |
 |---|---|---|---|
-| macOS (kqueue) | 338.5 ns | 442.1 ns | 0.77x |
-| Linux (epoll) | 173.8 ns | 372.9 ns | 0.47x |
-| Linux, wake-all fan-out with an OS-thread instead of a fiber (not measured) | — | — | — |
+| macOS (kqueue) | 339.7 ns | 441.2 ns | 0.77x |
+| Linux (epoll) | 171.9 ns | 347.3 ns | 0.49x |
 
 On both platforms the re-arm call is *cheaper* than the I/O syscall pair
 it accompanies every cycle. There is no meaningful overhead here for
 edge-triggered mode to eliminate.
+
+Caveat: the timed region includes `Reactor.register()`'s waiter-list
+bookkeeping and `removeWaiter()` (used here to reset state between cycles),
+not only the raw `epoll_ctl`/`kevent` syscall — so `arm_ns` is really "one
+register+remove cycle," slightly more than the syscall alone. `removeWaiter`
+is pure userspace `ArrayList.swapRemove` on a 1-element list, so its
+contribution is on the order of nanoseconds; it doesn't change the
+arm-vs-io conclusion.
 
 ## Q5 — Per-fiber memory and switch time
 
@@ -116,17 +134,35 @@ closure) measurably inflates a fiber's saved register/frame arrays.
 
 ### Switch time degrades with total live-fiber count
 
-Spawning N fibers, each yielding 50 times in a tight loop, then joining all:
+Spawning N fibers, each yielding 50 times in a tight loop, then joining all
+(`elapsed_ns` includes the surrounding source eval, spawn, join, and GC —
+see the caveat after the table):
 
 | fibers | ns/switch | RSS |
 |---|---|---|
-| 100 | ~465 ns | +0 MB |
-| 1,000 | ~3,300–4,600 ns | +0 MB |
-| 10,000 | ~93,000–99,000 ns | +0.06 MB |
+| 100 | ~416–470 ns | +0 MB |
+| 1,000 | ~3,000–4,600 ns | +0.03 MB |
+| 10,000 | ~17,700–99,000 ns | +0.09 MB |
 
-Consistent across three separate runs. Isolating spawn cost alone (0 yield
-rounds, just N `spawn` + `fiber-join` pairs) shows the same shape: ~10–30
-µs/spawn at 100–1,000 fibers, jumping to ~250–280 µs/spawn at 10,000.
+RSS is `ru_maxrss`, a process-lifetime high-water mark, not an independent
+per-row peak — later rows only show a nonzero delta once they need more
+than the largest row measured so far in that process already reached.
+Read the deltas as "additional peak beyond the running max," not
+per-N-in-isolation numbers.
+
+Consistent across four separate runs (the ns/switch range above spans all
+of them — the wide range at 10,000 fibers in particular reflects one run
+using `std.heap.DebugAllocator`, since replaced with `std.heap.c_allocator`
+for the allocation-bookkeeping overhead DebugAllocator otherwise adds
+directly to the timed region — 17.7ms is the corrected, post-fix number).
+Isolating spawn cost alone (0 yield rounds, just N `spawn` + `fiber-join`
+pairs) shows the same shape: ~18–32 µs/spawn at 100–1,000 fibers, jumping
+to ~310–320 µs/spawn at 10,000. This total includes non-switch overhead
+(source evaluation, list construction, GC) that a tighter benchmark would
+subtract via a matched baseline; the O(n) root cause below was confirmed
+independently by reading `FiberScheduler`'s source, not solely inferred
+from these numbers, so the conclusion doesn't depend on isolating the
+switch cost perfectly.
 
 **Root cause**: `FiberScheduler.schedule()` (`src/fiber.zig:302-325`) does a
 full round-robin scan over *every* slot in `sched.fibers.items` (including
@@ -135,7 +171,7 @@ fiber — O(fiber count) per dispatch, called on every single switch.
 `FiberScheduler.addFiber()` (`src/fiber.zig:86-99`) does the same kind of
 O(fiber count) linear scan for a free slot on every spawn. Per-fiber
 memory itself stays flat and modest (the RSS deltas above are noise-level
-until 10k, where it's still only +0.06MB) — it's *switch time*, not memory,
+until 10k, where it's still only +0.09MB) — it's *switch time*, not memory,
 that's the real Q5 residual, and it degrades by roughly two orders of
 magnitude between 100 and 10,000 concurrently-live fibers.
 
@@ -146,26 +182,59 @@ the HTTP server benchmarks below (`http-listen-fiber`'s p99 latency at
 (the KEP's Q1 discussion already floated "wake-head-only FIFO" for a
 related reason — this is the same class of fix).
 
-### Native-frame register/frame inflation: not observed
+### Native-frame register/frame inflation: inconclusive
 
-Compared fibers yielding from a pure-bytecode tail loop against fibers
-yielding from inside `for-each`'s native call frame, across recursion
-depths 0, 10, 60, and 300 (with up to 7 extra bound locals per frame to
-vary register pressure). In every configuration tested, both kinds
-allocated identical register/frame array sizes (e.g. 256 registers / 32
-frames at shallow depth, growing identically to 4096/512 at depth 300 with
-extra locals). **No inflation was observed in practice** across this
-range — the initial per-fiber capacities (`INITIAL_FIBER_REGISTER_CAPACITY
-= 256`, `INITIAL_FIBER_FRAME_CAPACITY = 32`, `types.zig:527-528`) appear to
-already absorb the native-frame fallback's window without forcing a
-reallocation in these scenarios, or the outer non-tail call chain's own
-register usage already dominates whatever the native frame's flat 256
-contributes. This is a genuine null result, not a methodology gap that
-was worked around — three different attempts at making the two cases
-diverge (shallow, deep, and register-heavy-deep) all showed no difference.
-A more surgical Zig-level instrumentation of `liveRegisterSpan` directly
-would be needed to fully rule out inflation in *all* possible call shapes,
-but nothing tested here found it.
+This comparison went through two designs; the first was wrong, and the
+second's result is honestly inconclusive rather than a clean negative.
+
+**First attempt (wrong): `for-each`.** Compared fibers yielding from a
+pure-bytecode tail loop against fibers yielding from inside `for-each`'s
+callback, across recursion depths 0–300. Both kinds always measured
+identically. The reason: `for-each` is pure bootstrap Scheme
+(`src/vm_bootstrap.zig`), not a Zig primitive — calling its callback never
+pushes a native frame at all, so both "bytecode" and "native" cases were
+exercising the same bytecode path the whole time.
+
+**Second attempt: `with-exception-handler`.** This one is a genuine native
+primitive (`src/primitives_control.zig`) that calls its thunk via
+`vm.callThunk` → `callReentrant` (`src/vm_calls.zig`), so it does push a
+real frame for the thunk's invocation. `yield` deliberately no-ops under
+`native_reentry_depth > 0` (`src/primitives_fiber.zig`, the #1184
+limitation this reflects), so `thread-sleep!` — which has no such
+re-entrancy guard — was used as the suspension point instead, in both the
+bytecode and native cases for a fair comparison.
+
+At the only configuration confirmed safe to run (N=1 fiber, depth-10
+non-tail recursion before the suspension point), both cases still measured
+identically: 256 registers / 32 frames. Two things stood in the way of a
+more conclusive test:
+
+1. At shallow depth, `liveRegisterSpan` never exceeds the 256-register
+   initial floor (`INITIAL_FIBER_REGISTER_CAPACITY`, `types.zig:527`) for
+   either case, so `registers.len` reads the same regardless of what's
+   "really" needed underneath that floor — the array simply never
+   reallocates.
+2. Pushing recursion deep enough to force a real reallocation (depth 100+)
+   crashed with a native stack overflow, even at just N=2 concurrently-
+   dispatched fibers. Nested `runUntil` calls clear
+   `dispatched_from_scheduler` for their extent (`src/vm_dispatch.zig:80-87`)
+   — the same mechanism that makes `yield` no-op under re-entrancy — so a
+   blocking `thread-sleep!` inside `with-exception-handler`'s thunk always
+   drives the scheduler recursively rather than flat-unwinding, and
+   concurrently-dispatched fibers each doing this chain-nest the native
+   stack. This is a narrower, previously-unknown variant of the same class
+   of problem `#1463` fixed (narrower because it specifically needs a
+   blocking call nested inside a re-entrant native frame, not just any
+   retry loop) — noted here rather than filed as its own follow-up, since
+   it's adjacent to the already-documented #1184 limitation and out of
+   scope for this measurement phase to fix.
+
+**Bottom line**: whether the 256-register fallback measurably inflates a
+fiber's footprint in practice remains an open question. Answering it
+properly needs either direct Zig-level instrumentation of
+`liveRegisterSpan` (bypassing the black-box register-array-size approach
+entirely) or a way to force deep recursion without a blocking call sitting
+inside the native frame — both out of scope here.
 
 ## Edge-triggered migration: **no-go for now**
 
@@ -178,7 +247,7 @@ measurement phase.
 
 The Q3 data above answers this directly: on both kqueue and epoll, the
 ONESHOT re-arm cost is *already cheaper* than the I/O syscall it
-accompanies (0.77x on macOS, 0.47x on Linux). There is no overhead left
+accompanies (0.77x on macOS, 0.49x on Linux). There is no overhead left
 for edge-triggered mode to remove. **Recommendation: no-go.** Revisit only
 if future profiling under a real production workload shows re-arm cost
 actually dominating — nothing measured here suggests that will happen.
@@ -241,13 +310,16 @@ that data point once the two follow-ups above are addressed.
 
 ### Reproducing
 
-```
+Server app and load generator committed at
+[`kaappi-http/benchmarks/`](https://github.com/kaappi/kaappi-http/tree/main/benchmarks):
+
+```sh
 cd kaappi-http
-# terminal 1
-DYLD_LIBRARY_PATH=..:../../kaappi-net zig-out/bin/kaappi \
-  --lib-path ../kaappi-net/lib --lib-path lib bench_server_app.scm fiber
-# terminal 2 (no wrk/hey in this workspace -- see scratch script in this PR's description)
-python3 http_load_gen.py 19999 1000 5000
+# terminal 1: model = sequential | threaded | prefork | fiber
+DYLD_LIBRARY_PATH=..:../kaappi-net kaappi \
+  --lib-path ../kaappi-net/lib --lib-path lib benchmarks/bench_server_app.scm fiber
+# terminal 2
+python3 benchmarks/http_load_gen.py 19999 1000 5000
 ```
 
 ## New bug found: `http-listen-threaded` hangs (pre-existing)
@@ -293,21 +365,33 @@ pattern, and benchmarking it at any real concurrency (as confirmed by a
 500- and 1,000-concurrent-connection stress test after the fix) would
 very likely have hung or crashed instead of producing numbers.
 
-## Follow-ups to file
+Hardening added during review: the fresh-call path now clears
+`me.deadline_ns` and removes the timer (`errdefer`) if `addTimer` or the
+subsequent scheduler drive fails (OOM-only today), so an error there can't
+leave the fiber's redispatch-vs-fresh-call discriminator in a stale state
+for its *next* `thread-sleep!` call. The `errdefer` explicitly excludes
+`error.Yielded`, since that's the intentional flat-unwind signal the
+discriminator exists to survive, not a real error to clean up after.
 
-1. `FiberScheduler.schedule()`/`addFiber()` O(fiber count) scans don't
+## Follow-ups (filed)
+
+1. [#1477](https://github.com/kaappi/kaappi/issues/1477) —
+   `FiberScheduler.schedule()`/`addFiber()` O(fiber count) scans don't
    scale past ~1,000 concurrently-live fibers — replace with an O(1)/O(log
    n) ready-queue design. Directly explains the `http-listen-fiber` p99
    regression above.
-2. Wire `kaappi-net`'s raw TCP sockets into `Reactor.register`/`waitForFd`
+2. [#1478](https://github.com/kaappi/kaappi/issues/1478) — wire
+   `kaappi-net`'s raw TCP sockets into `Reactor.register`/`waitForFd`
    properly, so `http-listen-fiber` gets genuine event-driven wakeup
    instead of a fixed 1ms poll-then-sleep loop.
-3. `http-listen-threaded` hangs on every request — pre-existing,
+3. [#1479](https://github.com/kaappi/kaappi/issues/1479) —
+   `http-listen-threaded` hangs on every request — pre-existing,
    reproducible, isolated to library-defined-procedure + cross-thread +
    cross-library-call. Needs a deeper VM/threading investigation.
-4. `kaappi-net`'s `net.sld` and `kaappi-pg`'s `pg.sld` have comments noting
-   they avoid `thread-sleep!` in retry loops "until [the core] follow-up
-   lands" (referring to the same bug as #1463) — now that the core fix has
+4. [#1480](https://github.com/kaappi/kaappi/issues/1480) — `kaappi-net`'s
+   `net.sld` and `kaappi-pg`'s `pg.sld` have comments noting they avoid
+   `thread-sleep!` in retry loops "until [the core] follow-up lands"
+   (referring to the same bug as #1463) — now that the core fix has
    landed, those comments are stale and the workaround could be
    revisited (low priority, not urgent since the `yield`-based workaround
    already works).
