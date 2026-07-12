@@ -13,6 +13,8 @@ zig build run -- --version         # show version string
 zig build test                     # run all unit tests
 zig build test -Dtest-filter=tests_io  # only tests whose names match (repeatable)
 zig build bench                    # call/cc vs call/ec capture micro-benchmark
+zig build bench-fibers              # per-fiber switch time, RSS, register/frame footprint (KEP-0001 P7)
+zig build bench-reactor             # reactor ONESHOT re-arm, wake-all, timer-granularity costs (KEP-0001 P7)
 zig build coverage                 # unit test code coverage (requires kcov)
 zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
