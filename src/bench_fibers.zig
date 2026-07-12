@@ -6,19 +6,25 @@
 // Two things are measured:
 //
 //   1. RSS delta and per-yield switch time for N concurrently-live fibers
-//      (100 / 1k / 10k), each doing a minimal yield loop.
+//      (100 / 1k / 10k), each doing a minimal yield loop. RSS is reported
+//      via `ru_maxrss`, which is a *process-lifetime high-water mark*, not
+//      a per-call-site peak -- later rows in the same process run only show
+//      a nonzero delta once they need more than any earlier row already
+//      reached. Read the deltas as "additional peak RSS beyond what the
+//      largest case measured so far already required", not as independent
+//      per-N measurements.
 //   2. Whether the 256-register frameWindow() fallback for native frames
-//      (types.zig:546-551 — a frame with no attached closure, e.g. mid-`for-each`,
-//      reports a flat 256-register window instead of its real usage) measurably
+//      (types.zig:546-551 — a frame with no attached closure) measurably
 //      inflates a fiber's saved register/frame arrays. Compared by spawning
-//      fibers that yield from a pure bytecode tail loop against fibers that
-//      yield from inside `for-each`'s native call frame.
+//      fibers that suspend (via thread-sleep!) from plain bytecode against
+//      fibers that suspend from inside a genuinely native call frame
+//      (with-exception-handler's thunk invocation — see benchFootprint's
+//      doc comment for why `for-each` doesn't work for this).
 //
 // Build/run:  zig build bench-fibers
 //   (best with -Doptimize=ReleaseFast)
 
 const std = @import("std");
-const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
@@ -33,24 +39,11 @@ fn nowNs() u64 {
     return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
 }
 
-// Matches the layout `getrusage(2)` fills in on both Linux (glibc) and
-// Darwin: two `timeval`s (16 bytes each on both platforms' LP64 ABIs, even
-// though the field widths inside differ) followed by a run of `long`s. Only
-// `ru_maxrss` is read, so the rest is left as opaque padding.
-const RUsage = extern struct {
-    _times: [32]u8 = undefined,
-    ru_maxrss: i64 = 0,
-    _rest: [13 * 8]u8 = undefined,
-};
-extern "c" fn getrusage(who: c_int, usage: *RUsage) c_int;
-const RUSAGE_SELF: c_int = 0;
-
 fn rssMb() f64 {
-    var ru: RUsage = undefined;
-    _ = getrusage(RUSAGE_SELF, &ru);
+    const ru = std.posix.getrusage(std.posix.rusage.SELF);
     // ru_maxrss is bytes on Darwin, KiB on Linux.
-    const divisor: f64 = if (builtin.os.tag == .macos) 1024.0 * 1024.0 else 1024.0;
-    return @as(f64, @floatFromInt(ru.ru_maxrss)) / divisor;
+    const divisor: f64 = if (@import("builtin").os.tag == .macos) 1024.0 * 1024.0 else 1024.0;
+    return @as(f64, @floatFromInt(ru.maxrss)) / divisor;
 }
 
 // Note: VM setup is inlined (not a shared helper) because vm_mod.setVMInstance
@@ -131,11 +124,48 @@ fn benchSwitchTime(allocator: std.mem.Allocator, n: u32, rounds: u32) !SwitchBen
     return .{ .n = n, .rounds = rounds, .elapsed_ns = elapsed_ns, .rss_before_mb = rss_before, .rss_after_mb = rss_after };
 }
 
-/// Spawns `n` fibers with the given body ("bytecode-only tail loop" vs
-/// "yields from inside for-each's native frame"), joins them, then inspects
+/// Spawns `n` fibers with the given body ("bytecode-only" vs. "suspends
+/// from inside a genuinely native call frame"), joins them, then inspects
 /// the fibers' own register/frame arrays directly (not via RSS, which is
 /// noisy at small N) to see whether frameWindow()'s 256-register fallback
 /// for native frames actually inflates the saved window.
+///
+/// `for-each` was tried first and discarded: it's pure bootstrap Scheme
+/// (`src/vm_bootstrap.zig`), not a Zig primitive, so calling its callback
+/// never pushes a native (`locals_count == 0`-flavored, see
+/// `CallFrame.frameWindow()`) frame at all -- both "bytecode" and "native"
+/// cases were exercising identical bytecode paths, which is why they always
+/// measured identically regardless of recursion depth.
+/// `with-exception-handler` (`src/primitives_control.zig`) is a genuine
+/// native primitive that calls its thunk via `vm.callThunk` ->
+/// `callReentrant` (`src/vm_calls.zig`), which pushes a real frame for the
+/// thunk closure and increments `native_reentry_depth`. `yield` deliberately
+/// no-ops under `native_reentry_depth > 0` (`src/primitives_fiber.zig`, the
+/// #1184 limitation), so `thread-sleep!` is used as the suspension point
+/// instead -- it has no such re-entrancy guard.
+///
+/// This still did not demonstrate measurable inflation, for two compounding
+/// reasons found during development (kept here rather than in the doc,
+/// since they're implementation-level detail about *this benchmark*, not a
+/// KEP-0001 finding): (1) at low concurrency and shallow recursion (N=1-5,
+/// depth 10) `liveRegisterSpan` never exceeds the 256-register initial
+/// floor for either case, so `registers.len` reads identically regardless
+/// of what's "really" needed underneath that floor; (2) pushing recursion
+/// deep enough to force a real reallocation (depth 100+) makes
+/// `thread-sleep!` inside `with-exception-handler`'s thunk crash with a
+/// native stack overflow even at just N=2 concurrently-dispatched fibers --
+/// nested `runUntil` calls clear `dispatched_from_scheduler`
+/// (`src/vm_dispatch.zig:80-87`) for their extent the same way they make
+/// `yield` no-op, so a blocking `thread-sleep!` there always drives the
+/// scheduler recursively rather than flat-unwinding, and concurrently-
+/// dispatched fibers each doing this chain-nest. This is a *different*,
+/// narrower version of the same class of problem #1463 fixed -- narrower
+/// because it needs a blocking call nested inside a re-entrant native frame
+/// specifically, not just any retry loop -- and is left unfixed here as
+/// out of scope for a measurement phase. Given this, N=1 and a shallow
+/// depth were kept as the only combination confirmed safe to run; the
+/// "no inflation observed" result below should be read as inconclusive
+/// (blind spot 1) rather than a clean negative.
 fn benchFootprint(allocator: std.mem.Allocator, n: u32, native_frame: bool) !FiberFootprint {
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
@@ -147,24 +177,24 @@ fn benchFootprint(allocator: std.mem.Allocator, n: u32, native_frame: bool) !Fib
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
-    // Non-tail recursion to depth 60 before the yield/native-call, so the
-    // active frame's `base` is well above 0 by the time it happens — a
-    // fair test needs the native frame's flat 256-register window to
-    // compete against a *non-zero* base, otherwise both cases trivially
-    // fit inside the 256-register initial capacity and "inflation" never
-    // shows up as a real reallocation.
+    // Non-tail recursion to depth 10 before the suspension point, so the
+    // active frame's `base` is above 0 by the time it happens. Kept shallow
+    // deliberately -- see the doc comment above for why deeper recursion
+    // here is unsafe to run.
     const body_name = if (native_frame) "native-fiber-body" else "bytecode-fiber-body";
     const src = try std.fmt.allocPrint(allocator,
         \\(define (bytecode-fiber-body)
         \\  (define (level d)
         \\    (if (= d 0)
-        \\        (let loop ((k 0)) (if (= k 1) k (begin (yield) (loop (+ k 1)))))
+        \\        (thread-sleep! 0.0001)
         \\        (begin (level (- d 1)) d)))
         \\  (level 10))
         \\(define (native-fiber-body)
         \\  (define (level d)
         \\    (if (= d 0)
-        \\        (for-each (lambda (x) (yield)) (iota 1))
+        \\        (with-exception-handler
+        \\          (lambda (e) #f)
+        \\          (lambda () (thread-sleep! 0.0001)))
         \\        (begin (level (- d 1)) d)))
         \\  (level 10))
         \\(define (spawn-n n proc)
@@ -181,9 +211,10 @@ fn benchFootprint(allocator: std.mem.Allocator, n: u32, native_frame: bool) !Fib
 }
 
 pub fn main() !void {
-    var da = std.heap.DebugAllocator(.{}).init;
-    defer _ = da.deinit();
-    const allocator = da.allocator();
+    // Not DebugAllocator: its per-allocation bookkeeping (stack-trace
+    // capture, canaries) would contaminate both the timing and RSS numbers
+    // this benchmark exists to measure.
+    const allocator = std.heap.c_allocator;
 
     std.debug.print("=== Q5: spawn-only cost (0 yield rounds -- isolates FiberScheduler.addFiber) ===\n", .{});
     std.debug.print("{s:>8} | {s:>14} | {s:>10}\n", .{ "fibers", "ns/spawn+join", "total ms" });
@@ -211,7 +242,12 @@ pub fn main() !void {
     std.debug.print("\n=== Q5: does the 256-register native-frame fallback inflate per-fiber windows? ===\n", .{});
     std.debug.print("{s:>8} | {s:>10} | {s:>14} | {s:>14} | {s:>10} | {s:>10}\n", .{ "fibers", "kind", "avg regs/fiber", "avg frames/fbr", "regs KB", "frames KB" });
     std.debug.print("---------+------------+----------------+----------------+------------+-----------\n", .{});
-    const footprint_ns = [_]u32{ 100, 1_000 };
+    // N=1 only -- see benchFootprint's doc comment. Concurrent fibers each
+    // suspending inside with-exception-handler's thunk chain-nest the
+    // native stack (confirmed crashing at N=2 with deep-enough recursion);
+    // the footprint question only needs one fiber's own array sizes, not
+    // concurrency, so N=1 sidesteps that entirely.
+    const footprint_ns = [_]u32{1};
     for (footprint_ns) |n| {
         for ([_]bool{ false, true }) |native_frame| {
             const fp = try benchFootprint(allocator, n, native_frame);
