@@ -95,7 +95,13 @@ const ChildThreadResources = struct {
     child_gc: *memory.GC,
     child_vm: *vm_mod.VM,
     result: JoinResult = .none,
-    exception: ?*shared_channel.Envelope = null,
+    // Same shape as `result` (not a bare `?*Envelope`): an exception whose
+    // payload is itself uncopyable (R7RS `raise` permits raising an
+    // arbitrary value, including a port or a foreign-owned channel) or
+    // whose envelope build hits OOM needs to surface as *something*
+    // diagnostic at thread-join!, not silently collapse into a void
+    // reason -- see reapOsThread's `.failed` arm for the synthesized error.
+    exception: JoinResult = .none,
 };
 
 // Entries are freed only when a thread is joined (freeChildResources called
@@ -112,7 +118,7 @@ const ChildRegistry = struct {
         try self.map.put(key, res);
     }
 
-    fn storeResult(self: *ChildRegistry, key: usize, result: JoinResult, exception: ?*shared_channel.Envelope) void {
+    fn storeResult(self: *ChildRegistry, key: usize, result: JoinResult, exception: JoinResult) void {
         memory.spinLock(&self.mutex);
         defer memory.spinUnlock(&self.mutex);
         if (self.map.getPtr(key)) |entry| {
@@ -128,8 +134,8 @@ const ChildRegistry = struct {
     // fiber ownership is otherwise unchecked -- both retrieve the SAME
     // *Envelope pointer and both call env.deinit() on it: a double-free.
     // Clearing under the lock means at most one caller ever sees a non-.none
-    // result/non-null exception to consume.
-    const TakenResult = struct { result: JoinResult, exception: ?*shared_channel.Envelope };
+    // result/non-.none exception to consume.
+    const TakenResult = struct { result: JoinResult, exception: JoinResult };
 
     fn takeResult(self: *ChildRegistry, key: usize) TakenResult {
         memory.spinLock(&self.mutex);
@@ -137,10 +143,10 @@ const ChildRegistry = struct {
         if (self.map.getPtr(key)) |entry| {
             const taken: TakenResult = .{ .result = entry.result, .exception = entry.exception };
             entry.result = .none;
-            entry.exception = null;
+            entry.exception = .none;
             return taken;
         }
-        return .{ .result = .none, .exception = null };
+        return .{ .result = .none, .exception = .none };
     }
 
     fn fetchRemove(self: *ChildRegistry, key: usize) ?ChildThreadResources {
@@ -340,10 +346,10 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
         // and thread-join! surfaces this as "uncaught exception in thread",
         // matching a thunk that fails mid-flight instead of at the boundary.
         // No child_gc/child_vm exists yet for this failure (nothing was ever
-        // spawned), so the usual child_registry.storeResult path used by
-        // every post-spawn failure in threadEntryFn doesn't apply here --
-        // this is the one place a fiber's error state is set directly.
-        fiber.current_exception = try makeErrorWithType(.general, "thread thunk contains uncopyable type (port, continuation, etc.)", types.NIL);
+        // spawned), so child_registry.storeResult -- which every *post-spawn*
+        // failure in threadEntryFn goes through instead -- doesn't apply
+        // here: this is the one place a fiber's error state is set directly.
+        fiber.current_exception = try makeErrorWithType(.general, "thread thunk contains an uncopyable type (port, continuation, etc.), or a channel owned by another thread", types.NIL);
         gc.writeBarrier(&fiber.header, fiber.current_exception.?);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return args[0];
@@ -440,12 +446,18 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         // Built on this (owning) thread, mirroring thread-start!'s thunk
         // copy: this is the only place a channel raised in the exception
         // can legally promote (gc_instance == child_gc here, not the
-        // parent's gc it would be at join time).
-        const exc_envelope = if (child_vm.current_exception) |exc|
-            shared_channel.Envelope.create(exc) catch null
+        // parent's gc it would be at join time). A `.failed` build (an
+        // uncopyable type, or a channel owned by neither this thread nor
+        // the parent) still reaches reapOsThread as something diagnostic
+        // rather than silently becoming a void join reason.
+        const exc_result: JoinResult = if (child_vm.current_exception) |exc|
+            if (shared_channel.Envelope.create(exc)) |env|
+                .{ .envelope = env }
+            else |err|
+                .{ .failed = err }
         else
-            null;
-        child_registry.storeResult(@intFromPtr(fiber), .none, exc_envelope);
+            .none;
+        child_registry.storeResult(@intFromPtr(fiber), .none, exc_result);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
@@ -463,7 +475,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         .{ .envelope = env }
     else |err|
         .{ .failed = err };
-    child_registry.storeResult(@intFromPtr(fiber), join_result, null);
+    child_registry.storeResult(@intFromPtr(fiber), join_result, .none);
     @atomicStore(fiber_mod.FiberStatus, &fiber.status, .completed, .release);
 }
 
@@ -768,18 +780,44 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
             .failed => |err| {
                 freeChildResources(fiber_key);
                 if (err == error.UncopyableType) {
-                    return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
+                    // Same DeepCopyError for two different causes: a
+                    // genuinely uncopyable type (port, continuation, ...),
+                    // or a channel reached by the child through a shared
+                    // global rather than the thunk/message it was legally
+                    // handed -- gc_deep_copy.zig's `.channel` arm returns
+                    // UncopyableType for both, so this message covers both
+                    // rather than mis-describing the second as a type error.
+                    return raiseError(.general, "thread-join!: result contains an uncopyable type (port, continuation, etc.), or a channel owned by another thread", types.VOID);
                 }
                 return PrimitiveError.OutOfMemory;
             },
         }
     }
     if (target.status == .errored) {
-        if (res.exception) |exc_env| {
-            target.current_exception = gc.deepCopy(exc_env.value) catch null;
-            if (target.current_exception) |cv|
-                gc.writeBarrier(fiber_obj, cv);
-            exc_env.deinit();
+        switch (res.exception) {
+            .none => {},
+            .envelope => |exc_env| {
+                target.current_exception = gc.deepCopy(exc_env.value) catch null;
+                if (target.current_exception) |cv|
+                    gc.writeBarrier(fiber_obj, cv);
+                exc_env.deinit();
+            },
+            .failed => {
+                // The exception itself couldn't cross the boundary (an
+                // uncopyable type, or a channel owned by neither the
+                // parent nor the child -- e.g. reached via a shared
+                // global from inside the raising thunk). Before this a
+                // bare `catch null` here silently left the join reason as
+                // void; synthesize something diagnostic instead of losing
+                // the failure entirely.
+                target.current_exception = makeErrorWithType(
+                    .general,
+                    "uncaught exception in thread: the exception value contains an uncopyable type, or a channel owned by another thread",
+                    types.VOID,
+                ) catch null;
+                if (target.current_exception) |cv|
+                    gc.writeBarrier(fiber_obj, cv);
+            },
         }
     }
     freeChildResources(fiber_key);
