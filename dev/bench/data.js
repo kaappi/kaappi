@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783804481842,
+  "lastUpdate": 1783821117631,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "21e581abb45adb51304333aacbff5d9c18563607",
-          "message": "Make default-random-source a variable, not a procedure (#1192) (#1305)\n\nSRFI-27 specifies default-random-source as a variable bound to a random\nsource object. Kaappi was exporting it as a zero-argument native procedure,\nso portable code like (random-source-state-ref default-random-source) would\nfail with a type error.\n\nRename the primitive to %default-random-source (internal) and define the\npublic binding in lib/srfi/27.sld as a variable that calls it once at\nlibrary load time.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:45:36+05:30",
-          "tree_id": "151475e0f9e08f61ea836eb175b0e85f20097c75",
-          "url": "https://github.com/kaappi/kaappi/commit/21e581abb45adb51304333aacbff5d9c18563607"
-        },
-        "date": 1783489985893,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.349141,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.253153,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.996399,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.405182,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012845,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.201375,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.501185,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072105,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.498921,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.949765,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.014938,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951448,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.309655,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.687586,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044144,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046324,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bff0886568d5832ef26229c103a96c5a71fda2c0",
+          "message": "Port layer: non-blocking reads/writes, write buffering, (read) EAGAIN path (KEP-0001 P3) (#1459)\n\n* Port layer: non-blocking reads/writes, write buffering, (read) EAGAIN path (KEP-0001 P3)\n\nPort I/O that would block now suspends the calling fiber on the reactor\ninstead of the OS thread, so fibers reading different connections\ninterleave (closes #1441; builds on #1446/#1453).\n\nfiber.waitForFd has two modes, mirroring the channel protocol: a fiber\ndispatched directly by a scheduler loop parks (.io_waiting + yield-retry\nre-execution — read sites stash partial progress into port.read_buf via\npropagateReadErr so the retry is lossless, including read-line's\nconsumed-but-unappended \\r, mid-sequence UTF-8 prefixes, and (read)'s\npartial datum text); the main fiber or one under re-entrant native\nframes drives the scheduler in place instead, keeping siblings running\nwhile preserving blocking-read semantics. schedule() gains a per-tick\nzero-timeout reactor poll whenever any fiber is io_waiting so a\nbusy/yielding sibling cannot starve parked I/O (the Phase 2\nexpired-timer argument applied to fds).\n\nreadOneByte is the single EAGAIN choke point and now also serves the\nbinary primitives — primitives_bytevector's private reader/writer\nduplicates are gone, which also fixes read-u8 silently skipping bytes a\nprior (read) had buffered. Ports on fd > 2 buffer writes (8 KiB high\nwater) with a real flush-output-port; the drain runs before new bytes\nappend, so parked retries cannot duplicate output. Buffers flush at\nclose-port, reads on the same port, GC finalization, and exit. fd 0/1/2\nare never flipped to O_NONBLOCK and stay unbuffered — REPL and\ndiagnostics unchanged; O_NONBLOCK is set lazily and only once a\nscheduler exists, so sequential programs keep their exact syscall\nprofile.\n\nclose-port wakes fibers parked on the fd (their retry sees is_open ==\nfalse and raises cleanly) and unregisters before the fd can be\nrecycled; register() asserts (Debug) that listed waiters are still\nparked. Two adjacent holes fixed: thread-terminate! now pulls an\nio_waiting victim out of the waiter lists (mirroring removeTimer), and\nepoll's arm() self-heals CTL_MOD/CTL_ADD after a GC-freed port's fd is\nrecycled — the GC closes fds without unregistering, and close silently\ndrops them from the epoll set (kqueue is immune).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1459 review: fix (read) read_buf loss on write-drain park\n\nThe confirmed data-loss bug (review comment on readDatumFn): the entry\ncode moves peek_byte/peek_extra/read_buf into the local accumulation\nbuffer — freeing read_buf — before draining pending writes. A park in\nthat drain unwound with a bare `try`, so the Yielded propagated without\nstashing and the retry re-executed with those bytes gone, parsing\nwhatever arrived next on the fd instead. Route the drain error through\npropagateReadErr like the fd-read path; the reviewer's socketpair repro\n(buffered 20 KB request + read_buf holding the next datum) is included\nas a regression test and fails without the one-line fix.\n\nAlso from review:\n- Rewrite the port-write-buffer smoke test on SRFI-64 per the Scheme\n  test guideline (manual pass/fail counters removed).\n- Document exit's flush scope: gc_instance is threadlocal, so only the\n  calling thread's ports flush — another OS thread may be mid-write on\n  its own ports, and walking its heap without stopping it would race\n  (share-nothing model: each thread flushes or closes its own ports).\n- waitForFd: a kernel-level register failure (EBADF, resource limits)\n  now surfaces as a detailed error instead of masquerading as OOM.\n- peekCharFn: collapse the two adjacent stash slices into one.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T06:53:39+05:30",
+          "tree_id": "cb4bd492e4961c1579fd8e02ce46d4e84f5aac5f",
+          "url": "https://github.com/kaappi/kaappi/commit/bff0886568d5832ef26229c103a96c5a71fda2c0"
+        },
+        "date": 1783821116009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.42869,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.172487,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.945882,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.516522,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006581,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054004,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508994,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069072,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.433733,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984987,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.57827,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436103,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.87585,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.722139,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04312,
             "unit": "seconds"
           }
         ]
