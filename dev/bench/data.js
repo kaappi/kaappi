@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783829661688,
+  "lastUpdate": 1783850565758,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "36022b75419303da7780b2d7d8fd7a7fbd6c03b9",
-          "message": "Implement string-join grammar argument per SRFI-13 (#825) (#1312)\n\nThe optional third argument (infix, strict-infix, prefix, suffix) was\nsilently ignored — all calls produced infix output regardless. Now\nprefix prepends the delimiter before each element, suffix appends it\nafter each, and strict-infix raises an error on an empty list.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T10:54:52+05:30",
-          "tree_id": "2442d0201b9c935f7e249bd256c89d78fc4c0ac0",
-          "url": "https://github.com/kaappi/kaappi/commit/36022b75419303da7780b2d7d8fd7a7fbd6c03b9"
-        },
-        "date": 1783490666764,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.098875,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.354968,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.020066,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.416524,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013911,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.222942,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511015,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07015,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.46169,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981011,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.142881,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.066131,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.165721,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.860421,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046193,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036505,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc34beb8bdd6d9d10eab029d073bf71c42e24ca",
+          "message": "KEP-0001 Phase 7: performance evaluation, edge-triggered go/no-go, thread-sleep! fix (#1476)\n\n* Fix thread-sleep! unbounded stack growth under concurrent fibers (#1463)\n\nthreadSleepFn always drove the scheduler via a nested runSchedulerStep\ncall, unlike fiber.waitForFd's dispatched_from_scheduler-aware flat\nunwind. Two or more fibers each retrying through many short\nthread-sleep! calls nested one more native stack frame per hand-off,\ngrowing without bound until the underlying condition resolved -- this\nis exactly the poll-then-sleep pattern kaappi-http's http-listen-fiber\nuses, and it needed fixing before KEP-0001 Phase 7 could safely\nbenchmark the fiber server at any real concurrency.\n\nRegression test confirmed to segfault (stack overflow) without the fix\nand pass with it.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add per-fiber and reactor benchmarks (KEP-0001 Phase 7)\n\n- src/bench_fibers.zig (zig build bench-fibers): per-fiber switch time\n  and RSS at 100/1k/10k concurrently-live fibers, plus a check for\n  whether the 256-register native-frame frameWindow() fallback\n  inflates saved register/frame arrays in practice.\n- src/bench_reactor.zig (zig build bench-reactor): direct epoll/kqueue\n  benchmarks independent of the VM/Scheme layer -- ONESHOT re-arm cost\n  vs. adjacent read(2)/write(2) (Q3), wake-all fan-out cost (Q1), and\n  timer deadline drift (Q2).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Document KEP-0001 Phase 7 benchmark results and edge-triggered decision\n\nRecords Q1/Q2/Q3 confirmations, Q5 per-fiber memory/switch-time\nmeasurements (including the FiberScheduler O(n) scan finding), the\nedge-triggered migration go/no-go (no-go for now -- re-arm cost is\nalready cheaper than the adjacent I/O syscall on both kqueue and\nepoll), ecosystem server benchmark numbers, and two bugs found while\nbenchmarking (http-listen-threaded hang, http-listen-fiber's 1ms\npoll-then-sleep floor).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Harden thread-sleep! against OOM leaving stale redispatch state\n\nIf addTimer or the scheduler drive fails (OOM-only today), the fiber\nkept me.deadline_ns set with no timer actually pending -- the next\nthread-sleep! call on that fiber would misread its fresh call as a\nredispatch and wait on a stale deadline forever. errdefer now clears\ndeadline_ns and removes the timer on any error other than\nerror.Yielded, which is the intentional flat-unwind signal the\ndiscriminator exists to survive, not a real error to clean up after.\n\nReview suggestion from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix regression test's assertions and scale it under gc-stress\n\n- (>= waiter-result 0) was vacuously true for any non-negative\n  starting value and proved nothing; require > 0 so the test actually\n  exercises repeated thread-sleep! redispatch.\n- (<= waiter-result 3000) baked in a round-robin scheduling guarantee\n  (the setter is always dispatched before the waiter each wake round)\n  that isn't a property of the #1463 fix -- once #1477 replaces the\n  O(n) scheduler scan with a ready queue, dispatch order within a wake\n  round is no longer guaranteed, and this would flake in the exact PR\n  that fixes the scheduler. Loosened to a sanity ceiling.\n- Scale the retry count down under -Dgc-stress=true, matching the\n  pattern in tests_robustness.zig.\n\nReview from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix bench_fibers.zig: correct native-frame test, allocator, RSS API\n\n- The native-frame comparison used for-each, which is bootstrap Scheme\n  (src/vm_bootstrap.zig) rather than a Zig primitive -- its callback\n  never pushed a native frame, so both \"bytecode\" and \"native\" cases\n  were exercising identical bytecode paths regardless of depth.\n  Replaced with with-exception-handler, a genuine native primitive\n  that calls its thunk via callReentrant. yield no-ops under\n  native_reentry_depth (the #1184 limitation), so thread-sleep! is\n  used as the suspension point in both cases instead.\n- Found in the process: thread-sleep! inside with-exception-handler's\n  thunk always drives the scheduler recursively rather than\n  flat-unwinding (nested runUntil clears dispatched_from_scheduler for\n  its extent, same mechanism that makes yield no-op there), so\n  concurrently-dispatched fibers doing this chain-nest the native\n  stack -- confirmed crashing at just N=2 fibers with deep-enough\n  recursion. Kept N=1 and shallow depth as the only safe combination;\n  documented the result as inconclusive rather than a clean negative.\n- Replaced std.heap.DebugAllocator with std.heap.c_allocator in main()\n  -- DebugAllocator's bookkeeping (stack-trace capture, canaries)\n  directly contaminated the timing and RSS numbers being measured.\n- Replaced the hand-rolled RUsage extern struct with\n  std.posix.getrusage(std.posix.rusage.SELF), which ships a correct\n  per-OS layout in Zig 0.16 (verified compiling and running on both\n  macOS and a Linux cross-compile target).\n- Documented that RSS is a process-lifetime high-water mark\n  (ru_maxrss), not an independent per-N peak.\n\nReview from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Harden bench_reactor.zig: validate I/O, preallocate, verify timer fired\n\n- Check read(2)/write(2) return values in the Q3 arm-vs-io loop; a\n  short or interrupted transfer would otherwise accumulate unread\n  bytes or skew the timing silently.\n- Preallocate the Q1 wake-all fan-out benchmark's result list before\n  starting the clock, so the timed region measures poll()'s own\n  dispatch work rather than ArrayList growth.\n- Verify the Q2 timer-granularity benchmark's result list actually\n  contains the fiber before computing lateness, instead of trusting\n  any poll() return to mean the timer fired.\n\nReview from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Update Phase 7 write-up with corrected data and review fixes\n\n- Re-ran all benchmarks with the corrected native-frame test,\n  c_allocator, and hardened bench_reactor.zig; refreshed every\n  number in the doc to match (all conclusions held).\n- Rewrote the native-frame section to describe the actual\n  investigation honestly: the for-each approach was methodologically\n  invalid, and the corrected with-exception-handler approach's result\n  is inconclusive (blocked by the 256-register initial floor at safe\n  depth, and by a newly-found native-stack-overflow risk at deeper\n  recursion), not a clean \"no inflation\" finding.\n- Removed a stray leftover table row in the Q3 section.\n- Relinked \"Follow-ups to file\" as \"Follow-ups (filed)\" now that\n  #1477-#1480 exist.\n- Documented that RSS is a high-water-mark delta, not a per-N peak.\n- Linked the now-committed kaappi-http/benchmarks/ reproduction\n  scripts (kaappi-http#3) instead of describing them as unreproducible\n  scratch files.\n- Labeled the reproduction shell fence.\n\nReview from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Document the new bench-fibers/bench-reactor build steps\n\nReview suggestion from PR #1476.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-12T09:38:18Z",
+          "tree_id": "a911c519717e9512196c911027b44f515aabd7ee",
+          "url": "https://github.com/kaappi/kaappi/commit/6cc34beb8bdd6d9d10eab029d073bf71c42e24ca"
+        },
+        "date": 1783850564975,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.397546,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.602364,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.910076,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.556306,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006399,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053867,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512152,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070422,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.378439,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984942,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578445,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432156,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.827731,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.696347,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042535,
             "unit": "seconds"
           }
         ]
