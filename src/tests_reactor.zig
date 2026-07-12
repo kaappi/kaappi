@@ -417,3 +417,101 @@ test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }
+
+fn setNonblocking(fd: std.c.fd_t) void {
+    const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
+    std.testing.expect(flags >= 0) catch unreachable;
+    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+    std.testing.expect(std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) >= 0) catch unreachable;
+}
+
+/// Shrinks the kernel send buffer so `fillSendBuffer` reaches EAGAIN after
+/// a few KB instead of needing megabytes of writes.
+fn setSmallSndbuf(fd: std.c.fd_t) void {
+    const size: c_int = 2048;
+    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, std.mem.asBytes(&size)) catch unreachable;
+}
+
+/// Writes to `fd` (already non-blocking) until the send buffer is full and
+/// a write returns EAGAIN, proving the fd is not writable. Bounded so a
+/// platform that doesn't honor the shrunk SO_SNDBUF fails loudly instead of
+/// spinning forever.
+fn fillSendBuffer(fd: std.c.fd_t) void {
+    var buf: [4096]u8 = [_]u8{0} ** 4096;
+    var iterations: usize = 0;
+    while (iterations < 4096) : (iterations += 1) {
+        const n = std.posix.system.write(fd, &buf, buf.len);
+        if (n < 0) {
+            std.testing.expectEqual(std.posix.E.AGAIN, std.posix.errno(n)) catch unreachable;
+            return;
+        }
+    }
+    @panic("fillSendBuffer: fd never became unwritable (SO_SNDBUF not honored?)");
+}
+
+/// Reads `fd` (already non-blocking) to EAGAIN, discarding everything —
+/// frees up the peer's send buffer.
+fn drainSocket(fd: std.c.fd_t) void {
+    var buf: [4096]u8 = undefined;
+    while (true) {
+        const n = std.posix.system.read(fd, &buf, buf.len);
+        if (n < 0) {
+            std.testing.expectEqual(std.posix.E.AGAIN, std.posix.errno(n)) catch unreachable;
+            return;
+        }
+        if (n == 0) return;
+    }
+}
+
+test "a stale ONESHOT fire on one direction re-arms the fd for the surviving waiter (#1462)" {
+    // removeWaiter only edits the waiter lists — it never touches the
+    // kernel registration (see its doc comment). If the removed waiter's
+    // direction fires before the surviving direction does, epoll's
+    // EPOLLONESHOT disarms the *whole* fd, not just the direction that
+    // fired. poll() must re-arm for whatever waiters remain even when the
+    // fired event matched none of them ("stale"), or the surviving waiter
+    // is left parked on an fd the kernel no longer watches — a permanent,
+    // silent hang with no timers pending to bound the wait.
+    //
+    // kqueue's independent per-direction knotes make this scenario
+    // impossible to strand there, so this test can only demonstrate the
+    // bug on Linux (epoll); it still passes on macOS/kqueue as a no-op
+    // regression guard.
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pair = makeSocketPair();
+    defer closeFd(pair[0]);
+    defer closeFd(pair[1]);
+
+    setNonblocking(pair[0]);
+    setSmallSndbuf(pair[0]);
+    fillSendBuffer(pair[0]); // pair[0] is now not writable
+
+    var fiber_r: Fiber = undefined;
+    fiber_r.status = .io_waiting;
+    var fiber_w: Fiber = undefined;
+    fiber_w.status = .io_waiting;
+    try reactor.register(pair[0], .read, &fiber_r);
+    try reactor.register(pair[0], .write, &fiber_w); // kernel armed IN|OUT|ONESHOT
+
+    reactor.removeWaiter(pair[0], &fiber_r); // read waiter gone; kernel stays armed for IN
+
+    writeByte(pair[1], 'x'); // pair[0] becomes readable -> a stale IN fire
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(300_000_000, &ready); // the stale fire is dropped
+    try std.testing.expectEqual(@as(usize, 0), ready.items.len);
+
+    // Free up pair[0]'s send buffer so it becomes writable, then confirm
+    // the surviving write waiter still wakes. Without the fix this poll
+    // times out on Linux: the stale fire above left the fd disarmed in
+    // the kernel and nothing ever re-registers it.
+    setNonblocking(pair[1]);
+    drainSocket(pair[1]);
+    try reactor.poll(300_000_000, &ready);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_w, ready.items[0]);
+}

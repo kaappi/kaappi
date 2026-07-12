@@ -143,7 +143,10 @@ pub const Reactor = struct {
     /// the poll/close paths (an error unwinding waitForFd's scheduler
     /// drive) — those paths clear the lists themselves. A kernel ONESHOT
     /// left armed with no listed waiter fires once into the stale-event
-    /// path of poll() and is dropped there. No-op if absent.
+    /// path of poll() and is dropped there; on epoll that stale fire still
+    /// disarms the whole fd (not just the removed direction), so poll()
+    /// re-arms for whatever the other direction still needs regardless of
+    /// whether this event matched a live waiter (#1462). No-op if absent.
     pub fn removeWaiter(self: *Reactor, fd: i32, fiber: *Fiber) void {
         const reg = self.regs.getPtr(fd) orelse return;
         var lists = [_]*std.ArrayList(*Fiber){ &reg.read_waiters, &reg.write_waiters };
@@ -226,7 +229,6 @@ pub const Reactor = struct {
         for (events) |ev| {
             const reg = self.regs.getPtr(ev.fd) orelse continue; // stale event; already unregistered
 
-            var fired = false;
             // Reserved up front so the drain below can't fail mid-way: a
             // failure after the kernel's ONESHOT event was consumed but
             // before all waiters were moved to `ready` would strand the
@@ -237,20 +239,22 @@ pub const Reactor = struct {
             if (ev.readable and reg.read_waiters.items.len > 0) {
                 for (reg.read_waiters.items) |f| ready.appendAssumeCapacity(f);
                 reg.read_waiters.clearRetainingCapacity();
-                fired = true;
             }
             if (ev.writable and reg.write_waiters.items.len > 0) {
                 for (reg.write_waiters.items) |f| ready.appendAssumeCapacity(f);
                 reg.write_waiters.clearRetainingCapacity();
-                fired = true;
             }
-            if (!fired) continue;
 
             // epoll's ONESHOT disarms the *whole* fd registration on any
-            // fire, even a direction that didn't fire (unlike kqueue, where
-            // read/write are independent knotes and an untouched filter
-            // stays armed). Re-arm for whatever's left. Harmless no-op
-            // redundant EV_ADD on kqueue.
+            // fire — including a "stale" fire whose direction has no live
+            // waiter (e.g. removeWaiter already dropped it) — unlike
+            // kqueue, where read/write are independent knotes and an
+            // untouched filter stays armed. Re-arm unconditionally for
+            // whatever waiters remain, even when this event matched none:
+            // gating the re-arm on `fired` left a stale fire's untouched
+            // direction disarmed in the kernel with its waiter still
+            // parked and still listed, so no deadlock detector would catch
+            // it either (#1462). Harmless no-op redundant EV_ADD on kqueue.
             const remaining_read = reg.read_waiters.items.len > 0;
             const remaining_write = reg.write_waiters.items.len > 0;
             if (remaining_read or remaining_write) {
