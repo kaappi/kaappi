@@ -202,6 +202,34 @@ pub fn build(b: *std.Build) void {
     const bench_step = b.step("bench", "Run the call/cc capture benchmark");
     bench_step.dependOn(&run_bench.step);
 
+    // Benchmark executable (per-fiber memory & switch-time, KEP-0001 P7 Q5)
+    const bench_fibers_mod = kaappiModule(b, options_mod, .{
+        .root = "src/bench_fibers.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_fibers_exe = b.addExecutable(.{
+        .name = "bench-fibers",
+        .root_module = bench_fibers_mod,
+    });
+    const run_bench_fibers = b.addRunArtifact(bench_fibers_exe);
+    const bench_fibers_step = b.step("bench-fibers", "Run the per-fiber memory & switch-time benchmark");
+    bench_fibers_step.dependOn(&run_bench_fibers.step);
+
+    // Benchmark executable (reactor wake-all/re-arm/timer costs, KEP-0001 P7 Q1/Q2/Q3)
+    const bench_reactor_mod = kaappiModule(b, options_mod, .{
+        .root = "src/bench_reactor.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_reactor_exe = b.addExecutable(.{
+        .name = "bench-reactor",
+        .root_module = bench_reactor_mod,
+    });
+    const run_bench_reactor = b.addRunArtifact(bench_reactor_exe);
+    const bench_reactor_step = b.step("bench-reactor", "Run the reactor wake-all/re-arm/timer benchmark");
+    bench_reactor_step.dependOn(&run_bench_reactor.step);
+
     // Package manager (thottam)
     const thottam_mod = kaappiModule(b, options_mod, .{
         .root = "src/thottam.zig",
