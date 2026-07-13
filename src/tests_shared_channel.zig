@@ -768,13 +768,15 @@ test "required regression: workers looping until eof all see the admitted messag
 }
 
 test "required regression: copy failure of the last reserved send on a closed channel rings eof-waiting receivers (§4 step 9, model finding 3)" {
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
     const sc = try shared_channel.SharedChannel.create();
     sc.reserved = 1; // an admitted send is in flight
     shared_channel.close(sc); // ... and the channel closes before it completes
     try std.testing.expectEqual(@as(u32, 1), sc.reserved);
 
     var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
-    defer reactor.deinit();
     const notifier = reactor.notifyHandle();
 
     // A receiver arriving inside the admitted send's copy window: the
@@ -805,6 +807,11 @@ test "required regression: copy failure of the last reserved send on a closed ch
     try std.testing.expectEqual(shared_channel.RecvOutcome.eof, try shared_channel.receive(sc, &dest_gc, null));
 
     sc.release();
+    // Explicit, not deferred -- must run before the leak-count checks
+    // below, which otherwise run before a function-scope `defer` would.
+    reactor.deinit();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
 }
 
 test "Motivation Path 2 regression: a channel reached through a shared global raises instead of corrupting memory" {

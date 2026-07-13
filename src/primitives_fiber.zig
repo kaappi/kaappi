@@ -371,6 +371,30 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
             .would_park => {},
         }
 
+        // A prior loop iteration may have parked, armed a timer, and then
+        // woken *spuriously* -- sweepSharedWaiters (fiber.zig) flips a
+        // .waiting fiber to .suspended unconditionally on any notify, with
+        // no notion of "was this really my event", and does not touch
+        // deadline_ns or cancel the reactor timer. Left armed, that timer
+        // is still live while the drive below runs with `me` .running --
+        // and wakeReadyFiber only ever sets `timed_out` for a .waiting (or
+        // io_waiting) fiber, so a fiber pop while `me` is .running is
+        // silently dropped (schedule()'s per-tick popExpiredTimers, or
+        // parkOnReactor's own poll, both call wakeReadyFiber the same way),
+        // permanently losing the timeout for the rest of this wait.
+        //
+        // Detach it from the *reactor's* heap only -- `me.deadline_ns`
+        // itself is deliberately left set, as the sole authoritative record
+        // of the original absolute deadline. The park step below always
+        // re-adds a timer if it doesn't resolve things, preferring this
+        // preserved value over a freshly re-parsed `deadline_ns` argument
+        // (`me.deadline_ns orelse deadline_ns`) -- clearing the field here
+        // instead would make every re-arm fall through to `deadline_ns`,
+        // which is recomputed as "now + relative seconds" on every fresh
+        // native call (see channelSendFn), silently extending the timeout
+        // on every spurious wake instead of honoring the original one.
+        if (me.deadline_ns != null) ctx.reactor.removeTimer(me);
+
         // Drive local siblings once. See SharedChannelPoll's doc comment
         // (channelReceiveShared) for why `me` must stay .running throughout.
         me.timed_out = false;
@@ -381,11 +405,9 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
             me.status = .waiting;
             me.waiting_on = ch_val;
             vm.gc.writeBarrier(&me.header, ch_val);
-            if (me.deadline_ns == null) {
-                if (deadline_ns) |d| {
-                    me.deadline_ns = d;
-                    try ctx.reactor.addTimer(d, me);
-                }
+            if (me.deadline_ns orelse deadline_ns) |d| {
+                me.deadline_ns = d;
+                try ctx.reactor.addTimer(d, me);
             }
             ctx.sched.enrollSharedWaiter(me) catch |err| {
                 me.status = .running;
@@ -402,11 +424,9 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
         me.status = .waiting;
         me.waiting_on = ch_val;
         vm.gc.writeBarrier(&me.header, ch_val);
-        if (me.deadline_ns == null) {
-            if (deadline_ns) |d| {
-                me.deadline_ns = d;
-                try ctx.reactor.addTimer(d, me);
-            }
+        if (me.deadline_ns orelse deadline_ns) |d| {
+            me.deadline_ns = d;
+            try ctx.reactor.addTimer(d, me);
         }
         ctx.sched.enrollSharedWaiter(me) catch |err| {
             me.status = .running;
@@ -534,6 +554,17 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             .would_park => {},
         }
 
+        // A prior loop iteration may have parked, armed a timer, and then
+        // woken *spuriously* -- see channelSendShared's matching comment for
+        // the full reasoning. Detach any still-live timer from the
+        // *reactor's* heap only (never `me.deadline_ns` itself, which stays
+        // the authoritative record of the original absolute deadline) so a
+        // pop while this drive runs with `me` .running can't be silently
+        // dropped by wakeReadyFiber -- and the park step below can still
+        // re-arm using the preserved value instead of a freshly re-parsed
+        // (and wrongly extended) `deadline_ns` argument.
+        if (me.deadline_ns != null) ctx.reactor.removeTimer(me);
+
         // Drive local siblings once. `me` stays .running -- see
         // SharedChannelPoll's doc comment for why that's load-bearing.
         // Reset first: runSchedulerStep's generic loop bails whenever
@@ -550,11 +581,9 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             me.status = .waiting;
             me.waiting_on = ch_val;
             vm.gc.writeBarrier(&me.header, ch_val);
-            if (me.deadline_ns == null) {
-                if (deadline_ns) |d| {
-                    me.deadline_ns = d;
-                    try ctx.reactor.addTimer(d, me);
-                }
+            if (me.deadline_ns orelse deadline_ns) |d| {
+                me.deadline_ns = d;
+                try ctx.reactor.addTimer(d, me);
             }
             ctx.sched.enrollSharedWaiter(me) catch |err| {
                 me.status = .running;
@@ -575,11 +604,9 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // between there and here can set it true again (`me` stays .running
         // for that whole drive, and wakeReadyFiber only flips `.waiting`
         // fibers).
-        if (me.deadline_ns == null) {
-            if (deadline_ns) |d| {
-                me.deadline_ns = d;
-                try ctx.reactor.addTimer(d, me);
-            }
+        if (me.deadline_ns orelse deadline_ns) |d| {
+            me.deadline_ns = d;
+            try ctx.reactor.addTimer(d, me);
         }
         ctx.sched.enrollSharedWaiter(me) catch |err| {
             me.status = .running;
