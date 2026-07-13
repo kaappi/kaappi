@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783961920040,
+  "lastUpdate": 1783973348797,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f757c25560767ac3de0f978e1a6ed3b10a341d5",
-          "message": "Fix posix-time/monotonic-time to return SRFI-19 time objects (#1162) (#1320)\n\n* Fix posix-time/monotonic-time to return SRFI-19 time objects (#1162)\n\nExtend the Zig-level Srfi18Time type to carry integer seconds,\nnanoseconds, and a time type enum (utc/tai/monotonic/duration),\nunifying it as the canonical time representation for both SRFI-18\nand SRFI-19. Register SRFI-19 time accessors (make-time, time?,\ntime-type, time-second, time-nanosecond) as built-in primitives\nin (scheme time), and update lib/srfi/19.sld to use them instead\nof define-record-type.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: validate nanoseconds, fix WASM availability\n\n- Move time accessors (make-time, time?, time-type, time-second,\n  time-nanosecond) from primitives_srfi18.zig to primitives_r7rs.zig\n  so they are available on WASM builds (primitives_srfi18.zig is\n  excluded on wasm32-wasi)\n- Validate 0 <= nanosecond < 1e9 in make-time to prevent interpreter\n  panics from negative nanoseconds reaching u64 casts in the printer\n  and timeout paths\n- Defensively clamp nanoseconds in printer and timeoutToDeadlineNs\n- Use floor instead of trunc in seconds->time for correct negative\n  second handling\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T16:49:17+05:30",
-          "tree_id": "3d1f026fd22157005d6b6a3740b723d2fe1d4d3b",
-          "url": "https://github.com/kaappi/kaappi/commit/9f757c25560767ac3de0f978e1a6ed3b10a341d5"
-        },
-        "date": 1783511338429,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.457891,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.45573,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.978311,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.449284,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012671,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203553,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504603,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072526,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.859729,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.965994,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.180538,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.004413,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.439506,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.700894,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043708,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044626,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c008bac7b9a304f00e78997742700221d57b46f6",
+          "message": "KEP-0002 Phase 5: (kaappi parallel) pools, parallel-map, processor-count (#1522)\n\nPure Scheme worker pools (make-pool/pool-submit/task-wait/pool-shutdown!)\nand parallel-map/parallel-for-each over (srfi 18) + (kaappi fibers),\ndegrading to fiber workers under --sandbox and on WASM where real threads\nare unavailable. processor-count is the one new native primitive.\n\nThe library is embedded into the binary (build.zig + vm_library.zig) so\nit stays importable under --sandbox, which otherwise blocks every\nfile-backed library load outright -- a plain portable .sld would be\nunimportable there at all, not just degraded.\n\nFound and filed two pre-existing runtime gaps while building this:\n- #1520: a closure that crosses thread-start! and then calls a\n  separately-defined library procedure hangs. Worked around throughout\n  by inlining (matches the KEP's own reference pseudocode).\n- Confirmed #1489 (lost cross-thread wakeup) is reachable through\n  ordinary parallel-map usage past a few hundred concurrent submissions,\n  not just synthetic repros. Documented; parallel-primes (kaappi-examples)\n  demonstrates the chunked-pool workaround.",
+          "timestamp": "2026-07-14T01:10:06+05:30",
+          "tree_id": "4089689a5344781b83f290e1fc917840ab5fe669",
+          "url": "https://github.com/kaappi/kaappi/commit/c008bac7b9a304f00e78997742700221d57b46f6"
+        },
+        "date": 1783973346604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.236898,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.989179,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.648194,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.219391,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00646,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.042433,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.357723,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05387,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.862656,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.459348,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.285076,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.416622,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.39543,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.854535,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038173,
             "unit": "seconds"
           }
         ]
