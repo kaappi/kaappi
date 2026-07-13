@@ -402,6 +402,7 @@ pub const ErrorObject = struct {
         abandoned_mutex,
         terminated_thread,
         uncaught_exception,
+        channel_timeout,
     };
 
     header: Object,
@@ -657,6 +658,16 @@ pub const Channel = struct {
     header: Object,
     head: Value,
     tail: Value,
+    /// Local queue length (KEP-0002 §6) -- O(1) capacity admission checks
+    /// instead of walking the head/tail pair list. Unused once `shared` is
+    /// set (the SharedChannel tracks its own queue_len).
+    queue_len: u32 = 0,
+    /// null = unbounded (today's semantics). Local-representation only;
+    /// carried into the SharedChannel by promoteChannel on promotion.
+    capacity: ?u32 = null,
+    /// KEP-0002 §6: end-of-stream. Local-representation only; carried into
+    /// the SharedChannel by promoteChannel on promotion.
+    closed: bool = false,
     /// Set exactly once, by the owning thread (KEP-0002 §2). Actually
     /// `*shared_channel.SharedChannel` once promoted; kept opaque so
     /// types.zig -- the dependency-free base layer -- doesn't import a

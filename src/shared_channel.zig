@@ -105,12 +105,12 @@ pub const SharedChannel = struct {
     /// Slots claimed by in-flight sends (§4) -- always 0 outside a send()
     /// call in progress.
     reserved: u32 = 0,
-    /// null = unbounded. Always null in Phase 1: no Scheme-level API sets
-    /// this yet (make-channel with a capacity argument is Phase 4);
-    /// reachable in Phase 1 only via a white-box test that constructs a
-    /// SharedChannel directly.
+    /// null = unbounded (KEP-0002 §6, `make-channel`'s optional capacity
+    /// argument). Set once, by promoteChannel, from the local
+    /// representation's own `capacity` field -- never mutated after.
     capacity: ?u32 = null,
-    /// Always false in Phase 1: channel-close! is Phase 4.
+    /// KEP-0002 §6, `channel-close!`. Set once (true), by promoteChannel
+    /// (carried over from an already-closed local channel) or by close().
     closed: bool = false,
     recv_waiters: std.ArrayList(*ThreadNotifier) = .empty,
     send_waiters: std.ArrayList(*ThreadNotifier) = .empty,
@@ -151,6 +151,27 @@ pub const SharedChannel = struct {
         lockChannel(self);
         defer unlockChannel(self);
         return self.queue_len != 0 or self.closed;
+    }
+
+    /// Send-side counterpart to peekReady: true iff a send() call right now
+    /// would be admitted (a slot is free, unbounded, or closed -- a closed
+    /// channel "admits" in the sense that send() will immediately raise
+    /// rather than park, which is exactly the outcome
+    /// channelSendShared's local-drive loop needs to stop waiting on).
+    pub fn peekSendReady(self: *SharedChannel) bool {
+        lockChannel(self);
+        defer unlockChannel(self);
+        if (self.closed) return true;
+        const cap = self.capacity orelse return true;
+        return self.queue_len + self.reserved < cap;
+    }
+
+    /// KEP-0002 §6's `channel-closed?`, lock-protected like peekReady --
+    /// `closed` is genuinely cross-thread-visible once promoted.
+    pub fn isClosed(self: *SharedChannel) bool {
+        lockChannel(self);
+        defer unlockChannel(self);
+        return self.closed;
     }
 
     /// §1 rule 4 / §7: zero destroys. Drains and deinits every queued
@@ -290,6 +311,12 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     std.debug.assert(ch.header.owner == gc.id);
 
     const sc = try SharedChannel.create();
+    // KEP-0002 §6: carried over from the local representation before
+    // publishing -- safe either way, since nothing can observe `sc` until
+    // `ch.shared` is set below. `sc.queue_len` needs no equivalent copy: the
+    // drain loop below derives it correctly via pushBack.
+    sc.capacity = ch.capacity;
+    sc.closed = ch.closed;
     // Publish before draining (§2 step 2): a queued local message may
     // contain this very channel (e.g. (channel-send ch (list ch))). With
     // `shared` already set, the drain's own Envelope.create -> deepCopy
@@ -316,30 +343,41 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
 
     // KEP-0002 §2 step 4: migrate any fiber already parked on the *local*
     // representation before promotion (waiting_on == ch -- a receiver on
-    // the empty queue; sender-side migration doesn't apply yet, since the
-    // local Channel has no capacity to park a sender against until Phase
-    // 4). Promotion runs inside a primitive on the owning thread, so the
-    // local scheduler is quiescent and this scan is race-free. Without this
-    // step a fiber parked before promotion would hang forever: a remote
-    // send only rings *registered* notifiers. Enrolled unconditionally, not
-    // gated on sc.refCount() > 1 -- at this point refcount is still 1 (the
-    // caller in gc_deep_copy.zig retains the second stub only after this
-    // function returns), so gating here would always see 1 and wrongly
-    // skip migration.
+    // the empty queue, or, since Phase 4 added local bounded-channel
+    // parking, a sender on a full queue). Promotion runs inside a primitive
+    // on the owning thread, so the local scheduler is quiescent and this
+    // scan is race-free. Without this step a fiber parked before promotion
+    // would hang forever: a remote send/receive only rings *registered*
+    // notifiers. Enrolled unconditionally, not gated on sc.refCount() > 1
+    // -- at this point refcount is still 1 (the caller in gc_deep_copy.zig
+    // retains the second stub only after this function returns), so gating
+    // here would always see 1 and wrongly skip migration.
+    //
+    // A migrated fiber's role (parked sender vs. parked receiver) isn't
+    // tracked anywhere -- `waiting_on` only records the channel, not why --
+    // so rather than adding a Fiber field just for this migration corner,
+    // the notifier is registered in *both* waiter lists. A spurious ring on
+    // the wrong list is harmless under the existing wake-all/retry
+    // discipline (the fiber just re-parks and re-registers correctly, this
+    // time through the real shared send()/receive() path); registering in
+    // only one risks a permanent hang if that guess is wrong (e.g. a
+    // migrated sender registered only in recv_waiters would never be rung
+    // by a remote receive freeing a slot).
     if (vm_mod.vm_instance) |vm| {
         if (vm.scheduler) |sched| {
             const ch_val = types.makePointer(@ptrCast(&ch.header));
             // Registers the notifier once, only if something actually
-            // matched -- registerRecvWaiter's own dedup makes calling it
-            // once per matching fiber idempotent, but hoisting it out reads
-            // clearer and does one lock/unlock instead of N.
+            // matched -- register{Recv,Send}Waiter's own dedup makes
+            // calling them once per matching fiber idempotent, but hoisting
+            // it out reads clearer and does one lock/unlock pair instead of
+            // N per list.
             var migrated_any = false;
             for (sched.fibers.items) |maybe_f| {
                 const f = maybe_f orelse continue;
                 if (f.status == .waiting and f.waiting_on == ch_val) {
-                    // Propagate, don't swallow: registerRecvWaiter runs
-                    // once, after this loop finishes (not before it), so on
-                    // an enrollSharedWaiter OOM mid-loop no notifier is ever
+                    // Propagate, don't swallow: registration runs once,
+                    // after this loop finishes (not before it), so on an
+                    // enrollSharedWaiter OOM mid-loop no notifier is ever
                     // registered for `sc`. Fibers already enrolled by prior
                     // iterations become stale-but-harmless registry entries
                     // -- any future sweep on this scheduler flips them
@@ -352,7 +390,11 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
                     migrated_any = true;
                 }
             }
-            if (migrated_any) sc.registerRecvWaiter(vm.reactor.?.notifyHandle());
+            if (migrated_any) {
+                const notifier = vm.reactor.?.notifyHandle();
+                sc.registerRecvWaiter(notifier);
+                sc.registerSendWaiter(notifier);
+            }
         }
     }
 
@@ -366,12 +408,10 @@ pub const SendOutcome = union(enum) {
 };
 
 /// KEP-0002 §4 send, on the shared representation, verbatim. `notifier` is
-/// registered only by the full-channel park branch, which is provably
-/// unreachable through the public Scheme API in Phase 1 (capacity is
-/// always null) -- callers that only ever pass unbounded/open channels may
-/// pass null; a null notifier on that branch simply registers nothing
-/// (there is nothing yet to wake) rather than panicking, so a future caller
-/// that *can* reach this branch without a real notifier degrades safely.
+/// registered only by the full-channel park branch (reachable once a
+/// caller passes a bounded channel, KEP-0002 §6); passing null there simply
+/// registers nothing (there is nothing yet to wake) rather than panicking,
+/// which callers that only ever operate on unbounded/open channels rely on.
 pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !SendOutcome {
     lockChannel(sc);
     if (sc.closed) {
@@ -462,4 +502,25 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
     if (notifier) |n| sc.registerRecvWaiter(n);
     unlockChannel(sc);
     return .would_park;
+}
+
+/// KEP-0002 §6 close, on the shared representation, verbatim: idempotent,
+/// wakes every waiter on both sides at once. A sender that already reserved
+/// its slot before this runs is unaffected (the `closed` check runs only at
+/// send's admission step) and completes its push normally -- reservation-
+/// as-admission is what makes an admitted message survive a concurrent
+/// close (model finding 2).
+pub fn close(sc: *SharedChannel) void {
+    lockChannel(sc);
+    if (sc.closed) {
+        unlockChannel(sc);
+        return;
+    }
+    sc.closed = true;
+    var snap: std.ArrayList(*ThreadNotifier) = .empty;
+    defer snap.deinit(std.heap.c_allocator);
+    sc.snapshotAndClearRecvWaiters(&snap);
+    sc.snapshotAndClearSendWaiters(&snap);
+    unlockChannel(sc);
+    ring(snap.items);
 }

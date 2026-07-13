@@ -876,6 +876,23 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ch));
     }
 
+    /// KEP-0002 §6: a bounded channel, `(make-channel capacity)`. Separate
+    /// from allocChannel (rather than an optional parameter) so the
+    /// pre-Phase-4 call sites that construct an unbounded channel need no
+    /// changes.
+    pub fn allocChannelBounded(self: *GC, capacity: u32) !Value {
+        try self.maybeCollect();
+        const ch = try self.allocator.create(types.Channel);
+        ch.* = .{
+            .header = .{ .tag = .channel },
+            .head = types.NIL,
+            .tail = types.NIL,
+            .capacity = capacity,
+        };
+        self.finishAlloc(&ch.header, @sizeOf(types.Channel));
+        return types.makePointer(@ptrCast(ch));
+    }
+
     /// A promoted-channel stub: a new counted reference to an existing
     /// SharedChannel (KEP-0002 §2), allocated on this heap by deepCopy's
     /// `.channel` alias arm. `shared` isn't a Value, so there's nothing to

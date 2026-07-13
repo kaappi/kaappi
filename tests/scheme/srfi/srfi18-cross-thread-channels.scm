@@ -7,12 +7,14 @@
 ;; thread right before it exits. Together these make cross-thread channels
 ;; actually usable end to end for the first time.
 ;;
-;; Phase 3 (#1468) has not landed yet, so every scenario here is restricted
-;; to "send completes before receive is attempted" interleavings: a receive
-;; on an empty *shared* channel has no wakeup machinery to park on yet.
-;; Ordering is made deterministic via thread-join! (which only returns once
+;; The scenarios through Phase 2's original tests below are restricted to
+;; "send completes before receive is attempted" interleavings, with
+;; ordering made deterministic via thread-join! (which only returns once
 ;; the child is fully done, including any sends it made) rather than by
-;; timing/luck.
+;; timing/luck. Phase 3 (#1468) added cross-thread wakeup (a receive parked
+;; on an empty shared channel now resolves when another thread sends) and
+;; Phase 4 (#1469) added capacity/timeouts/close!, both exercised further
+;; down this file.
 
 (import (scheme base) (scheme write) (scheme process-context)
         (srfi 18) (kaappi fibers) (srfi 64))
@@ -116,6 +118,54 @@
     (guard (e (#t (uncaught-exception? e)))
       (thread-join! t)
       #f)))
+
+;; --- KEP-0002 Phase 4 (#1469): capacity, timeouts, close, now exercised
+;; across real OS threads (Phase 3's cross-thread wakeup makes a receiver
+;; parked in one thread's scheduler resolvable by a send from another).
+
+;; --- bounded shared channel: a full channel backpressures a sender on
+;; another thread until the main thread drains a slot ---
+(test-equal "bounded shared channel: worker thread blocks on a full channel until the main thread receives"
+  '(1 2)
+  (let* ((ch (make-channel 1))
+         (t (make-thread (lambda ()
+                            (channel-send ch 1)  ; fills the one slot
+                            (channel-send ch 2))))) ; must park until drained
+    (thread-start! t)
+    (let ((first (channel-receive ch)))  ; frees the slot -- wakes the worker
+      (thread-join! t) ; only returns once the second send completes
+      (list first (channel-receive ch)))))
+
+;; --- channel-close! from the main thread wakes a channel-receive loop on
+;; a worker thread, draining what was already sent before eof ---
+(test-equal "channel-close! from the main thread wakes a worker's receive loop, draining queued sends first"
+  '(1 2 3)
+  (let* ((ch (make-channel))
+         (t (make-thread
+              (lambda ()
+                (let loop ((acc '()))
+                  (let ((v (channel-receive ch)))
+                    (if (eof-object? v)
+                        (reverse acc)
+                        (loop (cons v acc)))))))))
+    (thread-start! t)
+    (channel-send ch 1)
+    (channel-send ch 2)
+    (channel-send ch 3)
+    (channel-close! ch)
+    (thread-join! t)))
+
+;; --- a timed channel-receive on a shared channel is the documented escape
+;; hatch for §5's weakened deadlock detection: with no other live thread
+;; and no more references, a plain channel-receive would either deadlock
+;; or hang, but a timeout still resolves ---
+(test-equal "timed channel-receive on a shared channel with no future sender returns timeout-val, not a hang"
+  'gave-up
+  (let* ((ch (make-channel))
+         (t (make-thread (lambda () ch)))) ; capturing ch promotes it
+    (thread-start! t)
+    (thread-join! t) ; the thread is now gone; ch stays promoted (sticky)
+    (channel-receive ch 0.05 'gave-up)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi18-cross-thread-channels")
