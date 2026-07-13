@@ -100,15 +100,16 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 |------|---------------|
 | `constant` | Literal `i64` for immediates; `kaappi_make_string` for strings; `kaappi_intern_symbol` for symbols; `(quote ...)` via `kaappi_eval` for other heap values |
 | `global_ref` | `call @kaappi_global_lookup(...)` |
-| `call` | Stack-allocate args array, `call @kaappi_call_scheme(...)` |
+| `call` | Three paths: inlined primitive (`+ - * < = car cdr cons null?`); direct `call`/`tail call` to a known native function; otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
 | `begin` | Emit each expression sequentially |
 | `if` | LLVM basic blocks with `br`/`phi` |
 | `and`/`or` | Short-circuit with basic blocks and `phi` |
 | `when`/`unless` | Conditional body execution |
-| `define` | `call @kaappi_define_global(...)` (compound values via `kaappi_eval`) |
-| `set!` | `call @kaappi_define_global(...)` |
-| `lambda` | Serialize to source text, `call @kaappi_eval(...)` |
-| `let`, `letrec`, `cond`, `case`, `do`, `guard`, etc. | Serialize to source text, `call @kaappi_eval(...)` |
+| `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy); other values `call @kaappi_define_global(...)` (compound values via `kaappi_eval`) |
+| `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
+| `lambda` | Compiled to a native LLVM function + closure, or `kaappi_eval` fallback (see Lambda Strategy) |
+| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval` for forms it cannot lower in scope |
+| `letrec`, `letrec*`, `cond`, `case`, `do`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval(...)` |
 | `passthrough` | Serialize to source text, `call @kaappi_eval(...)` |
 
 ## Compile-Time Processing
@@ -143,23 +144,60 @@ handled differently:
 
 ## Lambda Strategy
 
-Lambda bodies are stored as raw S-expressions in the IR, not as
-pre-lowered IR nodes. The LLVM emitter serializes the lambda source text,
-embeds it as an LLVM IR string constant, and evaluates it at runtime:
+Lambdas and named function definitions are compiled through a tiered strategy
+(`src/llvm_emit_lambda.zig`). Each tier lowers the body through the **same IR**
+the rest of the emitter uses, so a lambda body gets real basic blocks, inlined
+primitives, and direct calls — not a re-parse at startup.
+
+Every native function has the uniform C-ABI signature:
 
 ```llvm
-@.str.0 = private constant [23 x i8] c"(lambda (x) (* x x))"
-; ...
-%closure = call i64 @kaappi_eval(ptr %vm, ptr @.str.0, i64 23)
+define i64 @lambda_0(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) { ... }
 ```
 
-The resulting Closure Value is callable via `kaappi_call_scheme`, which
-dispatches through the VM's `callWithArgs` (handles closures, native
-functions, continuations, etc.).
+Fixed parameters are read from `%args`, captured variables from `%upvalues`.
 
-This approach is correct but not optimal — each lambda is parsed and
-compiled at startup. A future optimization would lower lambda bodies
-directly to LLVM IR functions.
+The three tiers, tried in order:
+
+1. **Capturing lambda** (`tryCompileNativeClosure`) — a lambda with free
+   variables. The body compiles to an `@closure_N` function; free variables are
+   discovered by free-variable analysis (`collectFreeVars`) and **copied by
+   value** into an `%upvalues` array at closure-creation time (sourced from the
+   enclosing frame's `%args`, or, for a lambda nested in another native closure,
+   chained out of that closure's own `%upvalues` — #1410). The closure value is
+   materialized with `kaappi_create_native_closure`.
+
+2. **Closed lambda / named function** (`tryCompilePureLambdaAsNativeClosure`,
+   `tryCompileDefineFunction`) — no free variables (only parameters and known
+   globals). Compiles to an `@lambda_N` function created with a null upvalue
+   array. A top-level `(define (f ...) ...)` takes this path and registers `f`
+   in `native_fns`, so later call sites emit a **direct** `call`/`tail call`
+   instead of going through `kaappi_call_scheme`.
+
+3. **Eval fallback** (`emitLambdaViaEval`) — when neither native tier applies,
+   serialize `(lambda ...)` to source text and `kaappi_eval` it at runtime. A
+   lambda that appears inside a `let` body and cannot compile natively instead
+   forces the whole enclosing `let` to the interpreter, preserving lexical
+   scope (#827).
+
+**Supported natively:** fixed arity; variadic **rest parameters** (the rest
+list is built with a `kaappi_cons` loop, `emitRestListBuilder`); closures with
+by-value capture; and **self-tail-recursion compiled as a loop** — a self-call
+in tail position stores the new arguments and `br`s back to the function's body
+label rather than recursing (non-variadic named functions only).
+
+**Falls back to `kaappi_eval` when the body:**
+- contains an eval-fallback form (`letrec`, `cond`, `case`, `do`, `guard`,
+  named `let`, …);
+- mutates or internally defines a captured variable — the by-value upvalue
+  model cannot express mutation, and snapshotting at creation time would
+  diverge from the VM's by-**location** closure semantics (#819, #1422);
+- captures a `let`-local or rest parameter that has no copyable slot; or
+- exceeds a fixed analysis limit (parameter/body-node/name buffers).
+
+The resulting value (native closure or eval'd closure) is uniformly callable
+via `kaappi_call_scheme`, which dispatches through the VM's `callWithArgs`
+(closures, native functions, continuations, etc.).
 
 ## Testing
 
