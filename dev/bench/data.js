@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783958617995,
+  "lastUpdate": 1783961920040,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c49b0d2f7c666c1c9a3706446673aa849989ebb8",
-          "message": "Fix SRFI-27 random-integer, %rs-next-int, and pseudo-randomize! to accept bignums (#1193) (#1319)\n\n* Fix SRFI-27 random-integer, %rs-next-int, and pseudo-randomize! to accept bignums (#1193)\n\nAll three procedures only checked for fixnums, rejecting valid exact\nintegers wider than 48 bits (e.g. (expt 2 64)).  For random-integer and\n%rs-next-int, add rejection sampling over bignum limbs.  For\npseudo-randomize!, fold bignum i/j values to u64 seeds via XOR.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix top_bits overflow: u6 cannot hold 64 when top limb MSB is set\n\nWiden to u7 and cast to u6 only for the shift operand.  Add regression\ntests with saturated top limbs ((expt 2 127), (- (expt 2 128) 1)).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:37:39+05:30",
-          "tree_id": "fc39d571e5edcefea8823550bf89014cfa258c9f",
-          "url": "https://github.com/kaappi/kaappi/commit/c49b0d2f7c666c1c9a3706446673aa849989ebb8"
-        },
-        "date": 1783506923682,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.184067,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.178329,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.048177,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.401266,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014984,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226134,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511409,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070738,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.718545,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.978826,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.298684,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.102689,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.264412,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.993353,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047444,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043644,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8f8549f5e5dee13fc37ba96eb5c5a858f814a27",
+          "message": "docs: add Machine legibility section and correct GC description in vision.md (#1519)\n\n* docs: add Machine legibility section to vision.md\n\nRecords the machine-legibility strategic direction — making Kaappi the most\nlegible Scheme for humans and AI agents to understand, diagnose, and\nautomate — in the canonical vision doc, framed as the third core value\n(Transparency over magic) turned outward: from a runtime transparent to\ncontributors to a toolchain transparent to the programs that drive it.\n\nCaptures the falsifiable operational test (an agent goes from failing\nprogram to verified fix using only documented CLI output), the three pillars\n(Diagnose / Understand / Automate), and the non-goals that keep this as\nextension where R7RS-small is silent rather than deviation where it speaks —\nnotably the declined static type system. Cross-references KEP-0005 (the\ndiagnostic contract) and the tracking epic kaappi#1503.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* docs: correct the GC description in vision.md to match the implementation\n\nThe \"Simplicity over abstraction\" value and the GC design-decision section\nstill described a pre-generational collector — \"no generational promotion, no\nwrite barriers,\" and a heading arguing against generational GC. The collector\nhas since become generational (young/old split, minor vs. full collections,\nold→young write barrier feeding a remembered set, promotion after surviving\nrepeated collections; see memory.zig, gc_collect.zig, and the Object header in\ntypes.zig).\n\nRewrite both passages to describe that accurately while keeping the doc's\nframing: the collector is still comprehensible, and the write barrier is\npresented as deliberate, earned machinery rather than something avoided. The\nstill-true points (no copying, no compaction, fragmentation not a problem in\npractice) are retained.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T22:06:04+05:30",
+          "tree_id": "560ecf3603a8871bb0b258a5d461d3c89bc5700c",
+          "url": "https://github.com/kaappi/kaappi/commit/c8f8549f5e5dee13fc37ba96eb5c5a858f814a27"
+        },
+        "date": 1783961919218,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.429727,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.011852,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.929102,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.508571,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006437,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053769,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506232,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070178,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.385618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.980549,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.583547,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432434,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.842238,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.714618,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044626,
             "unit": "seconds"
           }
         ]
