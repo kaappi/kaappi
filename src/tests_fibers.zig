@@ -244,3 +244,10 @@ test "yield inside guard with a runnable fiber is a no-op, not an error" {
     defer std.testing.allocator.free(s);
     try std.testing.expectEqualStrings("yield-ok", s);
 }
+
+test "processor-count returns a positive fixnum" {
+    // KEP-0002 Phase 5 (#1470): backs (kaappi parallel), tagged .kaappi_fibers
+    // (see src/primitives_parallel.zig) so it's already a global here with no
+    // import needed, same as any other registered primitive.
+    try th.expectEvalTrue("(and (integer? (processor-count)) (exact? (processor-count)) (> (processor-count) 0))");
+}

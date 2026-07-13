@@ -397,6 +397,23 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
         .single_threaded = opts.single_threaded,
     });
     mod.addImport("build_options", options_mod);
+    // (kaappi parallel) must stay importable under --sandbox, which blocks
+    // every file-backed library load (vm_library.zig's tryLoadLibraryFromFile)
+    // to keep sandboxed code from probing the host filesystem via crafted
+    // import paths. lib/ isn't inside src/'s package boundary, so a plain
+    // @embedFile from vm_library.zig can't reach lib/kaappi/parallel.sld
+    // directly; copying it alongside a tiny generated wrapper (the same
+    // shape as the embedded_bytecode_bundle.zig trick above) sidesteps that.
+    // The .sld file on disk stays the single source of truth for both the
+    // sandboxed (embedded) and normal (file) load paths.
+    const parallel_sld_wf = b.addWriteFiles();
+    _ = parallel_sld_wf.addCopyFile(b.path("lib/kaappi/parallel.sld"), "parallel.sld");
+    const parallel_sld_embed = parallel_sld_wf.add("kaappi_parallel_sld.zig", "pub const source = @embedFile(\"parallel.sld\");\n");
+    mod.addAnonymousImport("kaappi_parallel_sld", .{
+        .root_source_file = parallel_sld_embed,
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
     if (opts.linenoise) {
         mod.addCSourceFile(.{
             .file = b.path("vendor/linenoise/linenoise.c"),
