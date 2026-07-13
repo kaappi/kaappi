@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783930418668,
+  "lastUpdate": 1783931405015,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d8bdfed6d1f81549f704a687994b3e5398d11a7f",
-          "message": "Fix SRFI-210 value procedure and add box/mv export (#1218) (#1318)\n\nvalue returned its first argument (the index) instead of the index-th\nobject. Also add box/mv syntax which was implemented but not exported.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:04:35+05:30",
-          "tree_id": "9bd1b6431d0b6ebb8dc9863dc3fb9abeef7645a2",
-          "url": "https://github.com/kaappi/kaappi/commit/d8bdfed6d1f81549f704a687994b3e5398d11a7f"
-        },
-        "date": 1783505685836,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.331361,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.337406,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.982767,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.600147,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012798,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.206338,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508342,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072064,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.666019,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.967989,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.093943,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.983675,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.368672,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695299,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043863,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038916,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d54c45c2b9d864ff6b033e34b19f87fdbffa168b",
+          "message": "KEP-0004 Phase 0/1: unify cond-expand library checks, add subsystem features (#1488)\n\n* KEP-0004 Phase 0/1: unify cond-expand library checks, add subsystem features\n\nPhase 0 (cleanup): evalFeatureReq's hardcoded known_libs array in\ncompiler_conditionals.zig never listed any kaappi.* library or srfi.18,\nbut callers never noticed because it silently fell through to the\nglobals.libraryExists callback, which already checked the live registry\ncorrectly. Deleted the redundant array outright and extracted the\nduplicated \"does this library exist\" check (previously hand-written\nseparately in vm.zig's checkLibraryExists and vm_library.zig's\nevalLibFeatureReq) into one shared vm_library.libraryIsAvailable(),\ncalled from both entry points.\n\nPhase 1: added kaappi-fibers, kaappi-reactor (all targets, including\nwasm32-wasi per KEP-0001 Phase 4), and kaappi-threads (omitted on wasm,\nmatching Lib.wasmAvailable()'s existing srfi_18 => false gate) as bare\ncond-expand feature identifiers, so portable library code has a short\nway to detect these subsystems instead of spelling out (library ...)\nrequirements.\n\nVerified: 839/839 Zig unit tests, 1395/1395 R7RS suite, 440/440 Scheme\ntest files, plus manual end-to-end checks against a built binary for\nboth the new identifiers and the known_libs-removal regression risk.\n\nSee keps/keps/0004-discoverable-deviations.md.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: honor sandbox mode in libraryIsAvailable\n\nCodeRabbit flagged, and I independently confirmed against a built\nbinary, that libraryIsAvailable fell through to a disk probe\n(libraryFileExists) even under --sandbox, while tryLoadLibraryFromFile\nrejects every file-backed load there (vm_library.zig:428). Result:\n(cond-expand ((library (srfi 41)) ...)) reported the library available\nwhile the matching (import (srfi 41)) then failed — a behavioral\nmismatch, and a way for sandboxed code to probe host filesystem state\nthrough cond-expand.\n\nPre-existing in both call sites this PR unified (checkLibraryExists and\nevalLibFeatureReq had the identical get()-then-libraryFileExists()\nsequence on main already) — not a regression introduced here, but this\nPR's consolidation is the natural single place to close it.\n\nAlso extends features-consistency.scm (#1177) with the three KEP-0004\nPhase 1 identifiers for Scheme-level parity with the new Zig tests, per\nthe review's optional suggestion.\n\nLeft two other review comments as-is per triage: the new tests'\nGC/VM setup duplication matches the existing style in this file (no\nth.expectEval* helper covers symbol-result assertions), and the wasm\nbranch of platform_features isn't unit-testable from a native test\nbinary (already noted inline in types.zig).\n\nVerified: 840/840 Zig unit tests, 1395/1395 R7RS suite, 440/440 Scheme\ntest files. Manually reproduced the sandbox mismatch against a built\nbinary before the fix and confirmed it's closed after.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T08:02:16Z",
+          "tree_id": "1270eadf2910b2a65b9a777a102d838144645190",
+          "url": "https://github.com/kaappi/kaappi/commit/d54c45c2b9d864ff6b033e34b19f87fdbffa168b"
+        },
+        "date": 1783931403516,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.39606,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.845261,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.963455,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.545601,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006437,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.056393,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.520186,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070448,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.462565,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.009258,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.656881,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434867,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.866668,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.748023,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043986,
             "unit": "seconds"
           }
         ]
