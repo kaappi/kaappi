@@ -337,12 +337,17 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
             for (sched.fibers.items) |maybe_f| {
                 const f = maybe_f orelse continue;
                 if (f.status == .waiting and f.waiting_on == ch_val) {
-                    // Propagate, don't swallow: registerRecvWaiter above
-                    // (once hoisted) already succeeded or @panic'd on OOM,
-                    // so a remote send WILL ring this thread's notifier --
-                    // silently dropping this fiber's enrollment here would
-                    // leave it .waiting with nothing left to ever flip it
-                    // back, a permanent hang.
+                    // Propagate, don't swallow: registerRecvWaiter runs
+                    // once, after this loop finishes (not before it), so on
+                    // an enrollSharedWaiter OOM mid-loop no notifier is ever
+                    // registered for `sc`. Fibers already enrolled by prior
+                    // iterations become stale-but-harmless registry entries
+                    // -- any future sweep on this scheduler flips them
+                    // regardless of channel, and their retry re-registers
+                    // per §4 -- while fibers not yet reached stay `.waiting`
+                    // with no path left to wake them. Both are OOM-only
+                    // corners of an already-failing promotion; accepted
+                    // rather than un-enrolling on this error path.
                     try sched.enrollSharedWaiter(f);
                     migrated_any = true;
                 }
