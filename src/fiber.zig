@@ -47,6 +47,28 @@ pub const Fiber = struct {
     param_overrides: std.AutoHashMap(usize, Value),
     deadline_ns: ?u64 = null,
     timed_out: bool = false,
+    /// True for the entire extent of a runSchedulerStep call this fiber
+    /// itself invoked (set/cleared there, never by callers) -- i.e. this
+    /// fiber's own native frame is still live on the Zig call stack,
+    /// mid-nested-dispatch. scheduleForDispatch() and hasRunnableFibers()
+    /// must never select/count such a fiber as an actual dispatch target,
+    /// even if some wake function flips its `status` to .suspended while
+    /// driving is true: since the whole scheduler runs on one OS thread, a
+    /// fiber with driving == true is always an ancestor of whichever call
+    /// is currently asking (it can only have gotten a nested dispatch by
+    /// dispatching *something*, and that something's own call tree is what
+    /// is presently executing) -- dispatching it from anywhere but its own
+    /// loop would resume its bytecode from a stale, mid-native-call
+    /// register snapshot with the destination register never written (see
+    /// runSchedulerStep's doc comment; #1487). Ancestors can never make
+    /// independent progress while a descendant is active regardless, so
+    /// excluding them from dispatch changes no genuine liveness outcome --
+    /// only the parked fiber's own loop ever consumes its wake. Plain
+    /// schedule() (yieldFn/threadYieldFn's advisory check; vm_calls.zig's
+    /// non-nested switchTo dispatch) deliberately does NOT exclude driving
+    /// fibers -- see scheduleForDispatch's doc comment for why excluding
+    /// them there too reproduces #1440's symptom by a different path.
+    driving: bool = false,
     terminated: bool = false,
     os_thread: ?std.Thread = null,
     /// Set together with `.io_waiting` when a blocking I/O primitive parks
@@ -304,7 +326,39 @@ pub const FiberScheduler = struct {
     /// promptness argument applies to I/O: a zero-timeout reactor poll per
     /// tick wakes ready I/O waiters even while a busy/yielding sibling
     /// keeps the loop from ever reaching parkOnReactor's blocking poll.
+    ///
+    /// Does NOT exclude `driving` fibers — see `scheduleForDispatch`'s doc
+    /// comment for why that exclusion must not live here. This is the
+    /// general "would *anything* becoming runnable matter" query: yieldFn/
+    /// threadYieldFn use it only to decide whether arming the Yielded
+    /// unwind is worthwhile (the returned index itself is discarded), and
+    /// vm_calls.zig's top-level scheduleNextAfterYield/runWithScheduler
+    /// dispatch via switchTo, which — unlike runSchedulerStep — never nests
+    /// another drive, so it carries none of the corruption risk `driving`
+    /// guards against.
     pub fn schedule(self: *FiberScheduler) ?usize {
+        return self.scheduleImpl(false);
+    }
+
+    /// Like `schedule`, but also excludes `driving` fibers — see that
+    /// field's doc comment (#1487). Used only by runSchedulerStep's own
+    /// dispatch loop, the sole call site that actually restoreFiber+
+    /// vm.runUntil()s whatever index this returns: selecting a `driving`
+    /// fiber there would resume its stale, mid-native-call register
+    /// snapshot from a different fiber's nested drive. Plain `schedule()`
+    /// must keep finding these fibers for its other callers (see its own
+    /// doc comment) — excluding them there instead reproduces #1440's
+    /// symptom by a different path: a busy sibling's `(yield)` calls
+    /// yieldFn/threadYieldFn's own `schedule() == null` advisory check,
+    /// which would then see nothing runnable (the driving ancestor whose
+    /// wait *just* resolved is invisible) and silently no-op instead of
+    /// actually yielding, starving that ancestor's own loop of the turn it
+    /// needs to notice and exit.
+    pub fn scheduleForDispatch(self: *FiberScheduler) ?usize {
+        return self.scheduleImpl(true);
+    }
+
+    fn scheduleImpl(self: *FiberScheduler, exclude_driving: bool) ?usize {
         if (self.vm.reactor) |reactor| {
             // KEP-0002 §5's normative consume protocol, checked every tick
             // (not just when idle) for the same promptness reason as the
@@ -331,20 +385,30 @@ pub const FiberScheduler = struct {
         while (i <= n) : (i += 1) {
             const idx = (self.current_idx + i) % n;
             if (self.fibers.items[idx]) |f| {
-                if (f.status == .created or f.status == .suspended) return idx;
+                if ((f.status == .created or f.status == .suspended) and (!exclude_driving or !f.driving)) return idx;
             }
         }
         return null;
     }
 
     /// Used only by parkOnReactor's deadlock check, which runs after
-    /// schedule() has already found nothing .created/.suspended — so this
-    /// deliberately does NOT count .running: under recursive dispatch
-    /// (runSchedulerStep calling runSchedulerStep), every fiber on the
-    /// current call chain back to main is still .running (none flip to
+    /// scheduleForDispatch() has already found nothing .created/.suspended
+    /// — so this deliberately does NOT count .running: under recursive
+    /// dispatch (runSchedulerStep calling runSchedulerStep), every fiber on
+    /// the current call chain back to main is still .running (none flip to
     /// .waiting until they themselves decide to park), so treating .running
     /// as "other progress possible" would make a genuine deadlock loop
     /// forever in reactor.poll() instead of ever detecting it.
+    ///
+    /// Must mirror scheduleForDispatch()'s own `!driving` exclusion (NOT
+    /// plain schedule()'s, which deliberately omits it — see that
+    /// function's doc comment): a fiber that got woken (.suspended) while
+    /// its own nested runSchedulerStep call is still live is always an
+    /// ancestor of whoever's asking (#1487), and scheduleForDispatch() will
+    /// never actually dispatch it — counting it here would make
+    /// parkOnReactor proceed to a real, potentially uncapped reactor.poll()
+    /// with nothing left to ever wake it: a hang, not just a missed
+    /// deadlock error.
     pub fn hasRunnableFibers(self: *FiberScheduler) bool {
         // KEP-0002 §5: a fiber parked on a promoted channel with a live
         // ThreadNotifier registration is "alive, waiting" even though it
@@ -353,7 +417,7 @@ pub const FiberScheduler = struct {
         if (self.shared_waiters.items.len != 0) return true;
         for (self.fibers.items) |f| {
             if (f) |fiber| {
-                if (fiber.status == .created or fiber.status == .suspended)
+                if ((fiber.status == .created or fiber.status == .suspended) and !fiber.driving)
                     return true;
                 if (fiber.status == .waiting and fiber.deadline_ns != null)
                     return true;
@@ -720,13 +784,43 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
 /// define `pollCapNs(self: Ctx) ?u64` (see parkOnReactor) — omitted by
 /// every Ctx type except the SRFI-18 mutex/condvar waits, which need it for
 /// cross-OS-thread polling.
+///
+/// `me.driving` brackets the whole call (set here, cleared on every exit
+/// via `defer`) regardless of whether the caller also set `me.status =
+/// .waiting` first: it marks that `me`'s native frame is live on the Zig
+/// call stack for the duration, which scheduleForDispatch()/
+/// hasRunnableFibers() must never treat as dispatchable no matter what
+/// happens to `status` while this runs (plain schedule() deliberately
+/// keeps finding `me` regardless — see its own doc comment for why that
+/// half of this split matters just as much as the exclusion does). Without
+/// the exclusion, a wake delivered to `me` by something *this* call itself
+/// (transitively) dispatches — e.g. a sibling fiber's own nested
+/// runSchedulerStep unlocking a mutex `me` is waiting on — flips
+/// `me.status` to `.suspended` while `me`'s real, mid-native-call state is
+/// this saved snapshot; a scheduleForDispatch() reached through that
+/// sibling's own loop (whose `next_idx == my_idx` guard only protects *its
+/// own* index, not `me`'s) would then dispatch `me` from the stale
+/// snapshot, resuming bytecode past the in-flight primitive call with the
+/// destination register never written (#1487; the exact corruption already
+/// fixed for channelReceiveShared's dispatched-fiber path in #1485, but
+/// reachable here from *any* caller of this function, main fiber included,
+/// since a fiber with `driving == true` is always an ancestor of whichever
+/// call is currently asking — the whole scheduler runs on one OS thread, so
+/// it can only have gotten a nested dispatch by dispatching something whose
+/// own call tree is what's presently executing. Ancestors can never make
+/// independent progress while a descendant is active regardless, so
+/// excluding them from selection changes no genuine liveness outcome —
+/// only the parked fiber's own loop, right here, ever consumes its wake).
 pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberScheduler, me: *Fiber) VMError!bool {
     const my_idx = sched.current_idx;
     try sched.saveCurrentFiber();
     const poll_cap_ns: ?u64 = if (@hasDecl(Ctx, "pollCapNs")) ctx.pollCapNs() else null;
 
+    me.driving = true;
+    defer me.driving = false;
+
     while (!ctx.isDone() and !me.timed_out) {
-        const next_idx = sched.schedule() orelse {
+        const next_idx = sched.scheduleForDispatch() orelse {
             if (!(try parkOnReactor(vm, sched, poll_cap_ns))) break;
             continue;
         };

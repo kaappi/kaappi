@@ -208,6 +208,136 @@ test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
     try std.testing.expectEqual(@as(usize, 0), sched.shared_waiters.items.len);
 }
 
+// #1487: the generic `driving` guard, closing the dirty-snapshot dispatch
+// hazard for every runSchedulerStep caller at once (mutex-lock!,
+// condition-variable-wait, and any future nested-drive call site) rather
+// than per call site.
+
+test "scheduleForDispatch() does not select a .suspended fiber whose own nested drive is still live, but plain schedule() still does" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+
+    // Mirrors what a nested wake looks like mid-flight: something woke f
+    // (status flipped to .suspended, e.g. by wakeMutexWaiters) while f's
+    // own runSchedulerStep call is still live deeper on the Zig stack.
+    f.status = .suspended;
+    f.driving = true;
+    try std.testing.expectEqual(@as(?usize, null), sched.scheduleForDispatch());
+
+    // Plain schedule() must NOT exclude it -- yieldFn/threadYieldFn's own
+    // "is yielding worthwhile" advisory check relies on schedule() still
+    // finding f here (f's wait having just resolved is exactly the case
+    // where yielding IS worthwhile); excluding it there reproduces #1440's
+    // busy-sibling starvation by a different path (confirmed via
+    // tests/scheme/smoke/fiber-timed-mutex-lock-not-starved-by-busy-sibling.scm
+    // regressing when schedule() itself carried this exclusion).
+    try std.testing.expect(sched.schedule() != null);
+
+    // Once f's own call concludes (driving cleared), it's a real dispatch
+    // target again too.
+    f.driving = false;
+    try std.testing.expect(sched.scheduleForDispatch() != null);
+}
+
+test "hasRunnableFibers does not count a .suspended fiber whose own nested drive is still live" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+
+    // Must mirror scheduleForDispatch()'s own exclusion -- otherwise
+    // parkOnReactor would see "something's runnable" and proceed to a
+    // real, possibly uncapped reactor.poll() with nothing left to ever
+    // wake it (a hang), instead of promptly reporting "no progress
+    // possible right now".
+    f.status = .suspended;
+    f.driving = true;
+    try std.testing.expect(!sched.hasRunnableFibers());
+
+    f.driving = false;
+    try std.testing.expect(sched.hasRunnableFibers());
+}
+
+test "runSchedulerStep sets driving for its whole extent and clears it on return" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const main_fiber = sched.fibers.items[0].?;
+    const f = types.toObject(try vm.eval("f")).as(fiber_mod.Fiber);
+    try std.testing.expect(!main_fiber.driving);
+
+    // f completes in one dispatch; the interesting assertion is that
+    // driving is cleared again once runSchedulerStep returns normally.
+    _ = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = f }, vm, sched, main_fiber);
+    try std.testing.expect(!main_fiber.driving);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.completed, f.status);
+
+    // The no-progress-possible (genuine deadlock) exit must clear it too.
+    _ = try vm.eval("(define g (spawn (lambda () 1)))");
+    const g = types.toObject(try vm.eval("g")).as(fiber_mod.Fiber);
+    g.status = .errored; // neutralize: nothing left for schedule() to find
+    const target_fiber = try gc.allocFiber(types.VOID, 999); // never completes/errors
+    const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target_fiber }, vm, sched, main_fiber);
+    try std.testing.expect(!main_fiber.driving);
+    try std.testing.expect(!done);
+}
+
+test "review regression: mutex-lock! contended through a 3-level nested dispatch does not corrupt an unrelated fiber's result" {
+    // Confirmed VM corruption without the driving guard (git-stash A/B, see
+    // tests/scheme/smoke/mutex-nested-dispatch-dirty-snapshot-1487.scm):
+    // fiber b sets .waiting on m1 and starts its own nested drive
+    // (mutexLockFn's while(true) + runSchedulerStep loop), which dispatches
+    // c. c sets .waiting on m2 and starts its own nested drive one level
+    // deeper, which repeatedly redispatches d as d alternates unlocking and
+    // yielding. When d unlocks m1 (waking b) without yet unlocking m2, it's
+    // c's own loop -- not b's -- that next calls scheduleForDispatch().
+    // Before the fix that loop could select b right there, resuming b's
+    // stale, mid-call snapshot from a *different* fiber's nested drive with
+    // the (mutex-lock! m1) destination register never written. Same
+    // corruption class as PR #1485's channelReceiveShared fix, reachable
+    // here because mutex-lock!/mutex-unlock!+condvar still nest a nested
+    // drive after setting .waiting regardless of dispatched status (#1487).
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(import (srfi 18) (kaappi fibers))
+        \\(define m1 (make-mutex 'm1))
+        \\(define m2 (make-mutex 'm2))
+        \\(define d (spawn (lambda ()
+        \\  (mutex-lock! m1)
+        \\  (mutex-lock! m2)
+        \\  (thread-yield!)
+        \\  (mutex-unlock! m1)
+        \\  (thread-yield!)
+        \\  (mutex-unlock! m2)
+        \\  'd-done)))
+        \\(define b (spawn (lambda () (mutex-lock! m1))))
+        \\(define c (spawn (lambda () (mutex-lock! m2))))
+        \\(fiber-join d)
+        \\(list (fiber-join b) (fiber-join c))
+    );
+    try std.testing.expectEqual(types.TRUE, types.car(result));
+    try std.testing.expectEqual(types.TRUE, types.car(types.cdr(result)));
+}
+
 test "hasRunnableFibers reports a shared-waiter-registry entry as alive" {
     var ctx: th.TestContext = undefined;
     try ctx.init();
