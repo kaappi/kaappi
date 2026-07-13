@@ -7,6 +7,7 @@ const ir_mod = @import("ir.zig");
 const llvm_emit = @import("llvm_emit.zig");
 const file_utils = @import("file_utils.zig");
 const reporting = @import("reporting.zig");
+const kaappi_paths = @import("kaappi_paths.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -235,40 +236,10 @@ fn findLibDir(allocator: std.mem.Allocator) ?[]const u8 {
 }
 
 fn getExeRelativeLibDir(allocator: std.mem.Allocator) ?[]const u8 {
-    var path_buf: [1024]u8 = undefined;
-    const exe_path: []const u8 = blk: {
-        if (comptime @import("builtin").os.tag == .linux) {
-            const n: isize = std.posix.system.readlink(
-                "/proc/self/exe",
-                &path_buf,
-                path_buf.len,
-            );
-            if (n > 0) break :blk path_buf[0..@intCast(n)];
-        }
-
-        if (comptime @import("builtin").os.tag == .macos) {
-            var size: u32 = path_buf.len;
-            const rc = std.c._NSGetExecutablePath(&path_buf, &size);
-            if (rc == 0) {
-                const len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
-                break :blk path_buf[0..len];
-            }
-        }
-
-        break :blk "";
-    };
-    if (exe_path.len == 0) return null;
-
-    const last_slash = std.mem.lastIndexOfScalar(u8, exe_path, '/') orelse return null;
-    if (last_slash == 0) return null;
-    const bin_dir = exe_path[0..last_slash];
-    const parent_slash = std.mem.lastIndexOfScalar(u8, bin_dir, '/') orelse return null;
-    const parent = exe_path[0..parent_slash];
-
-    const lib_dir = std.fmt.allocPrint(allocator, "{s}/lib", .{parent}) catch return null;
-    if (checkLibDir(allocator, lib_dir)) return lib_dir;
-    allocator.free(lib_dir);
-    return null;
+    var buf: [1024]u8 = undefined;
+    const dir = kaappi_paths.getExeRelativeLibDir(&buf) orelse return null;
+    if (!checkLibDir(allocator, dir)) return null;
+    return allocator.dupe(u8, dir) catch null;
 }
 
 fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void {
