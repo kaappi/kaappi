@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783931405015,
+  "lastUpdate": 1783939013406,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6dab75eedc661a507a29a758c891285936f4ae5b",
-          "message": "Add hash-table-update! procedure to SRFI-69 (#1182) (#1315)\n\nSRFI-69 requires hash-table-update! with signature (ht key function [thunk]).\nOnly hash-table-update!/default was registered. The new procedure calls the\noptional thunk when the key is absent (or errors if no thunk is provided).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:04:53+05:30",
-          "tree_id": "f4b6ca19e1558a6b12e7a7d5f2a630311fcc135d",
-          "url": "https://github.com/kaappi/kaappi/commit/6dab75eedc661a507a29a758c891285936f4ae5b"
-        },
-        "date": 1783505741593,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.123741,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.529147,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.021709,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.39107,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014007,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225243,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510361,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070427,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.62879,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.98526,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.260608,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.098508,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.224322,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.88632,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04592,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043986,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "413c1b823ef993eac2c90c6d1080db8be4e83c3c",
+          "message": "docs: refresh LLVM backend Lambda Strategy for the tiered emitter (#1501)\n\nThe \"Lambda Strategy\" section and the node-output table described lambdas as\nalways serialized to source and evaluated via kaappi_eval at runtime. That has\nbeen stale since the native closure tier landed: named/top-level and\nclosed/capturing lambdas now compile to real LLVM functions.\n\nRewrite the section to match src/llvm_emit_lambda.zig's three tiers (capturing\nclosure, closed/named native function, eval fallback), and document what is\ncompiled natively (fixed arity, variadic rest params, by-value closures,\nself-tail-call loops) and the precise eval-fallback triggers. Also de-stale the\nadjacent table rows for call/define/set!/let so let/let* are no longer lumped\nwith the genuinely eval-only forms.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T15:42:16+05:30",
+          "tree_id": "76806f3d39d55b919ca714d5be9dd1c969a5f415",
+          "url": "https://github.com/kaappi/kaappi/commit/413c1b823ef993eac2c90c6d1080db8be4e83c3c"
+        },
+        "date": 1783939012288,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.057551,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.8119,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924796,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.451033,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007267,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052844,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513238,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069509,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.178395,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.987491,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514285,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.47496,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.747629,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.882975,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045575,
             "unit": "seconds"
           }
         ]
