@@ -115,6 +115,18 @@ pub fn build(b: *std.Build) void {
     exe.stack_size = 64 * 1024 * 1024; // 64 MB — u16 register widening increases compiler frame sizes
     b.installArtifact(exe);
 
+    // Portable library sources (.sld/.scm), installed next to the exe so a
+    // from-source build can resolve them via the exe-relative <exe_dir>/../lib
+    // search path (kaappi_paths.getExeRelativeLibDir) with no --lib-path and
+    // no ~/.kaappi/lib (#1523). Mirrors where `zig build lib` puts
+    // libkaappi_rt.a.
+    b.installDirectory(.{
+        .source_dir = b.path("lib"),
+        .install_dir = .lib,
+        .install_subdir = "",
+        .include_extensions = &.{ ".sld", ".scm" },
+    });
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

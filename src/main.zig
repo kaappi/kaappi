@@ -372,6 +372,24 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 if (z) |zz| _ = setenv(env_name, zz, 1);
             }
         }
+
+        // Last-resort fallback: <exe_dir>/../lib, so a from-source build
+        // (`zig build`, no installer, no ~/.kaappi/lib) can still resolve
+        // portable SRFI .sld sources when run from outside the checkout
+        // (#1523). Checked after ~/.kaappi/lib so an existing install is
+        // never shadowed by whatever the running binary was built from.
+        const exe_lib_path = blk: {
+            const kaappi_paths = @import("kaappi_paths.zig");
+            var exe_lib_buf: [1024]u8 = undefined;
+            const elp = kaappi_paths.getExeRelativeLibDir(&exe_lib_buf) orelse break :blk null;
+            break :blk allocator.dupe(u8, elp) catch null;
+        };
+        if (exe_lib_path) |elp| {
+            if (lib_path_count < 16) {
+                lib_paths[lib_path_count] = elp;
+                lib_path_count += 1;
+            }
+        }
     }
 
     vm.lib_paths = lib_paths[0..lib_path_count];

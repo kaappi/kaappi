@@ -29,3 +29,97 @@ test "getHome falls back to HOME/.kaappi" {
             std.c.getenv("KAAPPI_HOME") != null);
     }
 }
+
+/// Computes `<parent-of-bin-dir>/lib` for an executable's own absolute
+/// path, written into `buf`. Split out from `getExeRelativeLibDir` so the
+/// path arithmetic is unit-testable with synthetic paths, independent of
+/// wherever the calling process actually happens to live on disk.
+///
+/// Returns null if `exe_path` isn't nested at least two directories deep
+/// or the resulting path doesn't fit `buf`.
+fn siblingLibDir(exe_path: []const u8, buf: []u8) ?[]const u8 {
+    if (exe_path.len == 0) return null;
+
+    const last_slash = std.mem.lastIndexOfScalar(u8, exe_path, '/') orelse return null;
+    if (last_slash == 0) return null;
+    const bin_dir = exe_path[0..last_slash];
+    const parent_slash = std.mem.lastIndexOfScalar(u8, bin_dir, '/') orelse return null;
+    if (parent_slash == 0) return null;
+    const parent = exe_path[0..parent_slash];
+
+    const suffix = "/lib";
+    if (parent.len + suffix.len > buf.len) return null;
+    @memcpy(buf[0..parent.len], parent);
+    @memcpy(buf[parent.len..][0..suffix.len], suffix);
+    return buf[0 .. parent.len + suffix.len];
+}
+
+/// Returns `<exe_dir>/../lib` — the sibling `lib/` directory next to the
+/// running executable's own `bin/` directory — written into `buf`. This is
+/// the shared layout for both a `zig build` tree (`zig-out/bin/kaappi` +
+/// `zig-out/lib/`) and an installed release (`<prefix>/bin/kaappi` +
+/// `<prefix>/lib/`), so a from-source binary run from any directory can
+/// still find `libkaappi_rt.a` or the portable-library `.sld` sources it
+/// was built alongside.
+///
+/// Returns null if the platform has no self-exe-path lookup, the
+/// executable isn't nested at least two directories deep, or the resulting
+/// path doesn't fit `buf`. Does not check whether the directory exists.
+pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {
+    var path_buf: [1024]u8 = undefined;
+    const exe_path: []const u8 = blk: {
+        if (comptime @import("builtin").os.tag == .linux) {
+            const n: isize = std.posix.system.readlink(
+                "/proc/self/exe",
+                &path_buf,
+                path_buf.len,
+            );
+            if (n > 0) break :blk path_buf[0..@intCast(n)];
+        }
+
+        if (comptime @import("builtin").os.tag == .macos) {
+            var size: u32 = path_buf.len;
+            const rc = std.c._NSGetExecutablePath(&path_buf, &size);
+            if (rc == 0) {
+                const len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
+                break :blk path_buf[0..len];
+            }
+        }
+
+        break :blk "";
+    };
+    return siblingLibDir(exe_path, buf);
+}
+
+test "siblingLibDir computes the parent-of-bin lib dir" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("/opt/kaappi/lib", siblingLibDir("/opt/kaappi/bin/kaappi", &buf).?);
+}
+
+test "siblingLibDir returns null for a bare filename with no directory" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expect(siblingLibDir("kaappi", &buf) == null);
+}
+
+test "siblingLibDir returns null when the exe has no parent-of-parent dir" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expect(siblingLibDir("/kaappi", &buf) == null);
+}
+
+test "siblingLibDir returns null for an exe only two levels below root" {
+    // "/opt" has no further parent — must not collapse to a bare "/lib".
+    var buf: [128]u8 = undefined;
+    try std.testing.expect(siblingLibDir("/opt/kaappi", &buf) == null);
+}
+
+test "siblingLibDir returns null when the result doesn't fit the buffer" {
+    var buf: [4]u8 = undefined;
+    try std.testing.expect(siblingLibDir("/opt/kaappi/bin/kaappi", &buf) == null);
+}
+
+test "getExeRelativeLibDir returns a lib dir sibling to the exe's bin dir" {
+    var buf: [1024]u8 = undefined;
+    if (getExeRelativeLibDir(&buf)) |dir| {
+        try std.testing.expect(std.mem.endsWith(u8, dir, "/lib"));
+    }
+}
