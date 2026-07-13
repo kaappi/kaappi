@@ -68,11 +68,13 @@ spec requirements — they're what makes a language usable.
 
 ### 5. Simplicity over abstraction
 
-The codebase avoids abstraction layers that don't earn their keep. The GC is
-mark-and-sweep with an intrusive linked list — no generational promotion, no
-read barriers, no write barriers. The compiler lowers to an IR with analysis
-and optimization passes, then emits bytecode. The LLVM backend compiles
-Scheme programs to native executables via LLVM IR.
+The codebase avoids abstraction layers that don't earn their keep. The GC is a
+generational mark-and-sweep collector over an intrusive linked list: a young/old
+split with an old→young write barrier — machinery that earned its place on
+allocation-heavy workloads — but no read barriers and no copying or compaction
+beyond that. The compiler lowers to an IR with analysis and optimization passes,
+then emits bytecode. The LLVM backend compiles Scheme programs to native
+executables via LLVM IR.
 
 When something is slow, we measure first. The answer is usually "use
 ReleaseSafe instead of Debug" or "the algorithm is O(n^2)", not "add a
@@ -174,13 +176,19 @@ overhead. Fixnums get 48 bits of range before promoting to bignum. Booleans,
 characters, nil, void, and eof are all immediates. The only heap allocations
 are for compound structures (pairs, strings, vectors, closures).
 
-### Mark-and-sweep GC (not copying/generational)
+### Generational mark-and-sweep GC (not copying)
 
-Simplicity. A copying collector would halve available memory. A generational
-collector adds write barriers to every mutation. Mark-and-sweep is O(live objects)
-for collection and O(1) for allocation (bump a counter, check threshold). The
-tradeoff is no compaction — fragmentation is possible but hasn't been a problem
-in practice.
+Still mark-and-sweep in mechanism, but generational: a young/old split. Frequent
+minor collections scan only the young objects — where most garbage dies — and
+promote the ones that keep surviving into the old generation; periodic full
+collections scan everything. The cost of the split is a write barrier on
+old→young pointer stores, which records them in a remembered set so a minor
+collection can treat them as roots without walking the old generation. In return,
+allocation stays O(1) (bump a counter, check a threshold) and a minor collection
+is O(live young objects) rather than O(all live objects) — the win on the
+allocation-heavy workloads Scheme produces. There is still no compaction: a
+copying collector would halve available memory, and fragmentation is possible but
+hasn't been a problem in practice.
 
 ### Deep-copy threading (not shared-heap)
 
