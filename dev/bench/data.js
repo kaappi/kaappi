@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783939013406,
+  "lastUpdate": 1783958617995,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "be2e3ea2c95901ed6fb0bbac40087f3fcadf5b4c",
-          "message": "Migrate reader Unicode classification to generated tables (#1268) (#1321)\n\nReplace the hand-rolled isUnicodeLetter in reader.zig (27 hardcoded\nscript-block ranges + case-table fallback) with a single call to\nunicode.inRanges(&unicode.alphabetic_ranges, cp), matching the pattern\nalready used by char-alphabetic? in primitives_char.zig.\n\nThis eliminates the divergence where char-alphabetic? accepted\ncodepoints (e.g. U+02B0 modifier letters) that the reader rejected,\nand removes 1300 bytes of dead lookup tables (extra_uppercase,\nextra_lowercase, containsU21) that existed solely for the old reader\nfallback path.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:07:19+05:30",
-          "tree_id": "8766a3a4821a04383f862225dbd8354fca899065",
-          "url": "https://github.com/kaappi/kaappi/commit/be2e3ea2c95901ed6fb0bbac40087f3fcadf5b4c"
-        },
-        "date": 1783505912403,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.369666,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.563755,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.022091,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.41784,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013911,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225248,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510333,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070239,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.579752,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.97644,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.251718,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.101691,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.234991,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.857721,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046276,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045575,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce6656c7ecef5201dd009d04e454c4ef4b889732",
+          "message": "KEP-0002 Phase 4: capacity, timeouts, close for cross-thread channels (#1502)\n\n* Capacity, timeouts, close: bounded channels, drain-then-EOF (KEP-0002 P4)\n\nImplements the amended §6 close semantics from KEP-0002 (kaappi/keps#12):\nEOF outwaits reservations and the failure path rings receivers on a\nclosed channel. Adds make-channel's optional capacity argument,\n[timeout [timeout-val]] on channel-send/channel-receive (SRFI-18\nshape), and channel-close!/channel-closed?, for both the local\n(unpromoted) and shared (cross-thread) channel representations.\n\nThe §4-6 protocol was already model-checked in Phase 1-3 (re-verified\nagainst the KEP's exact pseudocode with the TLA+ suite before writing\nany code); this phase wires it up end to end and adds the local-channel\nequivalent.\n\nFixes #1469\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix shared-channel timeout swallowed by a spurious wake-all retry\n\nchannelSendShared/channelReceiveShared's main-fiber (and redispatched\ndispatched-fiber) loop can re-enter its local-sibling poll drive with\n`me.status == .running` while a previously-armed reactor timer is\nstill live: sweepSharedWaiters (the wake-all discipline §5 requires)\nflips a .waiting fiber to .suspended on *any* notify, with no per-\nwaiter targeting, and never cancels its timer. If that timer then\npops while the poll drive is running, wakeReadyFiber silently drops\nit (it only sets timed_out for a .waiting/.io_waiting fiber) --\npermanently losing the timeout for the rest of the wait.\n\nFix: detach the timer from the reactor's heap (not `me.deadline_ns`,\nwhich stays the single record of the original absolute deadline)\nbefore every poll-drive iteration, and re-arm from that preserved\nvalue at the next park step. Clearing the field too, as an earlier\nversion of this fix did, would make every re-arm fall through to a\nfreshly re-parsed relative timeout and silently extend it on each\nspurious wake instead.\n\nAlso tightens a Phase 4 regression test's leak-check discipline to\nmatch its neighbors (explicit baselines, non-deferred reactor\nteardown before the assertions).\n\nFound in PR #1502 review.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T21:02:55+05:30",
+          "tree_id": "d57a1211c98c1abbdd10e233e41c4774e3b04dea",
+          "url": "https://github.com/kaappi/kaappi/commit/ce6656c7ecef5201dd009d04e454c4ef4b889732"
+        },
+        "date": 1783958617139,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.354451,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.802242,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.90259,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.557304,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006474,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053304,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507013,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069939,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.388379,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.977181,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.567285,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.427448,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.842838,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712226,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043644,
             "unit": "seconds"
           }
         ]
