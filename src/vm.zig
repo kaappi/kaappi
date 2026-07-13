@@ -36,8 +36,7 @@ pub fn setVMInstance(vm: *VM) void {
 
 fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
     const vm = vm_instance orelse return false;
-    if (vm.libraries.get(lib_name) != null) return true;
-    return vm_library.libraryFileExists(vm, lib_name_list);
+    return vm_library.libraryIsAvailable(vm, lib_name, lib_name_list);
 }
 
 pub const GlobalsRwLock = globals_mod.GlobalsRwLock;
