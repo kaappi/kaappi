@@ -12,11 +12,23 @@
 (test-assert "exact-closed in features" (and (memq 'exact-closed (features)) #t))
 (test-assert "exact-complex in features" (and (memq 'exact-complex (features)) #t))
 
+;; KEP-0004 Phase 1: fibers/reactor/threads compiled in on this (native)
+;; target. kaappi-threads is omitted on wasm32-wasi, not tested here.
+(test-assert "kaappi-fibers in features" (and (memq 'kaappi-fibers (features)) #t))
+(test-assert "kaappi-reactor in features" (and (memq 'kaappi-reactor (features)) #t))
+(test-assert "kaappi-threads in features" (and (memq 'kaappi-threads (features)) #t))
+
 ;; Expression-level cond-expand must agree
 (test-equal "expr cond-expand exact-closed" 'yes
   (cond-expand (exact-closed 'yes) (else 'no)))
 (test-equal "expr cond-expand exact-complex" 'yes
   (cond-expand (exact-complex 'yes) (else 'no)))
+(test-equal "expr cond-expand kaappi-fibers" 'yes
+  (cond-expand (kaappi-fibers 'yes) (else 'no)))
+(test-equal "expr cond-expand kaappi-reactor" 'yes
+  (cond-expand (kaappi-reactor 'yes) (else 'no)))
+(test-equal "expr cond-expand kaappi-threads" 'yes
+  (cond-expand (kaappi-threads 'yes) (else 'no)))
 
 (let ((runner (test-runner-current)))
   (test-end "features-consistency")

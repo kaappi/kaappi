@@ -578,6 +578,39 @@ test "cond-expand kaappi-threads feature" {
     try std.testing.expectEqualStrings("yes", types.symbolName(result));
 }
 
+// Regression: libraryIsAvailable must not let cond-expand report a
+// disk-only library as available under --sandbox, since
+// tryLoadLibraryFromFile rejects every file-backed load there — the
+// mismatch would make (cond-expand ((library ...))) lie about what
+// (import ...) can actually do, and let sandboxed code probe the host
+// filesystem for .sld existence. srfi 41 is a portable .sld, never
+// pre-registered in vm.libraries, so it only resolves via the disk
+// probe this test is gating.
+test "cond-expand library check honors sandbox mode" {
+    // Skip when source tree isn't available (cross-compiled binary in container)
+    _ = std.posix.openat(std.posix.AT.FDCWD, "lib/srfi/41.sld", .{}, 0) catch return error.SkipZigTest;
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const unsandboxed = try vm.eval(
+        \\(cond-expand
+        \\  ((library (srfi 41)) 'yes)
+        \\  (else 'no))
+    );
+    try std.testing.expectEqualStrings("yes", types.symbolName(unsandboxed));
+
+    vm.sandbox_mode = true;
+    const sandboxed = try vm.eval(
+        \\(cond-expand
+        \\  ((library (srfi 41)) 'yes)
+        \\  (else 'no))
+    );
+    try std.testing.expectEqualStrings("no", types.symbolName(sandboxed));
+}
+
 // ---------------------------------------------------------------------------
 // .sld loading tests
 // ---------------------------------------------------------------------------

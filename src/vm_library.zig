@@ -346,6 +346,11 @@ pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, li
 /// directly). (KEP-0004)
 pub fn libraryIsAvailable(vm: *VM, lib_name: []const u8, lib_name_list: Value) bool {
     if (vm.libraries.get(lib_name) != null) return true;
+    // tryLoadLibraryFromFile (below) rejects every file-backed load when
+    // sandboxed; without this check cond-expand would report a disk-only
+    // library as available while the matching import then fails, and would
+    // let sandboxed code probe the host filesystem for .sld existence.
+    if (vm.sandbox_mode) return false;
     return libraryFileExists(vm, lib_name_list);
 }
 
