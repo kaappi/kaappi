@@ -68,15 +68,95 @@ spec requirements — they're what makes a language usable.
 
 ### 5. Simplicity over abstraction
 
-The codebase avoids abstraction layers that don't earn their keep. The GC is
-mark-and-sweep with an intrusive linked list — no generational promotion, no
-read barriers, no write barriers. The compiler lowers to an IR with analysis
-and optimization passes, then emits bytecode. The LLVM backend compiles
-Scheme programs to native executables via LLVM IR.
+The codebase avoids abstraction layers that don't earn their keep. The GC is a
+generational mark-and-sweep collector over an intrusive linked list: a young/old
+split with an old→young write barrier — machinery that earned its place on
+allocation-heavy workloads — but no read barriers and no copying or compaction
+beyond that. The compiler lowers to an IR with analysis and optimization passes,
+then emits bytecode. The LLVM backend compiles Scheme programs to native
+executables via LLVM IR.
 
 When something is slow, we measure first. The answer is usually "use
 ReleaseSafe instead of Debug" or "the algorithm is O(n^2)", not "add a
 compilation pass."
+
+---
+
+## Machine legibility
+
+The third core value, transparency, is about the *implementation* being
+understandable to a contributor reading the Zig. **Machine legibility** turns
+that value outward: from a runtime transparent to the people who build it, to a
+toolchain transparent to the programs that *drive* it. The audience is no longer
+only the person tracing an expression with `--disassemble`; it is equally the AI
+agent — or the human in a hurry — that runs `kaappi`, reads what comes back, and
+acts on it without a human in the loop.
+
+Stated as one sentence: **Kaappi aims to be the most legible Scheme — a complete
+R7RS-small where every stage of the toolchain can explain itself, to a human in
+prose and to a machine in stable, structured output.**
+
+### The operational test
+
+"Legible" is only worth anything if it can be falsified, so it reduces to a
+concrete test:
+
+> An agent can go from a failing program to a correct fix — *and know the fix is
+> correct* — using only documented CLI output. No screen-scraping prose, no
+> reading compiler source, no guessing.
+
+Every feature under this banner either serves that test or it doesn't. A
+friendlier error message an agent still has to pattern-match against English
+fails it. A stable diagnostic code the agent can match exactly, explain offline,
+and consume as JSON passes it. The test is what keeps "friendly for agents" from
+degenerating into "prettier for humans."
+
+### Three pillars
+
+- **Diagnose** — the keystone. Stable, `KP`-prefixed codes on every reader,
+  compile, and runtime error; structured `--diagnostics=json` in the LSP
+  `Diagnostic` shape the language server already emits; exact source spans; a
+  self-explaining registry (`kaappi explain KP3001`); and first-class test
+  tooling (`kaappi test` with `--json`, `--seed`, `--changed`). The design is
+  KEP-0005 ([kaappi/keps#18](https://github.com/kaappi/keps/pull/18)).
+- **Understand** — introspection at every pipeline stage: `kaappi expand` /
+  `ast` / `ir` alongside the existing `--disassemble`, so the pipeline diagram
+  above is observable rather than described; `kaappi check` to compile and lint
+  without running; `kaappi doctor` for environment self-checks; and honest crash
+  reports in place of bare panics.
+- **Automate** — deterministic, *visible* builds: cache hits and misses reported
+  rather than silent, `.sbc` keys that can't lie about which compiler produced
+  them; machine-readable capability discovery (`kaappi features --json`); and
+  per-stage timings. The whole program is tracked in
+  [kaappi#1503](https://github.com/kaappi/kaappi/issues/1503).
+
+### Extension, not deviation
+
+Machine legibility lives entirely in the space R7RS-small has no opinion on —
+CLIs, diagnostic formats, caches, test runners, editor protocols. It follows the
+same discipline as
+[KEP-0004](https://github.com/kaappi/keps/blob/main/keps/0004-discoverable-deviations.md):
+extend where the spec is silent, never deviate where it speaks. The non-goals
+that hold that line are as much a part of this direction as the features:
+
+- **No static type system, and no type annotations.** "Will this call fail?" is
+  answered by lint-level analysis over the known primitives (`kaappi check`),
+  not by inference or a new type language. R7RS is latently typed; Kaappi stays
+  that way. This is the one idea on the original wishlist that would have been a
+  true deviation, and it is declined on purpose.
+- **No new surface syntax** for tooling's benefit — sources stay `.scm` and
+  `.sld`.
+- **No change to R7RS error semantics.** `error-object?`,
+  `error-object-message`, and `error-object-irritants` keep their exact
+  behavior; diagnostic codes are additive metadata reached through a new
+  `(kaappi diagnostics)` library, never a change to `(scheme base)`.
+- **No bespoke diagnostic schema** — structured output reuses the LSP
+  `Diagnostic` shape, which the language server already serializes.
+- **Fuzzing is settled, not aspirational.** The coverage-guided fuzzing
+  infrastructure (seven targets, CI-integrated; see [fuzzing.md](fuzzing.md))
+  already shipped. It is cited here as evidence the approach works, and its
+  generators are reused — property-testing a formatter's idempotence, for one —
+  not listed as future work.
 
 ---
 
@@ -96,13 +176,19 @@ overhead. Fixnums get 48 bits of range before promoting to bignum. Booleans,
 characters, nil, void, and eof are all immediates. The only heap allocations
 are for compound structures (pairs, strings, vectors, closures).
 
-### Mark-and-sweep GC (not copying/generational)
+### Generational mark-and-sweep GC (not copying)
 
-Simplicity. A copying collector would halve available memory. A generational
-collector adds write barriers to every mutation. Mark-and-sweep is O(live objects)
-for collection and O(1) for allocation (bump a counter, check threshold). The
-tradeoff is no compaction — fragmentation is possible but hasn't been a problem
-in practice.
+Still mark-and-sweep in mechanism, but generational: a young/old split. Frequent
+minor collections scan only the young objects — where most garbage dies — and
+promote the ones that keep surviving into the old generation; periodic full
+collections scan everything. The cost of the split is a write barrier on
+old→young pointer stores, which records them in a remembered set so a minor
+collection can treat them as roots without walking the old generation. In return,
+allocation stays O(1) (bump a counter, check a threshold) and a minor collection
+is O(live young objects) rather than O(all live objects) — the win on the
+allocation-heavy workloads Scheme produces. There is still no compaction: a
+copying collector would halve available memory, and fragmentation is possible but
+hasn't been a problem in practice.
 
 ### Deep-copy threading (not shared-heap)
 
