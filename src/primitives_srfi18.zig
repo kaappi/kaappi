@@ -211,7 +211,10 @@ pub fn crossThreadWaitPossible() bool {
     return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
 }
 
-fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
+/// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
+/// channel-send/channel-receive timeouts reuse this exact SRFI-18-shaped
+/// number-or-time-object-or-#f parsing rather than duplicating it.
+pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
     if (timeout == types.FALSE) return null;
     if (types.isSrfi18Time(timeout)) {
         const t = types.toSrfi18Time(timeout);
@@ -248,7 +251,10 @@ fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u8, r
     return err_val;
 }
 
-fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
+/// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
+/// channel-timeout-exception? path reuses this instead of duplicating the
+/// typed-error-object construction.
+pub fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
     const err_val = try makeErrorWithType(error_type, msg, reason);
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     vm.current_exception = err_val;
@@ -1252,7 +1258,8 @@ fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {
 // Exception predicates
 // ---------------------------------------------------------------------------
 
-fn isErrorOfType(v: Value, error_type: types.ErrorObject.ErrorType) bool {
+/// `pub` since KEP-0002 Phase 4 (#1469): channel-timeout-exception?.
+pub fn isErrorOfType(v: Value, error_type: types.ErrorObject.ErrorType) bool {
     if (!types.isPointer(v)) return false;
     const obj = types.toObject(v);
     if (obj.tag != .error_object) return false;
