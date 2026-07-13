@@ -337,8 +337,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     }
 
     if (!is_wasm) {
+        const kaappi_paths = @import("kaappi_paths.zig");
+
         const kaappi_lib_path = blk: {
-            const kaappi_paths = @import("kaappi_paths.zig");
             var home_buf: [512]u8 = undefined;
             const home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
             const lib_suffix = "/lib";
@@ -379,7 +380,6 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         // (#1523). Checked after ~/.kaappi/lib so an existing install is
         // never shadowed by whatever the running binary was built from.
         const exe_lib_path = blk: {
-            const kaappi_paths = @import("kaappi_paths.zig");
             var exe_lib_buf: [1024]u8 = undefined;
             const elp = kaappi_paths.getExeRelativeLibDir(&exe_lib_buf) orelse break :blk null;
             break :blk allocator.dupe(u8, elp) catch null;

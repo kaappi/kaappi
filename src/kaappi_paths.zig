@@ -69,12 +69,16 @@ pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {
     var path_buf: [1024]u8 = undefined;
     const exe_path: []const u8 = blk: {
         if (comptime @import("builtin").os.tag == .linux) {
+            // /proc/self/exe is a kernel-resolved canonical path already —
+            // no realpath needed. Reject a result that fills the whole
+            // buffer: readlink doesn't NUL-terminate, and an exact-length
+            // return means the real target may have been truncated.
             const n: isize = std.posix.system.readlink(
                 "/proc/self/exe",
                 &path_buf,
                 path_buf.len,
             );
-            if (n > 0) break :blk path_buf[0..@intCast(n)];
+            if (n > 0 and @as(usize, @intCast(n)) < path_buf.len) break :blk path_buf[0..@intCast(n)];
         }
 
         if (comptime @import("builtin").os.tag == .macos) {
@@ -82,6 +86,18 @@ pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {
             const rc = std.c._NSGetExecutablePath(&path_buf, &size);
             if (rc == 0) {
                 const len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
+                // _NSGetExecutablePath may return a symlinked or relative
+                // path (e.g. a Homebrew Cellar symlink), which would derive
+                // ../lib from the wrong tree — resolve it to the real path
+                // first. Fall back to the raw path if realpath fails or the
+                // buffer wasn't NUL-terminated within bounds.
+                if (len < path_buf.len) {
+                    var resolved_buf: [std.posix.PATH_MAX]u8 = undefined;
+                    if (std.c.realpath(path_buf[0..len :0], &resolved_buf)) |resolved| {
+                        const rlen = std.mem.indexOfScalar(u8, resolved[0..resolved_buf.len], 0) orelse resolved_buf.len;
+                        break :blk resolved[0..rlen];
+                    }
+                }
                 break :blk path_buf[0..len];
             }
         }
@@ -118,8 +134,11 @@ test "siblingLibDir returns null when the result doesn't fit the buffer" {
 }
 
 test "getExeRelativeLibDir returns a lib dir sibling to the exe's bin dir" {
+    // The test binary itself is always deeply nested (zig-cache output
+    // dirs on every supported platform), so this must not return null —
+    // asserting that keeps a regression in the platform probe from
+    // silently passing.
     var buf: [1024]u8 = undefined;
-    if (getExeRelativeLibDir(&buf)) |dir| {
-        try std.testing.expect(std.mem.endsWith(u8, dir, "/lib"));
-    }
+    const dir = getExeRelativeLibDir(&buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.endsWith(u8, dir, "/lib"));
 }
