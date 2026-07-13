@@ -3,10 +3,10 @@
 ;; while(true) + runSchedulerStep loop in mutexLockFn). If something wakes
 ;; that fiber while its own nested drive is still live -- deeper on the Zig
 ;; call stack, inside a *different* fiber's own nested drive -- the fiber
-;; becomes visible to schedule()'s round-robin before its real call has
-;; returned. A different fiber's own nested schedule() call could then
-;; dispatch its stale, mid-call register snapshot, resuming bytecode past
-;; the in-flight (mutex-lock! m) call with the destination register never
+;; becomes visible to dispatch selection before its real call has returned.
+;; A different fiber's own nested dispatch-selection call could then select
+;; its stale, mid-call register snapshot, resuming bytecode past the
+;; in-flight (mutex-lock! m) call with the destination register never
 ;; written. This is the identical corruption class already fixed for
 ;; channel-receive in PR #1485, just reachable here through mutex-lock!/
 ;; mutex-unlock!+condvar instead of channelReceiveShared.
@@ -16,11 +16,14 @@
 ;; starts its own nested drive one level deeper, which repeatedly
 ;; redispatches d as d alternates unlocking and yielding. When d unlocks m1
 ;; (waking b) without yet unlocking m2, it is c's own loop -- not b's --
-;; that next calls schedule(). Before the fix, schedule() could select b
-;; right there; with the fix (a generic `driving` flag that schedule()/
-;; hasRunnableFibers() never select/count, set for the whole extent of a
-;; fiber's own runSchedulerStep call), b's own loop is the only thing that
-;; ever consumes its wake.
+;; that next calls scheduleForDispatch(). Before the fix (a single
+;; schedule() used for both dispatch selection and advisory checks), that
+;; call could select b right there; with the fix -- a generic `driving`
+;; flag, set for the whole extent of a fiber's own runSchedulerStep call,
+;; that scheduleForDispatch()/hasRunnableFibers() never select/count (but
+;; plain schedule() deliberately still does, for yieldFn/threadYieldFn's
+;; advisory checks) -- b's own loop is the only thing that ever consumes
+;; its wake.
 ;;
 ;; Confirmed via git-stash A/B: without the fix, `b`'s result comes back
 ;; corrupted (not #t) instead of raising or hanging.

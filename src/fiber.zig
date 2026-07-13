@@ -824,6 +824,11 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
             if (!(try parkOnReactor(vm, sched, poll_cap_ns))) break;
             continue;
         };
+        // Unreachable in practice since `driving` (set above) now excludes
+        // `me` from scheduleForDispatch() at every index, but kept as
+        // defense-in-depth: this is the narrower guard `driving` subsumes
+        // (it only ever protected this loop's own re-selection of itself,
+        // not the cross-fiber case #1487 fixes).
         if (next_idx == my_idx) break;
 
         try sched.restoreFiber(next_idx);

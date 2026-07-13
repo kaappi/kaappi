@@ -214,14 +214,13 @@ test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
 // than per call site.
 
 test "scheduleForDispatch() does not select a .suspended fiber whose own nested drive is still live, but plain schedule() still does" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
     // Mirrors what a nested wake looks like mid-flight: something woke f
@@ -247,14 +246,13 @@ test "scheduleForDispatch() does not select a .suspended fiber whose own nested 
 }
 
 test "hasRunnableFibers does not count a .suspended fiber whose own nested drive is still live" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
     // Must mirror scheduleForDispatch()'s own exclusion -- otherwise
@@ -271,29 +269,28 @@ test "hasRunnableFibers does not count a .suspended fiber whose own nested drive
 }
 
 test "runSchedulerStep sets driving for its whole extent and clears it on return" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
     const main_fiber = sched.fibers.items[0].?;
-    const f = types.toObject(try vm.eval("f")).as(fiber_mod.Fiber);
+    const f = types.toObject(try ctx.vm.eval("f")).as(fiber_mod.Fiber);
     try std.testing.expect(!main_fiber.driving);
 
     // f completes in one dispatch; the interesting assertion is that
     // driving is cleared again once runSchedulerStep returns normally.
-    _ = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = f }, vm, sched, main_fiber);
+    _ = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = f }, ctx.vm, sched, main_fiber);
     try std.testing.expect(!main_fiber.driving);
     try std.testing.expectEqual(fiber_mod.FiberStatus.completed, f.status);
 
     // The no-progress-possible (genuine deadlock) exit must clear it too.
-    _ = try vm.eval("(define g (spawn (lambda () 1)))");
-    const g = types.toObject(try vm.eval("g")).as(fiber_mod.Fiber);
+    _ = try ctx.vm.eval("(define g (spawn (lambda () 1)))");
+    const g = types.toObject(try ctx.vm.eval("g")).as(fiber_mod.Fiber);
     g.status = .errored; // neutralize: nothing left for schedule() to find
-    const target_fiber = try gc.allocFiber(types.VOID, 999); // never completes/errors
-    const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target_fiber }, vm, sched, main_fiber);
+    const target_fiber = try ctx.gc.allocFiber(types.VOID, 999); // never completes/errors
+    const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target_fiber }, ctx.vm, sched, main_fiber);
     try std.testing.expect(!main_fiber.driving);
     try std.testing.expect(!done);
 }
