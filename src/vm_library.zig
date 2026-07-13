@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
@@ -350,8 +351,52 @@ pub fn libraryIsAvailable(vm: *VM, lib_name: []const u8, lib_name_list: Value) b
     // sandboxed; without this check cond-expand would report a disk-only
     // library as available while the matching import then fails, and would
     // let sandboxed code probe the host filesystem for .sld existence.
-    if (vm.sandbox_mode) return false;
+    // Embedded libraries (below) are the one exception -- their content is
+    // fixed at compile time, not read from wherever sandboxed code points,
+    // so reporting them available here doesn't reopen that hole.
+    if (vm.sandbox_mode) {
+        var path_buf: [512]u8 = undefined;
+        const rel_path = buildLibRelPath(lib_name_list, &path_buf) catch return false;
+        return findEmbeddedLibrary(rel_path) != null;
+    }
+    // WASM has no blanket block like sandbox's, but relies on whatever
+    // preopened directory the host (browser shim, wasmtime --dir) happens to
+    // mount at a given relative path -- unlike a normal install, there's no
+    // guarantee lib/ is reachable there. Preferring the embedded copy when
+    // there is one sidesteps that packaging dependency for exactly this
+    // library; anything else still falls through to the normal disk check
+    // (unaffected -- a host that does mount lib/ still serves those fine).
+    if (is_wasm) {
+        var path_buf: [512]u8 = undefined;
+        if (buildLibRelPath(lib_name_list, &path_buf) catch null) |rel_path| {
+            if (findEmbeddedLibrary(rel_path) != null) return true;
+        }
+    }
     return libraryFileExists(vm, lib_name_list);
+}
+
+/// Portable libraries embedded directly into the binary so they stay
+/// importable under `--sandbox` (which otherwise blocks every file-backed
+/// library load -- tryLoadLibraryFromFile, below -- to keep sandboxed code
+/// from probing the host filesystem via crafted import paths, Motivation
+/// Path 2 of KEP-0002's sibling concern) and on WASM (which has no
+/// filesystem-independent way to guarantee lib/ is mounted at a reachable
+/// path). The embedded text is fixed at compile time -- sandboxed code
+/// cannot influence or read anything beyond exactly this content -- so
+/// serving it here doesn't reopen the sandbox hole. The .sld file on disk
+/// remains the actual source of truth (readable, editable, and what every
+/// native non-sandboxed load still uses via the normal path below); this
+/// table only changes how a sandboxed or WASM VM loads the identical text.
+/// Keyed by the same relative path buildLibRelPath produces.
+const embedded_libraries = [_]struct { rel_path: []const u8, source: []const u8 }{
+    .{ .rel_path = "kaappi/parallel.sld", .source = @import("kaappi_parallel_sld").source },
+};
+
+fn findEmbeddedLibrary(rel_path: []const u8) ?[]const u8 {
+    for (embedded_libraries) |lib| {
+        if (std.mem.eql(u8, lib.rel_path, rel_path)) return lib.source;
+    }
+    return null;
 }
 
 /// Check whether a library could be loaded from disk (or the bundled files of
@@ -429,16 +474,34 @@ fn recordFileForBundle(vm: *VM, path: []const u8, content: []const u8) void {
 /// Try to load a library from a .sld file on disk.
 /// Search order: ./rel_path, ./lib/rel_path, then each vm.lib_paths entry
 /// (--lib-path flags, the script's directory, ~/.kaappi/lib).
+fn loadEmbeddedLibrary(vm: *VM, rel_path: []const u8, source: []const u8) !void {
+    loadLibrarySource(vm, source) catch |err| {
+        if (vm.last_error_detail_len == 0) {
+            vm.setErrorDetail("{s} while loading embedded library {s}", .{ @errorName(err), rel_path });
+        }
+        return error.UndefinedVariable;
+    };
+}
+
 fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
+    var path_buf: [512]u8 = undefined;
+    const rel_path = buildLibRelPath(name_list, &path_buf) catch return error.InvalidSyntax;
+
     if (vm.sandbox_mode) {
+        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
         vm.setErrorDetail("sandbox: cannot load library from file", .{});
         return error.UndefinedVariable;
     }
 
-    const allocator = vm.gc.allocator;
+    // WASM: prefer the embedded copy when there is one (no guarantee lib/ is
+    // reachable at any given relative path under whatever the host mounted),
+    // otherwise fall through to the normal disk/bundled search below exactly
+    // as a native build would.
+    if (is_wasm) {
+        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
+    }
 
-    var path_buf: [512]u8 = undefined;
-    const rel_path = buildLibRelPath(name_list, &path_buf) catch return error.InvalidSyntax;
+    const allocator = vm.gc.allocator;
 
     // Check bundled files first (standalone binary support)
     if (vm.bundled_files) |bf| {

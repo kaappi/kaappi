@@ -382,6 +382,39 @@ means threads cannot share mutable state directly — use channels or return
 values to communicate. Child threads can allocate and GC independently without
 affecting the parent.
 
+A `(kaappi fibers)` channel captured by a thread's thunk (or nested inside a
+value sent over one) crosses safely: it is promoted to a mutex-protected,
+refcounted shared channel outside every GC heap, and every message crosses by
+copy (KEP-0002). `(kaappi parallel)` builds worker pools and `parallel-map`/
+`parallel-for-each` on top of this — see the [Concurrency
+guide](https://kaappi-lang.org/guide/concurrency/) for the higher-level API.
+A channel reached through a shared global instead (not captured by a thunk or
+message) still raises a descriptive error rather than corrupting memory. Two
+narrow correctness issues are open in the cross-thread wakeup path
+([#1487](https://github.com/kaappi/kaappi/issues/1487),
+[#1489](https://github.com/kaappi/kaappi/issues/1489)) — not yet recommended
+for production concurrent workloads. See [Standards
+Conformance](https://kaappi-lang.org/conformance/#extensions-beyond-r7rs-smalls-scope)
+for current status.
+
+A closure that crosses a `thread-start!` boundary must not, once running on
+the other thread, *call* a separately-defined top-level procedure from a
+library — doing so hangs
+([#1520](https://github.com/kaappi/kaappi/issues/1520)). The identical logic
+inlined directly into the closure works correctly; `(kaappi parallel)`'s own
+worker loop is written this way for exactly this reason.
+
+`parallel-map`/`parallel-for-each` submit one task per list element, so a
+large list means many concurrent `pool-submit`/`task-wait` round trips —
+which, given #1487/#1489 above, means an intermittent hang becomes
+increasingly likely somewhere past a few hundred concurrent submissions
+rather than a hard cutoff. Reliable in testing through list sizes in the
+low hundreds. For larger inputs, chunk manually with
+`make-pool`/`pool-submit`/`task-wait` (one task per processor, each
+covering a slice of the input with an ordinary sequential loop) instead of
+one task per element — see `kaappi-examples/parallel-primes` for a worked
+example.
+
 ### Macros
 
 Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from
