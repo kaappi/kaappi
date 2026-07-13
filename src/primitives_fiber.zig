@@ -186,6 +186,18 @@ const SharedChannelPoll = struct {
 /// its own stub, per §1), or some other OS thread is alive at all. Reuses
 /// primitives_srfi18.zig's existing crossThreadWaitPossible rather than
 /// duplicating its live-thread-count logic.
+///
+/// Accepted liveness gap, KEP-0002 §5: this is checked once, right before
+/// parking -- not re-evaluated while parked. If the peer that made this
+/// return `true` (the only other stub holder, or the only other live
+/// thread) exits afterward without ever sending, the parked receiver hangs
+/// forever: a stub's release doesn't ring anything, and the parked fiber
+/// staying enrolled in the shared-waiter registry keeps hasRunnableFibers()
+/// true, so the deadlock detector never fires either. This is the same
+/// Go-style "send on a channel nobody will ever receive from" hang as an
+/// unbuffered channel with no reader; §5 accepts it deliberately, and §6's
+/// planned `(channel-receive ch [timeout [timeout-val]])` (Phase 4, not yet
+/// implemented) is the intended escape hatch.
 fn sharedWakeupPossible(sc: *shared_channel.SharedChannel) bool {
     return sc.refCount() > 1 or srfi18.crossThreadWaitPossible();
 }
@@ -274,6 +286,13 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
 
         // Drive local siblings once. `me` stays .running -- see
         // SharedChannelPoll's doc comment for why that's load-bearing.
+        // Reset first: runSchedulerStep's generic loop bails whenever
+        // `me.timed_out` is true, regardless of Ctx, so a stale flag left
+        // by an unrelated earlier timed wait would silently skip this
+        // drive entirely and let the park decision below run with the
+        // world still active -- quiescence-before-park is what makes that
+        // decision safe.
+        me.timed_out = false;
         _ = try fiber_mod.runSchedulerStep(SharedChannelPoll, .{ .sc = sc }, ctx.vm, ctx.sched, me);
         if (sc.peekReady()) continue; // loop back to 1: re-derive via receive()
 
@@ -296,7 +315,10 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         me.status = .waiting;
         me.waiting_on = ch_val;
         vm.gc.writeBarrier(&me.header, ch_val);
-        me.timed_out = false; // defensive: stale flag from an unrelated earlier timed wait
+        // Already reset above, before the SharedChannelPoll drive -- nothing
+        // between there and here can set it true again (`me` stays .running
+        // for that whole drive, and wakeReadyFiber only flips `.waiting`
+        // fibers).
         ctx.sched.enrollSharedWaiter(me) catch |err| {
             me.status = .running;
             me.waiting_on = types.VOID;
