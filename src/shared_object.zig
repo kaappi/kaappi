@@ -1,4 +1,5 @@
 const std = @import("std");
+const pct_stress = @import("pct_stress.zig");
 
 /// KEP-0002 §1: the generic shared-object protocol. A shared object is a
 /// refcounted structure allocated from the process-global allocator
@@ -37,6 +38,9 @@ pub fn init(header: *Header, destroyFn: *const fn (*Header) void) void {
 /// +1: a new stub was created (deepCopy's alias arm, including a stub
 /// allocated inside an envelope heap).
 pub fn retain(header: *Header) void {
+    // KEP-0002 Phase 3 (#1468) PCT stress hook: no-op unless
+    // src/stress_channel.zig has enabled it -- see pct_stress.zig.
+    pct_stress.maybeYield();
     // Incrementing from a location that already holds a valid reference
     // needs no synchronization with any concurrent releaser (same
     // justification as Arc::clone / intrusive_ptr_add_ref).
@@ -47,6 +51,7 @@ pub fn retain(header: *Header) void {
 /// thread-join!, an envelope.deinit()). Runs the type's destroy hook
 /// exactly once, at the transition to zero.
 pub fn release(header: *Header) void {
+    pct_stress.maybeYield();
     // acq_rel: the decrement that takes refcount to zero must happen-after
     // every prior retain/release on other threads (so destroyFn never runs
     // while another thread is still mid-retain), and destroyFn's own reads
@@ -59,4 +64,11 @@ pub fn release(header: *Header) void {
 
 pub fn liveCount() usize {
     return live_count.load(.monotonic);
+}
+
+/// Heuristic-only read (KEP-0002 §5's deadlock-heuristic disjunct: "wakeup
+/// possible whenever refcount > 1"). `.monotonic` is correct here -- this
+/// only ever gates a block-vs-raise-deadlock decision, never memory safety.
+pub fn loadRefcount(header: *Header) u32 {
+    return header.refcount.load(.monotonic);
 }

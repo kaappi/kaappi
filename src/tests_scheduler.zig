@@ -140,3 +140,97 @@ test "fiber switch does not grow the fiber's own register storage to match a lar
     const result = try vm.eval("(fiber-join f)");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
+
+// KEP-0002 Phase 3 (#1468): the per-scheduler shared-waiter registry that
+// backs sweepSharedWaiters' unconditional flip.
+
+test "enrollSharedWaiter dedups by pointer; removeSharedWaiter is a no-op if absent" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+
+    try sched.enrollSharedWaiter(f);
+    try sched.enrollSharedWaiter(f); // dedup: still just one entry
+    try std.testing.expectEqual(@as(usize, 1), sched.shared_waiters.items.len);
+
+    sched.removeSharedWaiter(f);
+    try std.testing.expectEqual(@as(usize, 0), sched.shared_waiters.items.len);
+    sched.removeSharedWaiter(f); // no-op if already absent
+    try std.testing.expectEqual(@as(usize, 0), sched.shared_waiters.items.len);
+}
+
+test "sweepSharedWaiters unconditionally flips every enrolled .waiting fiber and clears the registry" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+
+    f.status = .waiting;
+    f.waiting_on = f_val; // arbitrary non-void Value, mirrors a real park
+    try sched.enrollSharedWaiter(f);
+
+    sched.sweepSharedWaiters();
+
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, f.status);
+    try std.testing.expectEqual(types.VOID, f.waiting_on);
+    try std.testing.expectEqual(@as(usize, 0), sched.shared_waiters.items.len);
+}
+
+test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = vm.scheduler.?;
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+
+    f.status = .waiting;
+    try sched.enrollSharedWaiter(f);
+    // Simulates a path other than the sweep (e.g. thread-terminate!) moving
+    // the fiber out of .waiting without going through removeSharedWaiter
+    // first -- the registry entry is stale but must not corrupt the status.
+    f.status = .errored;
+
+    sched.sweepSharedWaiters();
+
+    try std.testing.expectEqual(fiber_mod.FiberStatus.errored, f.status);
+    try std.testing.expectEqual(@as(usize, 0), sched.shared_waiters.items.len);
+}
+
+test "hasRunnableFibers reports a shared-waiter-registry entry as alive" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const sched = ctx.sched;
+    // Only the main fiber exists, and it's .running (deliberately not
+    // counted -- see hasRunnableFibers' doc comment).
+    try std.testing.expect(!sched.hasRunnableFibers());
+
+    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const f_val = try vm.eval("f");
+    const f = types.toObject(f_val).as(fiber_mod.Fiber);
+    // .waiting with no deadline trips none of the pre-existing categories
+    // (created/suspended/waiting-with-deadline/io_waiting) -- isolates the
+    // new shared_waiters check from every other reason this could pass.
+    f.status = .waiting;
+    try sched.enrollSharedWaiter(f);
+
+    try std.testing.expect(sched.hasRunnableFibers());
+}

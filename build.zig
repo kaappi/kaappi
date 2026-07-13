@@ -244,6 +244,23 @@ pub fn build(b: *std.Build) void {
     const bench_channel_step = b.step("bench-channel", "Run the channel local fast-path & envelope-cost benchmark");
     bench_channel_step.dependOn(&run_bench_channel.step);
 
+    // PCT-style randomized scheduling stress test (KEP-0002 P2 method step 2, Phase 3)
+    const stress_channel_mod = kaappiModule(b, options_mod, .{
+        .root = "src/stress_channel.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    const stress_channel_exe = b.addExecutable(.{
+        .name = "stress-channel",
+        .root_module = stress_channel_mod,
+    });
+    const run_stress_channel = b.addRunArtifact(stress_channel_exe);
+    if (b.args) |args| {
+        run_stress_channel.addArgs(args);
+    }
+    const stress_channel_step = b.step("stress-channel", "Run the SharedChannel/ThreadNotifier PCT-style randomized scheduling stress test (optional: -- <seed> <producers> <consumers> <per-producer>)");
+    stress_channel_step.dependOn(&run_stress_channel.step);
+
     // Package manager (thottam)
     const thottam_mod = kaappiModule(b, options_mod, .{
         .root = "src/thottam.zig",

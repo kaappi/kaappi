@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_object = @import("shared_object.zig");
+const reactor_mod = @import("reactor.zig");
 const th = @import("testing_helpers.zig");
 
 // KEP-0002 Phase 1 (#1466). Everything here follows tests_deepcopy.zig's
@@ -386,11 +387,20 @@ test "send: bounded-and-full channel registers a send waiter and would park" {
     const sc = try shared_channel.SharedChannel.create();
     sc.capacity = 0;
 
-    var notifier = shared_channel.ThreadNotifier{};
-    const outcome = try shared_channel.send(sc, types.makeFixnum(1), &notifier);
+    // A real Reactor-backed notifier, not a bare struct literal: releasing
+    // the last registration ref now runs releaseNotifier's real
+    // close-backend-and-free teardown (KEP-0002 Phase 3), which requires a
+    // notifier actually allocated via std.heap.c_allocator (as Reactor.init
+    // does) rather than a stack local.
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const notifier = reactor.notifyHandle();
+
+    const outcome = try shared_channel.send(sc, types.makeFixnum(1), notifier);
     try std.testing.expectEqual(shared_channel.SendOutcome.would_park, outcome);
     try std.testing.expectEqual(@as(usize, 1), sc.send_waiters.items.len);
-    try std.testing.expectEqual(@as(u32, 1), notifier.refcount.load(.monotonic));
+    // 1 (Reactor's own base ref) + 1 (this registration).
+    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -398,13 +408,15 @@ test "send: bounded-and-full channel registers a send waiter and would park" {
 test "send: registering the same waiter twice does not double the refcount (§7 dedup)" {
     const sc = try shared_channel.SharedChannel.create();
     sc.capacity = 0;
-    var notifier = shared_channel.ThreadNotifier{};
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const notifier = reactor.notifyHandle();
 
-    _ = try shared_channel.send(sc, types.makeFixnum(1), &notifier);
-    _ = try shared_channel.send(sc, types.makeFixnum(2), &notifier);
+    _ = try shared_channel.send(sc, types.makeFixnum(1), notifier);
+    _ = try shared_channel.send(sc, types.makeFixnum(2), notifier);
 
     try std.testing.expectEqual(@as(usize, 1), sc.send_waiters.items.len);
-    try std.testing.expectEqual(@as(u32, 1), notifier.refcount.load(.monotonic));
+    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -494,12 +506,14 @@ test "receive: empty and open registers a recv waiter and would park" {
 
     var dest_gc = memory.GC.init(std.testing.allocator);
     defer dest_gc.deinit();
-    var notifier = shared_channel.ThreadNotifier{};
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const notifier = reactor.notifyHandle();
 
-    const outcome = try shared_channel.receive(sc, &dest_gc, &notifier);
+    const outcome = try shared_channel.receive(sc, &dest_gc, notifier);
     try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome);
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
-    try std.testing.expectEqual(@as(u32, 1), notifier.refcount.load(.monotonic));
+    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -743,4 +757,225 @@ test "KEP-0002 Phase 2: an exception raised in the child carrying a channel prom
         try std.testing.expectEqualStrings("irritant-marker", types.symbolName(drained));
     }
     try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+// ---------------------------------------------------------------------------
+// KEP-0002 Phase 3 (#1468): cross-thread wakeup. ThreadNotifier, the
+// per-scheduler shared-waiter registry and its unconditional sweep, §2 step
+// 4 local-waiter migration, and channel-receive's real park+retry replacing
+// Phase 1's @panic on `.would_park` -- a real, already-reachable SIGABRT
+// before this fix (verified by hand against a pre-fix build: a channel
+// captured in a thread-start! thunk promotes on both sides, and either side
+// calling channel-receive on the still-empty channel before the other sends
+// crashed the process). Every test here also asserts
+// reactor_mod.notifierLiveCount() returns to baseline, alongside
+// shared_object.liveCount() -- the notifier leak-check counterpart Phase 3
+// adds (ThreadNotifier is deliberately not a shared_object.Header instance,
+// so it needs its own counter).
+// ---------------------------------------------------------------------------
+
+test "required regression: park locally -> promote -> remote send wakes (§2 step 4)" {
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        // f parks on ch while ch is still local/unpromoted (no remote
+        // thread has touched it yet); thread-start! then promotes ch as
+        // part of building its thunk's envelope, which must migrate f into
+        // the shared-waiter registry -- without that, f would hang forever
+        // (a local channel-send is never called again on this channel; only
+        // the remote thread's channel-send runs, which rings only
+        // *registered* notifiers).
+        //
+        // `ch` is threaded through as an explicit parameter to make-recv/
+        // make-send, not referenced directly by a lambda closing over a
+        // top-level `define`: a lambda body referencing a top-level define
+        // compiles to a global-name lookup, not a closure upvalue, so
+        // thread-start!'s envelope build would never touch (or promote) it
+        // at all. Passing it as a parameter forces genuine capture.
+        const result = try ctx.vm.eval(
+            \\(import (kaappi fibers))
+            \\(define ch (make-channel))
+            \\(define (make-recv c) (lambda () (channel-receive c)))
+            \\(define (make-send c v) (lambda () (channel-send c v)))
+            \\(define f (spawn (make-recv ch)))
+            \\(yield) ; let f run and park LOCALLY on ch
+            \\(thread-join! (thread-start! (make-thread (make-send ch 42))))
+            \\(fiber-join f)
+        );
+        try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+    }
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
+test "required regression: a rung receiver that loses the pop race re-parks and re-registers (§5 model finding 1)" {
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
+    const sc = try shared_channel.SharedChannel.create();
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    const notifier = reactor.notifyHandle();
+
+    var dest_gc_a = memory.GC.init(std.testing.allocator);
+
+    // Receiver A finds the queue empty and registers.
+    const outcome1 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome1);
+    try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
+
+    // A value arrives -- send()'s ring() rings (and releases) A's
+    // registration exactly like a real cross-thread notify would.
+    _ = try shared_channel.send(sc, types.makeFixnum(7), null);
+    try std.testing.expectEqual(@as(usize, 0), sc.recv_waiters.items.len);
+
+    // A faster receiver -- modeled as a second, bare receive() call, standing
+    // in for a different thread that won the retry race -- pops the value
+    // first. This is exactly what "loses the pop race" means: A was rung,
+    // but by the time it gets to retry, nothing is left.
+    var dest_gc_fast = memory.GC.init(std.testing.allocator);
+    const fast_outcome = try shared_channel.receive(sc, &dest_gc_fast, null);
+    const fast_value = switch (fast_outcome) {
+        .value => |v| v,
+        else => return error.TestUnexpectedResult,
+    };
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(fast_value));
+
+    // A retries -- exactly what channelReceiveShared's loop does after
+    // runSchedulerStep returns: the queue is empty again, so it must
+    // re-register, not treat "I was woken" as "a value is waiting for me".
+    const outcome2 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome2);
+    try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
+
+    // A subsequent send correctly wakes A again -- no lost wakeup.
+    _ = try shared_channel.send(sc, types.makeFixnum(9), null);
+    const outcome3 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    const final_value = switch (outcome3) {
+        .value => |v| v,
+        else => return error.TestUnexpectedResult,
+    };
+    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(final_value));
+
+    dest_gc_fast.deinit();
+    dest_gc_a.deinit();
+    sc.release();
+    // reactor.deinit() releases the notifier's own base ref -- must run
+    // before the leak-count checks below, not as a function-scope `defer`
+    // (which would only fire after this test function itself returns, i.e.
+    // after these assertions already ran).
+    reactor.deinit();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
+test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier primitives: no lost or duplicated deliveries, no leaks" {
+    const n_producers = 4;
+    const m_consumers = 4;
+    const per_producer: usize = if (@import("build_options").gc_stress) 25 else 250;
+    const total = n_producers * per_producer;
+
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
+    const sc = try shared_channel.SharedChannel.create();
+
+    var received_count = std.atomic.Value(usize).init(0);
+    var received_sum = std.atomic.Value(i64).init(0);
+
+    const Producer = struct {
+        fn run(s: *shared_channel.SharedChannel, count: usize, start_val: i64) void {
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                _ = shared_channel.send(s, types.makeFixnum(start_val + @as(i64, @intCast(i))), null) catch unreachable;
+            }
+        }
+    };
+    const Consumer = struct {
+        fn run(s: *shared_channel.SharedChannel, target_total: usize, count: *std.atomic.Value(usize), sum: *std.atomic.Value(i64)) void {
+            var local_reactor = reactor_mod.Reactor.init(std.testing.allocator) catch unreachable;
+            defer local_reactor.deinit();
+            const local_notifier = local_reactor.notifyHandle();
+            var local_gc = memory.GC.init(std.testing.allocator);
+            defer local_gc.deinit();
+
+            while (count.load(.monotonic) < target_total) {
+                const outcome = shared_channel.receive(s, &local_gc, local_notifier) catch unreachable;
+                switch (outcome) {
+                    .value => |v| {
+                        _ = sum.fetchAdd(types.toFixnum(v), .monotonic);
+                        _ = count.fetchAdd(1, .monotonic);
+                    },
+                    // White-box stress of SharedChannel/ThreadNotifier
+                    // themselves, not the fiber-scheduler integration --
+                    // busy-poll on a miss instead of a real scheduler park.
+                    .would_park => std.Thread.yield() catch {},
+                    .eof => unreachable,
+                }
+            }
+        }
+    };
+
+    var producers: [n_producers]std.Thread = undefined;
+    for (0..n_producers) |i| {
+        producers[i] = try std.Thread.spawn(.{}, Producer.run, .{ sc, per_producer, @as(i64, @intCast(i * 1_000_000)) });
+    }
+    var consumers: [m_consumers]std.Thread = undefined;
+    for (0..m_consumers) |i| {
+        consumers[i] = try std.Thread.spawn(.{}, Consumer.run, .{ sc, total, &received_count, &received_sum });
+    }
+    for (producers) |p| p.join();
+    for (consumers) |c| c.join();
+
+    try std.testing.expectEqual(total, received_count.load(.monotonic));
+
+    var expected_sum: i64 = 0;
+    for (0..n_producers) |i| {
+        var j: usize = 0;
+        while (j < per_producer) : (j += 1) {
+            expected_sum += @as(i64, @intCast(i * 1_000_000)) + @as(i64, @intCast(j));
+        }
+    }
+    try std.testing.expectEqual(expected_sum, received_sum.load(.monotonic));
+
+    sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
+test "KEP-0002 Phase 3 (#1468): main thread receives values sent concurrently by several real OS threads" {
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        // Each thread-start! promotes ch (idempotently, aliasing after the
+        // first); each channel-send from a real OS thread rings the main
+        // thread's notifier; the main fiber's channelReceiveShared loop
+        // parks and retries across however many of the three sends haven't
+        // landed yet when it first calls receive(). `make-sender` takes `ch`
+        // as an explicit parameter -- see the migration test's comment above
+        // for why a lambda closing directly over a top-level define would
+        // never actually capture (and thus never promote) it.
+        const result = try ctx.vm.eval(
+            \\(define ch (make-channel))
+            \\(define (make-sender c n) (lambda () (channel-send c n)))
+            \\(define threads (list (make-thread (make-sender ch 1))
+            \\                      (make-thread (make-sender ch 2))
+            \\                      (make-thread (make-sender ch 3))))
+            \\(for-each thread-start! threads)
+            \\(let loop ((i 0) (acc 0))
+            \\  (if (= i 3)
+            \\      (begin (for-each thread-join! threads) acc)
+            \\      (loop (+ i 1) (+ acc (channel-receive ch)))))
+        );
+        try std.testing.expectEqual(@as(i64, 6), types.toFixnum(result));
+    }
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
 }
