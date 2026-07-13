@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783922071898,
+  "lastUpdate": 1783930418668,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7362bb2dd83b9411f642c947724a11426e28720e",
-          "message": "Fix string-contains and string-replace start2/end2 handling (#1158) (#1317)\n\nstring-contains silently ignored the optional start2/end2 arguments,\nalways searching for the whole needle. string-replace rejected them\nwith an arity error (registered as exact=4 instead of variadic=4).\n\nBoth now apply parseStartEnd on s2 at arg index 4, matching the\npattern used by string-prefix? and string-suffix?.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:03:01+05:30",
-          "tree_id": "0f9201a25681a8c559c5f66a4128c19832e9ac92",
-          "url": "https://github.com/kaappi/kaappi/commit/7362bb2dd83b9411f642c947724a11426e28720e"
-        },
-        "date": 1783505446209,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.344311,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.51455,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.98221,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.966182,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012667,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.202939,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508256,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072139,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.686489,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.010146,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.152713,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.978546,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.390219,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.763709,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047332,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047626,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e98846412302163dfcbc54a381281301b31d5eb2",
+          "message": "Address PR #1485 review nits: stale comment, timed_out hoist, peer-death doc (#1486)\n\nThree non-blocking items carried over from the KEP-0002 P3 (#1468) review\nthat landed as PR #1485:\n\n- promoteChannel's migration-loop comment claimed registerRecvWaiter ran\n  \"above\" the loop; it actually runs once, after it. Corrected, and noted\n  the OOM-mid-loop corner this creates (stale-but-self-healing enrollments\n  vs. unreached fibers left with no wake path) rather than un-enrolling on\n  that error path.\n- channelReceiveShared reset me.timed_out after the SharedChannelPoll local-\n  sibling drive instead of before it. runSchedulerStep's generic loop bails\n  whenever timed_out is true regardless of Ctx, so a stale flag from an\n  unrelated earlier timed wait could silently skip the drive and let the\n  park decision run with the world still active. Hoisted the reset above\n  the drive.\n- Documented the KEP-0002 §5 accepted liveness gap on sharedWakeupPossible:\n  a receiver parked after this returned true hangs forever if the peer\n  exits without sending, since a stub release rings nothing and the parked\n  fiber's own registry entry keeps the deadlock detector disarmed. Go-style\n  hang, accepted by design; §6's planned per-call timeout is the escape\n  hatch.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T13:15:41+05:30",
+          "tree_id": "77b2cc46d1280c43a24d1a708748628b39f68a8c",
+          "url": "https://github.com/kaappi/kaappi/commit/e98846412302163dfcbc54a381281301b31d5eb2"
+        },
+        "date": 1783930416490,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.37971,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.430871,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.672718,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.317269,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006411,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.043726,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.380355,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05563,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.955922,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.474842,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.287663,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.414862,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.426963,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.101245,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038916,
             "unit": "seconds"
           }
         ]
