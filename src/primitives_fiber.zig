@@ -166,6 +166,19 @@ const SharedChannelWait = struct {
     }
 };
 
+/// Drives OTHER local fibers without ever touching `me`'s own status --
+/// `me` stays .running for the whole call, so schedule()'s round-robin can
+/// never independently re-pick it while its own native call (this one) is
+/// still live on the Zig stack. Isolating this into its own Ctx type keeps
+/// that invariant visually obvious at every call site: nothing here sets
+/// `me.status`, unlike SharedChannelWait/ChannelWait's actual park.
+const SharedChannelPoll = struct {
+    sc: *shared_channel.SharedChannel,
+    pub fn isDone(self: SharedChannelPoll) bool {
+        return self.sc.peekReady();
+    }
+};
+
 /// KEP-0002 §5's deadlock-heuristic disjunct: block (park, waiting for a
 /// remote send/receive) rather than raise a local deadlock whenever another
 /// thread could plausibly still act on this channel -- either it still
@@ -177,48 +190,79 @@ fn sharedWakeupPossible(sc: *shared_channel.SharedChannel) bool {
     return sc.refCount() > 1 or srfi18.crossThreadWaitPossible();
 }
 
-/// KEP-0002 §4/§5 send/receive on the shared representation, replacing
-/// Phase 1's `@panic` on `.would_park` -- a real, already-reachable SIGABRT
-/// before this fix (a channel captured by a thread-start! thunk promotes in
-/// place on both sides; either side calling channel-receive on the empty
-/// promoted channel before the other sends crashed the process).
+/// KEP-0002 §4/§5 receive on the shared representation, replacing Phase 1's
+/// `@panic` on `.would_park` -- a real, already-reachable SIGABRT before
+/// this fix (a channel captured by a thread-start! thunk promotes in place
+/// on both sides; either side calling channel-receive on the empty promoted
+/// channel before the other sends crashed the process).
 ///
-/// Always calls shared_channel.receive() FIRST each loop iteration -- that's
-/// what performs the actual sc.recv_waiters registration, as a side effect
-/// of returning `.would_park` -- and only *then* decides to park. Parking
-/// before registering would leave nothing to ever ring the fiber awake: a
-/// permanent hang inside parkOnReactor's blocking poll, strictly worse than
-/// today's clean deadlock error. This ordering also directly implements the
-/// required "a rung receiver that loses the pop race re-parks, re-registers"
-/// regression (§5, model finding 1): losing the race just means another
-/// `.would_park` on the next loop iteration, which re-registers via the same
-/// receive() call.
-///
-/// Deliberately does not reuse blockOrDeadlock's yield_retry trick: that
-/// helper is sound for a *local* channel because a later local channel-send
-/// can still find and flip the fiber via wakeChannelWaiters even after
-/// runSchedulerStep reports "not done". For a *promoted* channel nothing
-/// ever calls wakeChannelWaiters again -- a yield_retry-parked fiber not
-/// enrolled in the shared-waiter registry would never wake. So this always
-/// raises immediately when sharedWakeupPossible() is false, uniformly for
-/// the main fiber and any spawned fiber (runSchedulerStep is already called
-/// unconditionally regardless of dispatched_from_scheduler), which is what
-/// satisfies §5's "the main-fiber case follows the same rule" without any
-/// special-casing: the main fiber genuinely blocks in parkOnReactor's
-/// reactor.poll() exactly like any other fiber.
+/// Per loop iteration:
+///  1. Call shared_channel.receive() -- the notifier is registered
+///     unconditionally (not gated on sharedWakeupPossible), because a purely
+///     LOCAL sibling fiber's channel-send on this channel also rings via the
+///     same recv_waiters/notifier path (self-ring): a channel can be
+///     promoted (e.g. transiently, by a thread that captured it and exited)
+///     while every actual sender/receiver stays on this thread the whole
+///     time, and that must keep working exactly like it did before
+///     promotion.
+///  2. If empty, drive OTHER local fibers once (SharedChannelPoll) -- `me`
+///     stays .running throughout, mirroring channelReceiveFn's local-channel
+///     path (ChannelWait). Loop back to 1 if driving made the channel ready.
+///  3. Otherwise park. The two branches are NOT symmetric, and the asymmetry
+///     is load-bearing, not an oversight:
+///       - A fiber dispatched directly by a scheduler loop (my_idx != 0 and
+///         vm.dispatched_from_scheduler) ALWAYS parks via the flat
+///         yield_retry unwind (KEP-0002 §4 receive step 8: ".waiting on the
+///         stub, yield_retry rewind"), unconditionally -- exactly like
+///         blockOrDeadlock's existing behavior for every non-main fiber.
+///         Whether this is a genuine, permanent deadlock is not this
+///         fiber's call to make (the existing local-channel path doesn't
+///         make that call either): that's detected wherever something else
+///         -- typically the main fiber, via fiber-join or another
+///         blockOrDeadlock call -- eventually finds nothing progressing.
+///         Gating this branch on sharedWakeupPossible() was an earlier,
+///         confirmed-buggy version of this function: it raised a false
+///         deadlock the instant a channel was ever transiently promoted
+///         and then the "remote" side exited, even though a purely local
+///         sibling fiber was one form away from sending (verified via a
+///         concrete repro). This branch must also never nest another
+///         drive after setting `.waiting` -- see SharedChannelPoll's and
+///         runSchedulerStep's own doc comments: doing so would make `me`
+///         visible to schedule()'s round-robin while `me`'s own call is
+///         still live on the Zig stack, letting an unrelated fiber's own
+///         nested runSchedulerStep dispatch `me`'s mid-call snapshot and
+///         resume bytecode past the in-flight receive() call with the
+///         destination register never written (confirmed via a second,
+///         separate repro: two spawned fibers each parked on their own
+///         promoted channel, the second one woken "received" the stale
+///         callee register instead of its real value). yield_retry instead
+///         unwinds this whole native call via error.Yielded before `me`
+///         ever becomes independently dispatchable, and a later redispatch
+///         re-executes this entire function from the top (re-registering
+///         via step 1's receive() call).
+///       - The main fiber (or a fiber blocked under re-entrant native
+///         frames that cannot be safely rewound) CANNOT yield_retry, so it
+///         drives in place instead (waitForFd's precedent) via a genuine
+///         park + SharedChannelWait, then loops back to 1. Here
+///         sharedWakeupPossible() is load-bearing: self-enrolling in
+///         shared_waiters makes hasRunnableFibers() (and therefore
+///         parkOnReactor's own "nothing can ever happen" detection) always
+///         see this fiber's own entry, so parkOnReactor can never
+///         independently conclude "genuine deadlock" the way it does for
+///         purely local waits -- something has to decide "no local or
+///         remote path could ever help" before parking, or a truly
+///         deadlocked main fiber would block in reactor.poll() forever
+///         instead of raising a clean error.
 fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_val: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const ctx = try fiber_mod.ensureScheduler(vm);
-    const me = ctx.sched.fibers.items[ctx.sched.current_idx].?;
+    const my_idx = ctx.sched.current_idx;
+    const me = ctx.sched.fibers.items[my_idx].?;
     const notifier = ctx.reactor.notifyHandle();
+    const is_dispatched = my_idx != 0 and vm.dispatched_from_scheduler;
 
     while (true) {
-        const wakeup_possible = sharedWakeupPossible(sc);
-        // A null notifier when no wakeup is possible: registering would be
-        // pointless (nothing will ever ring it) and would leave a dangling
-        // entry for nothing -- matches send()/receive()'s existing
-        // null-is-safe convention from Phase 1.
-        const outcome = shared_channel.receive(sc, gc, if (wakeup_possible) notifier else null) catch |err|
+        const outcome = shared_channel.receive(sc, gc, notifier) catch |err|
             return translateSharedChannelError(err, "channel-receive");
         switch (outcome) {
             .value => |v| return v,
@@ -227,19 +271,46 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             .eof => @panic("channel-receive: .eof unreachable before channel-close! (Phase 4)"),
             .would_park => {},
         }
-        if (!wakeup_possible)
+
+        // Drive local siblings once. `me` stays .running -- see
+        // SharedChannelPoll's doc comment for why that's load-bearing.
+        _ = try fiber_mod.runSchedulerStep(SharedChannelPoll, .{ .sc = sc }, ctx.vm, ctx.sched, me);
+        if (sc.peekReady()) continue; // loop back to 1: re-derive via receive()
+
+        if (is_dispatched) {
+            me.status = .waiting;
+            me.waiting_on = ch_val;
+            vm.gc.writeBarrier(&me.header, ch_val);
+            ctx.sched.enrollSharedWaiter(me) catch |err| {
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                return err;
+            };
+            vm.yield_retry = true;
+            return PrimitiveError.Yielded;
+        }
+
+        if (!sharedWakeupPossible(sc))
             return raiseFiberError("channel-receive: deadlock — channel is empty and no other thread can send");
 
         me.status = .waiting;
         me.waiting_on = ch_val;
         vm.gc.writeBarrier(&me.header, ch_val);
         me.timed_out = false; // defensive: stale flag from an unrelated earlier timed wait
-        try ctx.sched.enrollSharedWaiter(me);
-        _ = try fiber_mod.runSchedulerStep(SharedChannelWait, .{ .me = me }, ctx.vm, ctx.sched, me);
+        ctx.sched.enrollSharedWaiter(me) catch |err| {
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            return err;
+        };
+        _ = fiber_mod.runSchedulerStep(SharedChannelWait, .{ .me = me }, ctx.vm, ctx.sched, me) catch |err| {
+            ctx.sched.removeSharedWaiter(me);
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            return err;
+        };
         ctx.sched.removeSharedWaiter(me);
-        // Loop back: re-derive wakeup_possible and re-call receive(), which
-        // both re-registers if still empty and picks up a value if one
-        // arrived while parked.
+        // Loop back to 1: re-registers if still empty, picks up a value if
+        // one arrived while parked.
     }
 }
 

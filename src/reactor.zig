@@ -98,11 +98,21 @@ pub const ThreadNotifier = struct {
                     .udata = 0,
                 }};
                 var zero_ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
-                _ = std.c.kevent(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
+                // Retry on EINTR: an unretried signal-interrupted kevent()
+                // here would leave wake_pending set but no OS event ever
+                // posted, and the reactor blocked in poll() has no other
+                // way to learn a notify happened.
+                while (true) {
+                    const rc = std.c.kevent(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
+                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                }
             },
             .linux => {
                 const one: u64 = 1;
-                _ = std.posix.system.write(self.backend.fd, @ptrCast(&one), @sizeOf(u64));
+                while (true) {
+                    const rc = std.posix.system.write(self.backend.fd, @ptrCast(&one), @sizeOf(u64));
+                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                }
             },
             .wasi => {},
             else => unreachable,
@@ -167,10 +177,18 @@ pub const Reactor = struct {
     notifier: *ThreadNotifier,
 
     pub fn init(allocator: std.mem.Allocator) !Reactor {
-        var backend = try Backend.init(allocator);
-        errdefer backend.deinit();
+        // Notifier allocated *before* the backend, not after: on kqueue,
+        // closing the backend's raw `kq` is now releaseNotifier's job alone
+        // (KqueueBackend.deinit is a no-op -- see its doc comment), so an
+        // `errdefer backend.deinit()` guarding a later notifier-allocation
+        // failure would leak `kq` (and, on epoll, `notify_fd`) with nobody
+        // left to close it. Ordering it first means a Backend.init failure
+        // has nothing of ours to clean up (each backend's own init already
+        // unwinds its own partial resources internally), and the notifier
+        // errdefer below covers both failure points uniformly.
         const notifier = try std.heap.c_allocator.create(ThreadNotifier);
         errdefer std.heap.c_allocator.destroy(notifier);
+        var backend = try Backend.init(allocator);
         notifier.* = .{ .backend = backend.notifierBackend() };
         _ = notifier_live_count.fetchAdd(1, .monotonic);
         return .{

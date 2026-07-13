@@ -141,6 +141,18 @@ pub const SharedChannel = struct {
         return shared_object.loadRefcount(&self.header);
     }
 
+    /// Lock-protected peek: true iff a receive() call right now would find a
+    /// value or (once Phase 4 adds channel-close!) EOF. Used by
+    /// channelReceiveShared's local-drive loop (primitives_fiber.zig) to
+    /// decide whether driving local siblings found anything, without
+    /// unsafely reading queue_len/closed outside the lock -- unlike a purely
+    /// local Channel's queue, this one is genuinely cross-thread-visible.
+    pub fn peekReady(self: *SharedChannel) bool {
+        lockChannel(self);
+        defer unlockChannel(self);
+        return self.queue_len != 0 or self.closed;
+    }
+
     /// §1 rule 4 / §7: zero destroys. Drains and deinits every queued
     /// envelope (recursively releasing any stub refcounts those messages
     /// hold -- this is what reclaims a channel that was only kept alive by
@@ -317,13 +329,25 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     if (vm_mod.vm_instance) |vm| {
         if (vm.scheduler) |sched| {
             const ch_val = types.makePointer(@ptrCast(&ch.header));
+            // Registers the notifier once, only if something actually
+            // matched -- registerRecvWaiter's own dedup makes calling it
+            // once per matching fiber idempotent, but hoisting it out reads
+            // clearer and does one lock/unlock instead of N.
+            var migrated_any = false;
             for (sched.fibers.items) |maybe_f| {
                 const f = maybe_f orelse continue;
                 if (f.status == .waiting and f.waiting_on == ch_val) {
-                    sc.registerRecvWaiter(vm.reactor.?.notifyHandle());
-                    sched.enrollSharedWaiter(f) catch {};
+                    // Propagate, don't swallow: registerRecvWaiter above
+                    // (once hoisted) already succeeded or @panic'd on OOM,
+                    // so a remote send WILL ring this thread's notifier --
+                    // silently dropping this fiber's enrollment here would
+                    // leave it .waiting with nothing left to ever flip it
+                    // back, a permanent hang.
+                    try sched.enrollSharedWaiter(f);
+                    migrated_any = true;
                 }
             }
+            if (migrated_any) sc.registerRecvWaiter(vm.reactor.?.notifyHandle());
         }
     }
 

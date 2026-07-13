@@ -30,6 +30,12 @@ fn testDestroyHook(_: *shared_object.Header) void {
     shared_object_test_destroy_count += 1;
 }
 
+fn nowNsForStressTest() u64 {
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(.MONOTONIC, &ts);
+    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+}
+
 test "shared_object: init/retain/release destroys exactly at zero" {
     const baseline = shared_object.liveCount();
     shared_object_test_destroy_count = 0;
@@ -774,6 +780,82 @@ test "KEP-0002 Phase 2: an exception raised in the child carrying a channel prom
 // so it needs its own counter).
 // ---------------------------------------------------------------------------
 
+test "review regression: two spawned fibers each parked on their own promoted channel do not corrupt each other's result" {
+    // Confirmed VM corruption before this fix (PR #1485 review): drive-
+    // parking a scheduler-dispatched fiber (setting .waiting and continuing
+    // to nest runSchedulerStep in the same native frame) makes its mid-call
+    // snapshot dispatchable by an unrelated fiber's own nested drive loop.
+    // The second fiber woken received the stale callee register
+    // (#<builtin channel-receive>) instead of its real value. Fixed by
+    // always parking a dispatched fiber via the flat yield_retry unwind
+    // (KEP-0002 §4 receive step 8), never a nested drive.
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        const result = try ctx.vm.eval(
+            \\(import (kaappi fibers))
+            \\(define ch1 (make-channel))
+            \\(define ch2 (make-channel))
+            \\(define (make-recv c) (lambda () (channel-receive c)))
+            \\(define f1 (spawn (make-recv ch1)))
+            \\(define f2 (spawn (make-recv ch2)))
+            \\(define (make-send2 a b)
+            \\  (lambda ()
+            \\    (thread-sleep! 0.1) (channel-send a 111)
+            \\    (thread-sleep! 0.1) (channel-send b 222)))
+            \\(thread-join! (thread-start! (make-thread (make-send2 ch1 ch2))))
+            \\(list (fiber-join f1) (fiber-join f2))
+        );
+        try std.testing.expectEqual(@as(i64, 111), types.toFixnum(types.car(result)));
+        try std.testing.expectEqual(@as(i64, 222), types.toFixnum(types.car(types.cdr(result))));
+    }
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
+test "review regression: local sibling send still wakes a receiver after the channel is only transiently promoted" {
+    // Confirmed false-positive deadlock before this fix (PR #1485 review):
+    // channelReceiveShared raised immediately whenever sharedWakeupPossible()
+    // was false, even for a dispatched fiber -- breaking ordinary local
+    // fiber-to-fiber use of a channel the instant it was EVER promoted (even
+    // transiently, by a thread that captured a stub and exited without ever
+    // sending). Fixed: a dispatched fiber always parks unconditionally
+    // (matching blockOrDeadlock's existing behavior for every non-main
+    // fiber); sharedWakeupPossible() only gates the main-fiber's park-vs-
+    // raise decision, where it's load-bearing (self-enrollment defeats
+    // parkOnReactor's own deadlock detection).
+    const baseline = shared_object.liveCount();
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+
+        const result = try ctx.vm.eval(
+            \\(define ch (make-channel))
+            \\(define (probe c) (lambda () (channel? c)))
+            \\;; Transient promotion: a thread captures a stub, does nothing
+            \\;; with the channel, and exits -- refCount() and
+            \\;; crossThreadWaitPossible() both go back to "nothing remote"
+            \\;; afterward, exactly like a purely local channel.
+            \\(thread-join! (thread-start! (make-thread (probe ch))))
+            \\(import (kaappi fibers))
+            \\(define (make-recv c) (lambda () (channel-receive c)))
+            \\(define f (spawn (make-recv ch)))
+            \\(yield)
+            \\(channel-send ch 42)
+            \\(fiber-join f)
+        );
+        try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+    }
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
 test "required regression: park locally -> promote -> remote send wakes (§2 step 4)" {
     const baseline = shared_object.liveCount();
     const notifier_baseline = reactor_mod.notifierLiveCount();
@@ -877,6 +959,7 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
     const m_consumers = 4;
     const per_producer: usize = if (@import("build_options").gc_stress) 25 else 250;
     const total = n_producers * per_producer;
+    const value_stride: i64 = 1_000_000; // each producer's values live in a disjoint range
 
     const baseline = shared_object.liveCount();
     const notifier_baseline = reactor_mod.notifierLiveCount();
@@ -884,18 +967,31 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
     const sc = try shared_channel.SharedChannel.create();
 
     var received_count = std.atomic.Value(usize).init(0);
-    var received_sum = std.atomic.Value(i64).init(0);
+    // One flag per (producer_id, offset) pair -- an identity-aware oracle,
+    // not just an aggregate count, so a lost delivery balanced by a
+    // duplicate elsewhere (which a count/sum check alone could miss) is
+    // caught immediately as an out-of-range value or a double-delivery.
+    var delivered: [total]std.atomic.Value(bool) = undefined;
+    for (&delivered) |*d| d.* = std.atomic.Value(bool).init(false);
+    var last_progress_ns = std.atomic.Value(u64).init(nowNsForStressTest());
 
     const Producer = struct {
-        fn run(s: *shared_channel.SharedChannel, count: usize, start_val: i64) void {
+        fn run(s: *shared_channel.SharedChannel, count: usize, producer_id: usize) void {
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                _ = shared_channel.send(s, types.makeFixnum(start_val + @as(i64, @intCast(i))), null) catch unreachable;
+                const val = @as(i64, @intCast(producer_id)) * value_stride + @as(i64, @intCast(i));
+                _ = shared_channel.send(s, types.makeFixnum(val), null) catch unreachable;
             }
         }
     };
     const Consumer = struct {
-        fn run(s: *shared_channel.SharedChannel, target_total: usize, count: *std.atomic.Value(usize), sum: *std.atomic.Value(i64)) void {
+        fn run(
+            s: *shared_channel.SharedChannel,
+            target_total: usize,
+            count: *std.atomic.Value(usize),
+            deliv: []std.atomic.Value(bool),
+            progress_ns: *std.atomic.Value(u64),
+        ) void {
             var local_reactor = reactor_mod.Reactor.init(std.testing.allocator) catch unreachable;
             defer local_reactor.deinit();
             const local_notifier = local_reactor.notifyHandle();
@@ -906,13 +1002,29 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
                 const outcome = shared_channel.receive(s, &local_gc, local_notifier) catch unreachable;
                 switch (outcome) {
                     .value => |v| {
-                        _ = sum.fetchAdd(types.toFixnum(v), .monotonic);
+                        const val = types.toFixnum(v);
+                        const producer_id: usize = @intCast(@divTrunc(val, value_stride));
+                        const offset: usize = @intCast(@mod(val, value_stride));
+                        const index = producer_id * per_producer + offset;
+                        if (offset >= per_producer or index >= deliv.len)
+                            std.debug.panic("delivered value {d} decodes outside the expected range", .{val});
+                        if (deliv[index].swap(true, .monotonic))
+                            std.debug.panic("duplicate delivery of value {d}", .{val});
+                        progress_ns.store(nowNsForStressTest(), .monotonic);
                         _ = count.fetchAdd(1, .monotonic);
                     },
                     // White-box stress of SharedChannel/ThreadNotifier
                     // themselves, not the fiber-scheduler integration --
                     // busy-poll on a miss instead of a real scheduler park.
-                    .would_park => std.Thread.yield() catch {},
+                    .would_park => {
+                        // A lost message would otherwise spin every consumer
+                        // forever with no way to notice -- fail loudly
+                        // instead once no delivery has landed anywhere for
+                        // too long.
+                        if (nowNsForStressTest() -| progress_ns.load(.monotonic) > 10 * std.time.ns_per_s)
+                            std.debug.panic("no delivery progress for 10s -- likely a lost wakeup", .{});
+                        std.Thread.yield() catch {};
+                    },
                     .eof => unreachable,
                 }
             }
@@ -921,25 +1033,21 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
 
     var producers: [n_producers]std.Thread = undefined;
     for (0..n_producers) |i| {
-        producers[i] = try std.Thread.spawn(.{}, Producer.run, .{ sc, per_producer, @as(i64, @intCast(i * 1_000_000)) });
+        producers[i] = try std.Thread.spawn(.{}, Producer.run, .{ sc, per_producer, i });
     }
     var consumers: [m_consumers]std.Thread = undefined;
     for (0..m_consumers) |i| {
-        consumers[i] = try std.Thread.spawn(.{}, Consumer.run, .{ sc, total, &received_count, &received_sum });
+        consumers[i] = try std.Thread.spawn(.{}, Consumer.run, .{ sc, total, &received_count, delivered[0..total], &last_progress_ns });
     }
     for (producers) |p| p.join();
     for (consumers) |c| c.join();
 
+    // Every delivery was checked in-place (range + duplicate) as it
+    // happened; exactly `total` non-duplicate deliveries out of exactly
+    // `total` possible (producer_id, offset) slots is a bijection, so this
+    // final count confirms full, exact-once coverage without a separate
+    // scan over `delivered`.
     try std.testing.expectEqual(total, received_count.load(.monotonic));
-
-    var expected_sum: i64 = 0;
-    for (0..n_producers) |i| {
-        var j: usize = 0;
-        while (j < per_producer) : (j += 1) {
-            expected_sum += @as(i64, @intCast(i * 1_000_000)) + @as(i64, @intCast(j));
-        }
-    }
-    try std.testing.expectEqual(expected_sum, received_sum.load(.monotonic));
 
     sc.release();
     try std.testing.expectEqual(baseline, shared_object.liveCount());

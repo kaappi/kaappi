@@ -145,14 +145,13 @@ test "fiber switch does not grow the fiber's own register storage to match a lar
 // backs sweepSharedWaiters' unconditional flip.
 
 test "enrollSharedWaiter dedups by pointer; removeSharedWaiter is a no-op if absent" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
     try sched.enrollSharedWaiter(f);
@@ -166,14 +165,13 @@ test "enrollSharedWaiter dedups by pointer; removeSharedWaiter is a no-op if abs
 }
 
 test "sweepSharedWaiters unconditionally flips every enrolled .waiting fiber and clears the registry" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
     f.status = .waiting;
@@ -188,14 +186,13 @@ test "sweepSharedWaiters unconditionally flips every enrolled .waiting fiber and
 }
 
 test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = vm.scheduler.?;
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
     f.status = .waiting;
@@ -212,19 +209,18 @@ test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
 }
 
 test "hasRunnableFibers reports a shared-waiter-registry entry as alive" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    const ctx = try fiber_mod.ensureScheduler(vm);
-    const sched = ctx.sched;
+    const fctx = try fiber_mod.ensureScheduler(ctx.vm);
+    const sched = fctx.sched;
     // Only the main fiber exists, and it's .running (deliberately not
     // counted -- see hasRunnableFibers' doc comment).
     try std.testing.expect(!sched.hasRunnableFibers());
 
-    _ = try vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const f_val = try vm.eval("f");
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
     // .waiting with no deadline trips none of the pre-existing categories
     // (created/suspended/waiting-with-deadline/io_waiting) -- isolates the
