@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783883847197,
+  "lastUpdate": 1783922071898,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "39febebd4f71a5c2dd8042ec92f31148f9f7cb31",
-          "message": "Fix SRFI-151 bit-argument API mismatch (#1233) (#1316)\n\n- copy-bit: accept boolean (not integer) as third argument per spec\n- bitwise-eqv: make n-ary with identity -1 (was fixed 2-arity)\n- bits->list/bits->vector: make len optional (default: integer-length)\n- make-bitwise-generator: return booleans (was 0/1 fixnums)\n- Update internal callers (bit-swap, list->bits, vector->bits,\n  bitwise-unfold) to pass booleans to copy-bit\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T15:01:56+05:30",
-          "tree_id": "fa7555fd40227ec53f8094ba8bec027853bf7c1b",
-          "url": "https://github.com/kaappi/kaappi/commit/39febebd4f71a5c2dd8042ec92f31148f9f7cb31"
-        },
-        "date": 1783505205660,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.109701,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.978431,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.032964,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.41998,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.015013,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225675,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512624,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070602,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.69775,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.998399,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.266725,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.09197,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.355146,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.891078,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047013,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043176,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4510f96d50b49c46a02b723f6e5c9eacd607523",
+          "message": "Cross-thread wakeup: ThreadNotifier, unconditional sweep, shared-waiter registry (KEP-0002 P3) (#1485)\n\n* Cross-thread wakeup: ThreadNotifier, unconditional sweep, shared-waiter registry (KEP-0002 P3)\n\nImplements KEP-0002 Phase 3 (#1468): the reactor-backed cross-thread\nwakeup that Phases 1/2 (#1482/#1483) left as an unwired @panic. This\ncloses a real, already-reachable crash: a channel captured as a true\nlexical closure upvalue in a thread-start! thunk promotes in place on\nboth sides (parent and child), and either side calling channel-receive\non the still-empty promoted channel before the other sends hit the\nPhase 1 placeholder panic and SIGABRT'd the process. Verified against\na pre-fix build before writing any code.\n\n- src/reactor.zig: ThreadNotifier (kqueue EVFILT.USER / epoll eventfd /\n  WASI no-op), one per Reactor. Base refcount owned by the creating\n  Reactor; registrations are additive on top. Kernel-resource closing\n  is concentrated entirely in releaseNotifier's zero-transition (not\n  split with backend deinit), since kqueue's notifier knote shares `kq`\n  with ordinary fd polling -- splitting it would risk a double-close\n  race on whichever release happens last. wait()'s event loop filters\n  the notifier's own event out of the ordinary ReadyEvent stream on\n  both backends. New notifierLiveCount() leak-check counterpart to\n  shared_object.liveCount() (ThreadNotifier is deliberately not a\n  shared_object.Header instance).\n- src/fiber.zig: the per-scheduler shared-waiter registry and its\n  UNCONDITIONAL sweep -- a readiness-filtered sweep is the exact\n  model-checked lost-wakeup from kaappi/keps#12 (\"finding 1\"), not a\n  style choice. The wake_pending consume-protocol swap-loop is wired\n  into both schedule() (every tick) and parkOnReactor() (before\n  blocking and again after poll() returns, since a notify arriving\n  mid-block is what interrupted it). hasRunnableFibers() extended so\n  the deadlock check doesn't fire while a fiber still has a live\n  cross-thread wakeup path.\n- src/shared_channel.zig: ring() now actually calls notify(); §7\n  opportunistic dead-notifier pruning folded into the existing\n  register*Waiter dedup walk; promoteChannel gains §2 step 4's\n  local-waiter migration (a fiber parked on the local representation\n  before promotion is registered + enrolled so the first remote\n  send/receive can reach it).\n- src/primitives_fiber.zig: channelReceiveFn's shared-path @panic\n  replaced with channelReceiveShared -- always calls\n  shared_channel.receive() first each loop iteration (registration is\n  a side effect of .would_park) and only then parks, never the other\n  way around; parking before registering would leave nothing to ever\n  ring the fiber awake. This ordering also directly implements the\n  required \"a rung receiver that loses the pop race re-parks,\n  re-registers\" regression. The deadlock heuristic\n  (sharedWakeupPossible) reuses primitives_srfi18's existing\n  crossThreadWaitPossible rather than duplicating it.\n- src/pct_stress.zig + src/stress_channel.zig (new) + `zig build\n  stress-channel`: PCT-style randomized yield injection at\n  SharedChannel's lock wrappers and shared_object's retain/release,\n  off by default. Confirmed effective by deliberately reintroducing\n  the \"finding 1\" bug and verifying both the harness and the\n  deterministic unit test catch it, then reverting.\n\nDeferred to a follow-up (documented, not silently dropped): UQ3\n(thread-join!'s 1ms poll -> notifier) needs a structurally distinct\nregistration relationship from SharedChannel's, and isn't \"cheap\" per\nthe KEP's own bar for in-scope-now work.\n\nTest plan:\n- Required regressions: park locally -> promote -> remote send wakes\n  (§2 step 4); a rung receiver that loses the pop race re-parks and\n  re-registers (§5, model finding 1) -- both as automated tests.\n- zig build test and zig build test -Dgc-stress=true: full suite green\n  (832 tests; 824 pass + 6 scaled-down skips under gc-stress).\n- bash tests/scheme/run-all.sh: 1835/0.\n- zig build stress-channel across multiple seeds and heavier\n  producer/consumer/message-count configurations: all pass.\n- zig build wasm still compiles (WASI notifier backend is a no-op).\n- zig fmt --check clean.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: fix confirmed VM corruption and false-deadlock regression\n\nTwo confirmed, repro'd bugs from review, both in channelReceiveShared's\npark decision:\n\n- VM corruption: a dispatched (non-main) fiber that set .waiting and\n  then kept driving other fibers in the same native frame became\n  visible to schedule()'s round-robin (via shared_waiters) while its\n  own call was still live on the Zig stack. An unrelated fiber's own\n  nested runSchedulerStep could dispatch that mid-call snapshot and\n  resume bytecode past the in-flight receive() call, with the\n  destination register never written -- confirmed via a repro where\n  the second of two fibers parked on separate promoted channels\n  \"received\" the stale callee register instead of its real value.\n  Fixed: a dispatched fiber now always parks via the flat yield_retry\n  unwind (KEP-0002 §4 receive step 8), exactly like blockOrDeadlock's\n  existing behavior for every non-main fiber -- never a nested drive\n  after setting .waiting.\n\n- False deadlock: the sharedWakeupPossible() gate was applied to the\n  dispatched-fiber path too, so a channel that was EVER transiently\n  promoted (e.g. a thread captured a stub and exited without sending)\n  permanently broke ordinary local fiber-to-fiber use of that channel,\n  since refCount()/crossThreadWaitPossible() both correctly report\n  \"nothing remote\" afterward -- but a local sibling was one form away\n  from sending. Fixed: the gate now only applies to the main-fiber\n  path, where it's genuinely load-bearing (self-enrollment in\n  shared_waiters defeats parkOnReactor's own \"nothing can ever happen\"\n  detection). A dispatched fiber parks unconditionally, matching\n  blockOrDeadlock; whether that's a genuine deadlock is detected\n  elsewhere, same as the local-channel path already works.\n\nAlso drives local siblings once (SharedChannelPoll, `me` stays\n.running throughout) before deciding to park at all, so purely local\nchannel activity is tried first -- this is what makes the\ntransiently-promoted-channel case above work correctly end to end.\n\nOther review findings addressed:\n- shared_channel.zig: promoteChannel's migration loop no longer\n  swallows enrollSharedWaiter's OOM via `catch {}` (a silently dropped\n  registration was a permanent, undetectable hang); registerRecvWaiter\n  is now called once per promotion, not once per migrated fiber.\n- reactor.zig: Reactor.init allocates the notifier before the backend\n  (not after) -- the previous order leaked the backend's raw kq/\n  notify_fd on a notifier-allocation OOM, since KqueueBackend.deinit is\n  now a no-op (closing kq is releaseNotifier's job). notify()'s kevent/\n  eventfd syscalls retry on EINTR instead of silently dropping the\n  wakeup.\n- primitives_fiber.zig: enrollSharedWaiter failures roll back .waiting/\n  waiting_on and propagate instead of leaving a dangling park state;\n  runSchedulerStep errors in the main-fiber park path get the same\n  scoped cleanup.\n- tests_scheduler.zig: the 4 new scheduler tests use th.TestContext\n  instead of manual GC/makeTestVM setup, per this repo's coding\n  guidelines for tests needing multiple evals/result inspection.\n- tests_shared_channel.zig + stress_channel.zig: both stress tests now\n  use an identity-aware delivery oracle (one flag per (producer,\n  offset) pair) instead of aggregate count+sum, which could in\n  principle mask a lost delivery balanced by a duplicate elsewhere;\n  plus a bounded stall-detection deadline so a genuinely lost message\n  fails loudly (with the seed, for stress_channel.zig) instead of\n  spinning consumers forever.\n\nNew regression tests reproduce both confirmed bugs directly (two\nspawned fibers on separate promoted channels; a local sibling send\nafter a transient promotion) using the reviewer's own repro shapes.\n\nVerified: zig build test and -Dgc-stress=true green (834 tests, 6\nscaled-down skips under gc-stress); full Scheme/R7RS suite 1835/0;\nzig build stress-channel across several seeds and a heavier\nproducer/consumer/message-count configuration; zig build wasm still\ncompiles; zig fmt clean. Both original repro scripts (SIGABRT and the\ntwo new ones from review) now behave correctly end to end.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T10:55:58+05:30",
+          "tree_id": "a53a2b9bd2b66a616051785a4cb6a96531461990",
+          "url": "https://github.com/kaappi/kaappi/commit/e4510f96d50b49c46a02b723f6e5c9eacd607523"
+        },
+        "date": 1783922071052,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.555803,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.161484,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.919339,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.440744,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00678,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053173,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513628,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067936,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.187052,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986452,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.517998,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.470076,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.732319,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.833448,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047626,
             "unit": "seconds"
           }
         ]
