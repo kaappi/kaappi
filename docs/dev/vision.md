@@ -80,6 +80,84 @@ compilation pass."
 
 ---
 
+## Machine legibility
+
+The third core value, transparency, is about the *implementation* being
+understandable to a contributor reading the Zig. **Machine legibility** turns
+that value outward: from a runtime transparent to the people who build it, to a
+toolchain transparent to the programs that *drive* it. The audience is no longer
+only the person tracing an expression with `--disassemble`; it is equally the AI
+agent — or the human in a hurry — that runs `kaappi`, reads what comes back, and
+acts on it without a human in the loop.
+
+Stated as one sentence: **Kaappi aims to be the most legible Scheme — a complete
+R7RS-small where every stage of the toolchain can explain itself, to a human in
+prose and to a machine in stable, structured output.**
+
+### The operational test
+
+"Legible" is only worth anything if it can be falsified, so it reduces to a
+concrete test:
+
+> An agent can go from a failing program to a correct fix — *and know the fix is
+> correct* — using only documented CLI output. No screen-scraping prose, no
+> reading compiler source, no guessing.
+
+Every feature under this banner either serves that test or it doesn't. A
+friendlier error message an agent still has to pattern-match against English
+fails it. A stable diagnostic code the agent can match exactly, explain offline,
+and consume as JSON passes it. The test is what keeps "friendly for agents" from
+degenerating into "prettier for humans."
+
+### Three pillars
+
+- **Diagnose** — the keystone. Stable, `KP`-prefixed codes on every reader,
+  compile, and runtime error; structured `--diagnostics=json` in the LSP
+  `Diagnostic` shape the language server already emits; exact source spans; a
+  self-explaining registry (`kaappi explain KP3001`); and first-class test
+  tooling (`kaappi test` with `--json`, `--seed`, `--changed`). The design is
+  KEP-0005 ([kaappi/keps#18](https://github.com/kaappi/keps/pull/18)).
+- **Understand** — introspection at every pipeline stage: `kaappi expand` /
+  `ast` / `ir` alongside the existing `--disassemble`, so the pipeline diagram
+  above is observable rather than described; `kaappi check` to compile and lint
+  without running; `kaappi doctor` for environment self-checks; and honest crash
+  reports in place of bare panics.
+- **Automate** — deterministic, *visible* builds: cache hits and misses reported
+  rather than silent, `.sbc` keys that can't lie about which compiler produced
+  them; machine-readable capability discovery (`kaappi features --json`); and
+  per-stage timings. The whole program is tracked in
+  [kaappi#1503](https://github.com/kaappi/kaappi/issues/1503).
+
+### Extension, not deviation
+
+Machine legibility lives entirely in the space R7RS-small has no opinion on —
+CLIs, diagnostic formats, caches, test runners, editor protocols. It follows the
+same discipline as
+[KEP-0004](https://github.com/kaappi/keps/blob/main/keps/0004-discoverable-deviations.md):
+extend where the spec is silent, never deviate where it speaks. The non-goals
+that hold that line are as much a part of this direction as the features:
+
+- **No static type system, and no type annotations.** "Will this call fail?" is
+  answered by lint-level analysis over the known primitives (`kaappi check`),
+  not by inference or a new type language. R7RS is latently typed; Kaappi stays
+  that way. This is the one idea on the original wishlist that would have been a
+  true deviation, and it is declined on purpose.
+- **No new surface syntax** for tooling's benefit — sources stay `.scm` and
+  `.sld`.
+- **No change to R7RS error semantics.** `error-object?`,
+  `error-object-message`, and `error-object-irritants` keep their exact
+  behavior; diagnostic codes are additive metadata reached through a new
+  `(kaappi diagnostics)` library, never a change to `(scheme base)`.
+- **No bespoke diagnostic schema** — structured output reuses the LSP
+  `Diagnostic` shape, which the language server already serializes.
+- **Fuzzing is settled, not aspirational.** The coverage-guided fuzzing
+  infrastructure (seven targets, CI-integrated; see [fuzzing.md](fuzzing.md))
+  already shipped. It is cited here as evidence the approach works, and its
+  generators are reused — property-testing a formatter's idempotence, for one —
+  not listed as future work.
+
+---
+
 ## Design decisions and their rationale
 
 ### Register-based bytecode (not stack-based)
