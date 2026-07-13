@@ -201,7 +201,11 @@ var live_child_threads: usize = 0;
 // still help -- indefinite blocking here is conformant with SRFI-18, but the
 // same shape of deadlock hangs on a child thread and errors on the main
 // thread, which is worth knowing when debugging one.
-fn crossThreadWaitPossible() bool {
+//
+// `pub` since KEP-0002 Phase 3 (#1468): primitives_fiber.zig's shared-channel
+// deadlock heuristic (§5, "wakeup possible whenever ... other live OS threads
+// exist") reuses this exact same disjunct rather than duplicating it.
+pub fn crossThreadWaitPossible() bool {
     const vm = vm_mod.vm_instance orelse return false;
     if (!vm.owns_globals) return true;
     return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
@@ -612,6 +616,11 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
             ctx.reactor.removeWaiter(io_fd, fiber);
             fiber.io_fd = null;
         }
+        // Same reasoning, KEP-0002 Phase 3 (#1468): a fiber parked on a
+        // promoted channel sits in the scheduler's shared-waiter registry
+        // (fiber.zig), not just .waiting -- pull it out so a later sweep
+        // never touches a slot addFiber has since reused for another fiber.
+        ctx.sched.removeSharedWaiter(fiber);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         ctx.sched.wakeWaiters(fiber);
     }

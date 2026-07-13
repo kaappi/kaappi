@@ -69,6 +69,9 @@ pub const FiberScheduler = struct {
     current_idx: usize,
     next_id: u32,
     vm: *VM,
+    /// KEP-0002 §5's per-scheduler shared-waiter registry -- see
+    /// enrollSharedWaiter/sweepSharedWaiters below.
+    shared_waiters: std.ArrayList(*Fiber),
 
     pub fn init(vm: *VM) FiberScheduler {
         return .{
@@ -76,11 +79,13 @@ pub const FiberScheduler = struct {
             .current_idx = 0,
             .next_id = 0,
             .vm = vm,
+            .shared_waiters = .empty,
         };
     }
 
     pub fn deinit(self: *FiberScheduler, allocator: std.mem.Allocator) void {
         self.fibers.deinit(allocator);
+        self.shared_waiters.deinit(allocator);
     }
 
     pub fn addFiber(self: *FiberScheduler, fiber: *Fiber) !void {
@@ -301,6 +306,14 @@ pub const FiberScheduler = struct {
     /// keeps the loop from ever reaching parkOnReactor's blocking poll.
     pub fn schedule(self: *FiberScheduler) ?usize {
         if (self.vm.reactor) |reactor| {
+            // KEP-0002 §5's normative consume protocol, checked every tick
+            // (not just when idle) for the same promptness reason as the
+            // timer/I/O checks below: a notify arriving after the last swap
+            // still rang the notifier's fd, which poll() observes
+            // immediately; one arriving before it was swept right here. No
+            // interleaving loses a wakeup.
+            while (reactor.notifier.wake_pending.swap(false, .acq_rel)) self.sweepSharedWaiters();
+
             var expired: std.ArrayList(*Fiber) = .empty;
             defer expired.deinit(self.vm.gc.allocator);
             if (self.anyIoWaiting()) {
@@ -333,6 +346,11 @@ pub const FiberScheduler = struct {
     /// as "other progress possible" would make a genuine deadlock loop
     /// forever in reactor.poll() instead of ever detecting it.
     pub fn hasRunnableFibers(self: *FiberScheduler) bool {
+        // KEP-0002 §5: a fiber parked on a promoted channel with a live
+        // ThreadNotifier registration is "alive, waiting" even though it
+        // matches none of the local wait categories below -- another OS
+        // thread may still send/receive and wake it via sweepSharedWaiters.
+        if (self.shared_waiters.items.len != 0) return true;
         for (self.fibers.items) |f| {
             if (f) |fiber| {
                 if (fiber.status == .created or fiber.status == .suspended)
@@ -377,6 +395,60 @@ pub const FiberScheduler = struct {
                 }
             }
         }
+    }
+
+    /// KEP-0002 §5's per-scheduler shared-waiter registry: a fiber joins
+    /// when it parks on a promoted channel (channelReceiveShared,
+    /// promoteChannel's §2 step 4 migration) and leaves via
+    /// removeSharedWaiter or the unconditional sweep below. Owned and
+    /// mutated only by this scheduler's own thread -- no lock needed. Holds
+    /// fiber pointers, not heap Values, so it adds no GC roots of its own:
+    /// it's a secondary index into `fibers`, which markRoots already marks
+    /// unconditionally regardless of status.
+    pub fn enrollSharedWaiter(self: *FiberScheduler, fiber: *Fiber) !void {
+        for (self.shared_waiters.items) |existing| {
+            if (existing == fiber) return; // dedup
+        }
+        try self.shared_waiters.append(self.vm.gc.allocator, fiber);
+    }
+
+    /// No-op if `fiber` isn't enrolled. Called after a park attempt resolves
+    /// (channelReceiveShared) and by thread-terminate! (which flips a
+    /// victim's status directly, bypassing the sweep) -- without this, a
+    /// terminated fiber's slot could be reused by addFiber while a stale
+    /// pointer to the old fiber object still sits in this registry.
+    pub fn removeSharedWaiter(self: *FiberScheduler, fiber: *Fiber) void {
+        for (self.shared_waiters.items, 0..) |f, i| {
+            if (f == fiber) {
+                _ = self.shared_waiters.swapRemove(i);
+                return;
+            }
+        }
+    }
+
+    /// KEP-0002 §5, model-checked to be UNCONDITIONAL (kaappi/keps#12,
+    /// "model finding 1"): a readiness-filtered sweep is a proven lost
+    /// wakeup. Rings snapshot-and-clear the SharedChannel waiter lists
+    /// (shared_channel.zig), so a fiber that was rung but lost the retry
+    /// race to a faster thread has no registration left -- if the sweep
+    /// also declines to flip it, nothing ever will. Flipping every entry
+    /// makes the wake-all discipline literal: woken fibers retry their
+    /// primitive, and losers re-park and re-register under the channel's
+    /// own lock. The cost is spurious retries bounded by the registry
+    /// length, which only ever holds shared-channel waiters.
+    pub fn sweepSharedWaiters(self: *FiberScheduler) void {
+        for (self.shared_waiters.items) |f| {
+            // Guards a fiber whose .waiting status was already cleared by
+            // another path before this sweep ran (thread-terminate!'s
+            // direct removal, or an entry left behind after an OOM unwound
+            // channelReceiveShared before its own removeSharedWaiter call) --
+            // flipping it again would be harmless but pointless.
+            if (f.status == .waiting) {
+                f.status = .suspended;
+                f.waiting_on = types.VOID;
+            }
+        }
+        self.shared_waiters.clearRetainingCapacity();
     }
 
     pub fn wakeMutexWaiters(self: *FiberScheduler, mutex_val: Value) void {
@@ -612,11 +684,21 @@ pub fn waitForFd(vm: *VM, fd: std.posix.fd_t, interest: reactor_mod.Interest) VM
 /// timers behavior.
 pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool {
     const reactor = vm.reactor orelse return false;
+    // Consume protocol (KEP-0002 §5) before the deadlock check: a notify
+    // that arrived just before this call must not be missed by
+    // hasRunnableFibers() reading a shared_waiters entry the sweep would
+    // otherwise have already cleared.
+    while (reactor.notifier.wake_pending.swap(false, .acq_rel)) sched.sweepSharedWaiters();
     if (!sched.hasRunnableFibers() and reactor.isEmpty()) return false;
 
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(vm.gc.allocator);
     reactor.poll(cap_ns, &ready) catch return VMError.OutOfMemory;
+    // A notify arriving *during* the blocking poll() above is what actually
+    // interrupted it; its wake_pending flag needs consuming here even though
+    // poll()'s own ReadyEvent list never surfaces the notifier's own event
+    // (reactor.zig's wait() implementations filter it out).
+    while (reactor.notifier.wake_pending.swap(false, .acq_rel)) sched.sweepSharedWaiters();
 
     for (ready.items) |f| wakeReadyFiber(f);
     return true;

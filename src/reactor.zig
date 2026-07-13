@@ -63,18 +63,140 @@ const Reg = struct {
     }
 };
 
+/// KEP-0002 §5: cross-thread wakeup handle, one per Reactor (one per OS
+/// thread). Registrations come only from SharedChannel waiter lists (§7);
+/// the creating Reactor holds the base +1 (mirrors shared_object.init's
+/// "the creating stub is the first counted reference"), released at
+/// Reactor.deinit. Allocated from std.heap.c_allocator (not the Reactor's
+/// own allocator) because it must be able to outlive this thread's Reactor
+/// whenever another thread still holds a registration on it -- same
+/// rationale as SharedChannel/Envelope (KEP-0002 §1).
+pub const ThreadNotifier = struct {
+    refcount: std.atomic.Value(u32) = std.atomic.Value(u32).init(1),
+    wake_pending: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Cleared at Reactor.deinit -- notify() on a dead handle is a no-op.
+    /// Does NOT gate memory safety (the refcount does); it only skips a
+    /// syscall that would otherwise touch a backend resource whose closing
+    /// may already be in flight (see releaseNotifier).
+    alive: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
+    backend: NotifierBackend,
+
+    /// Thread-safe: sets wake_pending (release store) then rings the OS
+    /// primitive -- always both, so a notify racing the consume protocol's
+    /// swap loop (fiber.zig) is never lost (KEP-0002 §5).
+    pub fn notify(self: *ThreadNotifier) void {
+        self.wake_pending.store(true, .release);
+        if (!self.alive.load(.acquire)) return;
+        switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos, .visionos => {
+                var triggers = [1]std.c.Kevent{.{
+                    .ident = 0,
+                    .filter = std.c.EVFILT.USER,
+                    .flags = 0,
+                    .fflags = std.c.NOTE.TRIGGER,
+                    .data = 0,
+                    .udata = 0,
+                }};
+                var zero_ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
+                // Retry on EINTR: an unretried signal-interrupted kevent()
+                // here would leave wake_pending set but no OS event ever
+                // posted, and the reactor blocked in poll() has no other
+                // way to learn a notify happened.
+                while (true) {
+                    const rc = std.c.kevent(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
+                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                }
+            },
+            .linux => {
+                const one: u64 = 1;
+                while (true) {
+                    const rc = std.posix.system.write(self.backend.fd, @ptrCast(&one), @sizeOf(u64));
+                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                }
+            },
+            .wasi => {},
+            else => unreachable,
+        }
+    }
+};
+
+/// Backend-specific data `notify()` needs to ring the live OS primitive.
+/// Populated once, from the already-initialized backend, when the owning
+/// Reactor is constructed (see Reactor.init / each backend's
+/// `notifierBackend`).
+const NotifierBackend = switch (builtin.os.tag) {
+    .macos, .ios, .tvos, .watchos, .visionos => struct { kq: i32 },
+    .linux => struct { fd: i32 },
+    .wasi => struct {},
+    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
+};
+
+/// KEP-0002 §7 leak-check hook, mirrors shared_object.liveCount() --
+/// ThreadNotifier is deliberately NOT a shared_object.Header instance (its
+/// references come only from SharedChannel waiter lists, never GC stubs),
+/// so it needs its own counterpart.
+var notifier_live_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(0);
+
+pub fn notifierLiveCount() usize {
+    return notifier_live_count.load(.monotonic);
+}
+
+pub fn retainNotifier(n: *ThreadNotifier) void {
+    _ = n.refcount.fetchAdd(1, .monotonic);
+}
+
+/// Drops one reference. At the zero transition, closes the backend OS
+/// resource and frees the struct -- ownership of that close is deliberately
+/// concentrated entirely here rather than split with Reactor.deinit/backend
+/// deinit, which would risk a double-close on kqueue (the notifier's
+/// EVFILT.USER knote shares `kq` with ordinary fd polling -- see
+/// KqueueBackend.deinit). Safe even though another thread might be
+/// concurrently calling notify(): a thread only ever touches `n` while it
+/// still holds one of its references (ring() calls notify() strictly before
+/// releasing its own registration's ref), so no release can observe the
+/// zero transition while another holder is still using the object -- the
+/// same acq_rel argument shared_object.release already relies on.
+pub fn releaseNotifier(n: *ThreadNotifier) void {
+    if (n.refcount.fetchSub(1, .acq_rel) == 1) {
+        switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos, .visionos => _ = std.posix.system.close(n.backend.kq),
+            .linux => _ = std.posix.system.close(n.backend.fd),
+            .wasi => {},
+            else => unreachable,
+        }
+        std.heap.c_allocator.destroy(n);
+        _ = notifier_live_count.fetchSub(1, .monotonic);
+    }
+}
+
 pub const Reactor = struct {
     allocator: std.mem.Allocator,
     backend: Backend,
     regs: std.AutoHashMap(i32, Reg),
     timers: TimerHeap,
+    notifier: *ThreadNotifier,
 
     pub fn init(allocator: std.mem.Allocator) !Reactor {
+        // Notifier allocated *before* the backend, not after: on kqueue,
+        // closing the backend's raw `kq` is now releaseNotifier's job alone
+        // (KqueueBackend.deinit is a no-op -- see its doc comment), so an
+        // `errdefer backend.deinit()` guarding a later notifier-allocation
+        // failure would leak `kq` (and, on epoll, `notify_fd`) with nobody
+        // left to close it. Ordering it first means a Backend.init failure
+        // has nothing of ours to clean up (each backend's own init already
+        // unwinds its own partial resources internally), and the notifier
+        // errdefer below covers both failure points uniformly.
+        const notifier = try std.heap.c_allocator.create(ThreadNotifier);
+        errdefer std.heap.c_allocator.destroy(notifier);
+        var backend = try Backend.init(allocator);
+        notifier.* = .{ .backend = backend.notifierBackend() };
+        _ = notifier_live_count.fetchAdd(1, .monotonic);
         return .{
             .allocator = allocator,
-            .backend = try Backend.init(allocator),
+            .backend = backend,
             .regs = std.AutoHashMap(i32, Reg).init(allocator),
             .timers = .empty,
+            .notifier = notifier,
         };
     }
 
@@ -86,7 +208,20 @@ pub const Reactor = struct {
         }
         self.regs.deinit();
         self.timers.deinit(self.allocator);
+        // Order matters: flip `alive` before releasing, so a notify() that
+        // wins a race against this release still observes `alive == false`
+        // and skips the syscall instead of touching a resource this thread
+        // is about to hand off (or close) via releaseNotifier below.
+        self.notifier.alive.store(false, .release);
+        releaseNotifier(self.notifier);
         self.backend.deinit();
+    }
+
+    /// KEP-0002 §5's `Reactor.notifyHandle()`. Exposes this thread's own
+    /// cross-thread wakeup handle -- callers register it in a SharedChannel's
+    /// waiter lists, never construct one themselves.
+    pub fn notifyHandle(self: *Reactor) *ThreadNotifier {
+        return self.notifier;
     }
 
     /// Registers `fiber` as waiting for `interest` on `fd`. On success the
@@ -304,15 +439,40 @@ const KqueueBackend = struct {
     ready: [max_events_per_poll]ReadyEvent = undefined,
 
     /// Owns no allocations — the allocator is part of the uniform
-    /// three-backend init signature (WasiPollBackend needs it).
+    /// three-backend init signature (WasiPollBackend needs it). Also
+    /// registers the one persistent EVFILT.USER knote (KEP-0002 §5) that
+    /// ThreadNotifier.notify() rings later -- EV.CLEAR means it self-clears
+    /// on retrieval, so no separate drain step is needed in wait().
     fn init(_: std.mem.Allocator) !KqueueBackend {
         const kq = std.c.kqueue();
         if (kq < 0) return error.Unexpected;
-        return .{ .kq = kq };
+        var self: KqueueBackend = .{ .kq = kq };
+        var reg = std.c.Kevent{
+            .ident = 0,
+            .filter = std.c.EVFILT.USER,
+            .flags = std.c.EV.ADD | std.c.EV.CLEAR,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+        };
+        self.apply((&reg)[0..1]) catch {
+            _ = std.posix.system.close(kq);
+            return error.Unexpected;
+        };
+        return self;
     }
 
+    fn notifierBackend(self: *const KqueueBackend) NotifierBackend {
+        return .{ .kq = self.kq };
+    }
+
+    /// No-op: `kq` is shared with the notifier's EVFILT.USER registration
+    /// (KEP-0002 §5), so exactly one place may ever close it -- concentrated
+    /// entirely in releaseNotifier's zero-transition (reactor.zig top-level)
+    /// instead of here, to avoid a double-close race on whichever release
+    /// happens last. raw/ready are inline arrays, owning nothing else.
     fn deinit(self: *KqueueBackend) void {
-        _ = std.posix.system.close(self.kq);
+        _ = self;
     }
 
     fn filterFor(interest: Interest) i16 {
@@ -387,6 +547,12 @@ const KqueueBackend = struct {
         const n: usize = @intCast(rc);
         var count: usize = 0;
         outer: for (self.raw[0..n]) |kev| {
+            // The notifier's own EVFILT.USER trigger (KEP-0002 §5) — never
+            // let it merge into a ReadyEvent slot by ident, since ident=0
+            // could otherwise collide with a real fd 0 (stdin) READ event
+            // in the same batch. wake_pending was already set by notify()
+            // before this event was posted; nothing further to do here.
+            if (kev.filter == std.c.EVFILT.USER) continue;
             const fd: i32 = @intCast(kev.ident);
             const broken = (kev.flags & std.c.EV.EOF) != 0;
             const is_read = kev.filter == std.c.EVFILT.READ;
@@ -410,6 +576,14 @@ const KqueueBackend = struct {
 
 const EpollBackend = struct {
     epfd: i32,
+    /// The notifier's eventfd (KEP-0002 §5) -- a fd independent of `epfd`,
+    /// registered into it but never ONESHOT ("unlike fd registrations, the
+    /// notifier must stay armed"). Closing it is releaseNotifier's job
+    /// (reactor.zig top-level), not EpollBackend.deinit's -- unlike kqueue,
+    /// epfd and notify_fd are different fds, so no double-close risk exists
+    /// either way; the split just keeps ownership consistent across both
+    /// backends.
+    notify_fd: i32,
     raw: [max_events_per_poll]linux.epoll_event = undefined,
     ready: [max_events_per_poll]ReadyEvent = undefined,
 
@@ -420,7 +594,28 @@ const EpollBackend = struct {
         // are never inherited across fork by design.
         const rc = linux.epoll_create1(linux.EPOLL.CLOEXEC);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
-        return .{ .epfd = @intCast(rc) };
+        const epfd: i32 = @intCast(rc);
+
+        const efd_rc = linux.eventfd(0, linux.EFD.NONBLOCK | linux.EFD.CLOEXEC);
+        if (linux.errno(efd_rc) != .SUCCESS) {
+            _ = linux.close(epfd);
+            return error.Unexpected;
+        }
+        const notify_fd: i32 = @intCast(efd_rc);
+
+        var ev: linux.epoll_event = .{ .events = linux.EPOLL.IN, .data = .{ .fd = notify_fd } };
+        const ctl_rc = linux.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, notify_fd, &ev);
+        if (linux.errno(ctl_rc) != .SUCCESS) {
+            _ = linux.close(notify_fd);
+            _ = linux.close(epfd);
+            return error.Unexpected;
+        }
+
+        return .{ .epfd = epfd, .notify_fd = notify_fd };
+    }
+
+    fn notifierBackend(self: *const EpollBackend) NotifierBackend {
+        return .{ .fd = self.notify_fd };
     }
 
     fn deinit(self: *EpollBackend) void {
@@ -470,6 +665,18 @@ const EpollBackend = struct {
 
         const n: usize = @intCast(rc);
         for (self.raw[0..n], 0..) |ev, i| {
+            if (ev.data.fd == self.notify_fd) {
+                // Level-triggered eventfd (KEP-0002 §5, deliberately not
+                // ONESHOT so it stays armed): must drain here or the next
+                // epoll_wait returns immediately forever. wake_pending was
+                // already set by notify() before this write; the ready
+                // slot itself is inert (Reactor.poll's regs lookup never
+                // finds an entry for notify_fd).
+                var drain_buf: [8]u8 = undefined;
+                _ = std.posix.system.read(self.notify_fd, &drain_buf, drain_buf.len);
+                self.ready[i] = .{ .fd = self.notify_fd, .readable = false, .writable = false };
+                continue;
+            }
             // epoll_wait always reports HUP/ERR even if not requested; a fd
             // in either state must wake both directions defensively (real
             // observed behavior varies by fd type on which bits accompany
@@ -535,6 +742,13 @@ const WasiPollBackend = struct {
 
     fn init(allocator: std.mem.Allocator) !WasiPollBackend {
         return .{ .allocator = allocator };
+    }
+
+    /// No real OS threads exist on WASI (thread-start! is already
+    /// is_wasm-gated before reaching any KEP-0002 code) -- nothing for
+    /// notify() to ring.
+    fn notifierBackend(_: *const WasiPollBackend) NotifierBackend {
+        return .{};
     }
 
     fn deinit(self: *WasiPollBackend) void {

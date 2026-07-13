@@ -515,3 +515,69 @@ test "a stale ONESHOT fire on one direction re-arms the fd for the surviving wai
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_w, ready.items[0]);
 }
+
+// KEP-0002 Phase 3 (#1468): ThreadNotifier, the cross-thread wakeup handle
+// every Reactor now owns. notifierLiveCount() is a real process-global
+// counter (like shared_object.liveCount()), not reset between Zig tests --
+// every test captures its own baseline and asserts a return to it.
+
+test "notifierLiveCount tracks Reactor.init/deinit" {
+    const baseline = reactor_mod.notifierLiveCount();
+    var reactor = try Reactor.init(std.testing.allocator);
+    try std.testing.expectEqual(baseline + 1, reactor_mod.notifierLiveCount());
+    reactor.deinit();
+    try std.testing.expectEqual(baseline, reactor_mod.notifierLiveCount());
+}
+
+test "retainNotifier keeps the notifier alive past Reactor.deinit; releasing the last ref frees it" {
+    const baseline = reactor_mod.notifierLiveCount();
+    var reactor = try Reactor.init(std.testing.allocator);
+    const notifier = reactor.notifyHandle();
+
+    // Simulates a SharedChannel registration outliving this thread's own
+    // Reactor (KEP-0002 §7: "the refcount keeps the struct itself valid
+    // until the last entry is released").
+    reactor_mod.retainNotifier(notifier);
+
+    reactor.deinit(); // drops the base ref; one registration ref remains
+    try std.testing.expectEqual(baseline + 1, reactor_mod.notifierLiveCount());
+    try std.testing.expect(!notifier.alive.load(.acquire));
+
+    // notify() on a dead handle is a documented no-op -- must not touch the
+    // (already-closed-if-it-had-hit-zero, but here still-open) backend fd.
+    notifier.notify();
+    try std.testing.expect(notifier.wake_pending.load(.acquire));
+
+    reactor_mod.releaseNotifier(notifier); // last ref: frees + closes backend
+    try std.testing.expectEqual(baseline, reactor_mod.notifierLiveCount());
+}
+
+test "notify() from another OS thread interrupts a blocking poll()" {
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const Ctx = struct {
+        notifier: *reactor_mod.ThreadNotifier,
+        fn run(self: @This()) void {
+            var ts: std.c.timespec = .{ .sec = 0, .nsec = 20_000_000 };
+            _ = std.c.nanosleep(&ts, &ts);
+            self.notifier.notify();
+        }
+    };
+    const thread = try std.Thread.spawn(.{}, Ctx.run, .{Ctx{ .notifier = reactor.notifyHandle() }});
+    defer thread.join();
+
+    const start = fiber_mod.clockNs();
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    // A generous upper bound: if notify() failed to interrupt poll(), this
+    // would time out at 5s instead of returning promptly after ~20ms.
+    try reactor.poll(5_000_000_000, &ready);
+    const elapsed_ns = fiber_mod.clockNs() - start;
+
+    // Nothing fd-related fired; the notifier's own event is filtered out of
+    // ReadyEvent entirely (reactor.zig's wait() implementations).
+    try std.testing.expectEqual(@as(usize, 0), ready.items.len);
+    try std.testing.expect(reactor.notifier.wake_pending.load(.acquire));
+    try std.testing.expect(elapsed_ns < 1_000_000_000);
+}

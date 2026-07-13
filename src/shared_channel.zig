@@ -2,30 +2,35 @@ const std = @import("std");
 const shared_object = @import("shared_object.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const reactor_mod = @import("reactor.zig");
+const vm_mod = @import("vm.zig");
+const pct_stress = @import("pct_stress.zig");
 const Value = types.Value;
 
-/// KEP-0002 §5's cross-thread wakeup handle. Refcounted, but -- unlike
-/// SharedChannel -- NOT an instance of the shared_object protocol: its
-/// references come only from SharedChannel waiter lists (§7), never from
-/// heap stubs, so it has its own plain refcount and is invisible to
-/// shared_object.liveCount()'s leak check.
-///
-/// Phase 1 wires up only the waiter-list bookkeeping (registration, dedup,
-/// snapshot-and-clear) needed to make promotion and send/receive correct
-/// and unit-testable. The reactor-backed notify() (kqueue EVFILT.USER /
-/// eventfd) is KEP-0002 Phase 3 (#1468); until then `ring` below just
-/// releases each registration's refcount.
-pub const ThreadNotifier = struct {
-    refcount: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
-};
-
-fn retainNotifier(n: *ThreadNotifier) void {
-    _ = n.refcount.fetchAdd(1, .monotonic);
+/// KEP-0002 Phase 3 (#1468) PCT stress hook: a no-op unless
+/// src/stress_channel.zig has enabled pct_stress, in which case it injects
+/// a randomized yield point around every SharedChannel lock acquire/release
+/// -- exactly the interleavings the model-checked send/receive protocol
+/// (§4) needs to survive under real scheduling, not just on paper.
+fn lockChannel(sc: *SharedChannel) void {
+    pct_stress.maybeYield();
+    memory.spinLock(&sc.lock);
+    pct_stress.maybeYield();
 }
 
-fn releaseNotifier(n: *ThreadNotifier) void {
-    _ = n.refcount.fetchSub(1, .acq_rel);
+fn unlockChannel(sc: *SharedChannel) void {
+    pct_stress.maybeYield();
+    memory.spinUnlock(&sc.lock);
 }
+
+/// KEP-0002 §5's cross-thread wakeup handle -- defined in reactor.zig (its
+/// ring mechanism needs the live kqueue/epoll backend internals that module
+/// owns privately). Aliased here under its original name so the rest of
+/// this file (registration, dedup, waiter lists, all written against Phase
+/// 1) reads unchanged.
+const ThreadNotifier = reactor_mod.ThreadNotifier;
+const retainNotifier = reactor_mod.retainNotifier;
+const releaseNotifier = reactor_mod.releaseNotifier;
 
 /// A message-sized private mini-heap (KEP-0002 §1): the sender's deepCopy
 /// fills it once, the receiver's deepCopy drains it once, then it is
@@ -129,6 +134,25 @@ pub const SharedChannel = struct {
         shared_object.release(&self.header);
     }
 
+    /// Heuristic-only read (KEP-0002 §5's deadlock-heuristic disjunct:
+    /// "wakeup possible whenever refcount > 1"). See
+    /// shared_object.loadRefcount's doc comment.
+    pub fn refCount(self: *SharedChannel) u32 {
+        return shared_object.loadRefcount(&self.header);
+    }
+
+    /// Lock-protected peek: true iff a receive() call right now would find a
+    /// value or (once Phase 4 adds channel-close!) EOF. Used by
+    /// channelReceiveShared's local-drive loop (primitives_fiber.zig) to
+    /// decide whether driving local siblings found anything, without
+    /// unsafely reading queue_len/closed outside the lock -- unlike a purely
+    /// local Channel's queue, this one is genuinely cross-thread-visible.
+    pub fn peekReady(self: *SharedChannel) bool {
+        lockChannel(self);
+        defer unlockChannel(self);
+        return self.queue_len != 0 or self.closed;
+    }
+
     /// §1 rule 4 / §7: zero destroys. Drains and deinits every queued
     /// envelope (recursively releasing any stub refcounts those messages
     /// hold -- this is what reclaims a channel that was only kept alive by
@@ -137,12 +161,12 @@ pub const SharedChannel = struct {
     fn destroyHook(header: *shared_object.Header) void {
         const self: *SharedChannel = @fieldParentPtr("header", header);
 
-        memory.spinLock(&self.lock);
+        lockChannel(self);
         var env = self.queue_head;
         self.queue_head = null;
         self.queue_tail = null;
         self.queue_len = 0;
-        memory.spinUnlock(&self.lock);
+        unlockChannel(self);
 
         while (env) |e| {
             const next = e.next;
@@ -190,17 +214,40 @@ pub const SharedChannel = struct {
 
     // -- §7 waiter lifecycle: caller holds `lock` --
 
+    /// §7 opportunistic pruning: while walking for the dedup check anyway,
+    /// drop any entry whose notifier has already gone dead (its owning
+    /// thread exited) -- "any path holding the lock" covers send, receive,
+    /// and promotion migration, since they all route through here. Not a
+    /// correctness requirement (a ring or destroy would eventually clear a
+    /// dead entry too -- "one harmless spurious sweep"), just keeps
+    /// long-lived channels from accumulating dead registrations.
     fn registerSendWaiter(self: *SharedChannel, n: *ThreadNotifier) void {
-        for (self.send_waiters.items) |existing| {
+        var i: usize = 0;
+        while (i < self.send_waiters.items.len) {
+            const existing = self.send_waiters.items[i];
             if (existing == n) return; // dedup: at most one entry per notifier per list
+            if (!existing.alive.load(.acquire)) {
+                _ = self.send_waiters.swapRemove(i);
+                releaseNotifier(existing);
+                continue;
+            }
+            i += 1;
         }
         self.send_waiters.append(std.heap.c_allocator, n) catch @panic("SharedChannel: send_waiters OOM");
         retainNotifier(n);
     }
 
     fn registerRecvWaiter(self: *SharedChannel, n: *ThreadNotifier) void {
-        for (self.recv_waiters.items) |existing| {
+        var i: usize = 0;
+        while (i < self.recv_waiters.items.len) {
+            const existing = self.recv_waiters.items[i];
             if (existing == n) return;
+            if (!existing.alive.load(.acquire)) {
+                _ = self.recv_waiters.swapRemove(i);
+                releaseNotifier(existing);
+                continue;
+            }
+            i += 1;
         }
         self.recv_waiters.append(std.heap.c_allocator, n) catch @panic("SharedChannel: recv_waiters OOM");
         retainNotifier(n);
@@ -218,11 +265,15 @@ pub const SharedChannel = struct {
 };
 
 /// §5: ring every notifier in a snapshot taken under the lock, after
-/// releasing it -- a live waiter list is never iterated unlocked. Phase 3
-/// (#1468) adds the real reactor notify() call here; Phase 1 just releases
-/// each registration's refcount, since nothing else consumes the snapshot.
+/// releasing it -- a live waiter list is never iterated unlocked. notify()
+/// runs strictly before releaseNotifier so this thread still holds its own
+/// +1 while touching `n` -- see releaseNotifier's doc comment (reactor.zig)
+/// for why that ordering is what makes concurrent teardown safe.
 fn ring(notifiers: []const *ThreadNotifier) void {
-    for (notifiers) |n| releaseNotifier(n);
+    for (notifiers) |n| {
+        n.notify();
+        releaseNotifier(n);
+    }
 }
 
 /// KEP-0002 §2. Promotes `ch` in place -- the existing heap object becomes
@@ -262,6 +313,44 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
         sc.pushBack(env);
         cur = next;
     }
+
+    // KEP-0002 §2 step 4: migrate any fiber already parked on the *local*
+    // representation before promotion (waiting_on == ch -- a receiver on
+    // the empty queue; sender-side migration doesn't apply yet, since the
+    // local Channel has no capacity to park a sender against until Phase
+    // 4). Promotion runs inside a primitive on the owning thread, so the
+    // local scheduler is quiescent and this scan is race-free. Without this
+    // step a fiber parked before promotion would hang forever: a remote
+    // send only rings *registered* notifiers. Enrolled unconditionally, not
+    // gated on sc.refCount() > 1 -- at this point refcount is still 1 (the
+    // caller in gc_deep_copy.zig retains the second stub only after this
+    // function returns), so gating here would always see 1 and wrongly
+    // skip migration.
+    if (vm_mod.vm_instance) |vm| {
+        if (vm.scheduler) |sched| {
+            const ch_val = types.makePointer(@ptrCast(&ch.header));
+            // Registers the notifier once, only if something actually
+            // matched -- registerRecvWaiter's own dedup makes calling it
+            // once per matching fiber idempotent, but hoisting it out reads
+            // clearer and does one lock/unlock instead of N.
+            var migrated_any = false;
+            for (sched.fibers.items) |maybe_f| {
+                const f = maybe_f orelse continue;
+                if (f.status == .waiting and f.waiting_on == ch_val) {
+                    // Propagate, don't swallow: registerRecvWaiter above
+                    // (once hoisted) already succeeded or @panic'd on OOM,
+                    // so a remote send WILL ring this thread's notifier --
+                    // silently dropping this fiber's enrollment here would
+                    // leave it .waiting with nothing left to ever flip it
+                    // back, a permanent hang.
+                    try sched.enrollSharedWaiter(f);
+                    migrated_any = true;
+                }
+            }
+            if (migrated_any) sc.registerRecvWaiter(vm.reactor.?.notifyHandle());
+        }
+    }
+
     return sc;
 }
 
@@ -279,26 +368,26 @@ pub const SendOutcome = union(enum) {
 /// (there is nothing yet to wake) rather than panicking, so a future caller
 /// that *can* reach this branch without a real notifier degrades safely.
 pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !SendOutcome {
-    memory.spinLock(&sc.lock);
+    lockChannel(sc);
     if (sc.closed) {
-        memory.spinUnlock(&sc.lock);
+        unlockChannel(sc);
         return .closed;
     }
     if (sc.capacity) |cap| {
         if (sc.queue_len + sc.reserved >= cap) {
             if (notifier) |n| sc.registerSendWaiter(n);
-            memory.spinUnlock(&sc.lock);
+            unlockChannel(sc);
             return .would_park;
         }
     }
     sc.reserved += 1;
-    memory.spinUnlock(&sc.lock);
+    unlockChannel(sc);
 
     // Built outside the lock: deepCopy allocates and must not hold the
     // channel mutex. A reservation was already taken, so the eventual push
     // (on success) is infallible.
     const env = Envelope.create(payload) catch |err| {
-        memory.spinLock(&sc.lock);
+        lockChannel(sc);
         sc.reserved -= 1;
         var snap: std.ArrayList(*ThreadNotifier) = .empty;
         defer snap.deinit(std.heap.c_allocator);
@@ -307,20 +396,20 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
         // (receive step 6's reserved==0 eof guard) if the channel closed
         // while this send was in flight.
         if (sc.closed) sc.snapshotAndClearRecvWaiters(&snap);
-        memory.spinUnlock(&sc.lock);
+        unlockChannel(sc);
         ring(snap.items);
         // Nothing was enqueued ("send fails ⇒ nothing sent"); Envelope
         // .create already tore itself down internally on failure.
         return err;
     };
 
-    memory.spinLock(&sc.lock);
+    lockChannel(sc);
     sc.reserved -= 1;
     sc.pushBack(env);
     var snap: std.ArrayList(*ThreadNotifier) = .empty;
     defer snap.deinit(std.heap.c_allocator);
     sc.snapshotAndClearRecvWaiters(&snap);
-    memory.spinUnlock(&sc.lock);
+    unlockChannel(sc);
     ring(snap.items);
     return .sent;
 }
@@ -334,24 +423,24 @@ pub const RecvOutcome = union(enum) {
 /// KEP-0002 §4 receive, on the shared representation, verbatim. `notifier`
 /// follows send()'s same null-is-safe convention on the park branch.
 pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifier) !RecvOutcome {
-    memory.spinLock(&sc.lock);
+    lockChannel(sc);
     if (sc.popFront()) |env| {
         var snap: std.ArrayList(*ThreadNotifier) = .empty;
         defer snap.deinit(std.heap.c_allocator);
         sc.snapshotAndClearSendWaiters(&snap); // a slot opened
-        memory.spinUnlock(&sc.lock);
+        unlockChannel(sc);
         ring(snap.items);
 
         const value = dest_gc.deepCopy(env.value) catch |err| {
             // "Receive fails ⇒ nothing received": the envelope is
             // untouched, its stubs keep their refcounts, the message stays
             // deliverable in order. Re-queue at the head, not the tail.
-            memory.spinLock(&sc.lock);
+            lockChannel(sc);
             sc.pushFront(env);
             var recv_snap: std.ArrayList(*ThreadNotifier) = .empty;
             defer recv_snap.deinit(std.heap.c_allocator);
             sc.snapshotAndClearRecvWaiters(&recv_snap);
-            memory.spinUnlock(&sc.lock);
+            unlockChannel(sc);
             ring(recv_snap.items);
             return err;
         };
@@ -359,13 +448,13 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
         return .{ .value = value };
     }
     if (sc.closed and sc.reserved == 0) {
-        memory.spinUnlock(&sc.lock);
+        unlockChannel(sc);
         return .eof;
     }
     // Reached with the channel open, or closed with admitted sends still in
     // flight: eof must not race a reservation, so the receiver parks and is
     // rung by the late push (or by send's failure-path closed-channel ring).
     if (notifier) |n| sc.registerRecvWaiter(n);
-    memory.spinUnlock(&sc.lock);
+    unlockChannel(sc);
     return .would_park;
 }
