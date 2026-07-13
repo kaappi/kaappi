@@ -338,6 +338,17 @@ pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, li
     return null;
 }
 
+/// Whether library `lib_name` (canonical dotted form) is loaded or loadable
+/// from disk. The single implementation behind both cond-expand (library ...)
+/// entry points: evalLibFeatureReq below (inside define-library, has *VM
+/// directly) and vm.zig's checkLibraryExists (the callback the compiler uses
+/// for top-level/expression-position cond-expand, which cannot import vm.zig
+/// directly). (KEP-0004)
+pub fn libraryIsAvailable(vm: *VM, lib_name: []const u8, lib_name_list: Value) bool {
+    if (vm.libraries.get(lib_name) != null) return true;
+    return libraryFileExists(vm, lib_name_list);
+}
+
 /// Check whether a library could be loaded from disk (or the bundled files of
 /// a standalone binary), using the same search order as import. Used by the
 /// cond-expand (library ...) feature checks so they agree with what import
@@ -525,8 +536,7 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
             const lib_name_list = types.car(rest);
             const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_name_list) catch return false;
             defer vm.gc.allocator.free(lib_name);
-            if (vm.libraries.get(lib_name) != null) return true;
-            return libraryFileExists(vm, lib_name_list);
+            return libraryIsAvailable(vm, lib_name, lib_name_list);
         }
     }
     return false;

@@ -1259,7 +1259,15 @@ test "truthiness" {
     try std.testing.expect(!isTruthy(FALSE));
 }
 
-pub const platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex" };
+const is_wasm_target = builtin.os.tag == .wasi;
+
+/// Bare cond-expand (SRFI 0) feature identifiers. `kaappi-fibers` and
+/// `kaappi-reactor` are compiled in on every target, including wasm32-wasi
+/// (KEP-0001 Phase 4's poll_oneoff backend). `kaappi-threads` is omitted on
+/// wasm, matching Lib.wasmAvailable()'s `srfi_18 => false` gate
+/// (primitives.zig) — no OS threads there. (KEP-0004)
+const base_platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex", "kaappi-fibers", "kaappi-reactor" };
+pub const platform_features = if (is_wasm_target) base_platform_features else base_platform_features ++ [_][]const u8{"kaappi-threads"};
 
 test "nil is not a pointer" {
     try std.testing.expect(!isPointer(NIL));

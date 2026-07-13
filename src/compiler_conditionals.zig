@@ -300,38 +300,20 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
         }
 
         if (std.mem.eql(u8, op, "library")) {
-            // (library (name ...)) — check if library exists
-            // We don't have direct access to the library registry from the compiler,
-            // but we can check against known standard libraries
+            // (library (name ...)) — check if library exists. The compiler
+            // has no direct VM access (vm.zig already imports compiler.zig,
+            // so the reverse import would cycle), so this goes through the
+            // VM-registered globals.libraryExists callback, which checks the
+            // live library registry and .sld files on disk (see vm.zig's
+            // checkLibraryExists / vm_library.libraryIsAvailable). (KEP-0004)
             const rest = types.cdr(req);
             if (!types.isPair(rest)) return false;
             const lib_name_list = types.car(rest);
 
-            // Convert library name list to canonical string
             const lib_name = @import("library.zig").libraryNameToString(self.gc.allocator, lib_name_list) catch return false;
             defer self.gc.allocator.free(lib_name);
 
-            // Check against known standard libraries
-            const known_libs = [_][]const u8{
-                "scheme.base",            "scheme.write",
-                "scheme.read",            "scheme.inexact",
-                "scheme.char",            "scheme.lazy",
-                "scheme.time",            "scheme.file",
-                "scheme.cxr",             "scheme.complex",
-                "scheme.process-context", "scheme.eval",
-                "scheme.case-lambda",     "scheme.load",
-                "srfi.1",                 "srfi.9",
-                "srfi.13",                "srfi.27",
-                "srfi.35",                "srfi.39",
-                "srfi.64",                "srfi.69",
-                "srfi.133",
-            };
-            for (known_libs) |l| {
-                if (std.mem.eql(u8, lib_name, l)) return true;
-            }
-            // Check the VM's live library registry and .sld files on disk
-            if (@import("globals.zig").libraryExists(lib_name, lib_name_list)) return true;
-            return false;
+            return @import("globals.zig").libraryExists(lib_name, lib_name_list);
         }
     }
 
