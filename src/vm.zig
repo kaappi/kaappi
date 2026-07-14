@@ -246,6 +246,13 @@ pub const VM = struct {
     sandbox_mode: bool = false,
     timeout_deadline_ns: ?u64 = null,
     instruction_counter: u64 = 0,
+    /// Optional speed-independent execution bound: when set, `runUntil` aborts
+    /// with ExecutionTimeout once `instruction_counter` reaches it. A wall-clock
+    /// deadline is meaningless under a gc-stress build (a full collection on
+    /// every allocation slows execution by orders of magnitude while the program
+    /// runs the same number of instructions), so the fuzz eval harness bounds by
+    /// instruction count there instead. See src/tests_fuzz.zig.
+    instruction_limit: ?u64 = null,
     owns_globals: bool = true,
     /// Virtual filesystem for standalone binary: maps file paths → source content.
     /// Populated from .sbc bundled files section; checked before disk reads.

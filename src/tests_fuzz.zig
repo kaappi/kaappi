@@ -183,9 +183,23 @@ test "fuzz seed .sbc fixture stays loadable" {
 
 // ---------------------------------------------------------------------------
 // Shared eval harness: full read -> compile -> VM execute of one input, with
-// a 100 ms execution deadline. Ordinary Scheme errors are expected outcomes;
+// a per-program execution bound. Ordinary Scheme errors are expected outcomes;
 // only panics, crashes, and leaks fail the target.
-// ---------------------------------------------------------------------------
+//
+// A normal build bounds by a 100 ms wall clock. A gc-stress build runs a full
+// collection on every allocation, so wall-clock time balloons by orders of
+// magnitude while a program still executes the SAME number of bytecode
+// instructions — a 100 ms deadline there converts correct-but-slow programs
+// into timeouts and makes the generator-coverage gates below measure GC speed
+// instead of generator correctness (#1447). Under gc-stress we therefore bound
+// by instruction count (speed-independent: identical on either build) and keep
+// only a loose wall-clock backstop against a pathological input. The 2M budget
+// clears the largest correct generator program (~35k instructions, measured
+// over 300 seeds of each generator) by ~50x while staying well under the
+// loop-heavy tail (>10M instructions) the gates intentionally count as misses.
+const gc_stress = @import("build_options").gc_stress;
+const eval_deadline_ns: u64 = if (gc_stress) 120_000_000_000 else 100_000_000;
+const eval_instruction_limit: ?u64 = if (gc_stress) 2_000_000 else null;
 
 const EvalOutcome = enum { ok, scheme_error, harness_unavailable };
 
@@ -263,7 +277,8 @@ fn evalNormalized(input: []const u8, optimize: bool, gpa: std.mem.Allocator) Nor
     vm_mod.vm_bootstrap.install(vm) catch return .harness_unavailable;
     library.registerSandboxedLibraries(&vm.libraries, vm.globals) catch return .harness_unavailable;
     vm.sandbox_mode = true;
-    vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + 100_000_000;
+    vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + eval_deadline_ns;
+    vm.instruction_limit = eval_instruction_limit;
 
     // Toggle only around user-program evaluation, after the bootstrap and
     // library registration above compiled with the default setting.
@@ -470,11 +485,9 @@ test "fuzz grammar" {
 // generator change made programs start dying at runtime — fix the generator
 // or consciously re-baseline.
 test "grammar generator: majority of programs evaluate without error" {
-    // A gc-stress build slows evaluation by orders of magnitude, so the
-    // 100 ms deadline converts slow-but-correct programs into errors and
-    // the rate stops measuring the generator. Skip: the CI gc-stress
-    // variant still replays the fuzz targets themselves.
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    // Runs under gc-stress too: evalNormalized bounds by instruction count
+    // there (not the 100 ms wall clock), so this still measures the generator's
+    // correctness rate rather than GC speed (#1447).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -506,7 +519,7 @@ test "grammar generator: majority of programs evaluate without error" {
 // VM-vs-native harness (tests/fuzz/native-diff.sh) skips nothing on clean
 // programs, so a drop here directly costs oracle coverage.
 test "native-subset generator: programs evaluate without error" {
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    // Runs under gc-stress: bounded by instruction count, not wall clock (#1447).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -532,7 +545,7 @@ test "native-subset generator: programs evaluate without error" {
 // sides exit cleanly, so every runtime error costs oracle coverage AND
 // suggests the generator leaked outside its total-by-construction subset.
 test "portable-subset generator: programs evaluate without error" {
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    // Runs under gc-stress: bounded by instruction count, not wall clock (#1447).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -616,10 +629,9 @@ test "fuzz differential (opt vs no-opt)" {
 // off-by-one planted in the `*` constant fold diverges at seed 30 (and 3
 // more within 500), so this window has real detection power.
 test "differential oracle: fixed-seed programs agree opt vs no-opt" {
-    // Under gc-stress both runs hit the 100 ms deadline and every pair
-    // becomes incomparable resource_limit outcomes — the test would pass
-    // while measuring nothing, at ~2 VM builds per seed. Skip.
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    // Runs under gc-stress: evalNormalized bounds by instruction count there,
+    // so both compilation paths run to completion and produce comparable
+    // observables rather than degenerating into resource_limit pairs (#1447).
     var seed_n: u64 = 0;
     while (seed_n < 60) : (seed_n += 1) {
         const src = try fuzz_gen.generateSeeded(seed_n, std.testing.allocator);
