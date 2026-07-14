@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783976213230,
+  "lastUpdate": 1784004512435,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b6be1fb07690086dd8b62a969aff708e7deacea5",
-          "message": "Fix SRFI-175 ascii-digit-value and add 16 missing procedures (#1236) (#1325)\n\nascii-digit-value incorrectly treated letters a-z/A-Z as radix digits\n10-35. Per SRFI-175, it handles only decimal digits 0-9; letters are\nthe domain of ascii-upper-case-value and ascii-lower-case-value.\n\nAlso implements all 16 missing spec exports: ascii-bytevector?,\nascii-ci=?/<?/>?/<=?/>=?, ascii-string-ci=?/<?/>?/<=?/>=?,\nascii-control->graphic, ascii-graphic->control, ascii-mirror-bracket,\nascii-nth-digit, ascii-nth-upper-case, ascii-nth-lower-case.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T19:52:38+05:30",
-          "tree_id": "052800baead81ac9accaf02293b9aff5cce9c5d3",
-          "url": "https://github.com/kaappi/kaappi/commit/b6be1fb07690086dd8b62a969aff708e7deacea5"
-        },
-        "date": 1783522411558,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.321762,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.012133,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.004917,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.39953,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012675,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203628,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497639,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071993,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.700877,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.932848,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.207355,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.999553,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.419889,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.670063,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043544,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046403,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d2a7655aa78adc2a32c21e58769378595909145",
+          "message": "Preserve a closure's lib_env when deep-copying across threads (#1479) (#1526)\n\nA procedure defined inside a `define-library` body that `thread-start!`s a\nthunk calling into another library's exported procedure hung (kaappi-http's\n`http-listen-threaded`) or raised \"undefined variable\" (unguarded) on every\nrequest.\n\nRoot cause: `GC.deepCopy`, which copies the thunk closure from the parent GC\nto the child OS thread's GC, set `new_func.env = null`. Runtime name\nresolution uses `func.env orelse self.globals` (vm_dispatch.zig), so nulling\nthe library's `lib_env` silently redirected every lookup in the child to the\nshared globals map — where library-scoped imports don't live. The child then\nfailed to resolve the cross-library name; http's `guard` swallowed the error\nand closed the socket, so the client just saw a hung connection. The same\ncode defined at top level worked because a top-level import lands in globals,\nwhere `env == null` already looks.\n\nFix: preserve `new_func.env = func.env`. `env` is a raw `*StringHashMap`\npointer into the shared library registry — `VM.initForThread` shares\n`vm.libraries` by pointer and the parent keeps every `lib_env` alive, so the\nchild resolving names through it (and running the parent-heap procedures it\nfinds) is exactly how it already runs any shared global. It is not a GC\nValue, so the collector never traverses it and no cross-heap mark-bit is\nwritten. `env_val` (the eval/immutability Environment *object*, a GC Value)\nstays NIL rather than sharing a parent-heap object into the child heap;\nruntime resolution uses `env`, not `env_val`, and a normally loaded library\nhas `env_val == NIL` here anyway.\n\nRegression test `library-thread-cross-call-1479.scm` (+ `lib1479/` fixtures)\ncovers both the plain and guard-wrapped (http-shaped) forms, including the\ncallee resolving its own library-scoped helper; it fails (exit 1) without the\nfix and passes with it. Full unit suite, gc-stress (srfi18 cross-thread copy),\nand Scheme suite (449 files) green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T09:50:32+05:30",
+          "tree_id": "383b21a553372260db40f648b5996cba20d73dc3",
+          "url": "https://github.com/kaappi/kaappi/commit/7d2a7655aa78adc2a32c21e58769378595909145"
+        },
+        "date": 1784004511661,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.906324,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.438422,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.925709,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.514686,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006363,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054591,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50269,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069455,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.315357,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.957682,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.611079,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426528,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.833504,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.622483,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043124,
             "unit": "seconds"
           }
         ]
