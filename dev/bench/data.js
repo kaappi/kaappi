@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784004512435,
+  "lastUpdate": 1784004579705,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1e251e07eaab5863037feeef9597f9ecfd8d1d3e",
-          "message": "Fix SRFI-232 curried procedures to support grouped application (#1238) (#1327)\n\nThe old implementation hardcoded four syntax-rules patterns that expanded\ninto strictly unary lambda chains, so grouped application like (add2 1 2)\nraised an arity error. Replace with the SRFI-232 reference implementation\nusing case-lambda dispatch: zero args returns self, exact args evaluates\nbody, surplus args forwards to the result, partial args accumulates via\na helper closure. Also export the curried form and support nullary,\nvariadic, and arbitrary-arity formals.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T20:34:08+05:30",
-          "tree_id": "a2bbec6b36142edc38ef32bf6068d6c0eabf5a63",
-          "url": "https://github.com/kaappi/kaappi/commit/1e251e07eaab5863037feeef9597f9ecfd8d1d3e"
-        },
-        "date": 1783524572650,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.320109,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.674138,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.980887,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407598,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012695,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204008,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502403,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072118,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.724956,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.938128,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.178417,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.003622,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.431044,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.698704,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044173,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043124,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7177dbb17497500170b60b06afb6e4d49148028e",
+          "message": "Make fiber scheduling O(1) with a ready ring and free-slot list (#1477) (#1525)\n\nFiberScheduler did an O(fiber count) linear scan on the dispatch hot path\nand again on every spawn:\n\n- schedule()/scheduleForDispatch() round-robin-scanned the whole `fibers`\n  array (mostly parked io_waiting fibers on a busy server) to find the next\n  runnable fiber, on every dispatch.\n- addFiber() scanned the array for a reusable slot on every spawn, so\n  spawning N live fibers was O(n^2).\n- Two more O(n) scans hid on the same tick: anyIoWaiting() scanned all\n  fibers to gate the reactor poll, and yield's advisory `schedule() == null`\n  check scanned them again.\n\nReplace all four with incremental O(1) bookkeeping:\n\n- A ready ring (FIFO of runnable slot indices) fed by markRunnable at every\n  transition to .created/.suspended, consumed round-robin by the dispatch\n  paths. Each Fiber carries its stable `sched_idx` (so wakes enqueue in O(1))\n  and a `queued` flag (so the ring can't accumulate duplicates).\n- A free-slot list fed by retireSlot at every .completed/.errored\n  transition, so addFiber reuses a vacated slot without scanning (and appends\n  straight away when none is free). Slot 0 (main) is never recycled.\n- anyIoWaiting() now reads the reactor's registration count in O(1).\n- yield's advisory check uses a new non-consuming anyRunnable() peek.\n\nThe ring and free list are pure accelerators: the dispatch paths keep the\noriginal O(n) round-robin scan as an authoritative fallback, so correctness\nnever depends on markRunnable coverage (any status set directly without it —\nmuch test code — still dispatches correctly, just via the scan). The\nadvisory peek is ring-only by design to stay O(1); a missed enqueue there\nonly costs a yield that no-ops when it could have rotated, never correctness.\n\nDriving fibers (#1487) are dropped from the ring rather than dispatched,\nconsistent with \"only the parked fiber's own loop ever consumes its wake\";\nthe fallback scan still finds them for plain schedule()/anyRunnable.\n\nMeasured with a two-worker ping-pong among N channel-blocked siblings\n(ns per real dispatch): baseline 416 / 4143 / 25996 at N=100 / 1000 / 5000;\nafter, a flat ~170 regardless of N — O(n) -> O(1), 154x at N=5000. Full unit\nsuite, R7RS (1395), and Scheme suite (449 files) green, including under\n-Dgc-stress=true for the fiber/scheduler/srfi18/port tests.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T09:50:08+05:30",
+          "tree_id": "7588c0a63aa6ec8e5107fa7ecba65153d5d2f1ff",
+          "url": "https://github.com/kaappi/kaappi/commit/7177dbb17497500170b60b06afb6e4d49148028e"
+        },
+        "date": 1784004578404,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.345646,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.176216,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.971121,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.533747,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006361,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055437,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504477,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069805,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.344469,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.967894,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.577242,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.439114,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.841525,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.7046,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043521,
             "unit": "seconds"
           }
         ]
