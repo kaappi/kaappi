@@ -138,7 +138,23 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             new_func.source_line = func.source_line;
             new_func.source_name = func.source_name;
             new_func.global_cache = null;
-            new_func.env = null;
+            // Preserve the defining library's lib_env so a closure copied to
+            // a child OS thread can still resolve library-scoped names
+            // (#1479). `env` is a raw *StringHashMap pointer into the shared
+            // library registry (initForThread shares vm.libraries by pointer,
+            // and the parent keeps every lib_env alive), not a GC Value — the
+            // collector never traverses it, and looking a name up through it
+            // yields a parent-heap procedure the child runs exactly as it
+            // already runs any shared global. Nulling it (the old behavior)
+            // silently redirected the lookup to `self.globals`, where
+            // library-scoped imports don't live, so the child raised
+            // "undefined variable" for a name that worked at top level.
+            new_func.env = func.env;
+            // env_val (the eval/immutability Environment *object*) is a GC
+            // Value; leave it NIL rather than share a parent-heap object into
+            // the child heap. Runtime name resolution uses `env` (above), not
+            // env_val, so the thread thunk resolves correctly regardless; a
+            // normally loaded library has env_val == NIL here anyway.
             new_func.env_val = types.NIL;
             if (func.name) |name| {
                 if (func.owns_name) {
