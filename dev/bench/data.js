@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784031844027,
+  "lastUpdate": 1784036292757,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d25909169c100c3bb24cd3bf423caf60a66d372",
-          "message": "Fix SRFI-4 integer vector kinds to be disjoint types with range validation (#1225) (#1336)\n\nEach non-u8 vector kind (s8, u16, s16, u32, s32, f32, f64) is now a\ndefine-record-type wrapping its underlying bytevector or vector, giving\neach type a distinct identity. u8vector stays as a bytevector alias per\nSRFI-4 spec. All setters now validate element ranges and raise errors\nfor out-of-range values instead of silently wrapping.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T23:32:25+05:30",
-          "tree_id": "ab5249749d7e0454a09c8263b07306181acfd34f",
-          "url": "https://github.com/kaappi/kaappi/commit/5d25909169c100c3bb24cd3bf423caf60a66d372"
-        },
-        "date": 1783535573264,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.051012,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.213919,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.044036,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.411891,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014182,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226867,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512366,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069371,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.677907,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.97975,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.328406,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.124039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.418982,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.908771,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047946,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048505,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "328ca95ea31a2231a5fdd29bf22520448495e251",
+          "message": "Add KEP-0003 acceptance-gate classification worksheet (#1474) (#1538)\n\nThe gate is a \"reading, not an argument\" of the #1472 §6 dataset, which\ndoes not exist yet (only the P3 eyeball benchmark landed in #1535). Build\nthe reading instrument now, from the frozen keps §5-§6 protocol, so that\nwhen the gate campaign produces the CSV the classification is pure\nfill-in-the-blanks with no room for post-hoc judgement: every gate and\nsupporting cell enumerated, each rule wired to its exact cells and CI\nbound, per-machine precedence and two-machine agreement as a mechanical\nprocedure. All data slots are empty placeholders; no numbers fabricated.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T18:45:31+05:30",
+          "tree_id": "ef88ff92af504dac94bd1da5667615aa0d773147",
+          "url": "https://github.com/kaappi/kaappi/commit/328ca95ea31a2231a5fdd29bf22520448495e251"
+        },
+        "date": 1784036291524,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.062417,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.766881,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.92,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.458791,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006902,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053479,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510707,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068104,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.262302,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.983827,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.529656,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.474136,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.754821,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.764479,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044725,
             "unit": "seconds"
           }
         ]
