@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784042985502,
+  "lastUpdate": 1784050015778,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c916a8e94030f82cd199966587b077fc768affd6",
-          "message": "Fix opt*-lambda sequential defaults and lift 2-optional cap (#1340)\n\n* Fix opt*-lambda sequential defaults and lift 2-optional cap (#1222)\n\nopt*-lambda was a bare alias of opt-lambda, so its zero-argument case\nused parallel let — defaults could not reference earlier parameters.\nBoth macros also used hand-enumerated patterns capped at 2 optionals.\n\nReplace with recursive syntax-rules using literal-tag dispatch (%p for\nparsing required/optional boundary, %b for clause accumulation, %d for\nnested-let default expansion). Both forms now support arbitrary numbers\nof required and optional parameters. opt*-lambda generates nested let\n(sequential), opt-lambda generates nested let (effectively sequential,\nbut consistent with partial-application cases where earlier params are\nalready case-lambda-bound).\n\nCloses #1222\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Give opt-lambda parallel default semantics distinct from opt*-lambda\n\nThe previous commit used nested let for both forms, making them\nsemantically identical. SRFI-227 requires opt-lambda defaults to be\nevaluated in the enclosing environment (parallel, like let), while\nopt*-lambda defaults are sequential (like let*).\n\nopt-lambda's %d phase now accumulates names and defaults into two\nlists, then emits ((lambda (names ...) body ...) defaults ...) — an\nimmediate application that evaluates all defaults in the outer scope\nbefore binding. This avoids a Kaappi expander limitation where ...\ncannot splice into let binding lists.\n\nObservable difference:\n  (define a 100)\n  ((opt-lambda  ((a 1) (b a)) (list a b)))  → (1 100)  ;; parallel\n  ((opt*-lambda ((a 1) (b a)) (list a b)))  → (1 1)    ;; sequential\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T00:44:18+05:30",
-          "tree_id": "4dfd0d6b9417cd0ef8ee51d6085c650b5ff690f8",
-          "url": "https://github.com/kaappi/kaappi/commit/c916a8e94030f82cd199966587b077fc768affd6"
-        },
-        "date": 1783539360405,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332005,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.096949,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.99654,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.401881,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012756,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.20441,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.498143,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069503,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.652863,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.938407,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.190319,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.008044,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.487802,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.700425,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044321,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045454,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "708a660b77b0d616de93be02f421b8a823d7219c",
+          "message": "Batch fd reads in readOneByte (#1460) (#1542)\n\nreadOneByte issued one read(2) syscall per byte on fd-backed ports, so\nevery byte-at-a-time consumer (read-bytevector, read-string, read-char,\nread-line, read-u8) paid k syscalls to read k bytes from a file or\nsocket.\n\nThe fd path now reads up to read_chunk_size (4096) bytes in a single\nread(2), returns the first byte, and stashes the remainder in the port's\nexisting read_buf. The consumption drain at the top of readOneByte hands\nthose out on subsequent calls, so a run of byte reads costs one syscall\nper burst instead of one per byte.\n\nThe batched leftovers compose with the existing park/stash machinery\nbecause read_buf is always empty at the fd path: every park point sits\npast the peek/read_buf/string drains, so a caller that parks later does\nso on a subsequent call after this buffer drains, where stashPartialRead\nprepends onto an empty read_buf. The fresh slice is allocated exactly\nn-1 bytes so rb.len == read_buf_len and the \"last read_buf_len bytes\"\nconsumption cursor starts at 0. read(2) short-returns whatever is\navailable, so a 1-byte interactive read never blocks to fill a chunk,\nand an n==1 read allocates nothing (byte-identical to the old path).\nreadDatumFn's incremental-parse loop already batched; it now shares the\nread_chunk_size constant.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:30:46+05:30",
+          "tree_id": "db54086b4a64f2b942ce3d966dabd5a9b7d8e66a",
+          "url": "https://github.com/kaappi/kaappi/commit/708a660b77b0d616de93be02f421b8a823d7219c"
+        },
+        "date": 1784050013895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.289928,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.438313,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.955238,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.478035,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006683,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054589,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.516532,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070669,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.637284,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.110342,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.581259,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438559,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.832305,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.672147,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044301,
             "unit": "seconds"
           }
         ]
