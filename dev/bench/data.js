@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784050922390,
+  "lastUpdate": 1784050929498,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "771b480a01164e387a87da94233059aea18b69ba",
-          "message": "Implement SRFI-17 generalized set! with pre-defined setters (#1349)\n\n* Implement SRFI-17 generalized set! with pre-defined setters (#1205)\n\nThe compiler now desugars (set! (proc arg ...) val) to\n((setter proc) arg ... val) in both the IR lowering path and the\nlegacy compiler path. The SRFI-17 library registers pre-defined\nsetters for car, cdr, vector-ref, string-ref, and all 28 cXXr\ncompositions as specified by the SRFI.\n\nCloses #1205\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: GC safety, error type, comments, test coverage\n\n- Use no_collect + pushRoot in legacy compileSet to protect intermediate\n  pairs during S-expression construction (mirrors compileDefineValues)\n- Change 16-arg cap error from InvalidSyntax to InternalLimit\n- Add comments: setter global dependency, LLVM backend fallback,\n  defensive-fallback note on legacy path\n- Add 4-deep cXXr test case (cadddr)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T06:31:27+05:30",
-          "tree_id": "3c51be38b8d049ee4c5eb7ada39ec01a1c781fd8",
-          "url": "https://github.com/kaappi/kaappi/commit/771b480a01164e387a87da94233059aea18b69ba"
-        },
-        "date": 1783560748951,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332546,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.349344,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.981794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.441684,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01259,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204727,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509252,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069815,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.717361,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.943761,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.198703,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.014291,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.429991,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.72545,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045724,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03757,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "91d63f359ee76220ebfd2e00208825ce69265878",
+          "message": "Abandon cross-heap mutexes on fiber death (#1458) (#1545)\n\nabandonFiberMutexes found a dying fiber's held mutexes by scanning that\nfiber's own GC heap. A mutex shared across OS threads via a top-level\nglobal lives in whichever heap allocated it — typically the parent's, not\nthe dying child's — so the scan never found it: the mutex stayed\n'not-abandoned, m.owner dangled at the (soon-freed) dead child fiber, and\na cross-thread mutex-lock! hung or raised the generic deadlock error\ninstead of abandoned-mutex-exception.\n\nTrack held mutexes on the fiber itself (a per-fiber owned_mutexes list\nmaintained by mutex-lock!) so abandonment no longer depends on which heap\nowns the mutex object. The list is pruned-on-lock and deduped rather than\nmaintained at unlock, which bounds it without a cross-thread list-mutation\nrace; the defensive locked/owner guard still skips stale entries. It is\nonly ever mutated and walked on the fiber's own thread. thread-terminate!\nabandons a local fiber's mutexes in place and lets an OS-thread target\nself-abandon when it observes the terminate flag. markFiberState keeps\nheld mutexes alive (foreign ones are skipped by markValue's owner check);\nfreeObject frees the list.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:31:37+05:30",
+          "tree_id": "94d7b13887993f361cfa57a81bb9c0149d0f1abe",
+          "url": "https://github.com/kaappi/kaappi/commit/91d63f359ee76220ebfd2e00208825ce69265878"
+        },
+        "date": 1784050928394,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.422464,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.335765,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.89785,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.405041,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006391,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053396,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503517,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069878,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.430537,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.941585,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587769,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.439019,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.832086,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.547017,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044269,
             "unit": "seconds"
           }
         ]
