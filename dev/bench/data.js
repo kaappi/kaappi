@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784054870713,
+  "lastUpdate": 1784058916284,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "84e9d6808d9f7ce2f2e10d377daf1154f500f85e",
-          "message": "Rewrite SRFI-26 cut/cute with recursive helper macros (#1208) (#1344)\n\n* Rewrite SRFI-26 cut/cute with recursive helper macros (#1208)\n\nThe previous implementation used a finite set of hardcoded syntax-rules\npatterns that capped arity, broke pattern matching order (earlier patterns\nswallowed later slot tokens), lacked operator-position slot support, and\ndefined cute as a plain alias of cut.\n\nReplace with the standard recursive-helper-macro technique: cut and cute\nentry macros separate the operator, then srfi-26-internal-cut/cute walk the\nargument list one element at a time, accumulating slot-names and the call\nform. cute wraps each non-slot expression in a nested single-binding let\nso it evaluates once at construction time (avoids an expander limitation\nwith ellipsis in let binding lists).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix expander hygiene for recursive binder-accumulating macros\n\nTemplate-introduced identifiers accumulated across recursive macro\nself-invocations (e.g. x in SRFI-26's (slot-name ... x) pattern)\nwere colliding with top-level defines of the same name. The VOID-\nmarking trick in expandAndCompileMacroUse was suppressing hygiene\nrenaming for any template free-ref candidate that matched a global,\nincluding template-introduced binders that only coincidentally shared\na name.\n\nFix: record which free-ref candidates were actually bound at macro\ndefinition time (bound_free_refs on the Transformer), and restrict\nVOID marking to only those identifiers. Template-introduced names\nthat weren't in scope when the macro was defined are now correctly\nrenamed regardless of later user defines.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Propagate OOM from computeBoundFreeRefs, add rest-slot hygiene test\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T05:08:12Z",
-          "tree_id": "fcc0aad7e2df2b07475ed3a81923a8276943f086",
-          "url": "https://github.com/kaappi/kaappi/commit/84e9d6808d9f7ce2f2e10d377daf1154f500f85e"
-        },
-        "date": 1783575607418,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.319834,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.44072,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.982846,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.399059,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012967,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203502,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504719,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06949,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.652432,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.933856,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.166301,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.004414,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.406168,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.552838,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044036,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.027993,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6d349c0cc7207eca648f08588904a593a8712c2",
+          "message": "Fix lost cross-thread wakeup in shared channel send/receive (#1489) (#1548)\n\nA fiber receiving on a promoted channel could park permanently even\nthough a live peer thread later sent. A local sibling's channel-send +\nchannel-receive, run during the receiver's SharedChannelPoll drive,\nconsumed the receiver's one-shot recv_waiters notifier registration, and\nthe fall-through check (peekReady) re-derived readiness WITHOUT\nre-registering. The later remote send found recv_waiters empty and rang\nnothing; the parked fiber's shared_waiters entry kept hasRunnableFibers()\ntrue, so the deadlock detector stayed suppressed and the process hung\nforever.\n\nRe-derive readiness after the drive THROUGH receive() itself, not a bare\npeekReady(): receive() re-registers the notifier under the channel lock\nwhen it returns .would_park, so the park is always armed (and returns the\nvalue/eof straight away if the drive produced one). channelSendShared had\nthe identical latent bug for bounded channels -- a sibling receive+send\nduring the drive consuming its send_waiters registration -- fixed the same\nway via send() (the full path enqueues nothing, so there is no\ndouble-send).\n\nRegression test tests/scheme/smoke/fiber-channel-lost-wakeup-1489.scm is\nthe issue's repro, bounded by a receive timeout so a regression FAILs\nrather than hangs (which run-all.sh would SKIP): it fails pre-fix (the\nreceiver is never woken and the timer fires) and passes post-fix.\n\nVerified: repro 20/20 no hangs; the gate-campaign cells that hung ~8% of\nruns are now 90/90 clean; full unit suite green on the normal build and\nunder -Dgc-stress for fiber/channel/scheduler; bounded-channel and\nparallel smoke tests green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T00:55:26+05:30",
+          "tree_id": "db77a1108a33c8d26b64bfdfc28f6cf57b1513d4",
+          "url": "https://github.com/kaappi/kaappi/commit/b6d349c0cc7207eca648f08588904a593a8712c2"
+        },
+        "date": 1784058914642,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.460508,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.048332,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.891884,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.464168,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006422,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054254,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502708,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069551,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.402909,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.958267,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.616352,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431513,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.83011,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.858635,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.051373,
             "unit": "seconds"
           }
         ]
