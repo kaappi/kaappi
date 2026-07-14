@@ -189,6 +189,12 @@ def main():
     ap.add_argument("--levers", default="none,c")
     ap.add_argument("--invocations", type=int, default=0)
     ap.add_argument("--iterations", type=int, default=0)
+    # Serial baselines (s:<wl>) feed only the non-gating speedup = S/E column
+    # (protocol §3), so they run at reduced, fixed counts rather than the full
+    # K-J discipline -- otherwise a single-thread S at the largest size would
+    # dominate the campaign wall time for a number that never enters a rule.
+    ap.add_argument("--serial-invocations", type=int, default=5)
+    ap.add_argument("--serial-iterations", type=int, default=5)
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--seed", type=int, default=1472)
@@ -241,9 +247,14 @@ def main():
     all_cells = list(cells.values()) + list(serial_cells.values())
 
     # Launch schedule: (cell, invocation_index), shuffled campaign-wide (§4.3).
+    # Serial baselines run at their own reduced invocation count.
+    def is_serial(c):
+        return c.workload.startswith("s:")
+
     schedule = []
     for c in all_cells:
-        for inv in range(invocations):
+        n = args.serial_invocations if is_serial(c) else invocations
+        for _ in range(n):
             schedule.append(c)
     pyrng.shuffle(schedule)
 
@@ -255,8 +266,9 @@ def main():
     any_nonzero_copy = False
     for i, c in enumerate(schedule):
         pad_len = pyrng.randint(0, 4096)
+        iters = args.serial_iterations if is_serial(c) else iterations
         res = run_once(args.bin, args.harness, c.workload, c.size, c.workers,
-                       c.lever, args.warmup, iterations, args.timeout, pad_len)
+                       c.lever, args.warmup, iters, args.timeout, pad_len)
         c.add_invocation(res)
         if res["status"] == "OK":
             if any(r["submit_ns"] + r["result_ns"] > 0 for r in res["rows"]):

@@ -1,0 +1,7 @@
+machine: macos-aarch64 (Apple Silicon)
+kaappi_commit: b6d349c0cc7207eca648f08588904a593a8712c2
+protocol_commit(keps): af4219004c1f0366a24f798e4e4cd2d4831f7da1
+os: macOS 26.5.2 (arm64)
+cpu_cores: 12 physical / 12 logical
+date_started: 2026-07-14T19:54:08Z
+kj_counts: 20 inv x 10 iter (floor); serial 5x5; warmup 2
