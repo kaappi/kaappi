@@ -216,7 +216,7 @@ pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value
         };
 
         const current = sched.fibers.items[sched.current_idx] orelse return result;
-        current.status = .completed;
+        sched.retireSlot(current, .completed);
         current.result = result;
         vm.gc.writeBarrier(&current.header, result);
         try sched.saveCurrentFiber();
@@ -246,7 +246,10 @@ fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!boo
     const current = sched.fibers.items[sched.current_idx] orelse return false;
     try sched.saveCurrentFiber();
 
-    if (current.status == .running) current.status = .suspended;
+    if (current.status == .running) {
+        current.status = .suspended;
+        sched.markRunnable(current);
+    }
 
     if (current.status == .completed or current.status == .errored) {
         sched.wakeWaiters(current);

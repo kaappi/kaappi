@@ -500,7 +500,8 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
     // so yield only when the unwind can reach a scheduler dispatch loop and
     // another fiber is actually runnable.
     if (vm.native_reentry_depth > 0) return types.VOID;
-    if (sched.schedule() == null) return types.VOID;
+    // Non-consuming O(1) advisory check (see anyRunnable / #1477).
+    if (!sched.anyRunnable()) return types.VOID;
     vm.yielded = true;
     return types.VOID;
 }
