@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784037342129,
+  "lastUpdate": 1784041042111,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3ae17a3c3624ac262fcc525c11d4a46f1b075feb",
-          "message": "Fix SRFI-128 default comparator total order, hashability, and register-default! (#1335)\n\n* Fix SRFI-128 default comparator total order, hashability, and register-default! (#1230)\n\n- default-ordering: handle pairs (lexicographic), vectors (element-wise),\n  bytevectors (byte-wise), and cross-type comparisons via type-index\n- make-eq-comparator/make-eqv-comparator: use default-hash so they are hashable\n- comparator-if<=>: add 5-arg syntax-rules pattern (optional comparator)\n- comparator-register-default!: store comparators and wire into\n  default-ordering, default-equality, and default-hash\n- default-hash: reduce pair/vector/bytevector results modulo hash-bound;\n  improve vector hash to use all elements\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard default-ordering against unordered registered comparators\n\nCheck comparator-ordered? before dispatching to a registered comparator's\nordering predicate, so registering a comparator with #f ordering does not\nhit the error thunk. Add test for the edge case.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T18:11:03Z",
-          "tree_id": "e297a2aa3729fdf0900da9cd6c5f1dce9d9f4191",
-          "url": "https://github.com/kaappi/kaappi/commit/3ae17a3c3624ac262fcc525c11d4a46f1b075feb"
-        },
-        "date": 1783535958153,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.085632,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.661081,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.060572,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.404479,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013897,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.22603,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.51379,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069281,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.647259,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.995823,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.369301,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.116097,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.277214,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.823855,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045999,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045488,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b52f873f85edaa19e87d0c59292038e32859dbb1",
+          "message": "Add --diagnostics=json structured diagnostic output (#1505) (#1537)\n\nAgents driving kaappi have had to scrape human-oriented error text. This\nexposes every read, expand, compile, and runtime diagnostic as JSON Lines\non stderr under `--diagnostics=json`, so tools can match on structure\ninstead of prose. Text mode stays the default and is unchanged.\n\nRather than invent a schema, each line is an LSP `Diagnostic` — the exact\nshape the language server already publishes. The serializer now lives in\none place (src/lsp_diagnostic.zig) that both the CLI reporting funnel and\nkaappi_lsp.zig call, so the two cannot drift; the LSP gains KP codes as a\nresult. `code` comes from the diagnostics registry (#1504), and a \"did you\nmean\" fix maps to `data.suggestions` with kind/replacement, carried\nstructurally on the VM so the JSON message stays clean.\n\nPositions are the LSP-standard zero-based coordinates and are points until\nspan tracking lands (#1506). The text snippet and backtrace are suppressed\nin JSON mode so stderr stays one parseable object per line.\n\nPart of #1503.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T14:29:22Z",
+          "tree_id": "cfcd9b02a23e9237c26261240ece1a4f90ab32aa",
+          "url": "https://github.com/kaappi/kaappi/commit/b52f873f85edaa19e87d0c59292038e32859dbb1"
+        },
+        "date": 1784041041243,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.055518,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.132201,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.930885,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.42145,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052808,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509853,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068161,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.222816,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.980654,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.702139,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.475842,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.768253,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.816284,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045877,
             "unit": "seconds"
           }
         ]
