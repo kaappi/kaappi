@@ -8,6 +8,38 @@ const VMError = vm_mod.VMError;
 const MAX_HANDLERS = vm_mod.MAX_HANDLERS;
 const MAX_WINDS = vm_mod.MAX_WINDS;
 
+/// Clear register slots in `[0, max_reg)` that no live frame window covers,
+/// setting each to UNDEFINED. Such gap slots are dead (no frame reads them),
+/// but one vacated by a returned call frame typically still holds that frame's
+/// last pointer. The GC root marker walks only per-frame windows, so those
+/// pointers keep nothing alive and a later collection frees their targets —
+/// which is why a continuation snapshot taken over the contiguous `[0, max_reg)`
+/// range must not copy them verbatim (#1464). Called before every snapshot.
+///
+/// Frame bases are non-decreasing (every call places its callee's frame past
+/// the caller's own base, and continuation restore preserves that order), so a
+/// single ordered sweep that tracks the highest covered register finds the gaps
+/// with no scratch buffer — keeping call/cc capture allocation-free on the hot
+/// path (a bitmap here regressed the call_cc benchmark ~1.9x).
+fn clearGapRegisters(vm: *VM, max_reg: usize) void {
+    var covered_end: usize = 0;
+    var prev_base: usize = 0;
+    for (vm.frames[0..vm.frame_count]) |f| {
+        const base: usize = f.base;
+        std.debug.assert(base >= prev_base); // relied on for gap correctness
+        prev_base = base;
+        if (base > covered_end) {
+            const gap_end = @min(base, max_reg);
+            @memset(vm.registers[covered_end..gap_end], types.UNDEFINED);
+            if (gap_end == max_reg) return;
+        }
+        const win_end = base + f.frameWindow();
+        if (win_end > covered_end) covered_end = win_end;
+    }
+    if (covered_end < max_reg)
+        @memset(vm.registers[covered_end..max_reg], types.UNDEFINED);
+}
+
 /// Capture the current continuation state.
 /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
 /// dst_base is the base register of the caller's frame.
@@ -54,6 +86,12 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
             .frame_count = h.frame_count,
         };
     }
+
+    // The snapshot below copies the contiguous [0, max_reg) register range,
+    // which spans dead gaps between live frame windows. Scrub stale pointers
+    // out of those gaps first so the snapshot can't outlive their targets
+    // (#1464); restore never reads a gap slot, so this is behavior-preserving.
+    clearGapRegisters(vm, max_reg);
 
     const cont_val = vm.gc.allocContinuation(
         vm.registers[0..max_reg],
