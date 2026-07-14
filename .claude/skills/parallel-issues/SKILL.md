@@ -43,6 +43,32 @@ Skip issues that can't be handed to an independent fix session:
 - **Not-actionable issues** — labels like blocked, question, discussion,
   wontfix, duplicate.
 
+## Dependency analysis
+
+Before grouping, determine which issues depend on which others:
+
+- While reading each body (see above — you're already reading them for
+  subsystem/file info), scan for dependency language referencing another
+  issue number: "depends on #NNN", "blocked by #NNN", "requires #NNN",
+  "needs #NNN first", "after #NNN lands/merges", "builds on #NNN". Treat
+  these as directed edges (issue → the issue it depends on).
+- Also check GitHub's native issue relationships when the body doesn't
+  spell it out: `gh issue view <n>` renders a "Development"/linked-issues
+  section in its output for issues with tracked relationships — read it
+  alongside the body.
+- If the dependency target is already closed, the edge is satisfied —
+  ignore it.
+- If the dependency target is open and qualifies for batching (see "Which
+  issues qualify" above), the dependent issue must land in a **strictly
+  later set** than the one containing its dependency — never the same set,
+  never an earlier one.
+- If the dependency target is open but doesn't qualify (e.g. it's an epic,
+  it's assigned, it's blocked itself), the dependent issue isn't
+  independently actionable yet — exclude it from all sets and say so,
+  rather than guessing a set for it.
+- Transitive chains (A ← B ← C) carry through: C's set must come after B's,
+  which must come after A's.
+
 ## Grouping rules
 
 - Every issue in a set must touch different source files/subsystems. The sets
@@ -53,8 +79,9 @@ Skip issues that can't be handed to an independent fix session:
 - Prefer larger sets (more parallelism), but cap a set at ~8 issues unless
   the user asks for more — a set larger than the user can launch and monitor
   at once adds no real throughput.
-- Order sets by dependency: foundational fixes in earlier sets, work that
-  builds on them later.
+- Order sets by dependency: apply the edges found above first (a dependency
+  must precede its dependents' set), then place remaining foundational
+  fixes in earlier sets and work that builds on them later.
 
 ## Output format
 
