@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784050118277,
+  "lastUpdate": 1784050922390,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a864683c326b4765da08762b45a6d86de7453634",
-          "message": "Fix SRFI-37 args-fold: short option matching, seed threading, option? export (#1211) (#1343)\n\nThree bugs made args-fold unusable for typical CLI parsing:\n\n1. Short char-name options never matched — the lookup built a string\n   from the char (e.g. \"v\") and compared it via member against names\n   that are chars (#\\v). Fixed by passing the char directly.\n\n2. List-valued seeds were splatted — the heuristic\n   `(if (list? new-seeds) new-seeds (list new-seeds))` unwrapped any\n   processor that legitimately returned a list as its single seed.\n   Replaced all 8 sites with call-with-values to thread seeds correctly.\n\n3. option? predicate was not exported despite being part of the SRFI\n   specification.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T06:05:21+05:30",
-          "tree_id": "896e722d43f043dd374e86d0aba924f8128bce6f",
-          "url": "https://github.com/kaappi/kaappi/commit/a864683c326b4765da08762b45a6d86de7453634"
-        },
-        "date": 1783559380919,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.322676,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.648277,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.962974,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.390659,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012752,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203695,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.496587,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068732,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.656907,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.929298,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.191902,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.003227,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.430952,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.754718,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043772,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045203,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "efc976e3bcff31eb041f5636d16bee9f93b4b1b4",
+          "message": "Inline fixnum fast paths for hot native primitives (#1493) (#1544)\n\nInlined primitives in the LLVM backend emit a cross-module call per\noperation (`kaappi_fixnum_add`, `kaappi_car`, …) into `libkaappi_rt.a`.\nPlain -O2 cannot inline across that archive boundary, so trivial\narithmetic in a hot loop pays a real call every iteration.\n\nThe issue proposed LTO as the primary fix, but it is unavailable on the\nprimary dev platform: Zig 0.16 cannot use LLD for Mach-O (\"using LLD to\nlink macho files is unsupported\") and -flto requires LLD, so both the\nruntime lib build and the native link fail with -flto on macOS. It works\nonly when targeting Linux. Rather than ship a per-platform-inconsistent\noptimization, take the issue's sanctioned alternative and emit the hottest\nprimitives as inline IR, which is portable across every target (it is just\ntext the emitter writes) and needs no cross-module inlining.\n\n`+ - * < = null?` now lower to inline fixnum fast paths with a runtime\nslow-path fallback (non-fixnum operands, or overflow out of the i48 range →\nbignum). The fast paths touch only the NaN-boxed Value bits, whose encoding\nis pulled from types.zig at emitter comptime (no hand-transcribed magic\nnumbers). car/cdr/cons stay as direct specialized calls: Pair/Object are\nauto-layout structs whose field offsets Zig does not guarantee, and cons\nallocates regardless.\n\nThe larger win is eliding the shadow-stack rooting the inline path emitted\naround every operation: the push_root/pop_roots pair only exists to keep\nthe first operand alive across the second's evaluation, which is pointless\nwhen the second operand cannot allocate. `nodeMayAllocate` conservatively\ndetects that (immediate constants and variable references never collect),\ndropping both calls for the common `(op var const)` / `(op var var)`\nshapes. fib(38) runs 3.30x faster than -O2-only (1.45s → 0.44s); alloc-\nbound loops are unchanged, as expected.\n\nVerified: e2e 27/27 (new native-inline-primitives.scm diffs overflow,\nnon-fixnum, and sign-extended-negative paths against the interpreter),\nunit suite 897/897, and native binaries stay correct under a forced-\ncollection KAAPPI_GC_THRESHOLD=1 run including the rooting-kept case.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:31:13+05:30",
+          "tree_id": "f0f988b4cea64771d6ba1dacd172ac8bbdc959f4",
+          "url": "https://github.com/kaappi/kaappi/commit/efc976e3bcff31eb041f5636d16bee9f93b4b1b4"
+        },
+        "date": 1784050921015,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.806974,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.30059,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.714514,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.434442,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005238,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041006,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.396068,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052777,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.603374,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.540389,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.170268,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.371557,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.344787,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.423557,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03757,
             "unit": "seconds"
           }
         ]
