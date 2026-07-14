@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784004579705,
+  "lastUpdate": 1784005379309,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e3e9108d404c3e5be746b4eb6f80f35c205ec4a",
-          "message": "Export SRFI-33 aliases and second-tier procedures from SRFI-60 (#1164) (#1328)\n\nThe (srfi 60) library only exported log*-style names. Now exports both\nnaming conventions (logand/bitwise-and, etc.), the SRFI-60 plural\nany-bits-set?, second-tier procedures (copy-bit-field, rotate-bit-field,\nreverse-bit-field, log2-binary-factors), and MSB-first boolean/integer\nconversions (integer->list, list->integer, booleans->integer).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T20:35:21+05:30",
-          "tree_id": "465fc435fadf58a08d4df6657a61370741477fa9",
-          "url": "https://github.com/kaappi/kaappi/commit/7e3e9108d404c3e5be746b4eb6f80f35c205ec4a"
-        },
-        "date": 1783524723035,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.339744,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.372133,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.980017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.405758,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012641,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203805,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500529,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07227,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.719255,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.939111,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.171963,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.007039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.443292,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.509066,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043335,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043521,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3f3618367c489a8390860247d191f597bd2219e",
+          "message": "Add fd->port to give a raw fd reactor-integrated I/O (#1478) (#1527)\n\nkaappi-net's TCP sockets never reach the fiber I/O reactor: tcp-recv/tcp-send\nare bare blocking send(2)/recv(2) FFI calls and poll-read/poll-write are a raw\nfcntl+poll(2) wrapper, none of which touch Reactor.register/waitForFd. So\nkaappi-http's http-listen-fiber layers a fixed 1ms poll-then-sleep loop on top\n-- a ~1ms tax on every request even fully uncontended (747 vs 3329 req/s at\nconcurrency=1 in the KEP-0001 Phase 7 benchmarks).\n\nThe blocker was crossing the FFI boundary: the reactor and waitForFd are\nVM-internal, and a standalone \"wait on this fd\" primitive can't work under the\npark/re-execution protocol -- it never drains the fd, so a re-executed park\nre-parks forever. The primitives that do work (readOneByte/portWriteBytes) do\ntry-syscall-then-wait-on-EAGAIN as one unit, and every port fd > 2 already\nflips to O_NONBLOCK lazily and suspends the fiber on the reactor.\n\nSo expose that machinery directly: (fd->port fd) wraps a raw descriptor as a\nbidirectional binary port. A kaappi-net socket fd (from tcp-accept/tcp-connect,\nalready plain integers) becomes a normal reactor-integrated port -- read-u8/\nread-bytevector!/write-bytevector suspend the fiber on EAGAIN instead of\nbusy-polling, no C changes needed. The port owns the fd (close-port closes it,\nwakes parked fibers, unregisters from the reactor); fd 0/1/2 are refused to\npreserve the standard streams' blocking semantics. Lives in (kaappi ffi), which\nFFI socket libraries already import.\n\nTests (tests_port_io.zig): a reader fiber on an fd->port pipe parks on the\nreactor and wakes exactly when the peer writes; fd 0/1/2 and non-fixnums are\nrejected. Green under -Dgc-stress=true and the full unit suite.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T04:32:56Z",
+          "tree_id": "3ce5e014a2a252341b804fc538d39eabf004d13e",
+          "url": "https://github.com/kaappi/kaappi/commit/a3f3618367c489a8390860247d191f597bd2219e"
+        },
+        "date": 1784005377878,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.086167,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.526862,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.931487,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.44145,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006825,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0528,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508781,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067723,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.198317,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.978025,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514907,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.480214,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.751677,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.819143,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045751,
             "unit": "seconds"
           }
         ]
