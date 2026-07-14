@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784017888627,
+  "lastUpdate": 1784026345358,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bfe4776599f6a468c238fdf6b65e89411b843bea",
-          "message": "Fix SRFI-43 vector library to match spec (#1209) (#1326)\n\n* Fix SRFI-43 vector library to match spec (#1209)\n\nSRFI-43 iteration procedures pass the index as the first callback\nargument; SRFI-133 (which was being re-exported) does not.  Rewrite\nvector-map, vector-map!, vector-for-each, vector-count, vector-fold,\nand vector-fold-right with correct SRFI-43 calling convention and\nmulti-vector support.  Add 8 missing exports: vector-unfold,\nvector-unfold-right, vector=, vector-binary-search, vector-reverse!,\nvector-reverse-copy!, reverse-vector->list, reverse-list->vector.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Except vector-map/vector-for-each from (scheme base) import\n\nThese two live in (scheme base), not (srfi 133), so the previous\nexcept clause did not cover them.  Excepting from both imports\navoids the duplicate-binding condition where an imported name is\nalso defined in the library body.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T20:33:30+05:30",
-          "tree_id": "7c1984c75c52a66f7f87af81fe0c3387e5c004ab",
-          "url": "https://github.com/kaappi/kaappi/commit/bfe4776599f6a468c238fdf6b65e89411b843bea"
-        },
-        "date": 1783524885273,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.066154,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.167863,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.032641,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.450225,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013954,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225825,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.544429,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071227,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.597078,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.976447,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.301899,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.126817,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.272009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.850267,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045409,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042889,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef88d7e64596938ddeb87626b9a2b3e6c263e0bc",
+          "message": "Bound fuzz eval by instruction count under gc-stress (#1531)\n\nThe grammar/native/portable generator-coverage gates and the differential-\noracle regression gate in tests_fuzz.zig were unconditionally skipped under\n-Dgc-stress=true. A full collection on every allocation slows evaluation by\norders of magnitude, so the fixed 100 ms per-program deadline degenerated\ninto \"did it time out\" rather than measuring whether the generator produces\nvalid programs — a gc-stress build lost these regression gates entirely.\n\nA gc-stress build executes the *same* number of bytecode instructions as a\nnormal build; only wall-clock time changes. So bound by instruction count\nthere instead: evalNormalized sets vm.instruction_limit (2M, ~50x the largest\ncorrect generator program measured over 300 seeds and well under the >10M\nloop-heavy tail the gates intentionally count as misses) and keeps only a\nloose wall-clock backstop. Normal builds are unchanged — the limit stays null\nand the 100 ms deadline applies as before. runUntil checks the limit inside\nthe existing per-1024-instruction block, so the hot path is untouched.\n\nUnder gc-stress the gates now measure generator correctness: grammar 56/60,\nnative 60/60, portable 60/60, and the oracle compares 57/60 fixed-seed pairs\n(3 giant-loop seeds hit the budget on both paths) instead of 0.\n\nCloses #1447, #1448, #1449, #1450\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T15:50:16+05:30",
+          "tree_id": "b90bf5db44b51db2b29680784a1b70cecd3aefb0",
+          "url": "https://github.com/kaappi/kaappi/commit/ef88d7e64596938ddeb87626b9a2b3e6c263e0bc"
+        },
+        "date": 1784026343314,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.421673,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.804535,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.691257,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.443048,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006437,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04571,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.391807,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05657,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.03715,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.503312,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.357821,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430055,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.498674,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.077451,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038728,
             "unit": "seconds"
           }
         ]
