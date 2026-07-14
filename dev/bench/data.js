@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784050015778,
+  "lastUpdate": 1784050070688,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a50fd864b9548708d7bf8f0a8281a6f76ae1523f",
-          "message": "Implement complete SRFI-132 sort library (22 procedures) (#1339)\n\n* Implement complete SRFI-132 sort library (22 procedures) (#1231)\n\nAdd the 14 missing procedures (list-stable-sort!, vector-stable-sort!,\nlist-merge, list-merge!, vector-merge, vector-merge!,\nlist-delete-neighbor-dups, list-delete-neighbor-dups!,\nvector-delete-neighbor-dups, vector-delete-neighbor-dups!,\nvector-find-median, vector-find-median!, vector-select!,\nvector-separate!) and retrofit all vector procedures with optional\nstart/end range parameters via case-lambda.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix delete-neighbor-dups predicate shadowing and relax separate! test\n\nRename the = parameter to elt= in %vector-delete-neighbor-dups and\n%vector-delete-neighbor-dups! so it does not shadow the built-in\nnumeric = used for index termination checks. Without this, non-numeric\npredicates like char=? crash on the (= i end) bounds test.\n\nAlso relax the vector-separate! test to assert set membership rather\nthan exact order, since SRFI-132 only guarantees the smallest k\nelements land in the first k positions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T00:41:48+05:30",
-          "tree_id": "2525f4b1e32c069255a68a4ba80b4db2a147c178",
-          "url": "https://github.com/kaappi/kaappi/commit/a50fd864b9548708d7bf8f0a8281a6f76ae1523f"
-        },
-        "date": 1783539620995,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.86953,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.720902,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.955628,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.030291,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013706,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.193013,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.468558,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.065269,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.597516,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.73859,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.62747,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.935619,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.864626,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.041998,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041467,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044301,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae167d1449fa80ff29df4c678776ead96d13cb9d",
+          "message": "Run the #809 300-capture stress test again (#1541)\n\nThe 300-variable-capture regression test for the u8→u16 upvalue_count\nwidening was skipped under -Dgc-stress=true because compiling that\nprogram once peaked ~7 GB RSS and OOM-killed the stress suite.\n\nThat blow-up was not inherent to the test: markValue reallocated its\nmark worklist on every call, and the testing allocator's metadata\nretention amplified the churn. #1436 made the worklist persistent, so\nthe peak is now a few tens of MB (verified: ~32 MB for this test in\nisolation under gc-stress). The skip outlived its cause — remove it so\nthe >255-upvalue boundary is covered under stress again.\n\nFixes #1451\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:30:26+05:30",
+          "tree_id": "34a09af37dbb749bda9298c7f42b74932722699a",
+          "url": "https://github.com/kaappi/kaappi/commit/ae167d1449fa80ff29df4c678776ead96d13cb9d"
+        },
+        "date": 1784050069325,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.319249,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.190716,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.935661,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.51737,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006452,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054913,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.519199,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071007,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.719209,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.989005,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.572917,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.427995,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.827404,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.639707,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045152,
             "unit": "seconds"
           }
         ]
