@@ -106,6 +106,10 @@ pub fn profileTailCall(vm: *VM, new_func: *types.Function) void {
 pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     vm_mod.setVMInstance(vm);
     vm.resetExecutionState();
+    // Clear the diagnostic code at entry (not in resetExecutionState, which also
+    // runs on the error-exit path *after* noteUncaughtException has recorded the
+    // escaping error's code — see the last_error_detail save/restore there).
+    vm.last_error_code = .uncategorized;
 
     // Each top-level form starts on the main fiber. A previous form may have
     // left the scheduler positioned on a spawned fiber, or the main fiber

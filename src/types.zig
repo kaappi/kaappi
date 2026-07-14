@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const build_options = @import("build_options");
+const diagnostics = @import("diagnostics.zig");
 
 /// A Scheme value packed into a 64-bit word (NaN-boxing).
 ///
@@ -410,6 +411,12 @@ pub const ErrorObject = struct {
     irritants: Value, // list
     error_type: ErrorType = .general,
     uncaught_reason: Value = VOID,
+    /// Stable diagnostic code (KEP-0005, #1504). Defaults to `.uncategorized`
+    /// for user errors — `(error ...)` — and any raise site not yet migrated;
+    /// implementation raise sites stamp a specific code. Carried on the object
+    /// so it survives catch/re-raise and is the seed the Phase-4
+    /// `error-object-code` accessor reads.
+    code: diagnostics.Code = .uncategorized,
 };
 
 pub const RecordType = struct {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
+const diagnostics = @import("diagnostics.zig");
 const Value = types.Value;
 const Object = types.Object;
 const ObjectTag = types.ObjectTag;
@@ -428,6 +429,15 @@ pub const GC = struct {
     }
 
     pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
+        return self.allocErrorObjectCoded(message, irritants, .uncategorized);
+    }
+
+    /// Like `allocErrorObject` but stamps a stable diagnostic code (KEP-0005).
+    /// Implementation raise sites that map to a specific registry code use this;
+    /// user errors and unmigrated sites use `allocErrorObject` (code
+    /// `.uncategorized`, which surfaces as the KP3000 "uncaught exception" code
+    /// at the top level).
+    pub fn allocErrorObjectCoded(self: *GC, message: Value, irritants: Value, code: diagnostics.Code) !Value {
         self.rootArgs2(message, irritants);
         try self.maybeCollect();
         self.clearArgRoots();
@@ -436,6 +446,7 @@ pub const GC = struct {
             .header = .{ .tag = .error_object },
             .message = message,
             .irritants = irritants,
+            .code = code,
         };
         self.finishAlloc(&err.header, @sizeOf(types.ErrorObject));
         return types.makePointer(@ptrCast(err));

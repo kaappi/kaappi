@@ -42,6 +42,7 @@ pub const ir_mod = @import("ir.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 pub const toplevel_driver = @import("toplevel_driver.zig");
+pub const diagnostics = @import("diagnostics.zig");
 pub const cli = @import("cli.zig");
 pub const config = @import("config.zig");
 
@@ -275,16 +276,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                         _ = top_result catch |err| {
                             script_had_error = true;
                             const detail = vm.getErrorDetail();
-                            if (detail.len > 0) {
-                                writeStderr("preamble error: ");
-                                writeStderr(detail);
-                                writeStderr("\n");
-                            } else {
-                                var errbuf: [256]u8 = undefined;
-                                const s = std.fmt.bufPrint(&errbuf, "preamble error: {}\n", .{err}) catch "preamble error\n";
-                                writeStderr(s);
-                            }
+                            const code = toplevel_driver.runtimeCode(vm, err);
+                            const msg = if (detail.len > 0) detail else code.message();
+                            var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+                            var errbuf: [256]u8 = undefined;
+                            const s = std.fmt.bufPrint(&errbuf, "preamble error[{s}]: {s}\n", .{ code.render(&cbuf), msg }) catch "preamble error\n";
+                            writeStderr(s);
                             vm.last_error_detail_len = 0;
+                            vm.last_error_code = .uncategorized;
                         };
                     }
                 }
@@ -299,15 +298,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 vm.gc.popRoot();
                 script_had_error = true;
                 const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    writeStderr(detail);
-                    writeStderr("\n");
-                } else {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
-                    writeStderr(s);
-                }
+                const code = toplevel_driver.runtimeCode(vm, err);
+                const msg = if (detail.len > 0) detail else code.message();
+                var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+                var errbuf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "error[{s}]: {s}\n", .{ code.render(&cbuf), msg }) catch "runtime error\n";
+                writeStderr(s);
                 vm.last_error_detail_len = 0;
+                vm.last_error_code = .uncategorized;
                 continue;
             };
             vm.gc.popRoot();
@@ -960,6 +958,7 @@ test {
     _ = llvm_emit;
     _ = native_compiler;
     _ = toplevel_driver;
+    _ = diagnostics;
     _ = repl_mod;
     _ = cli;
     _ = config;

@@ -118,9 +118,10 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Memory limit test
+# Memory limit test. The out-of-memory diagnostic is KP9002 (KEP-0005); match
+# the stable code, not the old leaked Zig error name ("OutOfMemory").
 output=$(echo '(define (eat n a) (if (= n 0) a (eat (- n 1) (cons n a)))) (eat 1000000 (list))' | "$KAAPPI" --max-memory 100000 2>&1 || true)
-if echo "$output" | grep -qF "OutOfMemory"; then
+if echo "$output" | grep -qF "KP9002"; then
     echo "PASS: --max-memory stops excessive allocation"
     PASS=$((PASS + 1))
 else

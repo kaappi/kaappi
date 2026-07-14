@@ -27,6 +27,7 @@ investigation produced analysis worth keeping.
 | [fuzzing.md](fuzzing.md) | Fuzzing runbook: the targets, the scheduled CI job, turning a failure into a regression test |
 | [github-actions.md](github-actions.md) | Workflow hardening rules: SHA-pinned actions, `persist-credentials: false`, least-privilege tokens |
 | [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) | Rooting, write barriers, and error propagation patterns contributors must follow |
+| [diagnostics.md](diagnostics.md) | Diagnostic `KP` codes: the registry, the taxonomy, the stability policy, how to add a code |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
 ## Design decisions
