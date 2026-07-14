@@ -45,6 +45,7 @@ pub const toplevel_driver = @import("toplevel_driver.zig");
 pub const diagnostics = @import("diagnostics.zig");
 pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
+pub const explain = @import("explain.zig");
 pub const config = @import("config.zig");
 
 pub const version = @import("build_options").version;
@@ -161,6 +162,15 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         _ = da.deinit();
     };
     const allocator = if (is_wasm) std.heap.wasm_allocator else if (is_debug) da.allocator() else std.heap.c_allocator;
+
+    // `kaappi explain <code>` is a pure query over the static diagnostic
+    // registry — no VM, GC, or library setup needed — so handle it before any
+    // of that exists and exit. (Skipped on WASM, whose entry just runs a file.)
+    if (comptime !is_wasm) {
+        if (explain.maybeRun(allocator, init.args)) |exit_code| {
+            std.process.exit(exit_code);
+        }
+    }
 
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
@@ -967,5 +977,6 @@ test {
     _ = lsp_diagnostic;
     _ = repl_mod;
     _ = cli;
+    _ = explain;
     _ = config;
 }

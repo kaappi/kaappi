@@ -23,13 +23,38 @@ test "code renders as KPnnnn" {
 }
 
 test "every code resolves to a complete registry entry" {
+    // Registry completeness gate (kaappi#1507 acceptance): no registered code
+    // may lack a name, message, explanation, or example. The comptime block in
+    // diagnostics.zig enforces the same at build time; this is the runtime
+    // mirror that fails loudly if a new code is added without documentation.
     for (std.enums.values(Code)) |c| {
         const d = diagnostics.lookup(c);
         try std.testing.expectEqual(c, d.code);
         try std.testing.expect(d.name.len > 0);
         try std.testing.expect(d.template.len > 0);
         try std.testing.expect(d.explanation.len > 0);
+        try std.testing.expect(d.example.len > 0);
     }
+}
+
+test "code stage is recovered from the leading digit" {
+    try std.testing.expectEqual(diagnostics.Stage.read, Code.unexpected_eof.stage());
+    try std.testing.expectEqual(diagnostics.Stage.compile, Code.syntax_error.stage());
+    try std.testing.expectEqual(diagnostics.Stage.runtime, Code.undefined_variable.stage());
+    try std.testing.expectEqual(diagnostics.Stage.internal, Code.out_of_memory.stage());
+}
+
+test "fromString resolves codes and rejects unknowns" {
+    // Accepts the KP number (with or without prefix, any case) and the name.
+    try std.testing.expectEqual(Code.undefined_variable, Code.fromString("KP3001").?);
+    try std.testing.expectEqual(Code.undefined_variable, Code.fromString("kp3001").?);
+    try std.testing.expectEqual(Code.undefined_variable, Code.fromString("3001").?);
+    try std.testing.expectEqual(Code.undefined_variable, Code.fromString("undefined-variable").?);
+    // Unknown ordinals, unknown names, and empty/partial input resolve to null.
+    try std.testing.expect(Code.fromString("KP9999") == null);
+    try std.testing.expect(Code.fromString("not-a-code") == null);
+    try std.testing.expect(Code.fromString("") == null);
+    try std.testing.expect(Code.fromString("KP") == null);
 }
 
 test "no two registry entries share a code" {

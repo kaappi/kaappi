@@ -250,9 +250,11 @@ pub fn printUsage() void {
             "\n" ++
             "Usage: kaappi [options] [file] [script-args...]\n" ++
             "       kaappi compile <file.scm> [-o output]\n" ++
+            "       kaappi explain <code>\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
+            "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++

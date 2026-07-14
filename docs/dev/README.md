@@ -29,6 +29,7 @@ investigation produced analysis worth keeping.
 | [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) | Rooting, write barriers, and error propagation patterns contributors must follow |
 | [diagnostics.md](diagnostics.md) | Diagnostic `KP` codes: the registry, the taxonomy, the stability policy, how to add a code |
 | [diagnostics-json.md](diagnostics-json.md) | `--diagnostics=json`: the LSP `Diagnostic` JSON Lines schema shared by the CLI and the language server |
+| [explain.md](explain.md) | `kaappi explain <code>`: the binary's own offline diagnostic reference (prose + example + fix), and the generator for the kaappi-lang.org page |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
 ## Design decisions

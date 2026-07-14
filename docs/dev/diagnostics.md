@@ -15,30 +15,36 @@ and `tests/scheme/errors/error-format.sh`
 This is the keystone of the "machine legibility" campaign
 ([kaappi#1503](https://github.com/kaappi/kaappi/issues/1503)); the design record
 is [KEP-0005](https://github.com/kaappi/keps/blob/main/keps/0005-diagnostic-contract.md).
-Later phases (`--diagnostics=json`, `kaappi explain`, `error-object-code`) all
-read from this one registry.
+Everything else in the campaign (`--diagnostics=json`, `kaappi explain`,
+`error-object-code`) reads from this one registry.
 
-For the structured JSON form of these same diagnostics (the LSP `Diagnostic`
-shape emitted by `--diagnostics=json`), see
-[diagnostics-json.md](diagnostics-json.md).
+Related surfaces built on the registry:
+
+- [diagnostics-json.md](diagnostics-json.md) — the structured JSON form of these
+  diagnostics (the LSP `Diagnostic` shape emitted by `--diagnostics=json`).
+- [explain.md](explain.md) — `kaappi explain <code>`, the binary's own offline
+  diagnostic reference (prose + example + fix for every code).
 
 ---
 
 ## The registry
 
 `src/diagnostics.zig` is the single source of truth. One comptime `table` binds
-together, per diagnostic, the three things that used to live apart:
+together, per diagnostic, the things that used to live apart:
 
 - **the code** — a `Code` enum value whose *integer is the KP number*, so
   `undefined_variable = 3001` renders as `"KP3001"`;
 - **the message template** — the human message (currently a complete sentence;
   it gains `{…}` placeholders as raise sites pass structured arguments);
-- **the explanation** — prose for `kaappi explain <code>` (surfaced in a later
-  phase; populated now so the registry is complete).
+- **the explanation** — prose surfaced by [`kaappi explain <code>`](explain.md),
+  which weaves in how to fix the diagnostic;
+- **the example** — a minimal snippet that triggers the code, also shown by
+  `kaappi explain`.
 
 A `comptime` block enforces registry integrity *at build time*: every `Code` has
 exactly one entry, no two entries collide, and every entry has a non-empty name,
-template, and explanation. A malformed registry fails `zig build`.
+template, explanation, and example. A malformed registry fails `zig build`; the
+runtime mirror of the same check lives in `src/tests_diagnostics.zig`.
 
 ## The taxonomy
 
@@ -130,8 +136,8 @@ in their stage range.
 ## Adding a new code
 
 1. Add a `Code` enum value in the right stage range with the next free ordinal,
-   and a matching `table` entry (name, template, explanation). The comptime gate
-   fails the build if you forget the entry or collide a number.
+   and a matching `table` entry (name, template, explanation, example). The
+   comptime gate fails the build if you forget the entry or collide a number.
 2. Route the raise site to it:
    - reader/compiler: add the `error.Xxx => .your_code` arm to
      `readErrorCode` / `compileErrorCode`;
@@ -140,5 +146,7 @@ in their stage range.
      `gc.allocErrorObjectCoded(msg, irritants, .your_code)`.
 3. Add assertions to `tests/scheme/errors/error-format.sh` (the code appears; no
    Zig name leaks) and, if useful, a unit test in `src/tests_diagnostics.zig`.
-4. Keep the explanation genuinely explanatory — it is what `kaappi explain` will
-   show.
+4. Keep the explanation genuinely explanatory and give a real triggering
+   `example` — they are what [`kaappi explain`](explain.md) shows, and
+   `tests/scheme/errors/explain.sh` runs every example to confirm it still
+   triggers its own code.

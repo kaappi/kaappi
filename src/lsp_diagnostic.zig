@@ -106,8 +106,9 @@ pub fn pointRange(line_1based: u32, col_1based: u32) Range {
 
 /// Write `s` as a JSON string literal (surrounding quotes included), escaping
 /// the characters JSON requires. Control characters below 0x20 that lack a
-/// short escape are emitted as `\uXXXX`.
-fn writeJsonString(w: *std.Io.Writer, s: []const u8) std.Io.Writer.Error!void {
+/// short escape are emitted as `\uXXXX`. Shared with `kaappi explain --json`
+/// (src/explain.zig) so both machine outputs escape identically.
+pub fn writeJsonString(w: *std.Io.Writer, s: []const u8) std.Io.Writer.Error!void {
     try w.writeByte('"');
     for (s) |c| {
         switch (c) {
