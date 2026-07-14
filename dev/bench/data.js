@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784005379309,
+  "lastUpdate": 1784017888627,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a9990f2a8405181e62e99e771b04cdb63fbc1799",
-          "message": "Add 15 missing SRFI-41 derived-library procedures (#1210) (#1330)\n\nImplements: define-stream, stream-let, stream-from, stream-range,\nstream-iterate, stream-constant, stream-take-while, stream-drop-while,\nstream-scan, stream-reverse, stream-concat, port->stream, stream-unfolds,\nstream-match, and stream-of.\n\nstream-match uses letrec-syntax to define the recursive pattern matcher\nat the use site, working around a Kaappi limitation with recursive macros\nin libraries. stream-of-aux is a separate exported-scope macro since its\n`in`/`is` literals must be visible at the use site for hygiene matching.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T20:38:09+05:30",
-          "tree_id": "2e329a9d7668f0cbd0b95645aaf405cacdc3f62b",
-          "url": "https://github.com/kaappi/kaappi/commit/a9990f2a8405181e62e99e771b04cdb63fbc1799"
-        },
-        "date": 1783524740465,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.310859,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.545597,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.00121,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.397169,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012764,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204368,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.498162,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072342,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.736101,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.930459,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.195214,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.007583,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.425284,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.731741,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044569,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045751,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e86f2319532a35b644d9ff9b4ccf1fea284118f",
+          "message": "Clear stale gap registers before call/cc continuation capture (#1464) (#1528)\n\n* Clear stale gap registers before call/cc continuation capture\n\nA full call/cc continuation snapshots the contiguous register range\n[0, max_reg), where max_reg is the highest live frame end. That range\nspans \"gap\" registers between live frame windows — slots vacated by\nreturned frames that still hold that frame's last heap pointer.\n\nmarkVMRoots only marks per-frame windows, so it never keeps a gap\ntarget alive; under gc-stress the collector frees it, leaving the gap\nregister dangling. captureContinuation copied the gap verbatim into the\nsnapshot, and marking that continuation later dereferenced the freed\nobject — a GC use-after-free the fuzz workflow hit as a segfault in\nmarkValueInner reading obj.owner (issue #1464).\n\nScrub the dead gap slots to UNDEFINED before the snapshot so it covers\nexactly what the root marker protects. Restore copies the snapshot back\nverbatim and no frame ever reads a gap slot, so this is\nbehavior-preserving.\n\nThe same contiguous-vs-per-frame inconsistency exists in the fiber\nsave/mark path (saveCurrentFiber + markFiberState); that sibling is\ntracked separately.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Make gap-register clearing allocation-free\n\nThe first cut allocated a per-capture bool bitmap and scanned the full\n[0, max_reg) range, regressing the call_cc benchmark ~1.9x (a tight\ncapture loop pays that cost on every call/cc).\n\nFrame bases are non-decreasing — every call places its callee's frame\npast the caller's base, and continuation restore preserves that order —\nso a single ordered sweep tracking the highest covered register finds\nthe gaps with no scratch buffer and touches only the gap slots. A debug\nassert guards the ordering invariant. The call_cc micro-benchmark is\nnow indistinguishable from baseline; the full suite stays green under\n-Dgc-stress=true.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T13:35:24+05:30",
+          "tree_id": "9b8e726da683419e8cfc953937d3c6784ee8c5a8",
+          "url": "https://github.com/kaappi/kaappi/commit/5e86f2319532a35b644d9ff9b4ccf1fea284118f"
+        },
+        "date": 1784017887131,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.446558,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.00399,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.907314,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.55037,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006476,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053896,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.518164,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069352,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.414555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.011509,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.566264,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429483,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.861097,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.635428,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042889,
             "unit": "seconds"
           }
         ]
