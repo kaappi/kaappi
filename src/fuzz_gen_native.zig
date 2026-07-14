@@ -102,19 +102,18 @@ const Ctx = struct {
     /// string — a lambda nested there would be interpreted invisibly to
     /// the emitter and break the gate's eval accounting.
     no_lambda: bool = false,
-    /// True inside inline-lambda bodies: the capturing closure tier rejects
-    /// bodies containing set! ANYWHERE — even of a let-local — via the
-    /// blanket syntactic scan sexprContainsSetOrDefine (#819), so a set!
-    /// there would drop the lambda to emitLambdaViaEval. (Define-position
-    /// lambdas go through tryCompileDefineFunction, whose free-var check
-    /// does not descend into let forms, so set! inside their lets is fine.)
-    /// Also true inside inline-call ARGUMENT subtrees in function bodies:
-    /// arguments run between closure creation (which snapshots captured
-    /// params by value) and the call, so a set! of a captured param there
-    /// diverges from the VM's location-based capture (#1422).
+    /// True inside inline-lambda bodies and inline-call ARGUMENT subtrees.
+    /// A set! of a *captured* variable there triggers assignment conversion
+    /// (#1497): the enclosing frame boxes the binding, or — when the capturing
+    /// lambda cannot itself be a native closure — the whole function falls back
+    /// to eval. Either outcome shifts the gate's exact `kaappi_eval` accounting,
+    /// so the generator keeps these positions set!-free rather than model
+    /// boxing. (Define-position lambdas go through tryCompileDefineFunction,
+    /// whose free-var check does not descend into let forms, so set! inside
+    /// their lets is fine.) The closure tier itself now rejects only an
+    /// internal `define` (sexprContainsDefine), not set!.
     /// Note: set! of a define-position function's own params is prevented
-    /// separately by pushing those params with settable=false — the #1422
-    /// guard rejects functions whose params are both set! and captured.
+    /// separately by pushing those params with settable=false.
     no_set: bool = false,
 };
 

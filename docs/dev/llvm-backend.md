@@ -63,6 +63,7 @@ functions that native code calls:
 | `kaappi_define_global` | Define a global variable |
 | `kaappi_make_string` | Allocate a string on the GC heap |
 | `kaappi_intern_symbol` | Intern a symbol via the GC symbol table (ensures `eq?` identity) |
+| `kaappi_make_box` / `kaappi_box_ref` / `kaappi_box_set` | Allocate / read / write a one-slot heap box for a captured+mutated variable (assignment conversion, see [Mutable captured variables](#mutable-captured-variables-assignment-conversion)) |
 | `kaappi_eval` | Parse, compile, and evaluate a Scheme expression |
 
 All functions use `callconv(.c)` and pass Values as plain `u64` (the
@@ -195,7 +196,10 @@ The three tiers, tried in order:
    discovered by free-variable analysis (`collectFreeVars`) and **copied by
    value** into an `%upvalues` array at closure-creation time (sourced from the
    enclosing frame's `%args`, or, for a lambda nested in another native closure,
-   chained out of that closure's own `%upvalues` — #1410). The closure value is
+   chained out of that closure's own `%upvalues` — #1410). A free variable the
+   enclosing frame **boxed** (see [Mutable captured
+   variables](#mutable-captured-variables-assignment-conversion)) is captured as
+   the box **pointer** instead, so mutations are shared. The closure value is
    materialized with `kaappi_create_native_closure`.
 
 2. **Closed lambda / named function** (`tryCompilePureLambdaAsNativeClosure`,
@@ -220,15 +224,41 @@ label rather than recursing (non-variadic named functions only).
 **Falls back to `kaappi_eval` when the body:**
 - contains an eval-fallback form (`letrec`, `cond`, `case`, `do`, `guard`,
   named `let`, …);
-- mutates or internally defines a captured variable — the by-value upvalue
-  model cannot express mutation, and snapshotting at creation time would
-  diverge from the VM's by-**location** closure semantics (#819, #1422);
-- captures a `let`-local or rest parameter that has no copyable slot; or
+- contains an internal `define` (the closure tier sets up no locals scope for
+  it), or a rest parameter that is captured and mutated (no box model yet);
+- captures an unmutated `let`-local, or a rest parameter, that has no copyable
+  slot; or
 - exceeds a fixed analysis limit (parameter/body-node/name buffers).
 
 The resulting value (native closure or eval'd closure) is uniformly callable
 via `kaappi_call_scheme`, which dispatches through the VM's `callWithArgs`
 (closures, native functions, continuations, etc.).
+
+### Mutable captured variables (assignment conversion)
+
+The by-value `%upvalues` copy above is correct only while a captured binding is
+never mutated. A binding that is both **captured** by a nested lambda and
+**mutated** (by `set!`, or an internal `define` that re-binds it) is instead
+**assignment-converted to a heap box** (`llvm_emit_lambda.zig`, #1497):
+
+- At the binding's site in the enclosing native frame — a boxed **parameter**
+  (`emitBoxedParamSlots`) or a boxed **`let`-local** (`emitLet`) — the value is
+  wrapped in a box (`kaappi_make_box`) and the frame slot holds the box
+  **pointer**. The slot is GC-rooted for the frame's lifetime.
+- Every read of the boxed name compiles to `kaappi_box_ref`, every `set!` to
+  `kaappi_box_set` (`emitGlobalRef` / `emitStoreToVariable`, which consult the
+  emitter's `boxes` map before params/upvalues).
+- A nested closure captures the **box pointer** by value. Because the pointer is
+  immutable and the box's contents are shared, a `set!` through any closure over
+  the binding is visible to all of them — matching the interpreter's
+  by-**location** closure semantics and fixing the #1422 divergence.
+
+A box is a one-slot heap cell represented internally as a pair `(value . '())`;
+boxes never escape to Scheme, so reusing the pair type keeps GC marking, the
+write barrier, and sweeping correct with no new heap type. Only captured **and**
+mutated bindings are boxed — everything else keeps the by-value fast path. Boxed
+frames disable the self-tail-call loop and lower their body non-tail so the box
+roots are popped at a single `ret`.
 
 ## Testing
 
@@ -248,6 +278,8 @@ environment variable controls the C compiler (defaults to `zig cc`).
 ### What's been stress-tested
 
 - Closures with message dispatch (`eq?` on quoted symbols)
+- Mutable captured variables — counters, accumulators, and closures sharing a
+  boxed binding (`native-mutable-capture.scm`, `native-set-captured.scm`)
 - Recursive functions on quoted data (`flatten`, `my-len`)
 - Error handling with `guard`
 - User-defined macros (`define-syntax`)

@@ -12,6 +12,13 @@ const NativeLambda = struct {
     is_variadic: bool,
 };
 
+fn nameInList(names: []const []const u8, name: []const u8) bool {
+    for (names) |n| {
+        if (std.mem.eql(u8, n, name)) return true;
+    }
+    return false;
+}
+
 pub const LLVMEmitter = struct {
     buf: std.ArrayList(u8),
     symbols: std.StringHashMap(u32),
@@ -34,6 +41,18 @@ pub const LLVMEmitter = struct {
     rest_param_alloca: ?[]const u8 = null,
     rest_param_name: ?[]const u8 = null,
     locals: ?std.StringHashMap([]const u8) = null,
+    // Boxed variables in the current frame (assignment conversion, #1497):
+    // name -> the alloca that holds the box POINTER. A boxed variable is both
+    // captured by a nested lambda and mutated; reads go through kaappi_box_ref
+    // and writes through kaappi_box_set, and nested closures capture the box
+    // pointer, restoring the interpreter's by-location semantics. Checked
+    // before params/upvalues in name resolution.
+    boxes: ?std.StringHashMap([]const u8) = null,
+    // Number of box-slot roots pushed at the current frame's entry that must be
+    // popped before the frame's `ret` (see emitLambdaFunction / the closure
+    // tier). Boxed frames disable tail-call emission so there is exactly one
+    // `ret` at which to pop.
+    frame_box_roots: usize = 0,
 
     pub const SavedScope = struct {
         buf: std.ArrayList(u8),
@@ -47,6 +66,8 @@ pub const LLVMEmitter = struct {
         rest_param_alloca: ?[]const u8,
         rest_param_name: ?[]const u8,
         locals: ?std.StringHashMap([]const u8),
+        boxes: ?std.StringHashMap([]const u8),
+        frame_box_roots: usize,
     };
 
     pub fn saveScope(self: *LLVMEmitter) SavedScope {
@@ -62,6 +83,8 @@ pub const LLVMEmitter = struct {
             .rest_param_alloca = self.rest_param_alloca,
             .rest_param_name = self.rest_param_name,
             .locals = self.locals,
+            .boxes = self.boxes,
+            .frame_box_roots = self.frame_box_roots,
         };
     }
 
@@ -77,6 +100,8 @@ pub const LLVMEmitter = struct {
         self.rest_param_alloca = s.rest_param_alloca;
         self.rest_param_name = s.rest_param_name;
         self.locals = s.locals;
+        self.boxes = s.boxes;
+        self.frame_box_roots = s.frame_box_roots;
     }
 
     pub fn init(backing: std.mem.Allocator) LLVMEmitter {
@@ -213,6 +238,9 @@ pub const LLVMEmitter = struct {
     // analysis in llvm_emit_lambda.zig: a shadowed name is a capture even
     // when a known global of the same name exists.
     pub fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
+        if (self.boxes) |bx| {
+            if (bx.get(name) != null) return true;
+        }
         if (self.locals) |loc| {
             if (loc.get(name) != null) return true;
         }
@@ -231,6 +259,18 @@ pub const LLVMEmitter = struct {
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
+
+        // A boxed variable's slot holds the box pointer; read through the box
+        // so a set! from any sibling closure over the same binding is visible.
+        if (self.boxes) |bx| {
+            if (bx.get(name)) |box_alloca| {
+                const boxptr = try self.freshTemp();
+                try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, box_alloca });
+                const tmp = try self.freshTemp();
+                try self.print("  {s} = call i64 @kaappi_box_ref(i64 {s})\n", .{ tmp, boxptr });
+                return tmp;
+            }
+        }
 
         if (self.locals) |loc| {
             if (loc.get(name)) |alloca_name| {
@@ -449,9 +489,14 @@ pub const LLVMEmitter = struct {
         if (lambda.sexprNeedsEvalFallback(args)) {
             return self.emitLetFallback(args, sequential);
         }
-        // #827: If the body contains a lambda that captures let-bound variable
-        // names, it cannot be compiled natively inside this scope (the lambda
-        // would be evaluated in the global environment, losing the bindings).
+        // #827/#1497: A body lambda that captures a let-bound variable cannot
+        // be compiled natively unless that variable is boxed — the native
+        // closure tier rejects by-value capture of let-locals. A captured var
+        // that is also mutated is assignment-converted to a heap box (#1497);
+        // a captured but unmutated var has no box, so the whole let falls back
+        // to the interpreter (which handles the scope correctly).
+        var box_names: [32][]const u8 = undefined;
+        var box_count: usize = 0;
         {
             var var_names: [32][]const u8 = undefined;
             var name_count: usize = 0;
@@ -464,9 +509,35 @@ pub const LLVMEmitter = struct {
                     name_count += 1;
                 }
             }
-            if (name_count > 0 and lambda.bodyHasCapturingLambda(body_list, var_names[0..name_count])) {
-                return self.emitLetFallback(args, sequential);
+            for (var_names[0..name_count]) |v| {
+                if (!lambda.bodyHasCapturingLambda(body_list, (&v)[0..1])) continue;
+                if (!lambda.sexprBodySetsName(body_list, v)) {
+                    return self.emitLetFallback(args, sequential);
+                }
+                box_names[box_count] = v;
+                box_count += 1;
             }
+        }
+        const any_boxed = box_count > 0;
+
+        // Boxed lets lower their body non-tail so the binding roots (which hold
+        // the box pointers) are always popped at the fall-through, never
+        // stranded past an in-body tail-call ret.
+        const body_tail = is_tail and !any_boxed;
+
+        // Box map scope for this let, extending any enclosing frame's boxes.
+        const saved_boxes = self.boxes;
+        var owns_boxes = false;
+        defer if (owns_boxes) {
+            if (self.boxes) |*b| b.deinit();
+            self.boxes = saved_boxes;
+        };
+        if (any_boxed) {
+            self.boxes = if (saved_boxes) |existing|
+                existing.clone() catch return error.OutOfMemory
+            else
+                std.StringHashMap([]const u8).init(self.allocator());
+            owns_boxes = true;
         }
 
         const saved_locals = self.locals;
@@ -504,7 +575,15 @@ pub const LLVMEmitter = struct {
                 const val = self.emitNode(node) catch {
                     return self.abandonLetForFallback(args, sequential, saved_locals, count);
                 };
-                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                // A captured+mutated let-local is stored as a heap box; the
+                // alloca (rooted below) then holds the box pointer (#1497).
+                if (nameInList(box_names[0..box_count], types.symbolName(var_sym))) {
+                    const box = try self.freshTemp();
+                    try self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, val });
+                    try self.print("  store i64 {s}, ptr {s}\n", .{ box, alloca });
+                } else {
+                    try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                }
                 try self.emitRootPushAlloca(alloca);
 
                 binding_allocas[count] = alloca;
@@ -514,7 +593,11 @@ pub const LLVMEmitter = struct {
             }
 
             for (0..count) |i| {
-                self.locals.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
+                if (nameInList(box_names[0..box_count], var_names[i])) {
+                    self.boxes.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
+                } else {
+                    self.locals.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
+                }
             }
             binding_root_count = count;
         } else {
@@ -535,10 +618,19 @@ pub const LLVMEmitter = struct {
                 };
                 const alloca = try self.freshTemp();
                 try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                // Box a captured+mutated let*-local; later inits in this same
+                // let* then read it through the box (#1497).
+                if (nameInList(box_names[0..box_count], types.symbolName(var_sym))) {
+                    const box = try self.freshTemp();
+                    try self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, val });
+                    try self.print("  store i64 {s}, ptr {s}\n", .{ box, alloca });
+                    self.boxes.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
+                } else {
+                    try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                    self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
+                }
                 try self.emitRootPushAlloca(alloca);
                 binding_root_count += 1;
-                self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
                 blist = types.cdr(blist);
             }
         }
@@ -547,7 +639,7 @@ pub const LLVMEmitter = struct {
         var body_expr = body_list;
         while (body_expr != types.NIL and types.isPair(body_expr)) {
             const rest = types.cdr(body_expr);
-            const expr_is_tail = is_tail and (rest == types.NIL or !types.isPair(rest));
+            const expr_is_tail = body_tail and (rest == types.NIL or !types.isPair(rest));
             const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
                 return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
             };
@@ -797,6 +889,16 @@ pub const LLVMEmitter = struct {
     // Resolution order mirrors emitGlobalRef's read path so writes and reads
     // reach the same binding.
     fn emitStoreToVariable(self: *LLVMEmitter, name: []const u8, val: []const u8) EmitError!void {
+        // A boxed variable is mutated through its heap cell so the new value is
+        // visible to every closure that captured the same box (#1497).
+        if (self.boxes) |bx| {
+            if (bx.get(name)) |box_alloca| {
+                const boxptr = try self.freshTemp();
+                try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, box_alloca });
+                try self.print("  call void @kaappi_box_set(i64 {s}, i64 {s})\n", .{ boxptr, val });
+                return;
+            }
+        }
         if (self.locals) |loc| {
             if (loc.get(name)) |alloca_name| {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca_name });
