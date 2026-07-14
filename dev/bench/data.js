@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784036292757,
+  "lastUpdate": 1784037342129,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0c839a7b22d5058508cc1ea0d977846c3087cf4a",
-          "message": "Fix SRFI-125 hash-table-ref/update! success proc, hash-table-find result, and add 21 missing exports (#1229) (#1337)\n\nThree bug classes:\n\n1. hash-table-ref and hash-table-update! ignored the optional success\n   procedure — (hash-table-ref ht key failure success) now calls\n   (success value) when the key is present and success is provided.\n\n2. hash-table-find returned (cons key value) instead of the true value\n   produced by proc, per the SRFI-125 spec.\n\n3. 21 procedures required by SRFI-125 were missing from the export list:\n   - 10 re-exported from SRFI-69: hash-table-walk, hash-table-exists?,\n     hash-table-update!/default, alist->hash-table, hash, string-hash,\n     string-ci-hash, hash-by-identity, hash-table-equivalence-function,\n     hash-table-hash-function\n   - 11 new implementations: hash-table-unfold, hash-table=?,\n     hash-table-mutable?, hash-table-pop!, hash-table-clear!,\n     hash-table-map, hash-table-map!, hash-table-prune!,\n     hash-table-empty-copy, hash-table-merge!, hash-table-xor!\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T23:33:11+05:30",
-          "tree_id": "0e03fc4ba8cca9e637bbb996b0b664001944733c",
-          "url": "https://github.com/kaappi/kaappi/commit/0c839a7b22d5058508cc1ea0d977846c3087cf4a"
-        },
-        "date": 1783535615012,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.323565,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.78318,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.754312,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.275191,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012935,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.201975,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.375485,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054565,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.393796,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.441351,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.156351,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.008789,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.094314,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.876814,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03549,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044725,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2893437433dbcfc754488624b7a64ed727bc6778",
+          "message": "Add regression test for nested-wait dirty-snapshot hazard (#1490) (#1536)\n\nIssue #1490 is the same dirty-snapshot dispatch corruption as #1487, already\nfixed by the generic `driving` guard in #1521 (which merged ~10h after #1490\nwas filed). It reaches the hazard through a distinct trigger, though:\nreactor-timer theft. A spawned fiber's blocking wait, nested inside another\nfiber's live `thread-sleep!` drive, parks in the reactor bounded by the\nnearest timer in the shared heap -- which is the *ancestor's* own sleep\ntimer. That timer pop flips the ancestor `.suspended`; without the `driving`\nguard the nested drive would then re-dispatch the ancestor from its stale,\nmid-native-call snapshot, surfacing as `panic: integer overflow` in\ninvokeEscape.\n\nThe existing regression test (mutex-nested-dispatch-dirty-snapshot-1487.scm)\nonly exercises the mutex-unlock wake trigger, and the local channel wait\npaths #1490 names had no coverage. This adds an end-to-end test over all four\nblocking primitives (channel-receive, full-bounded channel-send, mutex-lock!,\ncondition-variable wait), each nested under a thread-sleep! loop -- also\ncompleting the condvar/channel end-to-end repro deliberately deferred in\n#1521's review.\n\nVerified via A/B (scheduleForDispatch -> scheduleImpl(false)): every scenario\ncrashes without the guard and passes with it.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T13:30:55Z",
+          "tree_id": "70bc0e816efeb6aad7bbddf90f2911922975ff1b",
+          "url": "https://github.com/kaappi/kaappi/commit/2893437433dbcfc754488624b7a64ed727bc6778"
+        },
+        "date": 1784037340718,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.2898,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.89474,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.911326,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.428838,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006369,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054086,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503355,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069699,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.385955,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.955635,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.589243,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434188,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.881448,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.467774,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045488,
             "unit": "seconds"
           }
         ]
