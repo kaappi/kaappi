@@ -253,6 +253,43 @@ pub export fn kaappi_is_null(v: u64) callconv(.c) u64 {
     return if (v == types.NIL) types.TRUE else types.FALSE;
 }
 
+// --- Boxed mutable variables (assignment conversion, #1497) ---
+//
+// The native backend represents a captured-and-mutated variable as a heap
+// "box": closures capture the box POINTER by value, and every read/write goes
+// through the box, so a mutation is visible to all closures that share the
+// binding — matching the interpreter's by-location closure semantics.
+//
+// A box is a one-slot cell represented as a pair (value . '()). Boxes never
+// escape to Scheme code (they are an internal codegen artifact), so reusing the
+// pair type keeps the GC's existing marking, write barrier, and sweeping
+// correct for free.
+
+pub export fn kaappi_make_box(vm: ?*vm_mod.VM, init: u64) callconv(.c) u64 {
+    const v = vm orelse {
+        _ = std.posix.system.write(2, "make-box: null vm\n", 18);
+        std.process.exit(1);
+    };
+    // allocPair roots `init` internally before it may collect, so a young
+    // initial value survives a GC triggered by this very allocation.
+    return v.gc.allocPair(init, types.NIL) catch {
+        _ = std.posix.system.write(2, "OOM: failed to allocate box\n", 28);
+        std.process.exit(1);
+    };
+}
+
+pub export fn kaappi_box_ref(box: u64) callconv(.c) u64 {
+    return types.car(box);
+}
+
+pub export fn kaappi_box_set(box: u64, val: u64) callconv(.c) void {
+    // Write barrier before the store: a box promoted to the old generation
+    // that starts pointing at a young value must be recorded, or the young
+    // value is swept out from under it on the next minor collection.
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(box), val);
+    types.setCar(box, val);
+}
+
 pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
     const v = vm orelse {
         _ = std.posix.system.write(2, "null vm\n", 8);

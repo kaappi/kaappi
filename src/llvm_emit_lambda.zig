@@ -50,8 +50,10 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
 
     if (rest_name != null) return null;
 
-    // #1422: reject if a param is both set! and captured by a nested lambda.
-    if (bodyHasConflictingSetCapture(body_list, param_names[0..arity], null)) return null;
+    // #1497: a param that is both set! and captured by a nested lambda is
+    // assignment-converted to a heap box rather than rejected.
+    const boxed = analyzeBoxedParams(body_list, param_names[0..arity], null);
+    if (boxed.rest_conflict) return null;
 
     var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
@@ -64,7 +66,10 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
+        // Boxed frames are lowered non-tail so box roots can be popped at a
+        // single ret (see emitLambdaFunction).
+        const is_tail = !boxed.any and types.cdr(body_expr) == types.NIL;
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, is_tail) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);
@@ -75,7 +80,7 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     @memcpy(allowed[0..arity], param_names[0..arity]);
     if (hasFreeVars(self, body_nodes[0..body_count], allowed[0..arity])) return null;
 
-    const fn_name = emitLambdaFunction(self, data.name, param_names[0..arity], body_nodes[0..body_count], rest_name) orelse return null;
+    const fn_name = emitLambdaFunction(self, data.name, param_names[0..arity], body_nodes[0..body_count], rest_name, boxed) orelse return null;
 
     const closure_name = data.name orelse "(lambda)";
     const name_str = self.internString(closure_name) catch return null;
@@ -90,14 +95,17 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     if (body_list == types.NIL) return null;
     if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
 
-    // A closure copies its captured variables by value into an upvalue array,
-    // so a set! (or internal define) that mutates a captured binding cannot be
-    // represented natively. Reject any body containing set!/define and let the
-    // interpreter handle it (#819).
+    // An internal define in a closure body needs a locals scope the closure
+    // tier does not set up, so reject it (#819). A set! is now allowed: a
+    // captured binding it mutates is assignment-converted to a box by the
+    // enclosing frame (#1497), and a set! of the closure's own param/local
+    // resolves to that slot. The per-free-variable guard below refuses any
+    // set! of a captured variable that was NOT boxed, so a by-value upvalue is
+    // never mutated in place.
     {
         var be = body_list;
         while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
-            if (sexprContainsSetOrDefine(types.car(be))) return null;
+            if (sexprContainsDefine(types.car(be))) return null;
         }
     }
 
@@ -122,6 +130,10 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         plist = types.cdr(plist);
     }
 
+    // The closure's own params may themselves be captured+mutated by a lambda
+    // nested inside this closure (double nesting), needing their own boxes.
+    const own_boxed = analyzeBoxedParams(body_list, param_names[0..arity], null);
+
     var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them
@@ -133,7 +145,10 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
+        // A closure with own boxed params lowers non-tail so its box roots pop
+        // at a single ret (see the closure body emission below).
+        const is_tail = !own_boxed.any and types.cdr(body_expr) == types.NIL;
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, is_tail) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);
@@ -147,14 +162,27 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     const outer_params = self.params orelse return null;
     const outer_upvalues = self.upvalues;
-    for (free_vars[0..free_count]) |fv| {
-        // Captures are copied out of the enclosing frame at closure-creation
-        // time: params from its %args, and — when this lambda sits inside
-        // another native closure — chained captures from that closure's own
-        // %upvalues array (#1410). A name bound by an enclosing let-local or
-        // rest parameter (which outrank params in emitGlobalRef's resolution
-        // order) has no capturable slot, and any other name is unknown here;
-        // reject those and let the eval fallback handle the lambda.
+    const outer_boxes = self.boxes;
+    // Classify each capture: a variable the enclosing frame boxed is captured
+    // as the box POINTER (fv_boxed), so a set! from any sibling closure over
+    // the same binding is visible here; everything else is captured by value.
+    var fv_boxed: [16]bool = @splat(false);
+    for (free_vars[0..free_count], 0..) |fv, i| {
+        if (outer_boxes) |ob| {
+            if (ob.contains(fv)) {
+                fv_boxed[i] = true;
+                continue;
+            }
+        }
+        // A set! of a captured variable that was NOT boxed would mutate the
+        // by-value upvalue copy alone, diverging from the interpreter's
+        // by-location semantics (#1422). Refuse; the interpreter handles it.
+        if (sexprBodySetsName(body_list, fv)) return null;
+        // By-value captures are copied out of the enclosing frame at
+        // closure-creation time: params from its %args, and — when this lambda
+        // sits inside another native closure — chained captures from that
+        // closure's own %upvalues array (#1410). A name bound by an enclosing
+        // let-local or rest parameter has no capturable slot; reject those.
         if (localsOrRestShadows(self, fv)) return null;
         if (outer_params.contains(fv)) continue;
         if (outer_upvalues) |uv| {
@@ -202,15 +230,45 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         self.params = p;
         self.upvalues = uv_map;
 
+        // Boxed captures and own boxed params get a fresh box map for this
+        // frame; reads/writes go through kaappi_box_ref / kaappi_box_set.
+        self.boxes = if (own_boxed.any or freeVarsAnyBoxed(fv_boxed[0..free_count]))
+            std.StringHashMap([]const u8).init(self.backing_alloc)
+        else
+            null;
+        defer if (self.boxes) |*b| b.deinit();
+        self.frame_box_roots = 0;
+
         const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch return null;
         defer self.allocator().free(header);
         self.write(header) catch return null;
+
+        // A boxed captured variable's box pointer lives in its upvalue slot;
+        // mirror it into a local alloca so name resolution reads/writes it
+        // through the box. No GC root needed — the box stays reachable via the
+        // live closure's upvalue array for the whole call.
+        for (free_vars[0..free_count], 0..) |fv, i| {
+            if (!fv_boxed[i]) continue;
+            const box_alloca = self.freshTemp() catch return null;
+            self.print("  {s} = alloca i64, align 8\n", .{box_alloca}) catch return null;
+            const gep = self.freshTemp() catch return null;
+            self.print("  {s} = getelementptr i64, ptr %upvalues, i64 {d}\n", .{ gep, i }) catch return null;
+            const boxptr = self.freshTemp() catch return null;
+            self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, gep }) catch return null;
+            self.print("  store i64 {s}, ptr {s}\n", .{ boxptr, box_alloca }) catch return null;
+            (self.boxes orelse return null).put(fv, box_alloca) catch return null;
+        }
+
+        if (own_boxed.any and !emitBoxedParamSlots(self, param_names[0..arity], own_boxed)) return null;
 
         var last_val: []const u8 = "";
         for (body_nodes[0..body_count]) |node| {
             last_val = self.emitNode(node) catch return null;
         }
 
+        if (self.frame_box_roots > 0) {
+            self.print("  call void @kaappi_gc_pop_roots(i64 {d})\n", .{self.frame_box_roots}) catch return null;
+        }
         self.print("  ret i64 {s}\n}}\n", .{last_val}) catch return null;
 
         fn_buf = self.buf;
@@ -223,6 +281,15 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     self.print("  {s} = alloca [{d} x i64], align 8\n", .{ uv_alloca, free_count }) catch return null;
     for (free_vars[0..free_count], 0..) |fv, i| {
         const val = blk: {
+            // A boxed capture is stored as its box POINTER, loaded from the
+            // enclosing frame's box slot; the box's contents (the live value)
+            // are shared, so a set! from any closure over it is visible (#1497).
+            if (fv_boxed[i]) {
+                const box_alloca = outer_boxes.?.get(fv).?;
+                const v = self.freshTemp() catch return null;
+                self.print("  {s} = load i64, ptr {s}\n", .{ v, box_alloca }) catch return null;
+                break :blk v;
+            }
             if (outer_params.get(fv)) |idx| {
                 const gep_src = self.freshTemp() catch return null;
                 self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep_src, idx }) catch return null;
@@ -256,6 +323,29 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 // them. Leaving any of them out surfaces as "undefined variable" (or a
 // silently wrong value when a same-named global exists) at run time (#1410).
 pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
+    // A boxed captured variable cannot be republished as a global: a global
+    // holds a by-value snapshot, and re-reading a boxed param/upvalue here
+    // would capture the value *before* a later set!, reintroducing the exact
+    // #1422 divergence (seen when a captured+mutated variable is captured by a
+    // lambda that itself falls back to eval — e.g. a variadic inner lambda).
+    // Signal failure so the whole enclosing native frame aborts and the
+    // interpreter, which honors by-location semantics, handles it (#1497).
+    if (self.boxes) |bx| {
+        if (bx.count() > 0) {
+            if (self.params) |p| {
+                var it = p.keyIterator();
+                while (it.next()) |k| {
+                    if (bx.contains(k.*)) return error.UnsupportedNodeType;
+                }
+            }
+            if (self.upvalues) |uv| {
+                var it = uv.keyIterator();
+                while (it.next()) |k| {
+                    if (bx.contains(k.*)) return error.UnsupportedNodeType;
+                }
+            }
+        }
+    }
     if (self.params) |p| {
         var iter = p.iterator();
         while (iter.next()) |entry| {
@@ -363,8 +453,11 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
         param_list = types.cdr(param_list);
     }
 
-    // #1422: reject if a param is both set! and captured by a nested lambda.
-    if (bodyHasConflictingSetCapture(body, param_names[0..arity], rest_name)) return null;
+    // #1497: params that are both set! and captured by a nested lambda are
+    // assignment-converted to heap boxes. A captured+mutated rest parameter
+    // has no box model yet — fall back to the interpreter for it.
+    const boxed = analyzeBoxedParams(body, param_names[0..arity], rest_name);
+    if (boxed.rest_conflict) return null;
 
     var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
@@ -387,7 +480,9 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
+        // Boxed frames lower non-tail so box roots pop at a single ret.
+        const is_tail = !boxed.any and types.cdr(body_expr) == types.NIL;
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, is_tail) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);
@@ -403,10 +498,10 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
     allowed[arity + extra] = name;
     if (hasFreeVars(self, body_nodes[0..body_count], allowed[0 .. arity + extra + 1])) return null;
 
-    return emitLambdaFunction(self, name, param_names[0..arity], body_nodes[0..body_count], rest_name);
+    return emitLambdaFunction(self, name, param_names[0..arity], body_nodes[0..body_count], rest_name, boxed);
 }
 
-fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node, rest_name: ?[]const u8) ?[]const u8 {
+fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node, rest_name: ?[]const u8, boxed: BoxAnalysis) ?[]const u8 {
     const id = self.lambda_counter;
     self.lambda_counter += 1;
     const fn_name = std.fmt.allocPrint(self.allocator(), "@lambda_{d}", .{id}) catch return null;
@@ -414,6 +509,16 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     if (name) |n| {
         self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len), .is_variadic = rest_name != null }) catch {};
     }
+
+    // The native_fns entry is registered up front so a self-recursive tail call
+    // in the body can resolve to it, but body emission can still fail (e.g. an
+    // eval fallback that captures a boxed variable, #1497). If it does, remove
+    // the stale entry — otherwise a call site would emit a direct call to a
+    // @lambda_N that was never defined.
+    var success = false;
+    defer if (!success) {
+        if (name) |n| _ = self.native_fns.fetchRemove(n);
+    };
 
     var fn_buf: std.ArrayList(u8) = .empty;
     {
@@ -427,6 +532,12 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // time — so an upvalue map inherited from the enclosing emission
         // scope must not leak into body emission or bindParamsAsGlobals.
         self.upvalues = null;
+        // A fresh box map for this frame's own boxed params (assignment
+        // conversion, #1497). The enclosing frame's boxes are out of scope in
+        // a closed function.
+        self.boxes = if (boxed.any) std.StringHashMap([]const u8).init(self.backing_alloc) else null;
+        defer if (self.boxes) |*b| b.deinit();
+        self.frame_box_roots = 0;
 
         var p = std.StringHashMap(u8).init(self.backing_alloc);
         defer p.deinit();
@@ -437,8 +548,11 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
 
         const body_lbl = std.fmt.allocPrint(self.allocator(), "body_{d}", .{id}) catch return null;
 
-        self.current_fn_name = if (rest_name == null) name else null;
-        self.body_label = if (rest_name == null) body_lbl else null;
+        // A boxed frame disables the self-tail-call loop: each activation needs
+        // its own fresh boxes, and the body is lowered non-tail so there is a
+        // single ret at which to pop the box roots.
+        self.current_fn_name = if (rest_name == null and !boxed.any) name else null;
+        self.body_label = if (rest_name == null and !boxed.any) body_lbl else null;
         self.current_block = body_lbl;
         self.rest_param_name = rest_name;
         self.rest_param_alloca = null;
@@ -451,11 +565,16 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
             emitRestListBuilder(self, param_names.len) catch return null;
         }
 
+        if (boxed.any and !emitBoxedParamSlots(self, param_names, boxed)) return null;
+
         var last_val: []const u8 = "";
         for (body_nodes) |node| {
             last_val = self.emitNode(node) catch return null;
         }
 
+        if (self.frame_box_roots > 0) {
+            self.print("  call void @kaappi_gc_pop_roots(i64 {d})\n", .{self.frame_box_roots}) catch return null;
+        }
         self.print("  ret i64 {s}\n}}\n", .{last_val}) catch return null;
 
         fn_buf = self.buf;
@@ -464,6 +583,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
     self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
 
+    success = true;
     return fn_name;
 }
 
@@ -649,63 +769,133 @@ fn localsOrRestShadows(self: *LLVMEmitter, name: []const u8) bool {
     return false;
 }
 
-// True if the raw S-expression contains a set! or define form anywhere (not
-// descending into quoted data). Used to reject closure bodies that mutate or
-// rebind captured state, which the native upvalue-copy model cannot express.
-fn sexprContainsSetOrDefine(expr: types.Value) bool {
-    if (!types.isPair(expr)) return false;
-    const head = types.car(expr);
-    if (types.isSymbol(head)) {
-        const h = types.symbolName(head);
-        if (std.mem.eql(u8, h, "set!") or std.mem.eql(u8, h, "define")) return true;
-        if (std.mem.eql(u8, h, "quote")) return false;
-    }
-    var cur = expr;
-    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
-        if (sexprContainsSetOrDefine(types.car(cur))) return true;
+// True if any of the parallel fv_boxed flags is set — i.e. this closure
+// captures at least one boxed variable and therefore needs a box map.
+fn freeVarsAnyBoxed(fv_boxed: []const bool) bool {
+    for (fv_boxed) |b| {
+        if (b) return true;
     }
     return false;
 }
 
-// True if the function body has a parameter that is both targeted by set!
-// and captured by a nested lambda.  The native upvalue-copy model snapshots
-// at closure creation, so a later set! of the same param is invisible to
-// the closure — diverging from the VM's by-location semantics (#1422).
-fn bodyHasConflictingSetCapture(body_list: Value, param_names: []const []const u8, rest_name: ?[]const u8) bool {
-    const total = param_names.len + @as(usize, if (rest_name != null) 1 else 0);
-    if (total == 0) return false;
-    var set_flags: [17]bool = @splat(false);
+// True if the raw S-expression contains an internal define anywhere (not
+// descending into quoted data). Used to reject closure bodies with an internal
+// define, which needs a locals scope the closure tier does not set up. A set!
+// is allowed — captured bindings it mutates are boxed by the enclosing frame
+// (#1497).
+fn sexprContainsDefine(expr: types.Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const h = types.symbolName(head);
+        if (std.mem.eql(u8, h, "define")) return true;
+        if (std.mem.eql(u8, h, "quote")) return false;
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprContainsDefine(types.car(cur))) return true;
+    }
+    return false;
+}
 
+// Per-frame assignment-conversion analysis (#1497). A native function's own
+// binding needs boxing when it is BOTH mutated (a set! target somewhere in the
+// body, including inside nested lambdas) AND captured by a nested lambda. Such
+// a binding is materialized as a heap box so a later set! is visible through
+// every closure that captured it — restoring the VM's by-location semantics.
+// Bindings that are only mutated, or only captured, keep the by-value fast path.
+pub const BoxAnalysis = struct {
+    // Parallel to the param_names passed to analyzeBoxedParams; flags[i] true
+    // means fixed parameter i needs a box.
+    flags: [16]bool = @splat(false),
+    // A captured+mutated rest parameter cannot be boxed by the current model;
+    // callers must reject native compilation (fall back to the interpreter).
+    rest_conflict: bool = false,
+    any: bool = false,
+};
+
+fn analyzeBoxedParams(body_list: Value, param_names: []const []const u8, rest_name: ?[]const u8) BoxAnalysis {
+    var result = BoxAnalysis{};
+    if (param_names.len == 0 and rest_name == null) return result;
+
+    // Which params / rest are assigned anywhere in the body.
+    var set_flags: [17]bool = @splat(false);
     var expr = body_list;
     while (expr != types.NIL and types.isPair(expr)) : (expr = types.cdr(expr)) {
         sexprCollectSetTargets(types.car(expr), param_names, rest_name, &set_flags);
     }
 
-    var any = false;
-    for (set_flags[0..total]) |f| {
-        if (f) {
-            any = true;
-            break;
-        }
-    }
-    if (!any) return false;
-
-    var flagged: [17][]const u8 = undefined;
-    var flagged_count: usize = 0;
+    // A binding needs boxing only if it is also captured by a nested lambda.
     for (param_names, 0..) |p, i| {
-        if (set_flags[i]) {
-            flagged[flagged_count] = p;
-            flagged_count += 1;
+        if (i >= 16) break;
+        if (set_flags[i] and bodyHasCapturingLambda(body_list, &.{p})) {
+            result.flags[i] = true;
+            result.any = true;
         }
     }
     if (rest_name) |rn| {
-        if (set_flags[param_names.len]) {
-            flagged[flagged_count] = rn;
-            flagged_count += 1;
+        if (set_flags[param_names.len] and bodyHasCapturingLambda(body_list, &.{rn})) {
+            result.rest_conflict = true;
         }
     }
+    return result;
+}
 
-    return bodyHasCapturingLambda(body_list, flagged[0..flagged_count]);
+// True if the body ever assigns `name` with (set! name ...), not descending
+// into quoted data. Used by the closure tier to verify that a captured
+// variable it mutates was actually boxed by the enclosing frame, and by
+// emitLet to decide which captured let-locals to box (#1497).
+pub fn sexprBodySetsName(body_list: Value, name: []const u8) bool {
+    var expr = body_list;
+    while (expr != types.NIL and types.isPair(expr)) : (expr = types.cdr(expr)) {
+        if (sexprSetsName(types.car(expr), name)) return true;
+    }
+    return false;
+}
+
+fn sexprSetsName(expr: Value, name: []const u8) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const h = types.symbolName(head);
+        if (std.mem.eql(u8, h, "quote")) return false;
+        if (std.mem.eql(u8, h, "set!")) {
+            const rest = types.cdr(expr);
+            if (types.isPair(rest) and types.isSymbol(types.car(rest)) and
+                std.mem.eql(u8, types.symbolName(types.car(rest)), name)) return true;
+        }
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprSetsName(types.car(cur), name)) return true;
+    }
+    return false;
+}
+
+// Materialize box slots for the boxed fixed params of the current frame. Runs
+// at function entry (params live in %args): loads each incoming value, boxes
+// it, stores the box pointer in a fresh alloca, GC-roots the alloca, and
+// registers the name in self.boxes. Increments self.frame_box_roots so the
+// caller pops the roots before the frame's ret. Returns false on OOM.
+fn emitBoxedParamSlots(self: *LLVMEmitter, param_names: []const []const u8, analysis: BoxAnalysis) bool {
+    var pushed: usize = 0;
+    for (param_names, 0..) |pname, i| {
+        if (i >= 16 or !analysis.flags[i]) continue;
+        const box_alloca = self.freshTemp() catch return false;
+        self.print("  {s} = alloca i64, align 8\n", .{box_alloca}) catch return false;
+        const gep = self.freshTemp() catch return false;
+        self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, i }) catch return false;
+        const v = self.freshTemp() catch return false;
+        self.print("  {s} = load i64, ptr {s}\n", .{ v, gep }) catch return false;
+        const box = self.freshTemp() catch return false;
+        self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, v }) catch return false;
+        self.print("  store i64 {s}, ptr {s}\n", .{ box, box_alloca }) catch return false;
+        self.print("  call void @kaappi_gc_push_root(ptr {s})\n", .{box_alloca}) catch return false;
+        (self.boxes orelse return false).put(pname, box_alloca) catch return false;
+        pushed += 1;
+    }
+    self.frame_box_roots += pushed;
+    return true;
 }
 
 fn sexprCollectSetTargets(expr: Value, param_names: []const []const u8, rest_name: ?[]const u8, flags: *[17]bool) void {
@@ -789,16 +979,12 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
             return hasFreeVars(self, node.data.unless_form.body, params);
         },
         .set_form => {
-            // A set! is safe to compile in a body with no upvalues only when
-            // both the target and the value stay within our params/globals.
-            // Otherwise it mutates (or reads) a captured lexical variable that
-            // the native slot-store cannot reach, so disqualify and let the
-            // interpreter handle it. The value is a raw S-expr; a compound
-            // value is treated conservatively as possibly capturing (#819).
-            if (!types.isSymbol(node.data.set_form.name)) return true;
-            if (!valueIsBoundOrLiteral(self, node.data.set_form.name, params)) return true;
-            if (!valueIsBoundOrLiteral(self, node.data.set_form.value, params)) return true;
-            return false;
+            // The target and value are raw S-exprs; walk them with binder
+            // scoping. A set! of a captured variable is a genuine free
+            // reference — the enclosing frame boxes such variables so the
+            // closure tier can capture the box pointer (#1497).
+            if (sexprHasFreeVars(self, node.data.set_form.name, params)) return true;
+            return sexprHasFreeVars(self, node.data.set_form.value, params);
         },
         // An internal define introduces a binding that the native lambda-body
         // emitter cannot install (it has no locals map), so it would leak to a
@@ -817,22 +1003,19 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
     }
 }
 
-// A raw S-expr value that is trivially safe to reference inside a natively
-// compiled body with no upvalues: a literal, or a symbol that names one of our
-// params or a known global. Anything else (a compound expression, or a symbol
-// naming a captured lexical variable) is treated as unsafe.
-fn valueIsBoundOrLiteral(self: *LLVMEmitter, value: types.Value, params: []const []const u8) bool {
-    if (types.isSymbol(value)) {
-        const name = types.symbolName(value);
-        for (params) |p| {
-            if (std.mem.eql(u8, name, p)) return true;
-        }
-        // A name shadowed by an enclosing lexical binding is a capture,
-        // not the known global it would otherwise resolve to.
-        if (self.isNameShadowed(name)) return false;
-        return ir.isKnownGlobal(name);
-    }
-    return !types.isPair(value);
+// Walk a raw S-expression (a set! target or value) with binder scoping,
+// reporting whether it references any free variable. Delegates to the shared
+// FreeNameWalk so nested let/lambda binders are handled correctly (#1497).
+fn sexprHasFreeVars(self: *LLVMEmitter, expr: types.Value, params: []const []const u8) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params };
+    walkSexpr(&w, expr);
+    return w.found or w.inexact;
+}
+
+fn collectSexprFreeVars(self: *LLVMEmitter, expr: types.Value, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params, .buf = buf, .count = count };
+    walkSexpr(&w, expr);
+    return !w.inexact;
 }
 
 // Both collectors return false when the analysis could not stay exact (a
@@ -898,7 +1081,13 @@ fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const
         .let_form => return collectLetSexprFreeVars(self, node.data.let_form.args, false, params, buf, count),
         .let_star => return collectLetSexprFreeVars(self, node.data.let_star.args, true, params, buf, count),
         .lambda => return collectLambdaSexprFreeVars(self, node.data.lambda.args, params, buf, count),
-        .constant, .define, .set_form, .passthrough, .sexpr_form => return true,
+        // A set! of a captured variable must be captured too, or a closure
+        // that only writes (never reads) the binding would miss it (#1497).
+        .set_form => {
+            if (!collectSexprFreeVars(self, node.data.set_form.name, params, buf, count)) return false;
+            return collectSexprFreeVars(self, node.data.set_form.value, params, buf, count);
+        },
+        .constant, .define, .passthrough, .sexpr_form => return true,
         .letrec, .letrec_star => return true,
     }
 }

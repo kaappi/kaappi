@@ -498,6 +498,96 @@ test "LLVM emit: abandoned native let pops the binding roots it pushed (#1410)" 
     try expectContains(ll, "call void @kaappi_gc_pop_roots(i64 1)");
 }
 
+// -- Assignment conversion / boxing of captured+mutated variables (#1497) --
+
+test "LLVM emit: captured+mutated param is boxed and compiles natively (#1497)" {
+    // n is captured by the inner lambda and mutated by set!; it must become a
+    // heap box (make_box at make-acc's entry, box_ref/box_set in the closure)
+    // rather than being rejected to the interpreter.
+    var res = try emitSourceResult("(define (make-acc n) (lambda (amt) (set! n (+ n amt)) n))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_make_box("));
+    try expectContains(ll, "call i64 @kaappi_box_ref(");
+    try expectContains(ll, "call void @kaappi_box_set(");
+    // The closure captures the box POINTER, and the set! never degrades to a
+    // global rebind (which would be the by-value divergence).
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call void @kaappi_set_global") == null);
+}
+
+test "LLVM emit: captured+mutated let-local is boxed (#1497)" {
+    var res = try emitSourceResult("(define (make-counter) (let ((n 0)) (lambda () (set! n (+ n 1)) n)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_make_box("));
+    try expectContains(ll, "call i64 @kaappi_box_ref(");
+    try expectContains(ll, "call void @kaappi_box_set(");
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_");
+}
+
+test "LLVM emit: #1422 shape boxes the param mutated after capture (#1497)" {
+    // The inner lambda captures u; a sibling argument set!s u before the call.
+    // Boxing makes the mutation visible through the closure (result 95, not 6).
+    var res = try emitSourceResult("(define (f0 u) ((lambda (a) (+ u a)) (let ((b 5)) (set! u 90) b)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_make_box("));
+    try expectContains(ll, "call void @kaappi_box_set(");
+    try expectContains(ll, "call i64 @kaappi_box_ref(");
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_");
+}
+
+test "LLVM emit: two closures share one boxed binding (#1497)" {
+    // A single box is created; both the writer and the reader capture the same
+    // box pointer, so a mutation through one is visible to the other.
+    var res = try emitSourceResult("(define (mk) (let ((n 0)) (cons (lambda () (set! n (+ n 1)) n) (lambda () n))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_make_box("));
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+}
+
+test "LLVM emit: a write-only closure still captures its boxed binding (#1497)" {
+    // The writer never reads v, only set!s it — it must still capture v (as a
+    // box) so the reader sees the write.
+    var res = try emitSourceResult("(define (mk v) (cons (lambda (x) (set! v x)) (lambda () v)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_make_box("));
+    try expectContains(ll, "call void @kaappi_box_set(");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
+}
+
+test "LLVM emit: a boxed frame roots the box and pops it before ret (#1497)" {
+    var res = try emitSourceResult("(define (make-acc n) (lambda (amt) (set! n (+ n amt)) n))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // The box slot is rooted at entry and popped at the single (non-tail) ret.
+    try expectContains(ll, "call void @kaappi_gc_push_root(");
+    try expectContains(ll, "call void @kaappi_gc_pop_roots(");
+}
+
+test "LLVM emit: a mutated but uncaptured param is NOT boxed (#1497)" {
+    // x is set! but no nested lambda captures it, so it keeps the fast path
+    // (a plain param slot) — no box.
+    var res = try emitSourceResult("(define (f x) (set! x (+ x 1)) x)");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_make_box(") == null);
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_box_ref(") == null);
+}
+
+test "LLVM emit: a captured but unmutated param is NOT boxed (#1497)" {
+    // n is captured but never mutated, so the existing by-value upvalue copy
+    // is still correct — no box.
+    var res = try emitSourceResult("(define (make-adder n) (lambda (x) (+ n x)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_make_box(") == null);
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_");
+}
+
 // -- Begin --
 
 test "LLVM emit: begin sequence" {
@@ -537,7 +627,7 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 21), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 24), native_decls.decls.len);
 }
 
 // -- NativeClosure dispatch tests (#1376) --

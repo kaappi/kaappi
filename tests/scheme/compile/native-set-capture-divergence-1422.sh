@@ -1,11 +1,16 @@
 #!/bin/bash
-# Regression test for #1422: the native closure tiers copy captured variables
-# by value, so a set! of the captured binding after closure creation is
-# invisible to the closure — diverging from the VM's by-location semantics.
+# Regression test for #1422 / #1497: the native closure tiers copy captured
+# variables by value, so a set! of the captured binding after closure creation
+# would be invisible to the closure — diverging from the VM's by-location
+# semantics.
 #
-# The fix rejects native compilation of a function whose body contains both
-# a set! of a parameter and a nested lambda that captures that parameter,
-# falling back to the interpreter.
+# The fix (#1497) applies assignment conversion: a variable that is both
+# captured by a nested lambda and mutated is boxed (a heap cell), closures
+# capture the box pointer, and reads/writes go through the box. Such functions
+# now compile NATIVELY and match the interpreter. The only remaining fallback
+# case is when the capturing lambda itself cannot be a native closure (e.g. a
+# variadic inner lambda) — a boxed variable cannot be republished as a global,
+# so the whole function falls back to the interpreter.
 #
 # Usage: bash tests/scheme/compile/native-set-capture-divergence-1422.sh [path-to-kaappi]
 
@@ -68,23 +73,24 @@ check() {
 }
 
 # 1. Issue reproducer (define-position): set! of param u in a sibling
-#    argument, lambda captures u.  Must fall back to interpreter.
+#    argument, lambda captures u.  u is boxed; compiles natively, matches VM.
 check set-capture-inline \
 '(define (f0 u) ((lambda (a) (+ u a)) (let ((b 5)) (set! u 90) b)))
 (write (f0 1))
 (newline)' \
-'95' no
+'95' yes
 
-# 2. Variadic inner lambda (falls to eval fallback, same divergence via
-#    bindParamsAsGlobals snapshot).  Must fall back.
+# 2. Variadic inner lambda captures the boxed u but cannot itself be a native
+#    closure; a boxed variable cannot be republished as a global, so the whole
+#    function falls back to the interpreter (still matches).
 check set-capture-variadic \
 '(define (f0 u) ((lambda (a . rest) (+ u a)) (let ((b 5)) (set! u 90) b) 7))
 (write (f0 1))
 (newline)' \
 '95' no
 
-# 3. Retained closure: set! runs between closure creation and call.
-#    Must fall back.
+# 3. Retained closure: set! runs between closure creation and call.  x is
+#    boxed, so the closure reads the mutated value — compiles natively.
 check set-capture-retained \
 '(define (f x)
   (let ((g (lambda () x)))
@@ -92,14 +98,14 @@ check set-capture-retained \
     (g)))
 (write (f 1))
 (newline)' \
-'42' no
+'42' yes
 
-# 4. Inline lambda (tier 2): same divergence through
-#    tryCompilePureLambdaAsNativeClosure.  Must fall back.
+# 4. Inline lambda (tier 2): boxed param u through
+#    tryCompilePureLambdaAsNativeClosure.  Compiles natively.
 check set-capture-inline-lambda \
 '(write ((lambda (u) ((lambda (a) (+ u a)) (let ((b 5)) (set! u 90) b))) 1))
 (newline)' \
-'95' no
+'95' yes
 
 # 5. Shadowed param: the lambda (x) shadows f's x, so it does NOT capture
 #    f's x.  The function should still compile natively.
@@ -116,6 +122,30 @@ check set-different-param \
 (write (f 1 99))
 (newline)' \
 '99' yes
+
+# 7. Mutual visibility (#1497 acceptance): two closures over one boxed binding;
+#    a set! through one is visible to the other. Compiles natively.
+check set-capture-shared \
+'(define (make-counter)
+  (let ((n 0))
+    (cons (lambda () (set! n (+ n 1)) n)
+          (lambda () n))))
+(define c (make-counter))
+(display ((car c)))
+(display ((car c)))
+(display ((cdr c)))
+(newline)' \
+'122' yes
+
+# 8. Accumulator over a boxed parameter, shared across calls. Native.
+check set-capture-accumulator \
+'(define (make-acc n) (lambda (amt) (set! n (+ n amt)) n))
+(define a (make-acc 100))
+(display (a 10))
+(display " ")
+(display (a 5))
+(newline)' \
+'110 115' yes
 
 if [[ "$fail" -ne 0 ]]; then
     exit 1
