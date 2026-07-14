@@ -383,3 +383,49 @@ test "file I/O with fibers active stays correct (files never EAGAIN)" {
     );
     try std.testing.expectEqual(types.TRUE, r);
 }
+
+// #1478: (fd->port fd) hands a raw FFI descriptor (a kaappi-net socket) the
+// same reactor-integrated, non-blocking I/O the built-in file ports get, so a
+// blocking-looking read suspends the fiber on the reactor instead of
+// busy-polling the fd with a 1ms sleep.
+
+test "#1478: fd->port read parks the fiber on the reactor until the peer writes" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The two fd->port ports take ownership of these fds; the GC's freeObject
+    // (or close-port) closes them, so the test must not close them itself.
+    const pipe = makePipe();
+
+    // reader parks on an empty pipe (EAGAIN -> reactor); writer fills it. If
+    // fd->port didn't route through the reactor, the reader would either
+    // block the whole thread on a blocking read or spin -- here it must wake
+    // exactly when the byte arrives and read it back.
+    var buf: [768]u8 = undefined;
+    const src = try std.fmt.bufPrint(&buf,
+        \\(import (kaappi ffi) (kaappi fibers) (scheme base))
+        \\(define rp (fd->port {d}))
+        \\(define wp (fd->port {d}))
+        \\(define reader (spawn (lambda () (read-u8 rp))))
+        \\(define writer (spawn (lambda () (write-u8 66 wp) (flush-output-port wp))))
+        \\(fiber-join writer)
+        \\(fiber-join reader)
+    , .{ pipe[0], pipe[1] });
+
+    const result = try vm.eval(src);
+    try std.testing.expectEqual(@as(i64, 66), types.toFixnum(result));
+}
+
+test "#1478: fd->port rejects the standard streams and non-fixnums" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (kaappi ffi))");
+    // fd 0/1/2 keep their blocking semantics -- fd->port must refuse them.
+    try std.testing.expectError(error.TypeError, vm.eval("(fd->port 1)"));
+    try std.testing.expectError(error.TypeError, vm.eval("(fd->port \"nope\")"));
+}
