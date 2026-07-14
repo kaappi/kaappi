@@ -8,6 +8,7 @@ const llvm_emit = @import("llvm_emit.zig");
 const file_utils = @import("file_utils.zig");
 const reporting = @import("reporting.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
+const diagnostics = @import("diagnostics.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -52,15 +53,19 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
+        const code = diagnostics.readErrorCode(err);
+        var cbuf: [diagnostics.Code.render_width]u8 = undefined;
         var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error[{s}]: {s}\n", .{ path, lc.line, lc.col, code.render(&cbuf), code.message() }) catch "read error\n";
         writeStderr(s);
         return err;
     }) {
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
+            const code = diagnostics.readErrorCode(err);
+            var cbuf: [diagnostics.Code.render_width]u8 = undefined;
             var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error[{s}]: {s}\n", .{ path, lc.line, lc.col, code.render(&cbuf), code.message() }) catch "read error\n";
             writeStderr(s);
             return err;
         };
@@ -92,8 +97,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         }
 
         const root = ir_mod.lowerAndOptimize(&ir_instance, expr, &vm.macros, false) catch |err| {
+            const code = diagnostics.compileErrorCode(err);
+            var cbuf: [diagnostics.Code.render_width]u8 = undefined;
             var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "IR lowering error: {}\n", .{err}) catch "IR error\n";
+            const s = std.fmt.bufPrint(&errbuf, "compile error[{s}]: {s}\n", .{ code.render(&cbuf), code.message() }) catch "compile error\n";
             writeStderr(s);
             return err;
         };
@@ -108,8 +115,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     var emitter = llvm_emit.LLVMEmitter.init(allocator);
     defer emitter.deinit();
     emitter.emitProgram(ir_nodes.items) catch |err| {
+        const code = diagnostics.Code.internal_error;
+        var cbuf: [diagnostics.Code.render_width]u8 = undefined;
         var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "LLVM emit error: {}\n", .{err}) catch "emit error\n";
+        const s = std.fmt.bufPrint(&errbuf, "error[{s}]: LLVM emit failed: {s}\n", .{ code.render(&cbuf), code.message() }) catch "internal error\n";
         writeStderr(s);
         return err;
     };

@@ -4,6 +4,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
+const diagnostics = @import("diagnostics.zig");
 const file_utils = @import("file_utils.zig");
 const Value = types.Value;
 
@@ -732,12 +733,16 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
 }
 
 fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8, err: anyerror) void {
-    _ = vm;
-    var buf: [320]u8 = undefined;
-    const s = if (detail) |d| (if (d.len > 0)
-        std.fmt.bufPrint(&buf, "{s}:{d}: error: {s}\n", .{ path, line, d }) catch "include error\n"
+    // Prefer a code carried on the raised error object; else derive from the
+    // escaping Zig error (KEP-0005).
+    const code = if (vm.last_error_code != .uncategorized)
+        vm.last_error_code
     else
-        std.fmt.bufPrint(&buf, "{s}:{d}: runtime error: {}\n", .{ path, line, err }) catch "include error\n") else std.fmt.bufPrint(&buf, "{s}:{d}: error: {}\n", .{ path, line, err }) catch "include error\n";
+        diagnostics.runtimeErrorCode(err);
+    const msg = if (detail) |d| (if (d.len > 0) d else code.message()) else code.message();
+    var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+    var buf: [320]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "{s}:{d}: error[{s}]: {s}\n", .{ path, line, code.render(&cbuf), msg }) catch "include error\n";
     vm_mod.writeStderr(s);
 }
 

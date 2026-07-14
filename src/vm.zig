@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const diagnostics = @import("diagnostics.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
 const reactor_mod = @import("reactor.zig");
@@ -225,6 +226,11 @@ pub const VM = struct {
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
     last_error_source: ?[]const u8 = null,
+    // Diagnostic code of the escaping error (KEP-0005, #1504). Set by
+    // noteUncaughtException from the raised error object; reset per top-level
+    // form in resetExecutionState. When `.uncategorized`, the reporting layer
+    // derives a code from the Zig error instead.
+    last_error_code: diagnostics.Code = .uncategorized,
     last_stack_trace: [16]StackFrame = undefined,
     last_stack_trace_len: usize = 0,
     // Debugger state
@@ -547,6 +553,13 @@ pub const VM = struct {
         if (err != error.ExceptionRaised) return;
         const exc = self.current_exception orelse return;
         self.current_exception = null;
+        // Carry the raised object's stable diagnostic code to the reporting
+        // layer (KEP-0005), whether or not a native detail was already recorded.
+        // `.uncategorized` here means "uncoded raise" and the reporter falls
+        // back to the generic KP3000 uncaught-exception code.
+        if (types.isErrorObject(exc)) {
+            self.last_error_code = types.toObject(exc).as(types.ErrorObject).code;
+        }
         if (self.last_error_detail_len != 0) return;
 
         const printer = @import("printer.zig");

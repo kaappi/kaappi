@@ -243,6 +243,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             try visited.put(src_ptr, new_val);
             const new_e = types.toObject(new_val).as(types.ErrorObject);
             new_e.error_type = e.error_type;
+            new_e.code = e.code;
             new_e.message = try deepCopyValue(gc, e.message, visited);
             new_e.irritants = try deepCopyValue(gc, e.irritants, visited);
             new_e.uncaught_reason = try deepCopyValue(gc, e.uncaught_reason, visited);

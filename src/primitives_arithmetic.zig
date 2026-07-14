@@ -180,7 +180,7 @@ pub fn raiseDivByZero() PrimitiveError!Value {
     var msg = gc.allocString("division by zero") catch return PrimitiveError.DivisionByZero;
     gc.pushRoot(&msg);
     defer gc.popRoot();
-    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.DivisionByZero;
+    const err_obj = gc.allocErrorObjectCoded(msg, types.NIL, .division_by_zero) catch return PrimitiveError.DivisionByZero;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }

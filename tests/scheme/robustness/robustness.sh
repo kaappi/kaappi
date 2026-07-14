@@ -15,7 +15,9 @@ assert_error() {
     local expr="$2"
     local output
     output=$(echo "$expr" | "$KAAPPI" 2>&1 || true)
-    if echo "$output" | grep -q "error:"; then
+    # Match both the coded form ("error[KP3002]:", KEP-0005) and any legacy
+    # "error:" prefix.
+    if echo "$output" | grep -qE 'error(\[|:)'; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
