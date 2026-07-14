@@ -3,6 +3,23 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_mod = @import("vm.zig");
+const primitives = @import("primitives.zig");
+const Value = types.Value;
+
+// Frame depth captured by `record-eval-depth!` (see the #1253 test below).
+var eval_depth_observed: usize = 0;
+
+// Test-only observer: records the VM's live frame count at the instant it is
+// called. Used to probe the frame depth reached at the base case of an `eval`
+// recursion. A tail-called native runs before its frame is popped, so the
+// count reflects the depth accumulated by the surrounding recursion.
+fn recordEvalDepth(args: []const Value) primitives.PrimitiveError!Value {
+    _ = args;
+    const vm = vm_mod.vm_instance orelse return primitives.PrimitiveError.TypeError;
+    eval_depth_observed = vm.frame_count;
+    return types.VOID;
+}
 
 test "eval integer literal" {
     try th.expectEval("42", 42);
@@ -134,7 +151,6 @@ test "default-random-source is per-VM" {
 }
 
 test "vm deinit clears threadlocal vm_instance" {
-    const vm_mod = @import("vm.zig");
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -410,25 +426,42 @@ test "interaction-environment allows define (#1147)" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
-// Regression for #1253: eval must be tail-called (R7RS 3.5)
+// Regression for #1253: eval must be tail-called (R7RS 3.5).
+//
+// The property is that `eval` in tail position runs in *constant* frame depth
+// no matter how deep the recursion goes. Rather than force a frame-limit
+// overflow — which only becomes decisive past MAX_FRAME_LIMIT (32768) and so
+// needs >32768 compile-heavy eval iterations, hours of full collections under
+// -Dgc-stress=true (#1452) — observe the depth directly: `record-eval-depth!`
+// captures vm.frame_count at the base case of the recursion. A tail-called
+// eval reuses its caller's frame, so the depth is identical for a shallow and
+// a deep run; a non-tail-called eval would push a frame per iteration, so the
+// deep run's depth would exceed the shallow run's by the iteration difference.
+// This is decisive with a few hundred iterations, cheap enough for gc-stress.
 test "eval tail position runs in constant frame depth (#1253)" {
-    // The frame-depth property is only decisive with more iterations than
-    // MAX_FRAME_LIMIT (32768), and every iteration allocates through eval —
-    // under -Dgc-stress=true that is millions of full collections (hours).
-    // The property is orthogonal to GC rooting, so skip on stress builds.
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
+    try primitives.reg(ctx.vm, "record-eval-depth!", &recordEvalDepth, .{ .exact = 0 });
     _ = try ctx.vm.eval(
         \\(define (loop-eval n)
-        \\  (if (= n 0) 'done
+        \\  (if (= n 0) (record-eval-depth!)
         \\      (eval (list 'loop-eval (- n 1))
         \\            (interaction-environment))))
     );
-    const result = try ctx.vm.eval("(loop-eval 40000)");
-    try std.testing.expect(types.isSymbol(result));
-    try std.testing.expectEqualStrings("done", types.symbolName(result));
+
+    eval_depth_observed = 0;
+    _ = try ctx.vm.eval("(loop-eval 100)");
+    const depth_shallow = eval_depth_observed;
+    try std.testing.expect(depth_shallow > 0); // observer actually ran
+
+    eval_depth_observed = 0;
+    _ = try ctx.vm.eval("(loop-eval 1000)");
+    const depth_deep = eval_depth_observed;
+    try std.testing.expect(depth_deep > 0);
+
+    // Tail-called eval ⇒ identical frame depth despite 10× more iterations.
+    try std.testing.expectEqual(depth_shallow, depth_deep);
 }
 
 // Regression for #1253: null-environment must not leak VM globals in tail position.
@@ -516,7 +549,6 @@ test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     // A VM that registers primitives but never runs vm_bootstrap.install()
     // must raise a clear error from the bootstrapped procedures instead of
     // silently reverting to retired native implementations.
-    const vm_mod = @import("vm.zig");
     const primitives_mod = @import("primitives.zig");
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
