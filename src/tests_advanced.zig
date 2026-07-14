@@ -781,12 +781,12 @@ test "closure capturing more than 255 variables compiles and runs (#809)" {
     // upvalue_count field, panicking (compile-time) past 255 captures. The
     // field is now u16, matching the u16 upvalue index in the bytecode.
     //
-    // The u16-width property is orthogonal to GC rooting, and compiling the
-    // 300-capture program with a collection per allocation peaks around 7 GB
-    // RSS under the testing allocator — the full-suite stress run gets
-    // OOM-killed. Skip on stress builds; the 27-variable sibling test below
-    // keeps the capture path exercised there.
-    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    // This was once skipped under -Dgc-stress=true: compiling the 300-capture
+    // program with a collection per allocation peaked ~7 GB RSS and OOM-killed
+    // the stress suite. The cause was markValue reallocating its mark worklist
+    // on every call, amplified by the testing allocator's metadata retention;
+    // #1436 made the worklist persistent and the peak dropped to a few tens of
+    // MB, so the test runs under stress again (#1451).
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
