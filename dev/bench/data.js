@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784052862496,
+  "lastUpdate": 1784054842522,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "72477f4262989071568aa9380e77d8b120b29381",
-          "message": "Fix SRFI-197 chain _ placeholder and add nest/nest-reverse (#1219) (#1345)\n\n* Fix SRFI-197 chain to substitute _ placeholder; add nest/nest-reverse (#1219)\n\nchain previously inserted the pipeline value as the first argument\nunconditionally.  Per SRFI-197, the _ placeholder marks where the value\ngoes; steps without _ ignore the pipeline value entirely.\n\nThe rewrite uses a two-phase helper (%chain-subst / %chain-subst*) that\nscans step arguments for _ as a syntax-rules literal and replaces each\noccurrence with the pipeline value.  chain-and and chain-when delegate to\nchain for step application, so they inherit _ support automatically.\n\nAlso adds nest (outermost-first) and nest-reverse (innermost-first)\nnesting operators, both with _ substitution.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix chain-when guard semantics and add nest syntax-error for missing _\n\nAddress review feedback:\n\n- chain-when: guard is an expression evaluated directly, not a procedure\n  called with the pipeline value. (if guard ...) not (if (guard? v) ...).\n  Matches the SRFI-197 spec example: ((odd? n) (cons \"odd\" _)).\n\n- nest/nest-reverse: raise syntax-error when a step has no _ placeholder\n  instead of silently dropping the inner form.\n\n- Tests: add expression-guard and false-guard-in-middle coverage for\n  chain-when; assert nest-reverse equivalence test against a literal.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T10:09:01+05:30",
-          "tree_id": "a7a7785c6d623fa7a63e98ef5ac2be5d3ac8689b",
-          "url": "https://github.com/kaappi/kaappi/commit/72477f4262989071568aa9380e77d8b120b29381"
-        },
-        "date": 1783573825569,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.334447,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.217004,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.975358,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.422328,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012765,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203741,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505131,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069714,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.702845,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.952491,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.175907,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.998544,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.420488,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.738723,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046499,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046381,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d014dc9c75b6e2b6b45a03e6751817209477545c",
+          "message": "Add dependency analysis to parallel-issues skill (#1547)\n\nIssues that depend on each other (via \"depends on #NNN\", \"blocked by\",\nGitHub linked-issues, etc.) shouldn't land in the same or an earlier\nbatch set than what they depend on.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T23:52:08+05:30",
+          "tree_id": "dd98f9f193ed6d8eb4b87a25c64880ff25bc350a",
+          "url": "https://github.com/kaappi/kaappi/commit/d014dc9c75b6e2b6b45a03e6751817209477545c"
+        },
+        "date": 1784054840978,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.362312,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.957805,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.472646,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.475606,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004038,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.029277,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.268208,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.03426,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.91218,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.975685,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.846637,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302072,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.914438,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.149521,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025189,
             "unit": "seconds"
           }
         ]
