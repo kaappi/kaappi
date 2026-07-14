@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784054842522,
+  "lastUpdate": 1784054870713,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "280085559c1ff2221e3a8bc921f5056fbc086252",
-          "message": "Fix SRFI-78 check-passed?, add check-set-mode! and check-ec (#1342)\n\n* Fix SRFI-78 check-passed? signature, add check-set-mode! and check-ec (#1220)\n\ncheck-passed? now takes an expected-total-count argument and returns a\nboolean per the SRFI-78 specification, instead of returning the raw pass\ncount. Adds check-set-mode! (off/summary/report-failed/report) and\ncheck-ec (eager comprehension checks using SRFI-42).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: check-ec early-stop, mode validation, first-fail reporting\n\n- check-ec now uses call/cc to escape on the first mismatch, per spec\n  (previously ran the whole comprehension and reported the last failure)\n- check-ec accepts zero qualifiers (delegates to check) and trailing\n  diagnostic argument lists\n- check-set-mode! rejects unknown modes with an error\n- check-report prints the first failed check when there are failures\n- Add (scheme process-context) import for exit\n- %first-fail is now read by check-report (was dead state)\n- Tests cover early-stop, summary mode, invalid mode, zero qualifiers,\n  and diagnostic arguments (19 assertions)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix caddr crash in check-report, remove dead equal parameter\n\ncheck-report used caddr which is not in (scheme base) — crashes inside\nthe library on any run with a failure. Replaced with (car (cddr ...)).\nAlso added (scheme process-context) import for exit, and removed the\nunused equal parameter from check-ec-run.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add side-effect counter for early-stop and check-report failure regression\n\n- check-ec early-stop test now uses a mutation counter to prove only 1\n  iteration runs (would fail if escape were removed)\n- check-report failure path tested as subprocess in exit-code.sh:\n  verifies exit code 1 and \"First failure:\" output\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T04:46:11Z",
-          "tree_id": "5323bf41843a4a4eac9c80568223ef6bda2542ec",
-          "url": "https://github.com/kaappi/kaappi/commit/280085559c1ff2221e3a8bc921f5056fbc086252"
-        },
-        "date": 1783573969465,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.089698,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.661314,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.019605,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.422565,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013835,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226041,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512759,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06806,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.572369,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.984179,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.376078,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.115444,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.270053,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.850152,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045482,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025189,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5ce33d76e20e56f1251d84c74c9bf940976f537",
+          "message": "KEP-0002 Phase 7 gate-campaign harness + lever D (#1472) (#1546)\n\n* Add KEP-0002 Phase 7 parallel-map gate-campaign harness (#1472)\n\nThe gate that decides KEP-0003 (kaappi#1474) reads the copy+reassembly\noverhead `share` of a parallel-map section, per the frozen protocol at\nkeps research/benchmarks/README.md. This lands the runnable harness for\nthat measurement (levers none/C; lever D follows in a later commit).\n\n- src/channel_instrument.zig: parent-side T_submit_copy / T_result_copy /\n  T_reassembly counters, the runtime elision-lever flag, and the peak-\n  envelope gauge, all behind -Dchannel-instrument (compiled out of the\n  shipped default per protocol §3; also keeps clock_gettime out of WASM).\n- shared_channel.zig: time the real send/receive copy path; lever C skips\n  the envelope heap for immediate payloads (Envelope.gc is now optional).\n- primitives_parallel.zig: %chan-instr-* / %elision-lever-set! harness\n  hooks, registered only in the instrument build so the shipped\n  (kaappi fibers) is unchanged, and tagged .kaappi_fibers (not .internal,\n  which is removed from globals after bootstrap) so they persist.\n- benchmarks/gate/: the six workloads + controls + serial baselines\n  (gate-harness.scm), the Kalibera-Jones driver emitting the §6 CSV\n  (run-gate.py), and README.md documenting the protocol mapping and the\n  pre-freeze findings (the #1489 hang, records not crossing channels,\n  matmul compute cost, an exception-crossing panic).\n\nVerified: unit suite green on normal and -Dchannel-instrument=true builds\n(new lever-C regression test + internal-spec drift guard); channel/fiber/\nparallel Scheme smoke tests green; local pilot on macOS aarch64 produced a\n§6 CSV with well-differentiated share values.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Implement KEP-0002 Phase 7 lever D in the real channel path (#1472)\n\nLever D of the elision matrix (protocol §2): a refcounted immutable\nside-heap for large bytevectors, so a payload crossing a channel is\nsnapshotted once and shared by refcount instead of re-copied on every\nhop. The gate's C+D cells (kaappi#1474) require it.\n\n- src/shared_buffer.zig: SharedBuffer, the KEP-0002/0003 second\n  shared_object (after SharedChannel) -- a refcounted immutable byte\n  buffer outside every GC heap.\n- types.Bytevector.shared: opaque backing pointer; when set, data is\n  borrowed from a SharedBuffer and the bytevector holds one reference.\n- gc_deep_copy: under lever C+D the send side (envelope build) snapshots a\n  bytevector >= 4 KiB into a fresh SharedBuffer; the receive side (and any\n  re-copy of an already-backed bytevector) aliases by refcount -- zero\n  byte copy. Comptime-pruned in the shipped build.\n- memory.allocBytevectorShared / unshareBytevector: the backed allocator\n  and copy-on-write (a mutator privatizes borrowed bytes and drops the\n  reference before writing). COW wired into bytevector-u8-set!,\n  bytevector-copy!, read-bytevector!.\n- gc_collect: freeObject releases the SharedBuffer reference (freeing the\n  buffer at zero) instead of freeing borrowed bytes; objectSize counts\n  only the struct for a backed bytevector.\n- shared_channel.Envelope.create signals the send-side D mode around the\n  copy.\n\nScope (bytevectors only; no plain-source promotion for fan-out; strings\ndeferred) and rationale are in benchmarks/gate/README.md -- neither\naffects the gate classification (the one affected workload, FO-DIGEST\nfan-out, is compute-dominated).\n\nVerified: new lever-D unit test (backing / alias / copy-on-write /\nrefcount lifecycle) green on the instrument build and under\n-Dgc-stress=true; full unit suite green on normal and instrument builds;\nend-to-end pool test delivers correct bytes across a real thread and COW\nmutates safely; behaviorally, ip-band at C+D drops parent result-copy\ntime ~10x and peak envelope bytes ~40x vs lever none.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T23:50:03+05:30",
+          "tree_id": "da4adb009fcf71fc44b9434adebc9dbd43042620",
+          "url": "https://github.com/kaappi/kaappi/commit/b5ce33d76e20e56f1251d84c74c9bf940976f537"
+        },
+        "date": 1784054869136,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.484516,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.040462,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.494705,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.545736,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004927,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032103,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.282205,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041367,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.194208,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.07395,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.934043,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.309345,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.04881,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.651952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.027993,
             "unit": "seconds"
           }
         ]
