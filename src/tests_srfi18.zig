@@ -119,21 +119,32 @@ test "abandonFiberMutexes marks owned mutex abandoned" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    // Root across allocations: abandonFiberMutexes now dereferences the
+    // fiber's owned-mutexes list, so under -Dgc-stress=true the fiber and
+    // mutex must survive allocMutex's collection.
     const fiber = try gc.allocFiber(types.VOID, 0);
-    const fiber_val = types.makePointer(@ptrCast(&fiber.header));
-    const m_val = try gc.allocMutex(types.VOID);
+    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    gc.pushRoot(&fiber_val);
+    defer gc.popRoot();
+    var m_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m_val);
+    defer gc.popRoot();
     const m = types.toMutex(m_val);
 
     m.locked = true;
     m.owner = fiber_val;
+    try fiber.owned_mutexes.append(gc.allocator, m_val);
 
-    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(fiber, null);
 
     try std.testing.expect(m.abandoned);
     try std.testing.expect(!m.locked);
     try std.testing.expectEqual(types.VOID, m.owner);
 }
 
+// A stale list entry — a mutex still locked but owned by a *different* fiber
+// (it was re-acquired after this fiber released it) — must be left alone by
+// the defensive `m.owner == fiber_val` guard, not stomped.
 test "abandonFiberMutexes skips mutex owned by different fiber" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -141,21 +152,32 @@ test "abandonFiberMutexes skips mutex owned by different fiber" {
     defer vm.deinit();
 
     const fiber_a = try gc.allocFiber(types.VOID, 0);
+    var fiber_a_val = types.makePointer(@ptrCast(&fiber_a.header));
+    gc.pushRoot(&fiber_a_val);
+    defer gc.popRoot();
     const fiber_b = try gc.allocFiber(types.VOID, 1);
-    const fiber_a_val = types.makePointer(@ptrCast(&fiber_a.header));
-    const m_val = try gc.allocMutex(types.VOID);
+    var fiber_b_val = types.makePointer(@ptrCast(&fiber_b.header));
+    gc.pushRoot(&fiber_b_val);
+    defer gc.popRoot();
+    var m_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m_val);
+    defer gc.popRoot();
     const m = types.toMutex(m_val);
 
     m.locked = true;
     m.owner = fiber_a_val;
+    // Stale entry lingering in fiber_b's list (owner is now fiber_a).
+    try fiber_b.owned_mutexes.append(gc.allocator, m_val);
 
-    fiber_mod.abandonFiberMutexes(&gc, fiber_b, null);
+    fiber_mod.abandonFiberMutexes(fiber_b, null);
 
     try std.testing.expect(!m.abandoned);
     try std.testing.expect(m.locked);
     try std.testing.expectEqual(fiber_a_val, m.owner);
 }
 
+// A stale list entry for a mutex this fiber has since unlocked must be
+// skipped by the `m.locked` guard.
 test "abandonFiberMutexes skips unlocked mutex" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -163,13 +185,19 @@ test "abandonFiberMutexes skips unlocked mutex" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    const m_val = try gc.allocMutex(types.VOID);
+    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    gc.pushRoot(&fiber_val);
+    defer gc.popRoot();
+    var m_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m_val);
+    defer gc.popRoot();
     const m = types.toMutex(m_val);
 
     m.locked = false;
     m.owner = types.VOID;
+    try fiber.owned_mutexes.append(gc.allocator, m_val);
 
-    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(fiber, null);
 
     try std.testing.expect(!m.abandoned);
 }
@@ -204,14 +232,61 @@ test "abandonFiberMutexes handles multiple mutexes" {
     m2.owner = types.VOID;
     m3.locked = true;
     m3.owner = fiber_val;
+    // m2 is a stale entry (unlocked) — the defensive guard must skip it while
+    // still abandoning the two genuinely-held mutexes around it.
+    try fiber.owned_mutexes.append(gc.allocator, m1_val);
+    try fiber.owned_mutexes.append(gc.allocator, m2_val);
+    try fiber.owned_mutexes.append(gc.allocator, m3_val);
 
-    fiber_mod.abandonFiberMutexes(&gc, fiber, null);
+    fiber_mod.abandonFiberMutexes(fiber, null);
 
     try std.testing.expect(m1.abandoned);
     try std.testing.expect(!m1.locked);
     try std.testing.expect(!m2.abandoned);
     try std.testing.expect(m3.abandoned);
     try std.testing.expect(!m3.locked);
+}
+
+// Core #1458 fix: a mutex living in *another* thread's heap (the shared,
+// top-level-global case) is abandoned when a fiber that locked it dies,
+// even though it is not on the dying fiber's own GC object lists. The old
+// heap-scanning abandonFiberMutexes scanned only the passed GC's heap and
+// so never found a parent-heap mutex from a child fiber's death; walking the
+// fiber's owned-mutexes list finds it regardless of which heap owns it.
+test "abandonFiberMutexes abandons a mutex from another GC heap (#1458)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Child heap shares the parent's symbol table, like a real SRFI-18 thread.
+    var child_gc = memory.GC.initForThread(std.testing.allocator, &gc);
+    defer child_gc.deinit();
+
+    // Mutex lives in the parent heap; the fiber that holds it in the child.
+    var m_val = try gc.allocMutex(types.VOID);
+    gc.pushRoot(&m_val);
+    defer gc.popRoot();
+    const m = types.toMutex(m_val);
+
+    const fiber = try child_gc.allocFiber(types.VOID, 0);
+    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    child_gc.pushRoot(&fiber_val);
+    defer child_gc.popRoot();
+
+    m.locked = true;
+    m.owner = fiber_val;
+    try fiber.owned_mutexes.append(child_gc.allocator, m_val);
+
+    // Sanity: the parent-heap mutex is not on the child heap's object lists,
+    // so the old heap-scan of child_gc would have missed it entirely.
+    try std.testing.expect(m.header.owner != child_gc.id);
+
+    fiber_mod.abandonFiberMutexes(fiber, null);
+
+    try std.testing.expect(m.abandoned);
+    try std.testing.expect(!m.locked);
+    try std.testing.expectEqual(types.VOID, m.owner);
 }
 
 test "thread-terminate! on current thread abandons held mutex" {
@@ -261,7 +336,7 @@ test "mutex-lock! on abandoned mutex raises abandoned-mutex-exception" {
     const m_val = try vm.eval("m");
     const m = types.toMutex(m_val);
     const sched_fiber = vm.current_fiber.?;
-    fiber_mod.abandonFiberMutexes(&gc, sched_fiber, vm.scheduler);
+    fiber_mod.abandonFiberMutexes(sched_fiber, vm.scheduler);
 
     try std.testing.expect(m.abandoned);
 

@@ -452,7 +452,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
-        if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
+        if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(cf, child_vm.scheduler);
         // Built on this (owning) thread, mirroring thread-start!'s thunk
         // copy: this is the only place a channel raised in the exception
         // can legally promote (gc_instance == child_gc here, not the
@@ -472,7 +472,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         return;
     };
 
-    if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
+    if (child_vm.current_fiber) |cf| fiber_mod.abandonFiberMutexes(cf, child_vm.scheduler);
 
     // Store the result in child_resources (not on the fiber) so the parent
     // GC never traverses a child-heap pointer (Race C) -- and, since Phase
@@ -607,7 +607,14 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     // Atomic: for OS threads the child VM polls this flag concurrently.
     @atomicStore(bool, &fiber.terminated, true, .monotonic);
 
-    if (memory.gc_instance) |gc| fiber_mod.abandonFiberMutexes(gc, fiber, ctx.sched);
+    // Abandon a *local* fiber's held mutexes here: it lives in this
+    // scheduler on this thread, so walking its owned-mutexes list is
+    // race-free, and it will never run again to abandon them itself. An OS
+    // thread instead abandons its own mutexes when it observes `terminated`
+    // and unwinds (threadEntryFn's self-abandon) — its owned-mutexes list is
+    // maintained on *its* thread, so the parent must not touch it from here
+    // (#1458).
+    if (fiber.os_thread == null) fiber_mod.abandonFiberMutexes(fiber, ctx.sched);
 
     const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
     if (status != .completed and status != .errored) {
@@ -940,6 +947,43 @@ fn tryClaimAbandoned(m: *types.Mutex) bool {
     return @cmpxchgStrong(bool, &m.abandoned, true, false, .acq_rel, .acquire) == null;
 }
 
+// Records `m_val` on the fiber that just took ownership so
+// abandonFiberMutexes can release it if the fiber dies still holding it
+// (#1458) — including a mutex from another thread's heap, which the old
+// heap-scan could never find. Only ever touches `fiber`'s own list, and is
+// only called with the current fiber (the acquirer), so it never races
+// another thread mutating this list.
+//
+// Before appending it first drops entries whose mutex is no longer locked:
+// an unlocked mutex is never owned, so this can't drop one we'd need to
+// abandon, and it keeps the list bounded to currently-held mutexes even
+// when a lock/unlock pair repeats or another thread unlocked one of ours.
+// The `== m_val` pass dedups: a mutex we still hold (unlock-then-relock with
+// no intervening prune) survives the sweep, so appending again would double
+// it.
+fn trackOwnedMutex(fiber: *fiber_mod.Fiber, m_val: Value) void {
+    const gc = memory.gc_instance orelse return;
+    var already = false;
+    var i: usize = 0;
+    while (i < fiber.owned_mutexes.items.len) {
+        const v = fiber.owned_mutexes.items[i];
+        if (v == m_val) {
+            already = true;
+            i += 1;
+        } else if (!@atomicLoad(bool, &types.toMutex(v).locked, .acquire)) {
+            _ = fiber.owned_mutexes.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+    if (already) return;
+    // Best-effort: an OOM here only means this one mutex won't be abandoned
+    // if the fiber dies holding it (reverting to the pre-#1458 gap for it).
+    // The lock itself already succeeded, so failing the primitive now would
+    // be worse — the caller would believe the lock failed while it is held.
+    fiber.owned_mutexes.append(gc.allocator, m_val) catch {};
+}
+
 fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
         return primitives.typeError("mutex-lock!", "mutex", args[0]);
@@ -948,8 +992,17 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
 
     if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
-        m.owner = resolveMutexOwner(args, if (ctx.vm.current_fiber) |cf| types.makePointer(@ptrCast(&cf.header)) else types.VOID);
-        if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+        if (ctx.vm.current_fiber) |cf| {
+            m.owner = resolveMutexOwner(args, types.makePointer(@ptrCast(&cf.header)));
+            if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+            // Only track when *this* fiber became the owner: an explicit
+            // owner arg naming another fiber (possibly on another thread)
+            // must not append to this fiber's list.
+            if (m.owner == types.makePointer(@ptrCast(&cf.header))) trackOwnedMutex(cf, args[0]);
+        } else {
+            m.owner = resolveMutexOwner(args, types.VOID);
+            if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+        }
         if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
         return types.TRUE;
     }
@@ -1039,6 +1092,8 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     else
         types.makePointer(@ptrCast(&me.header));
     if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+    // Track only when `me` itself became the owner (see the fast path).
+    if (m.owner == types.makePointer(@ptrCast(&me.header))) trackOwnedMutex(me, mutex_val);
 
     if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
     return types.TRUE;

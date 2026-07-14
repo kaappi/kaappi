@@ -93,6 +93,16 @@ pub const Fiber = struct {
     /// accumulate duplicate ring entries; cleared when scheduleImpl consumes
     /// or discards the entry (#1477).
     queued: bool = false,
+    /// Mutexes this fiber currently owns (as `Value`s), maintained by
+    /// mutex-lock! (#1458). `abandonFiberMutexes` walks this on fiber death
+    /// instead of scanning a GC heap for owned mutexes — the mutex object may
+    /// live in *another* thread's heap (shared via a top-level global), where
+    /// a heap scan of the dying fiber's own heap would never find it. Only
+    /// ever mutated on this fiber's owning thread; traced by markFiberState so
+    /// a same-heap mutex held solely through this list stays alive (a foreign
+    /// mutex is skipped by markValue's owner check and kept alive by its own
+    /// heap's roots). Freed in freeObject's `.fiber` arm.
+    owned_mutexes: std.ArrayList(Value) = .empty,
 };
 
 pub const FiberScheduler = struct {
@@ -805,28 +815,37 @@ pub fn ensureScheduler(vm: *VM) VMError!struct { vm: *VM, sched: *FiberScheduler
 /// mid-turn, so a lock it held doesn't hang every other fiber waiting on it
 /// forever. Fiber 0 (main) is exempt at call sites: finishing or aborting
 /// one top-level form is not thread death, so its mutexes stay valid.
-pub fn abandonFiberMutexes(gc: *memory.GC, fiber: *Fiber, sched: ?*FiberScheduler) void {
+///
+/// Walks `fiber.owned_mutexes` (maintained by mutex-lock!) rather than
+/// scanning a GC heap for owned mutexes: a mutex shared across OS threads
+/// via a top-level global lives in whichever heap allocated it — typically
+/// the parent's, not the dying child's — so a scan of the child's own heap
+/// would never find it (#1458). The list is only ever mutated on `fiber`'s
+/// owning thread, and every call site invokes this on that same thread, so
+/// the walk/clear here races nothing.
+///
+/// The `m.locked and m.owner == fiber_val` guard is still required: the list
+/// may hold stale entries (a mutex unlocked by another thread, or re-locked
+/// by a different owner, is only pruned lazily on the next mutex-lock!), and
+/// abandoning one of those would corrupt a lock a live fiber legitimately
+/// holds.
+pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
     const fiber_val = types.makePointer(@ptrCast(&fiber.header));
-    var lists = [_]?*types.Object{ gc.objects, gc.old_objects };
-    for (&lists) |*head| {
-        var obj = head.*;
-        while (obj) |o| : (obj = o.next) {
-            if (o.tag == .mutex) {
-                const m = o.as(types.Mutex);
-                if (@atomicLoad(bool, &m.locked, .acquire) and m.owner == fiber_val) {
-                    // Order matters: abandoned and owner must both be
-                    // published *before* the release-store below, so a
-                    // cross-thread acquirer that wins the locked CAS is
-                    // guaranteed to see them already updated (not stomp a
-                    // fresh owner write with VOID, or miss the abandonment).
-                    @atomicStore(bool, &m.abandoned, true, .release);
-                    m.owner = types.VOID;
-                    @atomicStore(bool, &m.locked, false, .release);
-                    if (sched) |s| s.wakeMutexWaiters(types.makePointer(@ptrCast(o)));
-                }
-            }
+    for (fiber.owned_mutexes.items) |m_val| {
+        const m = types.toMutex(m_val);
+        if (@atomicLoad(bool, &m.locked, .acquire) and m.owner == fiber_val) {
+            // Order matters: abandoned and owner must both be published
+            // *before* the release-store below, so a cross-thread acquirer
+            // that wins the locked CAS is guaranteed to see them already
+            // updated (not stomp a fresh owner write with VOID, or miss the
+            // abandonment).
+            @atomicStore(bool, &m.abandoned, true, .release);
+            m.owner = types.VOID;
+            @atomicStore(bool, &m.locked, false, .release);
+            if (sched) |s| s.wakeMutexWaiters(m_val);
         }
     }
+    fiber.owned_mutexes.clearRetainingCapacity();
 }
 
 /// Wait for `target` fiber to finish. Shared by fiber-join and
@@ -1072,7 +1091,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
             // valid. retireSlot returns the vacated slot to the free list
             // (a no-op for slot 0), keeping addFiber's fast path fed.
             sched.retireSlot(fiber, .errored);
-            if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);
+            if (next_idx != 0) abandonFiberMutexes(fiber, sched);
             try sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
@@ -1080,7 +1099,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
         sched.retireSlot(fiber, .completed);
         fiber.result = result;
         vm.gc.writeBarrier(&fiber.header, result);
-        if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);
+        if (next_idx != 0) abandonFiberMutexes(fiber, sched);
         try sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -1124,4 +1143,9 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
     if (fiber.current_exception) |exc| gc.markValue(exc);
     gc.markValue(fiber.continuation_value);
     gc.markValue(fiber.io_buffer);
+
+    // Keep held mutexes alive while the fiber owns them (#1458). markValue
+    // skips any mutex owned by another GC, so a foreign (parent-heap) mutex
+    // this child locked is a no-op here — its own heap's roots keep it alive.
+    for (fiber.owned_mutexes.items) |m_val| gc.markValue(m_val);
 }
