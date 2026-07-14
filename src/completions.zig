@@ -20,7 +20,7 @@ const kaappi_bash =
     \\    esac
     \\
     \\    if [[ "$cur" == -* ]]; then
-    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
     \\    fi
     \\
@@ -53,6 +53,7 @@ const kaappi_zsh =
     \\        '--emit-llvm[Emit LLVM IR text (.ll)]'
     \\        '-o[Output path]:file:_files'
     \\        '--disassemble[Disassemble bytecode]'
+    \\        '--diagnostics=[Diagnostic output format]:format:(text json)'
     \\        '--sandbox[Restrict filesystem and process access]'
     \\        '--gc-stats[Print GC statistics on exit]'
     \\        '--profile[Enable profiling]'
@@ -83,6 +84,7 @@ const kaappi_fish =
     \\complete -c kaappi -l emit-llvm -d 'Emit LLVM IR text (.ll)'
     \\complete -c kaappi -s o -r -F -d 'Output path'
     \\complete -c kaappi -l disassemble -d 'Disassemble bytecode'
+    \\complete -c kaappi -l diagnostics -x -a 'text json' -d 'Diagnostic output format'
     \\complete -c kaappi -l sandbox -d 'Restrict filesystem and process access'
     \\complete -c kaappi -l gc-stats -d 'Print GC statistics on exit'
     \\complete -c kaappi -l profile -d 'Enable profiling'

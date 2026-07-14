@@ -1367,6 +1367,10 @@ noinline fn rejectImmutableEnv(self: *VM, func: *types.Function, name: []const u
 noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
     if (self.findSimilarName(name)) |suggestion| {
         self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
+        // Carry the correction structurally so --diagnostics=json can emit it as
+        // a `data.suggestions` rename (kaappi#1505). `suggestion` is a globals
+        // key, stable for the VM's lifetime.
+        self.last_error_suggestion = suggestion;
     } else {
         self.setErrorDetail("undefined variable '{s}'", .{name});
     }

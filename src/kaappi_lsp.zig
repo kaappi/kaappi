@@ -30,6 +30,8 @@ pub const ffi_callback = @import("ffi_callback.zig");
 pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
+pub const diagnostics = @import("diagnostics.zig");
+pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 
 const version = "0.1.0";
 const initialize_result =
@@ -638,20 +640,20 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     defer r.deinit();
 
     while (r.hasMore() catch false) {
-        const expr = r.readDatum() catch {
+        const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
-            addDiagnostic(&diag_buf, allocator, @intCast(lc.line -| 1), 0, 1, "read error");
+            addDiagnostic(&diag_buf, allocator, lc.line -| 1, diagnostics.readErrorCode(err));
             break;
         };
 
         // Compile phase
-        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch {
+        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
-            addDiagnostic(&diag_buf, allocator, @intCast(lc.line -| 1), 0, 1, "compile error");
+            addDiagnostic(&diag_buf, allocator, lc.line -| 1, diagnostics.compileErrorCode(err));
             break;
         };
     }
@@ -670,18 +672,26 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     sendNotification(allocator, "textDocument/publishDiagnostics", params_buf.items);
 }
 
-fn addDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line: u32, col: u32, severity: u8, message: []const u8) void {
-    buf.appendSlice(allocator, "{\"range\":{\"start\":{\"line\":") catch return;
-    jsonInt(buf, allocator, @intCast(line));
-    buf.appendSlice(allocator, ",\"character\":") catch return;
-    jsonInt(buf, allocator, @intCast(col));
-    buf.appendSlice(allocator, "},\"end\":{\"line\":") catch return;
-    jsonInt(buf, allocator, @intCast(line));
-    buf.appendSlice(allocator, ",\"character\":999}},\"severity\":") catch return;
-    jsonInt(buf, allocator, @intCast(severity));
-    buf.appendSlice(allocator, ",\"source\":\"kaappi\",\"message\":") catch return;
-    jsonString(buf, allocator, message);
-    buf.append(allocator, '}') catch return;
+// Serialize one diagnostic through the shared LSP `Diagnostic` writer
+// (src/lsp_diagnostic.zig) — the same code path `--diagnostics=json` uses, so
+// the CLI and the server can never drift (kaappi#1505). The range spans the
+// whole line (character 0..999) to highlight it in an editor; the `code` is the
+// stable KP code and `message` its registry template.
+fn addDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line0: u32, code: diagnostics.Code) void {
+    var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+    const diag: lsp_diagnostic.Diagnostic = .{
+        .range = .{
+            .start = .{ .line = line0, .character = 0 },
+            .end = .{ .line = line0, .character = 999 },
+        },
+        .severity = lsp_diagnostic.severityOf(code.info().severity),
+        .code = code.render(&cbuf),
+        .message = code.message(),
+    };
+    var tmp: [1024]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&tmp);
+    diag.writeJson(&w) catch return;
+    buf.appendSlice(allocator, w.buffered()) catch return;
 }
 
 // ---- Text position helpers ----

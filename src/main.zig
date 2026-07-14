@@ -43,6 +43,7 @@ pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 pub const toplevel_driver = @import("toplevel_driver.zig");
 pub const diagnostics = @import("diagnostics.zig");
+pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
 pub const config = @import("config.zig");
 
@@ -217,6 +218,10 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (opts.max_memory) |limit| gc.memory_limit = limit;
     if (opts.coverage_xml_path) |p| vm.coverage_xml_path = p;
     vm.command_line_args = opts.scriptArgs();
+    toplevel_driver.setDiagnosticFormat(switch (opts.diagnostics_format) {
+        .text => .text,
+        .json => .json,
+    });
 
     // Standalone mode: run embedded bytecode and exit
     if (embedded_bytecode.bytecode) |bytecode_data| {
@@ -959,6 +964,7 @@ test {
     _ = native_compiler;
     _ = toplevel_driver;
     _ = diagnostics;
+    _ = lsp_diagnostic;
     _ = repl_mod;
     _ = cli;
     _ = config;

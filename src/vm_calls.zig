@@ -110,6 +110,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     // runs on the error-exit path *after* noteUncaughtException has recorded the
     // escaping error's code — see the last_error_detail save/restore there).
     vm.last_error_code = .uncategorized;
+    vm.last_error_suggestion = null;
 
     // Each top-level form starts on the main fiber. A previous form may have
     // left the scheduler positioned on a spawned fiber, or the main fiber

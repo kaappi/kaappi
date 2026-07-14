@@ -18,6 +18,10 @@ is [KEP-0005](https://github.com/kaappi/keps/blob/main/keps/0005-diagnostic-cont
 Later phases (`--diagnostics=json`, `kaappi explain`, `error-object-code`) all
 read from this one registry.
 
+For the structured JSON form of these same diagnostics (the LSP `Diagnostic`
+shape emitted by `--diagnostics=json`), see
+[diagnostics-json.md](diagnostics-json.md).
+
 ---
 
 ## The registry
