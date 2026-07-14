@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784050929498,
+  "lastUpdate": 1784052862496,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2f6ccae01aaf2cdb2bae5157804b918ffcc9faa5",
-          "message": "Fix SRFI-42 comprehensions: recursive qualifiers, guards, and missing generators (#1346)\n\n* Fix SRFI-42 comprehensions: recursive qualifiers, guards, and missing generators (#1216)\n\nRewrite SRFI-42 with a two-macro architecture: do-ec introduces a mutable\nstop flag and delegates to %do-ec, which recursively processes one qualifier\nper expansion. This enables nested qualifiers (cartesian products), (if ...)\nguards, and :while/:until early exit via the stop flag. Also implements\n:string, :vector, :integers, :let generators and corrects fold-ec to match\nthe SRFI-42 signature (seed qualifier... expr proc).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix fold-ec/fold3-ec arg order and add :while/:until generator-wrapping form\n\nAddress review feedback:\n- fold-ec: call reducer as (f value accumulator) per SRFI-42 spec\n- fold3-ec: add missing x0 seed parameter, fix f2 arg order, return\n  x0 on empty sequences\n- Add :while/:until generator-wrapping patterns so the spec form\n  (:while (:range i 10) (< i 5)) works alongside the standalone form\n- Add tests: fold-ec with cons/-, fold3-ec (including empty case),\n  and/or guards, :while wrapping generator\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T10:03:31+05:30",
-          "tree_id": "b0bfdf23b3abd86dafe32923387f518ab7ddcb9e",
-          "url": "https://github.com/kaappi/kaappi/commit/2f6ccae01aaf2cdb2bae5157804b918ffcc9faa5"
-        },
-        "date": 1783573570784,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.08692,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.586866,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.036403,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.744011,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014242,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225702,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512493,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067823,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.598159,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.975959,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.306493,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.12432,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.302816,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.896588,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046797,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044269,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "df1a3524a429763708133b31d724ec3fa9309f90",
+          "message": "Add `kaappi explain <code>` diagnostic documentation command (#1543)\n\nWith stable KP codes, each diagnostic can carry real documentation. Like\n`rustc --explain`, the binary becomes its own diagnostic reference —\noffline, version-matched, and identical for a human reading prose and an\nagent parsing JSON. Everything is read from the one registry in\ndiagnostics.zig, so the command, the --diagnostics=json stream, and the\ngenerated website page can never disagree about what a code means.\n\n`kaappi explain KP3001` prints the entry — meaning, a minimal triggering\nexample, and (woven into the prose) the fix. The code argument accepts the\nKP number in any case, a bare number, or the kebab name. `--json` emits one\nJSON object; `--all` the full text reference; `--all --json` a JSON array,\nthe drift-proof source a docs generator consumes.\n\nRegistry: add an `example` field to every entry (the \"minimal example that\ntriggers it\"), enforced non-empty by the same comptime gate and its runtime\nmirror. 22 of 26 examples are literal one-liners verified to emit their own\ncode; the four that cannot be inlined are representative and say so. The new\n`tests/scheme/errors/explain.sh` reruns every runnable example back through\n--diagnostics=json and asserts it still triggers its documented code, so a\ndrifting example fails CI rather than a user.\n\n`explain` is a pure query over the static registry, so main dispatches it\nbefore any VM/GC/library setup exists. The --json string escaper is shared\nwith --diagnostics=json (lsp_diagnostic.writeJsonString) so both machine\nsurfaces escape identically. tools/gen_diagnostics_reference.py renders the\nkaappi-lang.org page from `explain --all --json`; the page itself lands in\nthe docs repo as a follow-up.\n\nPart of #1503. Closes #1507.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T17:49:43Z",
+          "tree_id": "76f8f486be0e78160b6ba16d0696617e677d6bc0",
+          "url": "https://github.com/kaappi/kaappi/commit/df1a3524a429763708133b31d724ec3fa9309f90"
+        },
+        "date": 1784052860968,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.399569,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.535401,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924517,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.433263,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00653,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054989,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499243,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068435,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.478838,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.95212,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.597947,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.444508,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.827212,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69382,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046381,
             "unit": "seconds"
           }
         ]
