@@ -403,7 +403,36 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
         // (channelReceiveShared) for why `me` must stay .running throughout.
         me.timed_out = false;
         _ = try fiber_mod.runSchedulerStep(SharedChannelSendPoll, .{ .sc = sc }, ctx.vm, ctx.sched, me);
-        if (sc.peekSendReady()) continue; // loop back to 1: re-derive via send()
+
+        // Re-derive readiness THROUGH send(), never a bare peekSendReady():
+        // symmetric to channelReceiveShared's re-receive (kaappi#1489). The
+        // drive can consume this fiber's one-shot send_waiters registration -- a
+        // sibling receive frees a slot, clearing+ringing it, and a sibling send
+        // refills it -- leaving the channel full AND this fiber unregistered, so
+        // peekSendReady() would fall through to a park no later remote receive
+        // can ring. Re-calling send() re-registers under the channel lock when
+        // the channel is still full (the full path enqueues nothing, so there is
+        // no double-send), and enqueues + returns .sent if the drive opened a
+        // slot.
+        const redo = shared_channel.send(sc, payload, notifier) catch |err|
+            return translateSharedChannelError(err, "channel-send");
+        switch (redo) {
+            .sent => {
+                if (me.deadline_ns != null) {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = null;
+                }
+                return types.VOID;
+            },
+            .closed => {
+                if (me.deadline_ns != null) {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = null;
+                }
+                return raiseFiberError("channel-send: send on closed channel");
+            },
+            .would_park => {},
+        }
 
         if (is_dispatched) {
             me.status = .waiting;
@@ -579,7 +608,39 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // decision safe.
         me.timed_out = false;
         _ = try fiber_mod.runSchedulerStep(SharedChannelPoll, .{ .sc = sc }, ctx.vm, ctx.sched, me);
-        if (sc.peekReady()) continue; // loop back to 1: re-derive via receive()
+
+        // Re-derive readiness THROUGH receive(), never a bare peekReady(): the
+        // drive above can consume this fiber's one-shot recv_waiters
+        // registration -- a local sibling's channel-send clears+rings it and a
+        // sibling channel-receive drains the value -- leaving the channel empty
+        // AND this fiber unregistered. peekReady() sees "empty" and falls
+        // through to a park no later remote send can ever ring (kaappi#1489):
+        // the send finds recv_waiters empty and rings nothing, while the
+        // shared-waiter registry entry keeps hasRunnableFibers() true so the
+        // deadlock detector stays suppressed, and the fiber hangs forever. A
+        // second receive() re-registers the notifier under the channel lock
+        // whenever it returns .would_park, so the park below is always armed;
+        // if the drive instead produced a value (or EOF), it is returned here
+        // and the fiber never parks.
+        const redo = shared_channel.receive(sc, gc, notifier) catch |err|
+            return translateSharedChannelError(err, "channel-receive");
+        switch (redo) {
+            .value => |v| {
+                if (me.deadline_ns != null) {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = null;
+                }
+                return v;
+            },
+            .eof => {
+                if (me.deadline_ns != null) {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = null;
+                }
+                return types.EOF;
+            },
+            .would_park => {},
+        }
 
         if (is_dispatched) {
             me.status = .waiting;
