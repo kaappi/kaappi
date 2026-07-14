@@ -31,6 +31,35 @@ pub const Severity = enum {
     err,
     /// Advisory; does not by itself stop the program. Reserved for KP4xxx lint.
     warning,
+
+    /// Lower-case label used by `kaappi explain` and its JSON form.
+    pub fn label(self: Severity) []const u8 {
+        return switch (self) {
+            .err => "error",
+            .warning => "warning",
+        };
+    }
+};
+
+/// The pipeline stage a code belongs to, recovered from its leading digit. The
+/// taxonomy is documented in docs/dev/diagnostics.md; `kaappi explain` surfaces
+/// the label so an agent can see which stage failed without re-deriving it.
+pub const Stage = enum {
+    read,
+    compile,
+    runtime,
+    static_analysis,
+    internal,
+
+    pub fn label(self: Stage) []const u8 {
+        return switch (self) {
+            .read => "read",
+            .compile => "compile",
+            .runtime => "runtime",
+            .static_analysis => "static-analysis",
+            .internal => "internal",
+        };
+    }
 };
 
 /// A stable diagnostic code. The integer value IS the KP number, so
@@ -85,6 +114,47 @@ pub const Code = enum(u16) {
         return lookup(self);
     }
 
+    /// The pipeline stage this code came from, from its leading digit.
+    pub fn stage(self: Code) Stage {
+        return switch (@intFromEnum(self) / 1000) {
+            1 => .read,
+            2 => .compile,
+            3 => .runtime,
+            4 => .static_analysis,
+            else => .internal, // 9xxx
+        };
+    }
+
+    /// Resolve a user-supplied identifier to a registered code, for
+    /// `kaappi explain <code>`. Accepts the rendered code case-insensitively
+    /// with or without the "KP" prefix ("KP3001", "kp3001", "3001") as well as
+    /// the stable kebab-case name ("undefined-variable"). Returns null when
+    /// nothing matches so the caller can report an unknown-code usage error.
+    pub fn fromString(s: []const u8) ?Code {
+        if (s.len == 0) return null;
+
+        // Numeric form, with an optional "KP"/"kp" prefix.
+        var digits = s;
+        if (digits.len >= 2 and (digits[0] == 'K' or digits[0] == 'k') and
+            (digits[1] == 'P' or digits[1] == 'p'))
+        {
+            digits = digits[2..];
+        }
+        if (digits.len > 0 and isAllDigits(digits)) {
+            const n = std.fmt.parseInt(u16, digits, 10) catch return null;
+            inline for (std.enums.values(Code)) |c| {
+                if (@intFromEnum(c) == n) return c;
+            }
+            return null;
+        }
+
+        // Name form: match the kebab-case name case-insensitively.
+        for (table) |d| {
+            if (std.ascii.eqlIgnoreCase(d.name, s)) return d.code;
+        }
+        return null;
+    }
+
     /// The human-readable message template. In Phase 1 (kaappi#1504) most
     /// templates are complete sentences with no placeholders; a richer message
     /// supplied at the raise site (the VM/compiler "detail" buffers) overrides
@@ -104,6 +174,11 @@ pub const Diagnostic = struct {
     /// Prose explanation surfaced by `kaappi explain <code>` (kaappi#1507).
     /// Must be non-empty for every entry — enforced at compile time below.
     explanation: []const u8,
+    /// A minimal snippet that triggers this diagnostic, shown by
+    /// `kaappi explain <code>`. Where a genuine trigger cannot be an inline
+    /// one-liner (deeply nested input, an internal invariant) the snippet is
+    /// representative and says so. Must be non-empty — enforced at compile time.
+    example: []const u8,
     severity: Severity = .err,
 };
 
@@ -122,6 +197,7 @@ pub const table = [_]Diagnostic{
         \\most often an unclosed '(' or an unterminated string or block comment.
         \\Check that every '(' has a matching ')' and every '"' is closed.
         ,
+        .example = "(+ 1 2",
     },
     .{
         .code = .unexpected_char,
@@ -132,6 +208,7 @@ pub const table = [_]Diagnostic{
         \\at this position. A common cause is a malformed '#'-syntax such as an
         \\unknown '#\name' character literal or a stray '#'.
         ,
+        .example = "#z",
     },
     .{
         .code = .unexpected_right_paren,
@@ -141,6 +218,7 @@ pub const table = [_]Diagnostic{
         \\A ')' appeared with no matching '(' still open. Usually there is one
         \\closing parenthesis too many, or an earlier '(' was already closed.
         ,
+        .example = "(cons 1 2))",
     },
     .{
         .code = .invalid_number,
@@ -151,6 +229,7 @@ pub const table = [_]Diagnostic{
         \\example a malformed radix prefix (#x, #o, #b, #e, #i), a bad exponent,
         \\or a rational with a zero denominator.
         ,
+        .example = "1/0",
     },
     .{
         .code = .invalid_character_name,
@@ -161,6 +240,7 @@ pub const table = [_]Diagnostic{
         \\Valid forms are a single character (#\a), a named character
         \\(#\newline, #\space, #\tab, ...), or a hex escape (#\x41).
         ,
+        .example = "#\\foo",
     },
     .{
         .code = .unterminated_string,
@@ -170,6 +250,7 @@ pub const table = [_]Diagnostic{
         \\A string opened with '"' was never closed before end of input. Add the
         \\closing '"', or escape any literal '"' inside the string as '\"'.
         ,
+        .example = "(display \"abc",
     },
     .{
         .code = .invalid_escape,
@@ -180,6 +261,7 @@ pub const table = [_]Diagnostic{
         \\escape. R7RS allows \a \b \t \n \r \" \\ \x<hex>; and a line-continuation
         \\'\' followed by whitespace and a newline.
         ,
+        .example = "(display \"\\q\")",
     },
     .{
         .code = .dot_outside_list,
@@ -189,6 +271,7 @@ pub const table = [_]Diagnostic{
         \\A '.' (dotted-pair marker) appeared where it is not allowed. It is legal
         \\only before the final element inside a list, as in (a . b) or (a b . c).
         ,
+        .example = "(. 5)",
     },
     .{
         .code = .nesting_too_deep,
@@ -199,6 +282,9 @@ pub const table = [_]Diagnostic{
         \\means unbalanced parentheses producing runaway nesting rather than a
         \\genuinely deep literal.
         ,
+        // Representative: a real trigger needs more open parens than the
+        // reader's depth limit, too many to print inline.
+        .example = "((((( ...nested past the reader's depth limit... )))))",
     },
     .{
         .code = .token_too_long,
@@ -208,6 +294,9 @@ pub const table = [_]Diagnostic{
         \\A single token (identifier, number, or string) exceeded the reader's
         \\maximum token length. Split the input or shorten the token.
         ,
+        // Representative: a real trigger is one token longer than the reader's
+        // limit, too long to print inline.
+        .example = "aaaaaaaa...  ; a single token longer than the reader's limit",
     },
 
     // -- KP2xxx — Expand / compile ------------------------------------------
@@ -220,6 +309,7 @@ pub const table = [_]Diagnostic{
         \\test, a 'define' with no body, or a 'lambda' whose parameter list is not
         \\a proper list of identifiers. Check the form against its expected shape.
         ,
+        .example = "(if)",
     },
     .{
         .code = .syntax_error,
@@ -230,6 +320,7 @@ pub const table = [_]Diagnostic{
         \\because no 'syntax-rules' pattern matched the form. The accompanying
         \\message describes what the macro expected.
         ,
+        .example = "(syntax-error \"must be a pair\" 1)",
     },
     .{
         .code = .macro_expansion_limit,
@@ -239,6 +330,10 @@ pub const table = [_]Diagnostic{
         \\Macro expansion did not terminate within the implementation's step
         \\limit, which almost always indicates a macro that expands into itself
         \\without a base case.
+        ,
+        .example =
+        \\(define-syntax loop (syntax-rules () ((_ x) (loop x))))
+        \\(loop 1)
         ,
     },
 
@@ -253,6 +348,7 @@ pub const table = [_]Diagnostic{
         \\'with-exception-handler' to handle it. The message shown is the payload
         \\of the raised object.
         ,
+        .example = "(raise 'boom)",
     },
     .{
         .code = .undefined_variable,
@@ -263,6 +359,7 @@ pub const table = [_]Diagnostic{
         \\(Kaappi suggests the nearest defined name), a missing 'import', or a
         \\'define' that has not run yet because it appears after the reference.
         ,
+        .example = "(display undefined-name)",
     },
     .{
         .code = .type_error,
@@ -273,6 +370,7 @@ pub const table = [_]Diagnostic{
         \\'car' on a non-pair or '+' on a non-number. The message names the
         \\procedure, the type it expected, and the value it got.
         ,
+        .example = "(car 5)",
     },
     .{
         .code = .arity_mismatch,
@@ -283,6 +381,7 @@ pub const table = [_]Diagnostic{
         \\cannot accept. The message shows how many arguments were expected versus
         \\how many were supplied.
         ,
+        .example = "(cons 1)",
     },
     .{
         .code = .division_by_zero,
@@ -293,6 +392,7 @@ pub const table = [_]Diagnostic{
         \\divisor. Guard the divisor, or use inexact arithmetic where the result
         \\is a floating-point infinity or NaN instead of an error.
         ,
+        .example = "(/ 1 0)",
     },
     .{
         .code = .not_a_procedure,
@@ -303,6 +403,7 @@ pub const table = [_]Diagnostic{
         \\procedure, as in (5 6). Check for an extra pair of parentheses or a name
         \\that is bound to a value rather than a procedure.
         ,
+        .example = "(5 6)",
     },
     .{
         .code = .index_out_of_bounds,
@@ -313,6 +414,7 @@ pub const table = [_]Diagnostic{
         \\list-ref, bytevector-u8-ref, ...) was negative or not less than the
         \\length of the sequence.
         ,
+        .example = "(vector-ref (vector 1 2) 5)",
     },
     .{
         .code = .invalid_argument,
@@ -322,6 +424,10 @@ pub const table = [_]Diagnostic{
         \\An argument was of an acceptable type but outside the range or shape the
         \\procedure allows — for example a start index greater than an end index,
         \\or a value a procedure explicitly rejects.
+        ,
+        .example =
+        \\(import (srfi 13))
+        \\(string-join '() "," 'strict-infix)
         ,
     },
     .{
@@ -333,6 +439,10 @@ pub const table = [_]Diagnostic{
         \\non-tail recursion. Rewrite the recursion to be in tail position, or use
         \\an explicit accumulator or loop.
         ,
+        .example =
+        \\(define (sum n) (+ n (sum (+ n 1))))
+        \\(sum 0)
+        ,
     },
     .{
         .code = .execution_timeout,
@@ -342,6 +452,8 @@ pub const table = [_]Diagnostic{
         \\Execution exceeded a configured time budget and was interrupted. This is
         \\a sandbox / watchdog limit, not a fault in the program's logic per se.
         ,
+        // Surfaces only under a time budget: kaappi --timeout 500 prog.scm
+        .example = "(let loop () (loop))   ; run with --timeout 500",
     },
 
     // -- KP9xxx — Internal / resource exhaustion ----------------------------
@@ -354,6 +466,9 @@ pub const table = [_]Diagnostic{
         \\code is itself a gap worth reporting: the underlying condition should get
         \\its own registry entry.
         ,
+        // No dedicated trigger — this is the fallback for a condition that has
+        // not yet been given its own code.
+        .example = "(no specific trigger — a catch-all for uncoded conditions)",
     },
     .{
         .code = .internal_error,
@@ -364,6 +479,9 @@ pub const table = [_]Diagnostic{
         \\stream or an internal limit. This indicates a bug in Kaappi itself;
         \\please report it with the program that triggered it.
         ,
+        // No user-reachable trigger by design — correct input never produces
+        // this; it signals a bug in Kaappi.
+        .example = "(no trigger from correct input — signals a bug in Kaappi)",
     },
     .{
         .code = .out_of_memory,
@@ -373,6 +491,7 @@ pub const table = [_]Diagnostic{
         \\Memory allocation failed. The program (or a single datum, program text,
         \\or data structure within it) is too large for the available heap.
         ,
+        .example = "(make-bytevector 100000000000000)",
     },
 };
 
@@ -383,6 +502,13 @@ pub fn lookup(code: Code) Diagnostic {
         if (d.code == code) return d;
     }
     unreachable;
+}
+
+fn isAllDigits(s: []const u8) bool {
+    for (s) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
 }
 
 // -- Internal bridge: Zig error set -> curated code -------------------------
@@ -472,5 +598,6 @@ comptime {
         if (d.name.len == 0) @compileError("diagnostics registry: entry '" ++ @tagName(d.code) ++ "' has an empty name");
         if (d.template.len == 0) @compileError("diagnostics registry: entry '" ++ @tagName(d.code) ++ "' has an empty template");
         if (d.explanation.len == 0) @compileError("diagnostics registry: entry '" ++ @tagName(d.code) ++ "' has an empty explanation");
+        if (d.example.len == 0) @compileError("diagnostics registry: entry '" ++ @tagName(d.code) ++ "' has an empty example");
     }
 }

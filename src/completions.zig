@@ -19,20 +19,26 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
+    \\    local has_compile=false has_explain=false
+    \\    for word in "${COMP_WORDS[@]}"; do
+    \\        [[ "$word" == "compile" ]] && has_compile=true
+    \\        [[ "$word" == "explain" ]] && has_explain=true
+    \\    done
+    \\
+    \\    if $has_explain; then
+    \\        COMPREPLY=($(compgen -W "--json --all" -- "$cur"))
+    \\        return
+    \\    fi
+    \\
     \\    if [[ "$cur" == -* ]]; then
     \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
     \\    fi
     \\
-    \\    local has_compile=false
-    \\    for word in "${COMP_WORDS[@]}"; do
-    \\        [[ "$word" == "compile" ]] && has_compile=true
-    \\    done
-    \\
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile explain" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -67,7 +73,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile explain)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -95,6 +101,7 @@ const kaappi_fish =
     \\complete -c kaappi -l max-memory -r -x -d 'Maximum heap memory in bytes'
     \\complete -c kaappi -l completions -r -x -a 'bash zsh fish' -d 'Output shell completion script'
     \\complete -c kaappi -a compile -d 'Compile to native binary via LLVM'
+    \\complete -c kaappi -a explain -d 'Explain a diagnostic code (KP####)'
     \\
 ;
 
