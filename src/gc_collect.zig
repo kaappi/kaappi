@@ -1051,6 +1051,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         .fiber => {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             fiber.param_overrides.deinit();
+            fiber.owned_mutexes.deinit(gc.allocator);
             gc.allocator.free(fiber.frames);
             gc.allocator.free(fiber.registers);
             poisonAndDestroy(gc, @import("fiber.zig").Fiber, fiber);
