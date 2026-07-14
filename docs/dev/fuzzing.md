@@ -59,7 +59,10 @@ footguns).
 Ordinary Scheme read/compile/runtime errors are **expected** fuzz outcomes.
 Only crashes, panics, memory leaks (via `std.testing.allocator`),
 sanitizer findings, and differential mismatches fail a target. VM execution
-is bounded by a 100 ms deadline per input.
+is bounded per input by a 100 ms wall-clock deadline — or, under
+`-Dgc-stress=true` (where a full collection on every allocation makes
+wall-clock time meaningless), by a speed-independent instruction-count budget
+instead (#1447).
 
 ## Running locally
 
@@ -109,9 +112,11 @@ The `gc-stress` variant runs the whole unit suite with a collection on
 every allocation before fuzzing, so its wall time is dominated by the test
 phase, not the fuzz limit. (Its first CI execution is what found
 [#1401](https://github.com/kaappi/kaappi/issues/1401); the suite has been
-required to stay stress-clean since that fix.) Throughput-sensitive fuzz
-targets skip themselves on stress builds — see the `gc_stress` checks in
-`src/tests_fuzz.zig`.
+required to stay stress-clean since that fix.) The deterministic
+generator-coverage gates and the differential-oracle regression gate stay
+meaningful on stress builds by bounding evaluation with an instruction-count
+budget rather than the wall-clock deadline — see `eval_instruction_limit` in
+`src/tests_fuzz.zig` (#1447).
 
 Trigger it manually (optionally overriding the limit) with:
 

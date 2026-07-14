@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Run the fuzz generator-coverage gates (grammar/native/portable evaluate-rate and the differential oracle) under `-Dgc-stress=true` by bounding evaluation with an instruction budget instead of the wall-clock deadline a stress build makes meaningless (#1447)
+
 ## [0.14.1] - 2026-07-11
 
 ### Added

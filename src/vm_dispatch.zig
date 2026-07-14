@@ -105,6 +105,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return VMError.ExecutionTimeout;
                 }
             }
+            if (self.instruction_limit) |limit| {
+                if (self.instruction_counter >= limit) {
+                    self.setErrorDetail("execution instruction limit exceeded", .{});
+                    return VMError.ExecutionTimeout;
+                }
+            }
         }
 
         const frame = &self.frames[self.frame_count - 1];

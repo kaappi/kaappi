@@ -575,3 +575,41 @@ test "macro expansion limit returns compile error deterministically" {
     try std.testing.expectError(th.VMError.CompileError, result);
     try std.testing.expectEqual(roots_before, gc.root_count);
 }
+
+// ---------------------------------------------------------------------------
+// Instruction-count execution bound (#1447)
+//
+// A speed-independent alternative to the wall-clock timeout_deadline_ns: the
+// fuzz eval harness uses it under gc-stress, where a full collection on every
+// allocation makes wall-clock time meaningless while the program still runs
+// the same number of bytecode instructions.
+// ---------------------------------------------------------------------------
+
+test "vm: instruction_limit aborts a long-running loop" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A bounded loop far longer than the limit: hits the budget early, yet
+    // still terminates on its own if the budget check ever regresses (so this
+    // fails as a wrong value rather than hanging).
+    vm.instruction_limit = 50_000;
+    const result = vm.eval(
+        \\(define (loop n) (if (= n 0) 'done (loop (- n 1))))
+        \\(loop 100000000)
+    );
+    try std.testing.expectError(th.VMError.ExecutionTimeout, result);
+}
+
+test "vm: instruction_limit does not trip a short program" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A generous budget must let an ordinary program run to completion.
+    vm.instruction_limit = 50_000;
+    const result = try vm.eval("(let loop ((n 0) (acc 0)) (if (= n 100) acc (loop (+ n 1) (+ acc n))))");
+    try std.testing.expectEqual(@as(i64, 4950), types.toFixnum(result));
+}
