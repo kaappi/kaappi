@@ -1,6 +1,7 @@
 #!/bin/bash
 # End-to-end tests for the LLVM native backend.
-# Verifies: Scheme source → --emit-llvm → .ll → clang → native binary → correct output.
+# Verifies: Scheme source → --emit-llvm → .ll → verify IR → cc -O2 → native
+#           binary → output matches the interpreter.
 #
 # Usage: bash tests/e2e/run-e2e.sh
 
@@ -28,6 +29,33 @@ zig build lib
 
 KAAPPI="$REPO_DIR/zig-out/bin/kaappi"
 LIBDIR="$REPO_DIR/zig-out/lib"
+
+# C compiler used to link native binaries (defaults to `zig cc`).
+CC="${KAAPPI_CC:-zig cc}"
+
+# Pick an IR verifier once (#1492). The LLVM verifier catches malformed IR that
+# passes -O0 but breaks (or miscompiles) under -O2's stricter passes. Prefer the
+# standalone tools for clean diagnostics; when neither is on PATH (typical on CI
+# runners) fall back to `zig cc`, whose bundled LLVM parses and verifies the .ll
+# on its way to an object file — the same LLVM that links the binary, so this
+# step never silently no-ops. None of these pass -w, so diagnostics are visible.
+if command -v opt >/dev/null 2>&1; then
+    IR_VERIFIER="opt"
+elif command -v llvm-as >/dev/null 2>&1; then
+    IR_VERIFIER="llvm-as"
+else
+    IR_VERIFIER="cc"
+fi
+echo "IR verifier: $IR_VERIFIER"
+
+verify_ir() {
+    local ll_file="$1"
+    case "$IR_VERIFIER" in
+        opt)     opt -passes=verify -disable-output "$ll_file" ;;
+        llvm-as) llvm-as -o /dev/null "$ll_file" ;;
+        *)       $CC -c "$ll_file" -o "$TMPDIR/verify.o" ;;
+    esac
+}
 
 # --- Phase 1: BDD tests via interpreter ---
 
@@ -66,9 +94,20 @@ assert_native_parity() {
         return
     fi
 
+    # Safety net: verify the IR is well-formed before -O2 gets a chance to turn a
+    # latent malformed-IR bug into a miscompile or a confusing link failure.
+    local verify_output
+    if ! verify_output=$(verify_ir "$ll_file" 2>&1); then
+        echo "  verify: $verify_output"
+        echo "FAIL: $label — IR verification failed"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+
+    # Link at -O2 (no -w): the emitter leans on LLVM to clean up its naive IR,
+    # and dropping -w surfaces any diagnostics instead of hiding them.
     local clang_output
-    local cc="${KAAPPI_CC:-zig cc}"
-    if ! clang_output=$($cc -w "$ll_file" -o "$native_bin" -L"$LIBDIR" -lkaappi_rt -lc -lm -lpthread 2>&1); then
+    if ! clang_output=$($CC -O2 "$ll_file" -o "$native_bin" -L"$LIBDIR" -lkaappi_rt -lc -lm -lpthread 2>&1); then
         echo "  cc: $clang_output"
         echo "FAIL: $label — clang linking failed"
         FAIL=$((FAIL + 1))

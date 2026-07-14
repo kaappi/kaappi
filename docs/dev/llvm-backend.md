@@ -75,7 +75,7 @@ NaN-boxed representation crosses C ABI trivially).
 ```bash
 zig build lib                                        # build libkaappi_rt.a
 kaappi --emit-llvm -o program.ll program.scm         # emit LLVM IR
-zig cc -w program.ll -o program \
+zig cc -w -O2 program.ll -o program \
     -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread      # link native binary
 ./program                                            # run
 ```
@@ -90,6 +90,37 @@ zig build native -Dnative-src=program.scm            # all-in-one
 **Always use `zig cc` (not `clang`) for linking.** The Zig-compiled static
 library references `__zig_probe_stack` and other Zig compiler-rt intrinsics
 that `clang` cannot resolve.
+
+## Optimization and IR verification
+
+The emitter produces deliberately naive IR and relies on LLVM to clean it up:
+every immediate is `add i64 0, K` (`emitImm`), let-bindings / shadow-stack root
+slots / args arrays go through `alloca`/`load`/`store`, and `if`/`and`/`or`
+become long `br`/`phi` chains. All three link flows above pass **`-O2`** so
+mem2reg, instcombine, simplifycfg, and constant folding collapse this — at `-O0`
+none of the optimization that is the point of using LLVM runs. (Root-slot
+`alloca`s whose address escapes into `kaappi_gc_push_root` correctly stay in
+memory; the collector scans them.)
+
+Because the IR is hand-written, well-formedness bugs can pass `-O0` yet break or
+miscompile under `-O2`'s stricter verifier and passes (e.g. an orphan block left
+after a tail call, or mismatched `phi` operands). The e2e harness
+(`tests/e2e/run-e2e.sh`) verifies every emitted `.ll` before linking — with
+`opt -passes=verify`, `llvm-as`, or, when neither is on `PATH`, `zig cc -c`
+(same bundled LLVM that links the binary). The verifier runs **without** `-w`,
+so no malformed-IR diagnostic is hidden. To verify a single file by hand:
+
+```bash
+kaappi --emit-llvm -o program.ll program.scm
+opt -passes=verify -disable-output program.ll        # or: llvm-as -o /dev/null program.ll
+```
+
+The `-w` on the link commands only silences cosmetic warnings on generated IR
+for end users; a hard verifier **error** still fails the compile regardless.
+
+Cross-module inlining of the runtime primitives (`kaappi_fixnum_add`,
+`kaappi_car`, …) needs LTO and is tracked separately — `-O2` alone already
+cleans up the emitter's own IR substantially.
 
 ## LLVM IR Emission
 
@@ -203,8 +234,9 @@ via `kaappi_call_scheme`, which dispatches through the VM's `callWithArgs`
 
 End-to-end tests live in `tests/e2e/`:
 
-- `run-e2e.sh` — builds the runtime, runs BDD specs, compiles each test
-  program to native via LLVM IR, and diffs output against the interpreter
+- `run-e2e.sh` — builds the runtime, runs BDD specs, verifies each program's
+  emitted IR, compiles it to native via LLVM IR at `-O2`, and diffs output
+  against the interpreter
 - `test-llvm-backend.scm` — BDD specs using `kaappi-bdd`
 - `programs/*.scm` — test programs compiled to native binaries
 
