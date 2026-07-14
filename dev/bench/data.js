@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784029262951,
+  "lastUpdate": 1784031844027,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "192d852a326b87546ce4b9c5f51f1b331d2b00e0",
-          "message": "Fix SRFI-141 balanced/ to use correct tie-breaking (#1232) (#1334)\n\nbalanced/ was aliased to round/, but they differ at ties: round/\nbreaks to even quotient while balanced/ must keep the remainder in\n[-|d/2|, |d/2|) — ties always produce a negative remainder.\n\nCloses #1232\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T23:21:10+05:30",
-          "tree_id": "70ae97ff28e20364f727a760c98188d011c9c527",
-          "url": "https://github.com/kaappi/kaappi/commit/192d852a326b87546ce4b9c5f51f1b331d2b00e0"
-        },
-        "date": 1783534925370,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.620771,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.122407,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.055697,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.705544,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013844,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204501,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.498001,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0694,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.47389,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.10307,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.821171,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.056155,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.057451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.878191,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046924,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045608,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a27d2f82514e1cee900aa5292cdbd6ef40bd65ea",
+          "message": "Add stable KP diagnostic codes to every error path (#1534)\n\nA diagnostic's message string was its only identity: a tool — an AI agent,\na CI gate, an editor — had to substring-match prose that is free to be\nreworded, and some paths leaked raw Zig error names straight to the user\n(`read error: error.UnexpectedChar`). This is the keystone of the machine\nlegibility campaign (#1503): give every user-facing diagnostic a stable\n`KP`-prefixed handle so the code is the contract and the message is free to\nimprove.\n\nIntroduce `src/diagnostics.zig`: a comptime registry binding each diagnostic\nto a code (the enum ordinal is the KP number), a message template, a prose\nexplanation for a later `kaappi explain`, and a severity. A comptime gate\nfails the build on any duplicate, missing, or empty-field entry — the KEP's\nregistry-integrity check, enforced at build time. Text output gains the code\n(`error[KP3001]: ...`), keeping the stage word for the human reader.\n\nErrors reach the reporting layer two ways. Native `VMError`s are coded from\nthe escaping error; errors raised as objects (division by zero, `error`,\n`raise`) carry their code on a new `ErrorObject.code` field, stamped at the\nraise site and lifted to the reporter by noteUncaughtException — the robust\nrepresentation the Phase-4 `error-object-code` accessor will reuse. High-\ntraffic diagnostics are coded first; the long tail shows the generic KP3000\nuncaught-exception until migrated, and no path ever regresses to leaking a\nZig name. `error_type` and the R7RS error accessors are untouched.\n\nDesign record: KEP-0005. Policy and contributor guide: docs/dev/diagnostics.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T11:56:54Z",
+          "tree_id": "3e63454ead3f03bb40b6eaf22f5a6bf02fec50bb",
+          "url": "https://github.com/kaappi/kaappi/commit/a27d2f82514e1cee900aa5292cdbd6ef40bd65ea"
+        },
+        "date": 1784031842808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.055521,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.780565,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.923699,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.435788,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006729,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052878,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.517498,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067824,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.257953,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.987178,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514474,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.479239,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.740906,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.845601,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048505,
             "unit": "seconds"
           }
         ]
