@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
+const shared_buffer = @import("shared_buffer.zig");
 const GC = memory_mod.GC;
 
 const Value = types.Value;
@@ -774,7 +775,9 @@ fn objectSize(obj: *Object) usize {
         .native_closure => @sizeOf(types.NativeClosure) + obj.as(types.NativeClosure).upvalues.len * @sizeOf(Value),
         .flonum => @sizeOf(Flonum),
         .vector => @sizeOf(Vector) + obj.as(Vector).data.len * @sizeOf(Value),
-        .bytevector => @sizeOf(Bytevector) + obj.as(Bytevector).data.len,
+        // A backed bytevector (lever D) borrows its bytes from a SharedBuffer,
+        // so only the struct counts against this heap.
+        .bytevector => @sizeOf(Bytevector) + if (obj.as(Bytevector).shared == null) obj.as(Bytevector).data.len else 0,
         .transformer => blk: {
             const t = obj.as(Transformer);
             break :blk @sizeOf(Transformer) + t.literals.len * @sizeOf(Value) +
@@ -920,7 +923,15 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .bytevector => {
             const bv = obj.as(Bytevector);
-            gc.allocator.free(bv.data);
+            // Lever D (kaappi#1472): a backed bytevector borrows its bytes from
+            // a SharedBuffer -- release the reference (freeing the buffer at
+            // zero) instead of freeing bytes this heap never owned.
+            if (bv.shared) |raw| {
+                const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
+                sb.release();
+            } else {
+                gc.allocator.free(bv.data);
+            }
             poisonAndDestroy(gc, Bytevector, bv);
         },
         .promise => {

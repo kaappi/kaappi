@@ -205,13 +205,26 @@ Still open for Phase 7 / #1472:
    suite, checking the lifetime rule stays contained. This is the P3 (B)
    second clause; without it the ≥30% result is necessary but not
    sufficient.
-3. **Lever-C ship** — the immediate fast path in the real
-   `send`/`receive`, with a regression test.
+3. **Lever-C ship** — the immediate fast path now exists in the real
+   `send`/`receive` (behind `-Dchannel-instrument`, as the gate lever
+   `c`; see the gate campaign below). Promoting it to the shipped default
+   (lever-invariant, no flag) with a regression test is the remaining
+   step.
 4. **KEP-0002 UQ 1 amendment** — record the A/B/C/D outcome (ship C; B
    pending clause 2; D deferred) into KEP-0002, per #1472's acceptance.
    Best done after (1).
 5. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
    parent-side copy-overhead-share instrumentation, the Kalibera–Jones
    statistics driver, the CSV + classification worksheet, and lever D
-   wired behind a flag in the real path. That is the larger, separate
-   half of #1472 that feeds #1474.
+   wired behind a flag in the real path. The larger, separate half of
+   #1472 that feeds #1474. **Harness landed** in `benchmarks/gate/` (see
+   `benchmarks/gate/README.md`): the six workloads + controls, the real-
+   path `share` counters (`src/channel_instrument.zig` →
+   `src/shared_channel.zig`), levers `none`/`c`/`cd`, and the K–J driver
+   emitting the §6 CSV, all locally piloted on macOS aarch64. **Lever D**
+   (refcounted immutable side-heap for large bytevectors,
+   `src/shared_buffer.zig`, zero-copy receive + copy-on-write) is wired
+   into the real deepCopy path behind `-Dchannel-instrument`, so the gate's
+   `C+D` cells are now runnable. Still open there: the frozen two-machine
+   §4 collection and the worksheet fill-in — ideally after kaappi#1489
+   (the intermittent pool hang) is fixed.

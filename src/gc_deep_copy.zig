@@ -3,6 +3,8 @@ const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
 const hashtable = @import("primitives_hashtable.zig");
 const shared_channel = @import("shared_channel.zig");
+const shared_buffer = @import("shared_buffer.zig");
+const instrument = @import("channel_instrument.zig");
 
 const GC = memory_mod.GC;
 const Value = types.Value;
@@ -94,7 +96,35 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             return new_val;
         },
         .bytevector => {
-            const new_val = try gc.allocBytevector(obj.as(types.Bytevector).data);
+            const bv = obj.as(types.Bytevector);
+            // Lever D (kaappi#1472). Comptime-pruned in the shipped build, where
+            // no bytevector is ever backed and the flag is never set.
+            if (comptime instrument.enabled) {
+                // Case 1 (receive side, and any re-copy of an already-backed
+                // bytevector): alias the existing immutable SharedBuffer by
+                // refcount -- zero byte copy. Unconditional on the lever, since
+                // the buffer already exists; a mutator later copies-on-write.
+                if (bv.shared) |raw| {
+                    const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
+                    const new_val = try gc.allocBytevectorShared(raw, sb.bytes);
+                    sb.retain(); // after the alloc: a failed alloc leaves the source's own ref intact
+                    try visited.put(src_ptr, new_val);
+                    return new_val;
+                }
+                // Case 2 (send side, lever C+D, large payload): snapshot the
+                // bytes into a fresh SharedBuffer once, then back the copy.
+                if (instrument.envelope_build_d and bv.data.len >= instrument.d_side_heap_threshold_bytes) {
+                    const sb = try shared_buffer.SharedBuffer.create(bv.data);
+                    const new_val = gc.allocBytevectorShared(@ptrCast(sb), sb.bytes) catch |err| {
+                        sb.release(); // drop create's rc=1 on alloc failure
+                        return err;
+                    };
+                    try visited.put(src_ptr, new_val);
+                    return new_val;
+                }
+            }
+            // Default (lever none, small payloads, shipped build): copy bytes.
+            const new_val = try gc.allocBytevector(bv.data);
             try visited.put(src_ptr, new_val);
             return new_val;
         },

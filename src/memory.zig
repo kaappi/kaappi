@@ -1,6 +1,8 @@
 const std = @import("std");
 const types = @import("types.zig");
 const diagnostics = @import("diagnostics.zig");
+const shared_buffer = @import("shared_buffer.zig");
+const instrument = @import("channel_instrument.zig");
 const Value = types.Value;
 const Object = types.Object;
 const ObjectTag = types.ObjectTag;
@@ -612,6 +614,47 @@ pub const GC = struct {
         };
         self.finishAlloc(&bv.header, @sizeOf(Bytevector) + size);
         return types.makePointer(@ptrCast(bv));
+    }
+
+    /// Lever D (kaappi#1472): a bytevector whose bytes are BORROWED from a
+    /// refcounted immutable `shared_buffer.SharedBuffer` rather than owned.
+    /// `bytes` must be `shared`'s own slice; this object stores the pointer and
+    /// does not copy or free the bytes (freeObject releases the reference
+    /// instead). The caller owns the reference this object will hold
+    /// (SharedBuffer.create's rc=1, or a retain()) -- following allocChannelStub,
+    /// allocate first so a failure here leaves the caller's reference intact to
+    /// drop, rather than leaking it on a retain that precedes a failed alloc.
+    pub fn allocBytevectorShared(self: *GC, shared: *anyopaque, bytes: []u8) !Value {
+        try self.maybeCollect();
+        const bv = try self.allocator.create(Bytevector);
+        bv.* = .{
+            .header = .{ .tag = .bytevector },
+            .data = bytes,
+            .shared = shared,
+        };
+        // The bytes live in the SharedBuffer, not this heap: count only the
+        // struct, so the per-heap footprint reflects lever D's whole point.
+        self.finishAlloc(&bv.header, @sizeOf(Bytevector));
+        return types.makePointer(@ptrCast(bv));
+    }
+
+    /// Lever D copy-on-write (kaappi#1472): if `bv` borrows a shared immutable
+    /// buffer, give it private ownership of a copy and drop the shared reference
+    /// BEFORE it is mutated -- so a writer never touches shared bytes and
+    /// Scheme's copy semantics hold. No-op for an ordinary owned bytevector (and
+    /// comptime-pruned entirely in the shipped build, where none are ever
+    /// backed). Not under any collection here: the dupe is a raw allocator call
+    /// and callers run outside deepCopy's no_collect region.
+    pub fn unshareBytevector(self: *GC, bv: *Bytevector) !void {
+        if (comptime !instrument.enabled) return;
+        if (bv.shared) |raw| {
+            const owned = try self.allocator.dupe(u8, bv.data);
+            bv.data = owned;
+            bv.shared = null;
+            self.bytes_allocated += owned.len;
+            const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
+            sb.release();
+        }
     }
 
     pub fn allocPromise(self: *GC, forced: bool, value: Value) !Value {

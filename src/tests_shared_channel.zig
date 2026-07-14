@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_object = @import("shared_object.zig");
+const instrument = @import("channel_instrument.zig");
 const reactor_mod = @import("reactor.zig");
 const th = @import("testing_helpers.zig");
 
@@ -384,6 +385,90 @@ test "send: build failure leaves the queue and reservation untouched (send fails
 
     src_gc.deinit();
     sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1472)" {
+    // Only meaningful in the gate-campaign build (-Dchannel-instrument=true);
+    // the default/shipped build compiles the elision branch out, so this is a
+    // trivial pass there. Run with -Dchannel-instrument=true to exercise it.
+    if (comptime !instrument.enabled) return;
+    const baseline = shared_object.liveCount();
+    defer instrument.setLever(.none); // process-global; restore for other tests
+
+    const sc = try shared_channel.SharedChannel.create();
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+
+    // Lever none: even a fixnum message gets its own private heap (the shipped
+    // per-message behavior).
+    instrument.setLever(.none);
+    _ = try shared_channel.send(sc, types.makeFixnum(42), null);
+    try std.testing.expect(sc.queue_head.?.gc != null);
+    const r0 = try shared_channel.receive(sc, &dest_gc, null);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r0.value));
+
+    // Lever C: the same immediate skips the heap entirely (gc == null) and
+    // still round-trips correctly.
+    instrument.setLever(.c);
+    _ = try shared_channel.send(sc, types.makeFixnum(7), null);
+    try std.testing.expect(sc.queue_head.?.gc == null);
+    const r1 = try shared_channel.receive(sc, &dest_gc, null);
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1.value));
+
+    // A pointer payload still takes the heap path under lever C.
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    const pair = try src_gc.allocPair(types.makeFixnum(1), types.NIL);
+    _ = try shared_channel.send(sc, pair, null);
+    try std.testing.expect(sc.queue_head.?.gc != null);
+    _ = try shared_channel.receive(sc, &dest_gc, null);
+
+    sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "instrument lever D: a large bytevector crosses by shared buffer, then copies on write (kaappi#1472)" {
+    if (comptime !instrument.enabled) return;
+    const baseline = shared_object.liveCount();
+    defer instrument.setLever(.none); // process-global; restore for other tests
+    instrument.setLever(.cd);
+
+    const sc = try shared_channel.SharedChannel.create();
+
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    var data: [8192]u8 = undefined; // >= the 4 KiB lever-D threshold
+    for (&data, 0..) |*b, i| b.* = @intCast(i % 256);
+    const bv = try src_gc.allocBytevector(&data);
+
+    _ = try shared_channel.send(sc, bv, null);
+    // Send side: the envelope's bytevector is backed by a SharedBuffer (one
+    // snapshot), not a plain byte copy.
+    const env_bv = types.toObject(sc.queue_head.?.value).as(types.Bytevector);
+    try std.testing.expect(env_bv.shared != null);
+    const shared_ptr = env_bv.shared.?;
+
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+    const recv = try shared_channel.receive(sc, &dest_gc, null);
+    const recv_bv = types.toObject(recv.value).as(types.Bytevector);
+    // Receive side: aliased the SAME buffer (no new snapshot), bytes intact.
+    try std.testing.expect(recv_bv.shared == shared_ptr);
+    try std.testing.expectEqualSlices(u8, &data, recv_bv.data);
+
+    // Copy-on-write: unshare privatizes the bytes and drops the reference, so
+    // the copy is byte-identical and then safe to mutate.
+    try dest_gc.unshareBytevector(recv_bv);
+    try std.testing.expect(recv_bv.shared == null);
+    try std.testing.expectEqualSlices(u8, &data, recv_bv.data);
+    recv_bv.data[0] = 0xFF;
+    try std.testing.expectEqual(@as(u8, 0xFF), recv_bv.data[0]);
+
+    sc.release();
+    // The SharedBuffer was freed when unshare dropped the last reference (the
+    // envelope's own reference went at receive-time env.deinit); the channel is
+    // freed by release. Both were shared_object.liveCount() entries.
     try std.testing.expectEqual(baseline, shared_object.liveCount());
 }
 

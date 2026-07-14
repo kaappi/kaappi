@@ -439,6 +439,15 @@ pub const Vector = struct {
 pub const Bytevector = struct {
     header: Object,
     data: []u8,
+    /// Lever D (KEP-0002 Phase 7, kaappi#1472): when non-null, `data` is
+    /// borrowed from a refcounted immutable `shared_buffer.SharedBuffer` (this
+    /// bytevector holds one reference) rather than owned -- so a large payload
+    /// crossing a channel is shared, not re-copied. Kept opaque so types.zig,
+    /// the dependency-free base layer, doesn't import a feature module (the same
+    /// precedent as Channel.shared / FfiLibrary.handle). freeObject releases the
+    /// reference; a mutator first calls GC.unshareBytevector (copy-on-write).
+    /// Always null in the shipped default (lever `none`).
+    shared: ?*anyopaque = null,
 };
 
 pub const Promise = struct {
