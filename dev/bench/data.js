@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784041042111,
+  "lastUpdate": 1784042985502,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c0f8ad32847dc8ae1c1d0261c2441f89af93e5db",
-          "message": "Complete SRFI-235 implementation: add 27 missing exports, fix return values (#1221) (#1338)\n\n* Complete SRFI-235 implementation: add 27 missing exports, fix return values (#1221)\n\nFix all-of and conjoin to return the last predicate result instead of #t.\nAdd all 27 missing SRFI-235 exports: on-left, on-right, left-section,\nright-section, apply-chain, arguments-drop/take/drop-right/take-right,\ngroup-by, begin/if/when/unless/value/case-procedure, and/eager-and/\nor/eager-or-procedure, funcall/loop/while/until-procedure, always,\nnever, boolean.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Use explicit left-to-right evaluation in eager-and/or-procedure\n\nR7RS does not guarantee map's evaluation order, but SRFI-235 requires\nthunks to be invoked left-to-right. Replace map with explicit loops\nand add order-sensitive tests.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T00:09:55+05:30",
-          "tree_id": "54d9bcf89edbcf2628c1efdfc3c3750e22d3a7eb",
-          "url": "https://github.com/kaappi/kaappi/commit/c0f8ad32847dc8ae1c1d0261c2441f89af93e5db"
-        },
-        "date": 1783537371116,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.334832,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.273422,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.00214,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.424667,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012622,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.205758,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.499831,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069154,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.740217,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.948245,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.248854,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.006291,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.563836,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.748274,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043826,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045877,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "608b70f765e3c56da4f893fb4499d12efca153ac",
+          "message": "Box mutable captured variables in the native backend (#1497) (#1539)\n\nThe LLVM native closure tiers copied captured variables by value into the\n%upvalues array at closure-creation time. This diverged from the interpreter's\nby-location closure semantics whenever a captured binding was mutated after\ncapture (#1422), and forced the tiers to reject any closure body containing a\nset! or internal define — a whole class of counter/accumulator closures fell\nback to the interpreter.\n\nApply classic assignment conversion: a binding that is both captured by a\nnested lambda and mutated (by set!) is represented as a heap box. Closures\ncapture the box pointer by value; reads/writes go through kaappi_box_ref /\nkaappi_box_set. Because the pointer is immutable but the contents are shared,\na set! through any closure over the binding is visible to all of them, matching\nthe VM exactly. Only captured-and-mutated bindings are boxed; everything else\nkeeps the by-value fast path. A box is a pair (value . '()), so the GC needs no\nnew heap type.\n\nTwo latent bugs surfaced and are fixed:\n\n- bindParamsAsGlobals republished captures by value, so a boxed variable\n  captured by a lambda that itself falls back to eval (e.g. a variadic inner\n  lambda) reintroduced the #1422 snapshot. It now aborts native compilation of\n  the enclosing frame so the interpreter handles the whole thing.\n- emitLambdaFunction registered native_fns before body emission (for self-tail\n  resolution) without rolling back on failure, which could leave a call site\n  emitting a direct call to a @lambda_N that was never defined.\n\nBoxed frames disable the self-tail-call loop and lower non-tail so box roots\npop at a single ret. Verified under -Dgc-stress and KAAPPI_GC_THRESHOLD=1.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T20:28:18+05:30",
+          "tree_id": "0fb199943056f0110116db5c5331672319ff525b",
+          "url": "https://github.com/kaappi/kaappi/commit/608b70f765e3c56da4f893fb4499d12efca153ac"
+        },
+        "date": 1784042984521,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.070574,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.510741,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.974172,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.421811,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006862,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052983,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513876,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068294,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.278317,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.985839,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.513335,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.485189,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.751981,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.800219,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045454,
             "unit": "seconds"
           }
         ]
