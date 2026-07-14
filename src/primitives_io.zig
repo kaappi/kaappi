@@ -137,6 +137,13 @@ fn currentErrorPortValue(vm: *vm_mod.VM) Value {
 /// buffer memory at roughly this plus the largest single write.
 const write_high_water: usize = 8192;
 
+/// Bytes a single fd read(2) fills into the port's read_buf. Byte-at-a-time
+/// consumers (read-char, read-u8, read-bytevector, read-string, read-line)
+/// then serve subsequent bytes from memory, paying one syscall per burst
+/// rather than one per byte (#1460). read(2) short-returns whatever is
+/// already available, so filling never blocks past the first available byte.
+const read_chunk_size: usize = 4096;
+
 /// Ports whose writes accumulate in `write_buf`: real-fd ports other than
 /// stdin/stdout/stderr. fd 0/1/2 keep the historical unbuffered
 /// direct-write behavior (REPL echo and diagnostic ordering depend on it);
@@ -618,10 +625,13 @@ fn closePort(args: []const Value) PrimitiveError!Value {
 /// peek_extra, read_buf, string data — before touching the fd, so buffered
 /// data costs zero syscalls. The fd path flushes this port's own pending
 /// writes first (a socket port's request must reach the peer before we
-/// wait on its response); on EAGAIN the calling fiber suspends on read
-/// readiness. Errors only with Yielded (parked; caller stashes partial
-/// progress via propagateReadErr), OutOfMemory, or ExceptionRaised (port
-/// closed mid-wait); `null` still means EOF.
+/// wait on its response), then reads a chunk (up to `read_chunk_size`) and
+/// buffers all but the first byte back into read_buf, so a run of
+/// byte-at-a-time reads costs one syscall per burst instead of one per byte
+/// (#1460); on EAGAIN the calling fiber suspends on read readiness. Errors
+/// only with Yielded (parked; caller stashes partial progress via
+/// propagateReadErr), OutOfMemory, or ExceptionRaised (port closed
+/// mid-wait); `null` still means EOF.
 pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     // Check peek buffer first
     if (port.peek_byte) |b| {
@@ -662,9 +672,9 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     }
     if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
     maybeSetNonblocking(port);
-    var buf: [1]u8 = undefined;
+    var chunk: [read_chunk_size]u8 = undefined;
     while (true) {
-        const raw = std.posix.system.read(port.fd, &buf, buf.len);
+        const raw = std.posix.system.read(port.fd, &chunk, chunk.len);
         if (raw < 0) {
             const e = std.posix.errno(raw);
             if (e == .INTR) continue;
@@ -675,7 +685,24 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
             return null;
         }
         if (raw == 0) return null;
-        return buf[0];
+        const n: usize = @intCast(raw);
+        // One read(2) per burst, not per byte (#1460): return the first byte
+        // and park the rest in read_buf for the consumption drain above to
+        // hand out on the next calls. read_buf is empty on this path — its
+        // drain only falls through once exhausted (and freed to null then) —
+        // so the fresh slice is entirely live (read_buf_len == len, so the
+        // "last read_buf_len bytes" cursor starts at 0). A caller that later
+        // parks does so on a subsequent call after this buffer drains, where
+        // stashPartialRead prepends onto an empty read_buf.
+        if (n > 1) {
+            std.debug.assert(port.read_buf == null);
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const rest = gc.allocator.alloc(u8, n - 1) catch return PrimitiveError.OutOfMemory;
+            @memcpy(rest, chunk[1..n]);
+            port.read_buf = rest;
+            port.read_buf_len = n - 1;
+        }
+        return chunk[0];
     }
 }
 
@@ -964,7 +991,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         drainWriteBuffer(port) catch |err| return propagateReadErr(port, err, &.{buf.items});
     }
     maybeSetNonblocking(port);
-    var tmp: [4096]u8 = undefined;
+    var tmp: [read_chunk_size]u8 = undefined;
     while (true) {
         // Try to parse a datum from what we already have.
         if (buf.items.len > 0) {
