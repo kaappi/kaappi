@@ -55,6 +55,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "with-output-to-file", .func = &withOutputToFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
     .{ .name = "open-binary-input-file", .func = &openBinaryInputFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
     .{ .name = "open-binary-output-file", .func = &openBinaryOutputFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
+    // Exposed via (kaappi ffi) — the library FFI socket code (kaappi-net)
+    // already imports — so a raw fd from an FFI call can be given reactor-
+    // integrated non-blocking I/O (#1478). Not in sandbox: it is a raw
+    // capability over an arbitrary descriptor.
+    .{ .name = "fd->port", .func = &fdToPort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false },
 };
 
 // ---------------------------------------------------------------------------
@@ -540,6 +545,32 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
     const result = try openOutputFile(args);
     types.toObject(result).as(types.Port).is_binary = true;
     return result;
+}
+
+/// (fd->port fd) — wrap a raw OS file descriptor as a bidirectional binary
+/// port. Every read/write then goes through the same non-blocking,
+/// reactor-integrated path as file ports (readOneByte/portWriteBytes): an
+/// operation that would block suspends the calling fiber on the reactor
+/// instead of the OS thread, and the fd flips to O_NONBLOCK lazily the first
+/// time it's touched under a scheduler. This is the bridge that lets an FFI
+/// socket (kaappi-net) get real event-driven wakeup for free instead of a
+/// poll-then-sleep loop (#1478).
+///
+/// The port takes ownership of the fd: close-port closes it (fd > 2), wakes
+/// any fiber parked on it, and unregisters it from the reactor. The caller
+/// must not also close the fd through its own path, or the number could be
+/// recycled onto an unrelated port.
+fn fdToPort(args: []const Value) PrimitiveError!Value {
+    if (comptime is_wasm) return primitives.typeError("fd->port", "non-WASM platform", args[0]);
+    if (!types.isFixnum(args[0])) return primitives.typeError("fd->port", "file descriptor", args[0]);
+    const fd_i = types.toFixnum(args[0]);
+    // Reject the standard streams (whose blocking semantics other code
+    // relies on) and anything outside fd_t's range.
+    if (fd_i < 3 or fd_i > std.math.maxInt(i32)) return primitives.typeError("fd->port", "socket/pipe file descriptor (> 2)", args[0]);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port_val = gc.allocPort(@intCast(fd_i), true, true, "fd", false) catch return PrimitiveError.OutOfMemory;
+    types.toObject(port_val).as(types.Port).is_binary = true;
+    return port_val;
 }
 
 fn closePort(args: []const Value) PrimitiveError!Value {
