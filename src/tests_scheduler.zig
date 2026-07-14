@@ -422,3 +422,48 @@ test "hasRunnableFibers reports a shared-waiter-registry entry as alive" {
 
     try std.testing.expect(sched.hasRunnableFibers());
 }
+
+// Regression (#1529, sibling of the call/cc #1464 fix): a fiber that suspends
+// while inside a re-entrant native frame (here a `guard` thunk) must not save
+// stale pointers from dead "gap" registers into its snapshot. The `guard`
+// bumps the frame base well past the thunk's own window, so registers between
+// the windows form a gap; `make-junk` before the guard leaves dead heap values
+// lingering there. While the fiber runs it is GC-marked per-frame (markVMRoots
+// skips gaps), so an allocation inside the guard frees that gap junk; the
+// fiber then blocks on channel-receive and saveCurrentFiber copies the now
+// contiguous [0,span) span -- gaps included -- into fiber.registers. A later
+// collection while the fiber is suspended marks that snapshot contiguously
+// (markFiberState), dereferencing the freed pointers. Under -Dgc-stress=true
+// with the testing allocator (which unmaps freed pages) that read segfaults
+// without saveCurrentFiber's clearGapRegisters scrub. The result 16 (= 7 + 9)
+// also confirms the live values w and v survive the scrub intact.
+test "fiber suspend does not save stale gap registers (#1529)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(import (kaappi fibers))
+        \\(define ch (make-channel))
+        \\(define out #f)
+        \\(define (make-junk n)
+        \\  (let loop ((i 0) (acc '()))
+        \\    (if (< i n) (loop (+ i 1) (cons (make-vector 4000 i) acc)) acc)))
+        \\(spawn
+        \\  (lambda ()
+        \\    (make-junk 6)
+        \\    (guard (e (#t 'caught))
+        \\      (let ((w (list 7 7 7)) (v (list 9 9 9)))
+        \\        (make-junk 3)
+        \\        (channel-receive ch)
+        \\        (set! out (+ (car w) (car v)))))))
+        \\(spawn
+        \\  (lambda ()
+        \\    (let loop ((i 0)) (when (< i 200) (list i i i) (loop (+ i 1))))
+        \\    (channel-send ch 'go)
+        \\    (let loop ((i 0)) (when (< i 200) (list i i i) (loop (+ i 1))))))
+        \\(yield)(yield)(yield)(yield)
+        \\out
+    );
+    try std.testing.expectEqual(@as(i64, 16), types.toFixnum(result));
+}

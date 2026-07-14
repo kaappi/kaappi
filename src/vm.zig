@@ -702,6 +702,43 @@ pub const VM = struct {
         return vm_continuations.performWindTransition(self, target_winds, target_count);
     }
 
+    /// Clear register slots in `[0, max_reg)` that no live frame window covers,
+    /// setting each to UNDEFINED. Such gap slots are dead (no frame reads them),
+    /// but one vacated by a returned call frame typically still holds that
+    /// frame's last pointer. The GC root marker walks only per-frame windows, so
+    /// those pointers keep nothing alive and a later collection frees their
+    /// targets — which is why any copy of the contiguous `[0, max_reg)` range
+    /// must not preserve them verbatim (#1464). Both call/cc continuation
+    /// capture (`captureContinuation`) and fiber suspension
+    /// (`FiberScheduler.saveCurrentFiber`, #1529) snapshot that contiguous range
+    /// and later trace it, so both scrub the gaps through here first. Clearing is
+    /// behavior-preserving: no frame ever reads a gap slot (a continuation/fiber
+    /// restore copies them back but they stay dead).
+    ///
+    /// Frame bases are non-decreasing (every call places its callee's frame past
+    /// the caller's own base, and continuation restore preserves that order), so
+    /// a single ordered sweep that tracks the highest covered register finds the
+    /// gaps with no scratch buffer — keeping call/cc capture allocation-free on
+    /// the hot path (a bitmap here regressed the call_cc benchmark ~1.9x).
+    pub fn clearGapRegisters(self: *VM, max_reg: usize) void {
+        var covered_end: usize = 0;
+        var prev_base: usize = 0;
+        for (self.frames[0..self.frame_count]) |f| {
+            const base: usize = f.base;
+            std.debug.assert(base >= prev_base); // relied on for gap correctness
+            prev_base = base;
+            if (base > covered_end) {
+                const gap_end = @min(base, max_reg);
+                @memset(self.registers[covered_end..gap_end], types.UNDEFINED);
+                if (gap_end == max_reg) return;
+            }
+            const win_end = base + f.frameWindow();
+            if (win_end > covered_end) covered_end = win_end;
+        }
+        if (covered_end < max_reg)
+            @memset(self.registers[covered_end..max_reg], types.UNDEFINED);
+    }
+
     const vm_dispatch = @import("vm_dispatch.zig");
 
     pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {

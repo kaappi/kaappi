@@ -412,6 +412,13 @@ pub const FiberScheduler = struct {
         const span = liveRegisterSpan(vm.frames[0..vm.frame_count], vm.registers.len);
         try growFiberRegisters(vm.gc.allocator, fiber, span);
         try growFiberFrames(vm.gc.allocator, fiber, vm.frame_count);
+        // The copy below spans dead gap registers between live frame windows.
+        // While this fiber was running it was GC-marked per-frame (markVMRoots),
+        // so a gap slot's stale pointer could already have been freed; copying it
+        // into fiber.registers would then let markFiberState trace it after the
+        // fiber suspends → use-after-free (#1529, sibling of #1464). Scrub the
+        // gaps first; no frame reads a gap slot, so this is behavior-preserving.
+        vm.clearGapRegisters(span);
         @memcpy(fiber.registers[0..span], vm.registers[0..span]);
         fiber.frame_count = vm.frame_count;
         @memcpy(fiber.frames[0..vm.frame_count], vm.frames[0..vm.frame_count]);
