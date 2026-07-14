@@ -45,8 +45,19 @@ def run(src, json_mode=True):
 
 def parse_lines(stderr):
     """Parse every non-empty stderr line as JSON. Raises if any line is not
-    valid JSON — that is exactly how a leaked snippet/backtrace line is caught."""
-    return [json.loads(l) for l in stderr.decode().splitlines() if l.strip()]
+    valid JSON — that is exactly how a leaked snippet/backtrace line is caught.
+
+    A Debug build's DebugAllocator appends "…leaked:" reports to stderr at
+    process teardown, *after* all diagnostics. That is a build-mode artifact,
+    not part of the product's stderr contract, so cut everything from the first
+    such report onward. Kaappi's own diagnostics are emitted during execution
+    (before teardown), so this preserves the strict check for a real text leak."""
+    text = stderr.decode()
+    for marker in ("error(DebugAllocator)", "error(gpa)"):
+        idx = text.find(marker)
+        if idx != -1:
+            text = text[:idx]
+    return [json.loads(l) for l in text.splitlines() if l.strip()]
 
 def assert_valid_diag(d):
     """Structural check of one LSP Diagnostic. Returns True or raises."""
