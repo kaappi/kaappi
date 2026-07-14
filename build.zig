@@ -28,6 +28,14 @@ pub fn build(b: *std.Build) void {
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
     const gc_stress = b.option(bool, "gc-stress", "Force GC on every allocation (stress testing)") orelse false;
 
+    // KEP-0002 Phase 7 gate campaign (kaappi#1472): compile in the parent-side
+    // copy-time counters (T_submit_copy / T_result_copy / T_reassembly) and the
+    // runtime-selectable envelope elision levers (none / C / C+D). Off in the
+    // shipped default so release builds pay nothing (protocol §3: "compiled out
+    // in release builds"); the campaign builds ONE binary with this on and
+    // selects the lever at runtime (protocol §4.4, one binary for all modes).
+    const channel_instrument = b.option(bool, "channel-instrument", "Compile in KEP-0002 Phase 7 channel copy-time counters + elision levers (off in shipped builds)") orelse false;
+
     const test_filters = b.option([]const []const u8, "test-filter", "Only run unit tests whose names match the filter (repeatable)") orelse &.{};
 
     const options = b.addOptions();
@@ -35,6 +43,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(u32, "max_registers", max_registers);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
     options.addOption(bool, "gc_stress", gc_stress);
+    options.addOption(bool, "channel_instrument", channel_instrument);
     options.addOption([]const u8, "version", zon.version);
     const options_mod = options.createModule();
 

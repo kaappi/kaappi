@@ -5,6 +5,7 @@ const memory = @import("memory.zig");
 const reactor_mod = @import("reactor.zig");
 const vm_mod = @import("vm.zig");
 const pct_stress = @import("pct_stress.zig");
+const instrument = @import("channel_instrument.zig");
 const Value = types.Value;
 
 /// KEP-0002 Phase 3 (#1468) PCT stress hook: a no-op unless
@@ -36,7 +37,12 @@ const releaseNotifier = reactor_mod.releaseNotifier;
 /// fills it once, the receiver's deepCopy drains it once, then it is
 /// destroyed wholesale.
 pub const Envelope = struct {
-    gc: *memory.GC,
+    /// null only for a lever-C/C+D immediate envelope (KEP-0002 Phase 7,
+    /// kaappi#1472): a fixnum/boolean/char/flonum/nil payload is self-contained,
+    /// so no private heap is built and `value` holds the immediate directly.
+    /// Always non-null in the shipped default (lever `none`), where every
+    /// message gets its own heap exactly as originally specified.
+    gc: ?*memory.GC,
     value: Value = types.VOID,
     next: ?*Envelope = null,
 
@@ -60,6 +66,16 @@ pub const Envelope = struct {
     /// revisit only alongside a genuinely process-global (not per-thread
     /// chained) symbol table.
     pub fn create(payload: Value) !*Envelope {
+        // Lever C / C+D (kaappi#1472): a non-pointer immediate is self-contained
+        // -- deepCopy returns it unchanged -- so skip the per-message heap (and
+        // its GC struct + ~8 KiB root buffer) entirely. Comptime-pruned to the
+        // shipped path below whenever the instrument build flag is off.
+        if (instrument.immediatesElided() and !types.isPointer(payload)) {
+            const env = try std.heap.c_allocator.create(Envelope);
+            env.* = .{ .gc = null, .value = payload };
+            return env;
+        }
+
         const gc = try std.heap.c_allocator.create(memory.GC);
         gc.* = memory.GC.init(std.heap.c_allocator);
         // Defense in depth: deepCopy's own no_collect guard already
@@ -76,6 +92,9 @@ pub const Envelope = struct {
         errdefer std.heap.c_allocator.destroy(env);
         env.* = .{ .gc = gc };
         env.value = try gc.deepCopy(payload);
+        // Secondary metric (§3): the live per-message heap footprint invisible
+        // to any GC. No-op when the instrument flag is off.
+        instrument.envelopeBytesAdd(gc.bytes_allocated);
         return env;
     }
 
@@ -85,8 +104,11 @@ pub const Envelope = struct {
     /// self-send's aliased stub). No separate envelope-specific bookkeeping
     /// exists; this is the same teardown path a real GC uses.
     pub fn deinit(self: *Envelope) void {
-        self.gc.deinit();
-        std.heap.c_allocator.destroy(self.gc);
+        if (self.gc) |gc| {
+            instrument.envelopeBytesSub(gc.bytes_allocated);
+            gc.deinit();
+            std.heap.c_allocator.destroy(gc);
+        }
         std.heap.c_allocator.destroy(self);
     }
 };
@@ -431,6 +453,12 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
     // Built outside the lock: deepCopy allocates and must not hold the
     // channel mutex. A reservation was already taken, so the eventual push
     // (on success) is infallible.
+    //
+    // T_submit_copy (kaappi#1472 §3): time the parent's envelope build here on
+    // the send path only -- a worker returning a result accumulates into its
+    // own threadlocal, which the gate never reads. No-op when the instrument
+    // build flag is off.
+    const copy_timer = instrument.begin();
     const env = Envelope.create(payload) catch |err| {
         lockChannel(sc);
         sc.reserved -= 1;
@@ -447,6 +475,7 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
         // .create already tore itself down internally on failure.
         return err;
     };
+    instrument.endSubmit(copy_timer);
 
     lockChannel(sc);
     sc.reserved -= 1;
@@ -476,6 +505,10 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
         unlockChannel(sc);
         ring(snap.items);
 
+        // T_result_copy (kaappi#1472 §3): the parent copying a result out of a
+        // reply envelope, on its critical path. Same per-thread attribution as
+        // T_submit_copy; no-op when the instrument build flag is off.
+        const copy_timer = instrument.begin();
         const value = dest_gc.deepCopy(env.value) catch |err| {
             // "Receive fails ⇒ nothing received": the envelope is
             // untouched, its stubs keep their refcounts, the message stays
@@ -489,6 +522,7 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
             ring(recv_snap.items);
             return err;
         };
+        instrument.endResult(copy_timer);
         env.deinit();
         return .{ .value = value };
     }

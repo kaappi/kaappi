@@ -205,13 +205,23 @@ Still open for Phase 7 / #1472:
    suite, checking the lifetime rule stays contained. This is the P3 (B)
    second clause; without it the ≥30% result is necessary but not
    sufficient.
-3. **Lever-C ship** — the immediate fast path in the real
-   `send`/`receive`, with a regression test.
+3. **Lever-C ship** — the immediate fast path now exists in the real
+   `send`/`receive` (behind `-Dchannel-instrument`, as the gate lever
+   `c`; see the gate campaign below). Promoting it to the shipped default
+   (lever-invariant, no flag) with a regression test is the remaining
+   step.
 4. **KEP-0002 UQ 1 amendment** — record the A/B/C/D outcome (ship C; B
    pending clause 2; D deferred) into KEP-0002, per #1472's acceptance.
    Best done after (1).
 5. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
    parent-side copy-overhead-share instrumentation, the Kalibera–Jones
    statistics driver, the CSV + classification worksheet, and lever D
-   wired behind a flag in the real path. That is the larger, separate
-   half of #1472 that feeds #1474.
+   wired behind a flag in the real path. The larger, separate half of
+   #1472 that feeds #1474. **Harness landed** in `benchmarks/gate/` (see
+   `benchmarks/gate/README.md`): the six workloads + controls, the real-
+   path `share` counters (`src/channel_instrument.zig` →
+   `src/shared_channel.zig`), levers `none`/`c`, and the K–J driver
+   emitting the §6 CSV, all locally piloted on macOS aarch64. Still open
+   there: **lever D in the real path** (the gate cells are `C+D`, so the
+   gate is blocked until it lands), the frozen two-machine §4 collection,
+   and the worksheet fill-in.

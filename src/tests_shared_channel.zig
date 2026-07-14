@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_object = @import("shared_object.zig");
+const instrument = @import("channel_instrument.zig");
 const reactor_mod = @import("reactor.zig");
 const th = @import("testing_helpers.zig");
 
@@ -383,6 +384,46 @@ test "send: build failure leaves the queue and reservation untouched (send fails
     try std.testing.expectEqual(@as(?*shared_channel.Envelope, null), sc.queue_head);
 
     src_gc.deinit();
+    sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1472)" {
+    // Only meaningful in the gate-campaign build (-Dchannel-instrument=true);
+    // the default/shipped build compiles the elision branch out, so this is a
+    // trivial pass there. Run with -Dchannel-instrument=true to exercise it.
+    if (comptime !instrument.enabled) return;
+    const baseline = shared_object.liveCount();
+    defer instrument.setLever(.none); // process-global; restore for other tests
+
+    const sc = try shared_channel.SharedChannel.create();
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+
+    // Lever none: even a fixnum message gets its own private heap (the shipped
+    // per-message behavior).
+    instrument.setLever(.none);
+    _ = try shared_channel.send(sc, types.makeFixnum(42), null);
+    try std.testing.expect(sc.queue_head.?.gc != null);
+    const r0 = try shared_channel.receive(sc, &dest_gc, null);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r0.value));
+
+    // Lever C: the same immediate skips the heap entirely (gc == null) and
+    // still round-trips correctly.
+    instrument.setLever(.c);
+    _ = try shared_channel.send(sc, types.makeFixnum(7), null);
+    try std.testing.expect(sc.queue_head.?.gc == null);
+    const r1 = try shared_channel.receive(sc, &dest_gc, null);
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1.value));
+
+    // A pointer payload still takes the heap path under lever C.
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    const pair = try src_gc.allocPair(types.makeFixnum(1), types.NIL);
+    _ = try shared_channel.send(sc, pair, null);
+    try std.testing.expect(sc.queue_head.?.gc != null);
+    _ = try shared_channel.receive(sc, &dest_gc, null);
+
     sc.release();
     try std.testing.expectEqual(baseline, shared_object.liveCount());
 }
