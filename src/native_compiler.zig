@@ -298,6 +298,17 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     argv_buf[argc] = "-w";
     argc += 1;
 
+    // Compile the emitted IR at -O2. The emitter deliberately produces naive IR
+    // (every immediate as `add i64 0, K`, pervasive alloca/load/store, long
+    // br/phi chains) and relies on LLVM to clean it up — at -O0 none of that
+    // runs. mem2reg/instcombine/simplifycfg collapse it; GC root-slot allocas
+    // whose address escapes into kaappi_gc_push_root correctly stay in memory.
+    // Malformed IR is caught by the -w-free verifier in tests/e2e/run-e2e.sh;
+    // `-w` here only silences cosmetic warnings on generated IR for end users
+    // (a hard verifier error still fails the compile regardless of -w). See #1492.
+    argv_buf[argc] = "-O2";
+    argc += 1;
+
     const ll_z = allocator.dupeZ(u8, ll_path) catch return false;
     defer allocator.free(ll_z);
     argv_buf[argc] = ll_z;

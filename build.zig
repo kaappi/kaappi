@@ -173,6 +173,9 @@ pub fn build(b: *std.Build) void {
         const cc_run = b.addSystemCommand(&.{"zig"});
         cc_run.addArg("cc");
         cc_run.addArg("-w");
+        // Optimize the emitted IR — the emitter relies on LLVM to clean up its
+        // deliberately naive output; -O0 leaves it all in place (#1492).
+        cc_run.addArg("-O2");
         cc_run.addFileArg(ll_output);
         cc_run.addArg("-o");
         const native_output = cc_run.addOutputFileArg("program");
