@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784026473978,
+  "lastUpdate": 1784027146764,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d0159b80d03f19109d33f8ebbc7a8f58e46fcad5",
-          "message": "Honor custom equivalence/hash functions in SRFI-69 hash tables (#1329)\n\n* Honor custom equivalence/hash functions in SRFI-69 hash tables (#1183)\n\nmake-hash-table and alist->hash-table previously discarded their optional\nequivalence and hash function arguments, always using equal?/hash. This\ncaused eq?-identity tables to coalesce distinct objects and string-ci=?\ntables to be case-sensitive. The accessor functions also lied about which\ncomparator the table used.\n\nStore a compare mode enum plus the original Scheme procedure Values on\neach HashTable object. Recognize well-known comparators (eq?, eqv?,\nequal?, string=?, string-ci=?) at creation time and dispatch to built-in\nZig implementations. For arbitrary custom Scheme procedures, call back\ninto the VM. Also detect SRFI-128 comparator records and extract their\nequality/hash fields automatically.\n\nFix valueHash to hash bignums, rationals, and complex numbers by value\ninstead of pointer address, preventing lookup failures for equal? tables\nwith heap-allocated numeric keys.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix custom-hash data loss, deep-copy, GC safety, and hash consistency\n\nAddress review findings:\n\n- Custom hash returning non-fixnum (bignum, rational) now hashes by\n  value via valueHash instead of by pointer bits, preventing key loss\n- Deep-copied custom-mode tables preserve slot positions instead of\n  re-hashing with valueHash, keeping lookups functional after copy\n- Bignums in fixnum range now hash identically to the equivalent fixnum,\n  fixing equal?/eqv? lookups across representations\n- Root ht_val in alist->hash-table during construction so custom hash\n  callbacks cannot trigger collection of the unfinished table\n- Rehash defers ht.entries swap until after the loop so GC can trace\n  old entries during custom hash callbacks\n- stringCiContentHash uses expanding folds (foldCharExpanding) matching\n  the comparison in equalForTable, so ß and ss hash consistently\n- Custom hash fixnum negation uses i128 intermediate to avoid overflow\n  on minimum fixnum\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fast-path findKey/findSlot for equal? mode to avoid benchmark regression\n\nThe dispatch through hashForTable/equalForTable added ~22% overhead to\nthe hashtable benchmark due to extra call frames and error-union returns.\nAdd an early check for .equal mode (the default and most common case)\nthat calls valueHash/deepEqual directly, bypassing the dispatch layer.\nNon-equal modes still use the full dispatch path.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-08T21:52:04+05:30",
-          "tree_id": "d0d6bb28b494ad22e5be9327e8ca08969bd857d4",
-          "url": "https://github.com/kaappi/kaappi/commit/d0159b80d03f19109d33f8ebbc7a8f58e46fcad5"
-        },
-        "date": 1783529226447,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.217178,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.598806,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.51297,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.282242,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.008453,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.138467,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.253178,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.034241,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 7.825592,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.938021,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 7.051216,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.703687,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 5.638903,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.303424,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.026187,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044627,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b464e02480147ccf565190f7190d845ac56423bb",
+          "message": "Clear stale gap registers before fiber suspension snapshot (#1529) (#1533)\n\nmarkVMRoots marks a running fiber's registers per frame window and skips\nthe dead \"gap\" slots between windows, but saveCurrentFiber copies the\ncontiguous register span and markFiberState marks it contiguously. A gap\nslot's stale pointer — freed during the fiber's run because per-frame\nmarking never protected it — was copied into the fiber's saved snapshot\non suspension, and a later collection while the fiber was parked traced\nthat dangling pointer, a GC use-after-free (sibling of the call/cc bug\nfixed in #1464/#1528).\n\nMove clearGapRegisters (the allocation-free ordered sweep from #1528) to\na shared VM method and call it in saveCurrentFiber before the register\nmemcpy; captureContinuation now calls the same method. Scrubbing dead gap\nslots to UNDEFINED is behavior-preserving because no frame ever reads\nthem. Adds a gc-stress regression test that segfaults without the scrub.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T16:08:05+05:30",
+          "tree_id": "0d133607e92613c69f7d08c20c1fb4eb90a42780",
+          "url": "https://github.com/kaappi/kaappi/commit/b464e02480147ccf565190f7190d845ac56423bb"
+        },
+        "date": 1784027144602,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.361988,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.204196,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.903569,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.40409,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006334,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053697,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499444,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069393,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.41092,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.96064,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.598438,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432013,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.857396,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.643883,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043938,
             "unit": "seconds"
           }
         ]
