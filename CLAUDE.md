@@ -29,7 +29,9 @@ CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
 `-o <file>`, `--disassemble`, `--no-ir-opt` (disable IR optimization passes;
 also skips the `.sbc` cache — useful for miscompilation triage and
 `--disassemble` comparisons), `--sandbox`, `--gc-stats`,
-`--profile`, `--coverage`, `--completions <shell>`.
+`--profile`, `--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
+`Diagnostic` objects on stderr — see `docs/dev/diagnostics-json.md`),
+`--completions <shell>`.
 Subcommand: `kaappi compile <file> [-o output]`
 compiles to native binary via LLVM. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.

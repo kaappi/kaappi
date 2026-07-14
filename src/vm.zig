@@ -231,6 +231,13 @@ pub const VM = struct {
     // form in resetExecutionState. When `.uncategorized`, the reporting layer
     // derives a code from the Zig error instead.
     last_error_code: diagnostics.Code = .uncategorized,
+    // A structured fix suggestion for the escaping error (kaappi#1505): the
+    // nearest defined name for an undefined-variable error, surfaced as
+    // `data.suggestions` in `--diagnostics=json`. Borrowed from the globals
+    // key table (stable for the VM's lifetime), read by reportRuntimeError
+    // immediately after the error, and cleared alongside last_error_code (at
+    // execute() entry and after each report) so it never goes stale.
+    last_error_suggestion: ?[]const u8 = null,
     last_stack_trace: [16]StackFrame = undefined,
     last_stack_trace_len: usize = 0,
     // Debugger state

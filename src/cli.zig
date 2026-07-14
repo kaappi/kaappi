@@ -9,6 +9,12 @@ pub const USAGE_ERROR_EXIT: u8 = 2;
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
 
+// `--diagnostics=<format>` uses GNU `=` syntax (not a space-separated value like
+// the other value flags), so it is matched by prefix rather than via the flag
+// table. Kept as a named constant so the parse loop and the sandbox pre-scan
+// agree on the spelling.
+const diagnostics_prefix = "--diagnostics=";
+
 // ── Flag table ─────────────────────────────────────────────────────────
 
 const FlagId = enum {
@@ -71,8 +77,12 @@ fn lookupFlag(arg: []const u8) ?FlagDesc {
 
 // ── Options ────────────────────────────────────────────────────────────
 
+pub const DiagnosticsFormat = enum { text, json };
+
 pub const Options = struct {
     file_path: ?[]const u8 = null,
+
+    diagnostics_format: DiagnosticsFormat = .text,
 
     compile_mode: bool = false,
     native_compile_mode: bool = false,
@@ -123,6 +133,8 @@ pub fn preScanSandbox(args: std.process.Args) bool {
             if (f.takes_value) _ = iter.skip();
         } else if (std.mem.eql(u8, arg, "compile")) {
             // bare subcommand — keep scanning
+        } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
+            // `--diagnostics=…` carries its value inline — keep scanning.
         } else {
             break;
         }
@@ -138,6 +150,11 @@ pub fn parse(args: std.process.Args) Options {
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "compile")) {
             opts.native_compile_mode = true;
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
+            opts.diagnostics_format = parseDiagnosticsFormat(arg[diagnostics_prefix.len..]);
             continue;
         }
 
@@ -245,6 +262,7 @@ pub fn printUsage() void {
             "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
             "  -o <file>          Output path\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
+            "  --diagnostics=<fmt> Diagnostic output format: text (default) or json\n" ++
             "  --no-ir-opt        Disable IR optimization passes (skips .sbc cache)\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
@@ -278,6 +296,15 @@ fn handleCompletions(shell: []const u8) void {
     writeStderr("unknown shell: ");
     writeStderr(shell);
     writeStderr("\nSupported: bash, zsh, fish\n");
+    std.process.exit(USAGE_ERROR_EXIT);
+}
+
+fn parseDiagnosticsFormat(value: []const u8) DiagnosticsFormat {
+    if (std.mem.eql(u8, value, "text")) return .text;
+    if (std.mem.eql(u8, value, "json")) return .json;
+    writeStderr("--diagnostics: unknown format '");
+    writeStderr(value);
+    writeStderr("' (expected 'text' or 'json')\n");
     std.process.exit(USAGE_ERROR_EXIT);
 }
 
@@ -494,4 +521,36 @@ test "parse: flags after filename are script args" {
     try std.testing.expect(!opts.profile_mode);
     try std.testing.expectEqual(@as(usize, 3), opts.script_arg_count);
     try std.testing.expectEqualStrings("--gc-stats", opts.scriptArgs()[1]);
+}
+
+test "parse: --diagnostics=json sets json format" {
+    const argv = [_][*:0]const u8{ "kaappi", "--diagnostics=json", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(DiagnosticsFormat.json, opts.diagnostics_format);
+    try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
+}
+
+test "parse: --diagnostics=text is the explicit default" {
+    const argv = [_][*:0]const u8{ "kaappi", "--diagnostics=text", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(DiagnosticsFormat.text, opts.diagnostics_format);
+}
+
+test "parse: diagnostics format defaults to text" {
+    const argv = [_][*:0]const u8{ "kaappi", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(DiagnosticsFormat.text, opts.diagnostics_format);
+}
+
+test "parse: --diagnostics=json after filename is a script arg, not a format" {
+    const argv = [_][*:0]const u8{ "kaappi", "test.scm", "--diagnostics=json" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(DiagnosticsFormat.text, opts.diagnostics_format);
+    try std.testing.expectEqual(@as(usize, 2), opts.script_arg_count);
+    try std.testing.expectEqualStrings("--diagnostics=json", opts.scriptArgs()[1]);
+}
+
+test "preScanSandbox: --diagnostics before --sandbox still detected" {
+    const argv = [_][*:0]const u8{ "kaappi", "--diagnostics=json", "--sandbox", "test.scm" };
+    try std.testing.expect(preScanSandbox(testArgs(&argv)));
 }
