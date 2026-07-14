@@ -537,3 +537,25 @@ test "escape continuation from inside map exits map early" {
     );
     try std.testing.expectEqualStrings("escaped", types.symbolName(result));
 }
+
+// Regression (#1464, fuzz-derived): call/cc must not snapshot stale pointers
+// left in dead "gap" registers between live frame windows. The first form
+// leaves heap pointers in low registers; the guard/call/cc form then captures
+// a contiguous register range spanning those now-dead slots. Under gc-stress
+// the collector frees the stale targets — markVMRoots walks only per-frame
+// windows, so nothing keeps them alive — and marking the continuation's
+// snapshot would dereference a freed object without the gap-clearing fix.
+test "call/cc does not capture stale gap registers (#1464)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Evaluating without a crash (especially under -Dgc-stress=true) is the
+    // assertion; the second form's value (1) is incidental.
+    const result = try vm.eval(
+        \\(define g0 (let* ((h '(1 2 3)) (u (lambda (a b c) c))) 0))
+        \\(guard (e (#t 1)) (call/cc (lambda (k) (let ((u (lambda (a b) b)) (v 1)) v))))
+    );
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result));
+}
