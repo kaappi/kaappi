@@ -54,7 +54,11 @@ fn yieldFn(_: []const Value) PrimitiveError!Value {
     // contentless "error" — and the fiber could not be resumed across the
     // returned native call anyway (#1184). No-op instead.
     if (vm.native_reentry_depth > 0) return types.VOID;
-    if (sched.schedule() == null) return types.VOID;
+    // Advisory, non-consuming, O(1): only arm the unwind if some other fiber
+    // is actually runnable (else this yield would just no-op after a dispatch
+    // round anyway). anyRunnable, unlike the old schedule() call, doesn't scan
+    // every fiber or perturb round-robin order (#1477).
+    if (!sched.anyRunnable()) return types.VOID;
     vm.yielded = true;
     return types.VOID;
 }

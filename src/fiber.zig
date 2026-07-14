@@ -80,6 +80,19 @@ pub const Fiber = struct {
     /// Pins an in-flight read/write buffer across GC while a primitive is
     /// parked on the reactor. Traced by markFiberState/referencesYoung.
     io_buffer: Value = types.VOID,
+    /// This fiber's slot index in the owning FiberScheduler's `fibers` array.
+    /// Stable for the fiber's whole lifetime — a fiber never migrates slots;
+    /// its slot is only reused after it terminates (see addFiber/retireSlot).
+    /// Lets the wake paths enqueue a fiber onto the ready ring in O(1) with no
+    /// index search, which is the whole point of #1477. Meaningful only once
+    /// addFiber has placed the fiber; a not-yet-scheduled fiber (e.g. a
+    /// make-thread object) leaves it at the default.
+    sched_idx: usize = 0,
+    /// True iff this fiber's `sched_idx` is currently sitting in the
+    /// scheduler's `ready` ring. Dedups markRunnable so one fiber can't
+    /// accumulate duplicate ring entries; cleared when scheduleImpl consumes
+    /// or discards the entry (#1477).
+    queued: bool = false,
 };
 
 pub const FiberScheduler = struct {
@@ -94,6 +107,26 @@ pub const FiberScheduler = struct {
     /// KEP-0002 §5's per-scheduler shared-waiter registry -- see
     /// enrollSharedWaiter/sweepSharedWaiters below.
     shared_waiters: std.ArrayList(*Fiber),
+    /// #1477: O(1) dispatch. A FIFO of fiber slot indices that are (or
+    /// recently became) runnable, so scheduleImpl doesn't rescan the whole
+    /// `fibers` array — dominated by parked io_waiting fibers on a busy
+    /// server — to find the next runnable one. Purely an accelerator: it may
+    /// hold stale or duplicate entries, all validated at pop (popReady);
+    /// when it drains without a usable entry, scheduleImpl falls back to the
+    /// authoritative O(n) scan, so a missed markRunnable only costs a rescan,
+    /// never correctness. Consumed FIFO via a head cursor, compacted lazily.
+    ready: std.ArrayList(usize),
+    ready_head: usize,
+    /// #1477: O(1) spawn. Slot indices vacated by a terminated fiber, pushed
+    /// by retireSlot at every non-main .completed/.errored transition, so
+    /// addFiber reuses a slot without scanning `fibers` for one. Because that
+    /// coverage is comprehensive, an empty free list means no reusable slot
+    /// exists and addFiber can append straight away instead of scanning
+    /// (which is what made spawning N live fibers O(n^2)). Consumed FIFO
+    /// (oldest-freed first, closest to the old scan's lowest-index-first
+    /// order) via free_head, compacted lazily. Slot 0 (main) is never pushed.
+    free_slots: std.ArrayList(usize),
+    free_head: usize,
 
     pub fn init(vm: *VM) FiberScheduler {
         return .{
@@ -102,27 +135,151 @@ pub const FiberScheduler = struct {
             .next_id = 0,
             .vm = vm,
             .shared_waiters = .empty,
+            .ready = .empty,
+            .ready_head = 0,
+            .free_slots = .empty,
+            .free_head = 0,
         };
     }
 
     pub fn deinit(self: *FiberScheduler, allocator: std.mem.Allocator) void {
         self.fibers.deinit(allocator);
         self.shared_waiters.deinit(allocator);
+        self.ready.deinit(allocator);
+        self.free_slots.deinit(allocator);
+    }
+
+    /// Shared lazy-compaction for the FIFO rings (`ready`, `free_slots`):
+    /// once the consumed prefix (`head`) is at least as long as what remains,
+    /// slide the tail down to the front so the backing array can't grow
+    /// without bound under steady enqueue/dequeue churn.
+    fn ringCompact(list: *std.ArrayList(usize), head: *usize) void {
+        if (head.* == 0) return;
+        const remaining = list.items.len - head.*;
+        if (remaining == 0) {
+            list.clearRetainingCapacity();
+            head.* = 0;
+        } else if (head.* >= remaining) {
+            std.mem.copyForwards(usize, list.items[0..remaining], list.items[head.*..]);
+            list.shrinkRetainingCapacity(remaining);
+            head.* = 0;
+        }
+    }
+
+    /// Enqueue `fiber` onto the ready ring if it isn't already there and is
+    /// actually runnable. The status guard lets callers fire this right after
+    /// any transition without checking (a no-op for non-runnable fibers, e.g.
+    /// the main fiber addFiber places as .running). OOM on the accelerator is
+    /// swallowed: the fiber stays unqueued and the fallback scan still finds
+    /// it, and leaving `queued` false lets a later markRunnable retry.
+    ///
+    /// Public so the top-level dispatch paths in vm_calls.zig (which suspend
+    /// the main fiber and dispatch via switchTo, not runSchedulerStep) can
+    /// feed the ring too.
+    pub fn markRunnable(self: *FiberScheduler, fiber: *Fiber) void {
+        if (fiber.queued) return;
+        if (fiber.status != .created and fiber.status != .suspended) return;
+        self.ready.append(self.vm.gc.allocator, fiber.sched_idx) catch return;
+        fiber.queued = true;
+    }
+
+    /// Marks `fiber` terminal and returns its slot to the free list. The one
+    /// choke point for .completed/.errored transitions that vacate a slot, so
+    /// the free-list invariant (every non-main freed slot enqueued exactly
+    /// once — a terminal fiber is never revived, so it can't be pushed twice)
+    /// can't drift across call sites.
+    pub fn retireSlot(self: *FiberScheduler, fiber: *Fiber, status: FiberStatus) void {
+        fiber.status = status;
+        // Slot 0 is the main fiber; it can be transiently marked .completed at
+        // top level (vm_calls.zig) but must never be recycled — ensureScheduler
+        // and every fibers.items[0] reader assume slot 0 is always main.
+        if (fiber.sched_idx == 0) return;
+        self.free_slots.append(self.vm.gc.allocator, fiber.sched_idx) catch {};
+    }
+
+    /// Pop the oldest genuinely-reclaimable free slot, or null if none. The
+    /// status recheck is defensive: a pushed slot always still holds the
+    /// terminal fiber that vacated it (or was cleared), so it should always
+    /// pass — but skipping a surprise keeps a stale entry from ever handing
+    /// addFiber a live fiber's slot.
+    fn popFreeSlot(self: *FiberScheduler) ?usize {
+        while (self.free_head < self.free_slots.items.len) {
+            const idx = self.free_slots.items[self.free_head];
+            self.free_head += 1;
+            const reclaimable = idx < self.fibers.items.len and blk: {
+                const f = self.fibers.items[idx] orelse break :blk true;
+                break :blk f.status == .completed or f.status == .errored;
+            };
+            if (reclaimable) {
+                ringCompact(&self.free_slots, &self.free_head);
+                return idx;
+            }
+        }
+        ringCompact(&self.free_slots, &self.free_head);
+        return null;
+    }
+
+    /// Front validated-runnable slot index in the ready ring, or null if it
+    /// drains without one (whereupon a real-dispatch caller does the
+    /// authoritative scan). Any front entry that isn't dispatchable —
+    /// referencing a reused/absent slot, no longer runnable, or (when
+    /// `exclude_driving`) a fiber whose own nested drive is still live
+    /// (#1487) — is dropped as it's passed; the fallback scan still finds a
+    /// dropped-but-selectable fiber whenever it's genuinely selectable
+    /// (plain schedule(), or once driving clears), consistent with "only the
+    /// parked fiber's own loop ever consumes its wake."
+    ///
+    /// `consume` distinguishes the two caller kinds. A real dispatch consumes
+    /// the entry (advance past it, clear `queued`) so the fiber re-enqueues at
+    /// the tail via markRunnable when it next suspends — that rotation is what
+    /// keeps dispatch fair round-robin. The advisory yield check peeks
+    /// (`consume=false`): it leaves the runnable entry in place so it can't
+    /// starve a sibling, and repeated advisory calls stay idempotent.
+    fn popReady(self: *FiberScheduler, exclude_driving: bool, consume: bool) ?usize {
+        while (self.ready_head < self.ready.items.len) {
+            const idx = self.ready.items[self.ready_head];
+            if (idx < self.fibers.items.len) {
+                if (self.fibers.items[idx]) |fiber| {
+                    // Honor an entry only while it still owns the flag: a stale
+                    // duplicate for a since-reused slot (sched_idx mismatch)
+                    // must not clear a different fiber's `queued`.
+                    if (fiber.sched_idx == idx and
+                        (fiber.status == .created or fiber.status == .suspended) and
+                        !(exclude_driving and fiber.driving))
+                    {
+                        if (consume) {
+                            self.ready_head += 1;
+                            fiber.queued = false;
+                            ringCompact(&self.ready, &self.ready_head);
+                        }
+                        return idx;
+                    }
+                    if (fiber.sched_idx == idx) fiber.queued = false;
+                }
+            }
+            self.ready_head += 1;
+        }
+        ringCompact(&self.ready, &self.ready_head);
+        return null;
     }
 
     pub fn addFiber(self: *FiberScheduler, fiber: *Fiber) !void {
-        for (self.fibers.items, 0..) |f, i| {
-            if (f) |existing| {
-                if (existing.status == .completed or existing.status == .errored) {
-                    self.fibers.items[i] = fiber;
-                    return;
-                }
-            } else {
-                self.fibers.items[i] = fiber;
-                return;
-            }
+        // Reuse a vacated slot if one is on the free list (O(1)); the list is
+        // comprehensively fed by retireSlot, so an empty list genuinely means
+        // no reusable slot exists — append rather than rescanning the whole
+        // array for one, which is what made spawning N live fibers O(n^2)
+        // (#1477). markRunnable enqueues the new (.created) fiber for dispatch;
+        // it's a no-op for the main fiber ensureScheduler adds as .running.
+        if (self.popFreeSlot()) |idx| {
+            self.fibers.items[idx] = fiber;
+            fiber.sched_idx = idx;
+            self.markRunnable(fiber);
+            return;
         }
+        const idx = self.fibers.items.len;
         try self.fibers.append(self.vm.gc.allocator, fiber);
+        fiber.sched_idx = idx;
+        self.markRunnable(fiber);
     }
 
     pub fn spawnFiber(self: *FiberScheduler, thunk: Value) !*Fiber {
@@ -290,7 +447,10 @@ pub const FiberScheduler = struct {
         const current = self.fibers.items[self.current_idx] orelse return;
 
         try self.saveCurrentFiber();
-        if (current.status == .running) current.status = .suspended;
+        if (current.status == .running) {
+            current.status = .suspended;
+            self.markRunnable(current);
+        }
 
         try self.restoreFiber(next_idx);
         const next = self.fibers.items[next_idx] orelse return;
@@ -299,42 +459,39 @@ pub const FiberScheduler = struct {
         self.vm.current_fiber = next;
     }
 
-    /// True iff any fiber is parked on fd readiness. Gates the per-tick
-    /// zero-timeout reactor poll in schedule() — an O(fiber count) scan,
-    /// but it early-exits at the first hit, and when it misses (no I/O
-    /// waiters) it saves a kevent/epoll_wait syscall per dispatch tick.
+    /// True iff any fiber is parked on fd readiness — gates the per-tick
+    /// zero-timeout reactor poll in the scheduler tick. Answered in O(1) off
+    /// the reactor's own registration table rather than by rescanning every
+    /// fiber (#1477): an fd is registered iff a fiber is parked on it
+    /// (waitForFd registers before flipping to `.io_waiting`, and every path
+    /// out of `.io_waiting` unregisters or drains the waiter), so an empty
+    /// table means no I/O waiters. It may transiently over-count — an entry
+    /// can linger with drained waiter lists between a fired ONESHOT and its
+    /// re-arm/unregister — which only costs a harmless extra `poll(0)` (the
+    /// kernel returns no events), never a missed wakeup. The old O(fiber
+    /// count) scan early-exited on the server's common case but degraded to
+    /// full length exactly when it was hottest: many non-I/O fibers and no
+    /// I/O waiter to short-circuit on.
     fn anyIoWaiting(self: *FiberScheduler) bool {
-        for (self.fibers.items) |f| {
-            if (f) |fiber| {
-                if (fiber.status == .io_waiting) return true;
-            }
-        }
-        return false;
+        const reactor = self.vm.reactor orelse return false;
+        return reactor.regs.count() != 0;
     }
 
-    /// Round-robins over `created`/`suspended` fibers. Before selecting,
-    /// pops any already-expired timers off the reactor's heap and flips
-    /// their fibers to `.suspended` — checked on *every* call, not just
-    /// when the scheduler goes idle (parkOnReactor), so a timed wait
-    /// resolves promptly even while a busy/yielding sibling keeps this
-    /// loop from ever going idle (KEP-0001 Phase 2, resolved question 5:
-    /// the old per-fiber sweep folds into the shared timer heap, but the
-    /// heap must still be checked every tick — a heap peek/pop is cheaper
-    /// than the old O(fiber count) sweep it replaces, not less prompt).
-    ///
-    /// When fibers are parked on fd readiness (KEP-0001 Phase 3), the same
-    /// promptness argument applies to I/O: a zero-timeout reactor poll per
-    /// tick wakes ready I/O waiters even while a busy/yielding sibling
-    /// keeps the loop from ever reaching parkOnReactor's blocking poll.
+    /// Selects the next `created`/`suspended` fiber to dispatch, or null if
+    /// none. Consuming round-robin: the returned fiber is rotated out of the
+    /// ready ring and re-enqueued at the tail when it next suspends, so
+    /// dispatch stays fair. Runs the scheduler tick first (drains the
+    /// notifier, pops expired timers, polls ready I/O) so a timed or I/O wait
+    /// resolves promptly even while a busy/yielding sibling keeps the loop
+    /// from ever going idle (KEP-0001 Phase 2 Q5 / Phase 3). Every one of
+    /// those is now O(1) per tick (#1477): ring pop for selection, reactor
+    /// registration count for the I/O gate, timer-heap peek for timers.
     ///
     /// Does NOT exclude `driving` fibers — see `scheduleForDispatch`'s doc
-    /// comment for why that exclusion must not live here. This is the
-    /// general "would *anything* becoming runnable matter" query: yieldFn/
-    /// threadYieldFn use it only to decide whether arming the Yielded
-    /// unwind is worthwhile (the returned index itself is discarded), and
-    /// vm_calls.zig's top-level scheduleNextAfterYield/runWithScheduler
-    /// dispatch via switchTo, which — unlike runSchedulerStep — never nests
-    /// another drive, so it carries none of the corruption risk `driving`
+    /// comment for why that exclusion must not live here. Used by
+    /// vm_calls.zig's top-level scheduleNextAfterYield/runWithScheduler,
+    /// which dispatch via switchTo and — unlike runSchedulerStep — never nest
+    /// another drive, so they carry none of the corruption risk `driving`
     /// guards against.
     pub fn schedule(self: *FiberScheduler) ?usize {
         return self.scheduleImpl(false);
@@ -345,20 +502,71 @@ pub const FiberScheduler = struct {
     /// dispatch loop, the sole call site that actually restoreFiber+
     /// vm.runUntil()s whatever index this returns: selecting a `driving`
     /// fiber there would resume its stale, mid-native-call register
-    /// snapshot from a different fiber's nested drive. Plain `schedule()`
-    /// must keep finding these fibers for its other callers (see its own
-    /// doc comment) — excluding them there instead reproduces #1440's
-    /// symptom by a different path: a busy sibling's `(yield)` calls
-    /// yieldFn/threadYieldFn's own `schedule() == null` advisory check,
-    /// which would then see nothing runnable (the driving ancestor whose
-    /// wait *just* resolved is invisible) and silently no-op instead of
-    /// actually yielding, starving that ancestor's own loop of the turn it
-    /// needs to notice and exit.
+    /// snapshot from a different fiber's nested drive. The advisory
+    /// `anyRunnable()` must keep *seeing* these fibers (see its doc comment)
+    /// — excluding them there instead reproduces #1440's symptom by a
+    /// different path: a busy sibling's `(yield)` advisory check would see
+    /// nothing runnable (the driving ancestor whose wait *just* resolved is
+    /// invisible) and silently no-op instead of actually yielding, starving
+    /// that ancestor's own loop of the turn it needs to notice and exit.
     pub fn scheduleForDispatch(self: *FiberScheduler) ?usize {
         return self.scheduleImpl(true);
     }
 
+    /// Advisory "is any other fiber runnable right now" for yield's arm-or-
+    /// no-op decision (yieldFn/threadYieldFn) — the returned answer is a
+    /// bool, no fiber is dispatched. Runs the scheduler tick (so a wait that
+    /// just resolved counts), then *peeks* the ready ring without consuming,
+    /// so asking doesn't perturb round-robin order or starve anyone.
+    ///
+    /// Ring-only, by design no O(fiber count) fallback scan: every production
+    /// transition to runnable goes through markRunnable, so an empty ring
+    /// genuinely means nothing is runnable — and this must stay O(1) because
+    /// a CPU-bound fiber yielding in a loop while thousands of siblings are
+    /// parked would otherwise pay a full scan on every single yield (#1477).
+    /// A hypothetical missed enqueue costs only a yield that no-ops when it
+    /// could have rotated (a fairness nicety); the authoritative fallback
+    /// scan the real-dispatch paths keep is what guarantees correctness.
+    /// Does NOT exclude driving fibers, matching the old advisory schedule().
+    pub fn anyRunnable(self: *FiberScheduler) bool {
+        self.runReactorTick();
+        return self.popReady(false, false) != null;
+    }
+
     fn scheduleImpl(self: *FiberScheduler, exclude_driving: bool) ?usize {
+        self.runReactorTick();
+
+        // Fast path (#1477): the ready ring holds slot indices flagged
+        // runnable by markRunnable at the transition sites. When it yields a
+        // validated target, skip the scan entirely — the whole point on a busy
+        // server whose `fibers` array is mostly parked io_waiting fibers.
+        if (self.popReady(exclude_driving, true)) |idx| return idx;
+
+        // Authoritative fallback: the original O(n) round-robin scan. Covers
+        // every runnable fiber the ring didn't capture — notably any status
+        // set directly without markRunnable (much test code, plus any not-yet-
+        // instrumented transition) — so correctness never depends on the
+        // accelerator's coverage, only performance does.
+        const n = self.fibers.items.len;
+        if (n == 0) return null;
+        var i: usize = 1;
+        while (i <= n) : (i += 1) {
+            const idx = (self.current_idx + i) % n;
+            if (self.fibers.items[idx]) |f| {
+                if ((f.status == .created or f.status == .suspended) and (!exclude_driving or !f.driving)) return idx;
+            }
+        }
+        return null;
+    }
+
+    /// The per-tick scheduler housekeeping shared by scheduleImpl and the
+    /// advisory anyRunnable: drain the cross-thread notifier (KEP-0002 §5),
+    /// then pop expired timers and — only when an fd is actually registered —
+    /// poll ready I/O, flipping every woken fiber back to runnable. Checked
+    /// on *every* call, not just when idle (parkOnReactor), so a timed or I/O
+    /// wait resolves promptly even while a busy/yielding sibling keeps the
+    /// loop from ever going idle.
+    fn runReactorTick(self: *FiberScheduler) void {
         if (self.vm.reactor) |reactor| {
             // KEP-0002 §5's normative consume protocol, checked every tick
             // (not just when idle) for the same promptness reason as the
@@ -376,19 +584,11 @@ pub const FiberScheduler = struct {
             } else {
                 reactor.popExpiredTimers(&expired) catch {};
             }
-            for (expired.items) |f| wakeReadyFiber(f);
-        }
-
-        const n = self.fibers.items.len;
-        if (n == 0) return null;
-        var i: usize = 1;
-        while (i <= n) : (i += 1) {
-            const idx = (self.current_idx + i) % n;
-            if (self.fibers.items[idx]) |f| {
-                if ((f.status == .created or f.status == .suspended) and (!exclude_driving or !f.driving)) return idx;
+            for (expired.items) |f| {
+                wakeReadyFiber(f);
+                self.markRunnable(f);
             }
         }
-        return null;
     }
 
     /// Used only by parkOnReactor's deadlock check, which runs after
@@ -441,6 +641,7 @@ pub const FiberScheduler = struct {
                     fiber.result = completed_fiber.result;
                     self.vm.gc.writeBarrier(&fiber.header, completed_fiber.result);
                     self.cancelPendingTimer(fiber);
+                    self.markRunnable(fiber);
                 }
             }
         }
@@ -456,6 +657,7 @@ pub const FiberScheduler = struct {
                     fiber.status = .suspended;
                     fiber.waiting_on = types.VOID;
                     self.cancelPendingTimer(fiber);
+                    self.markRunnable(fiber);
                 }
             }
         }
@@ -510,6 +712,7 @@ pub const FiberScheduler = struct {
             if (f.status == .waiting) {
                 f.status = .suspended;
                 f.waiting_on = types.VOID;
+                self.markRunnable(f);
             }
         }
         self.shared_waiters.clearRetainingCapacity();
@@ -521,6 +724,7 @@ pub const FiberScheduler = struct {
                 if (fiber.status == .waiting and fiber.waiting_on == mutex_val) {
                     fiber.status = .suspended;
                     self.cancelPendingTimer(fiber);
+                    self.markRunnable(fiber);
                     return;
                 }
             }
@@ -533,6 +737,7 @@ pub const FiberScheduler = struct {
                 if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
                     fiber.status = .suspended;
                     self.cancelPendingTimer(fiber);
+                    self.markRunnable(fiber);
                     return;
                 }
             }
@@ -545,6 +750,7 @@ pub const FiberScheduler = struct {
                 if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
                     fiber.status = .suspended;
                     self.cancelPendingTimer(fiber);
+                    self.markRunnable(fiber);
                 }
             }
         }
@@ -655,6 +861,7 @@ pub fn wakeIoWaitersOnFd(sched: *FiberScheduler, fd: std.posix.fd_t) void {
             if (fiber.status == .io_waiting and fiber.io_fd == fd) {
                 fiber.status = .suspended;
                 fiber.io_fd = null;
+                sched.markRunnable(fiber);
             }
         }
     }
@@ -764,7 +971,10 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
     // (reactor.zig's wait() implementations filter it out).
     while (reactor.notifier.wake_pending.swap(false, .acq_rel)) sched.sweepSharedWaiters();
 
-    for (ready.items) |f| wakeReadyFiber(f);
+    for (ready.items) |f| {
+        wakeReadyFiber(f);
+        sched.markRunnable(f);
+    }
     return true;
 }
 
@@ -844,19 +1054,23 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == VMError.Yielded) {
                 try sched.saveCurrentFiber();
-                if (fiber.status == .running) fiber.status = .suspended;
+                if (fiber.status == .running) {
+                    fiber.status = .suspended;
+                    sched.markRunnable(fiber);
+                }
                 continue;
             }
-            fiber.status = .errored;
             // Fiber 0 is the main fiber: finishing or aborting one
             // top-level form is not thread death, so its mutexes stay
-            // valid.
+            // valid. retireSlot returns the vacated slot to the free list
+            // (a no-op for slot 0), keeping addFiber's fast path fed.
+            sched.retireSlot(fiber, .errored);
             if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);
             try sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
         };
-        fiber.status = .completed;
+        sched.retireSlot(fiber, .completed);
         fiber.result = result;
         vm.gc.writeBarrier(&fiber.header, result);
         if (next_idx != 0) abandonFiberMutexes(vm.gc, fiber, sched);

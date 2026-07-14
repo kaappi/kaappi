@@ -335,6 +335,71 @@ test "review regression: mutex-lock! contended through a 3-level nested dispatch
     try std.testing.expectEqual(types.TRUE, types.car(types.cdr(result)));
 }
 
+// #1477: O(1) dispatch/spawn. The ready ring and free-slot list are
+// accelerators over an authoritative O(n) fallback scan, so these check the
+// incremental bookkeeping (slot reuse, sched_idx, the non-consuming advisory)
+// rather than the scan the older tests above already cover.
+
+test "#1477: addFiber reuses a vacated slot instead of growing the fibers array" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+
+    // First spawn+join leaves one completed slot behind (main is slot 0).
+    _ = try ctx.vm.eval("(fiber-join (spawn (lambda () 1)))");
+    const len_after_first = sched.fibers.items.len;
+
+    // Each later spawn must retireSlot->free-list->reuse that same slot, so
+    // long-running spawn/join churn doesn't grow the array unboundedly.
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        _ = try ctx.vm.eval("(fiber-join (spawn (lambda () 1)))");
+    }
+    try std.testing.expectEqual(len_after_first, sched.fibers.items.len);
+}
+
+test "#1477: addFiber assigns each fiber its stable slot index" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
+    const sched = ctx.vm.scheduler.?;
+    const f = types.toObject(try ctx.vm.eval("f")).as(fiber_mod.Fiber);
+
+    // f lives at exactly the slot addFiber recorded on it, and that slot is
+    // what the O(1) wake paths enqueue.
+    try std.testing.expect(f.sched_idx != 0); // slot 0 is main
+    try std.testing.expectEqual(f, sched.fibers.items[f.sched_idx].?);
+}
+
+test "#1477: anyRunnable tracks runnability and does not consume (peek)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    // Only the running main fiber exists -> nothing else is runnable.
+    try std.testing.expect(!sched.anyRunnable());
+
+    // A freshly spawned fiber is .created and enqueued -> runnable.
+    _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () (yield) 1)))");
+    const f = types.toObject(try ctx.vm.eval("f")).as(fiber_mod.Fiber);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.created, f.status);
+    try std.testing.expect(sched.anyRunnable());
+    // Peek, not consume: asking twice still reports runnable and leaves the
+    // ring entry in place for the real dispatcher.
+    try std.testing.expect(sched.anyRunnable());
+
+    // Once f parks, the advisory must report nothing runnable again -- the
+    // stale ring entry is validated away at peek, not trusted blindly.
+    f.status = .waiting;
+    try std.testing.expect(!sched.anyRunnable());
+}
+
 test "hasRunnableFibers reports a shared-waiter-registry entry as alive" {
     var ctx: th.TestContext = undefined;
     try ctx.init();
