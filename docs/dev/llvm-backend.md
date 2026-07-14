@@ -119,9 +119,42 @@ opt -passes=verify -disable-output program.ll        # or: llvm-as -o /dev/null 
 The `-w` on the link commands only silences cosmetic warnings on generated IR
 for end users; a hard verifier **error** still fails the compile regardless.
 
-Cross-module inlining of the runtime primitives (`kaappi_fixnum_add`,
-`kaappi_car`, …) needs LTO and is tracked separately — `-O2` alone already
-cleans up the emitter's own IR substantially.
+### Inline primitive fast paths
+
+`-O2` cleans up the emitter's own scaffolding but cannot inline the runtime
+primitives (`kaappi_fixnum_add`, `kaappi_car`, …): they live in the static
+archive `libkaappi_rt.a`, on the far side of a compilation boundary `-O2` alone
+cannot cross. So the hottest primitives are emitted **as inline IR** instead of
+calls (#1493), removing the per-operation call in the common case:
+
+| Primitive | Inline fast path | Slow-path fallback |
+|-----------|------------------|--------------------|
+| `+` `-` `*` | fixnum-tag check on both operands → `llvm.sadd/ssub/smul.with.overflow.i64` on the sign-extended payloads → re-box if the result is in i48 range | `call @kaappi_fixnum_{add,sub,mul}` when an operand is not a fixnum, or the result overflows the i48 range (→ bignum) |
+| `<` `=` | fixnum-tag check → `icmp slt` (sign-extended) / `icmp eq` (raw) → boolean `select` | `call @kaappi_fixnum_{lt,eq}` for the full numeric tower |
+| `null?` | `icmp eq` against the nil immediate → `select` | none (pure) |
+
+The fast paths touch only the **NaN-boxed Value bits** (fixnum tag, payload,
+nil/boolean immediates), whose encoding is stable and is pulled from `types.zig`
+at emitter comptime (`nanbox` in `llvm_emit.zig`) — no magic numbers are
+hand-transcribed into the IR. `car`, `cdr`, and `cons` deliberately stay as
+direct specialized calls: `Pair`/`Object` are **auto-layout** (non-`extern`)
+structs whose field offsets Zig does not guarantee, so they cannot be encoded in
+hand-written IR, and `cons` allocates regardless.
+
+The inline binary path also **elides the shadow-stack rooting** (a
+`kaappi_gc_push_root`/`kaappi_gc_pop_roots` call pair) that keeps the first
+operand alive across the second's evaluation, whenever the second operand is a
+leaf that cannot allocate (a variable reference or an immediate constant —
+`nodeMayAllocate`). For a hot arithmetic loop this is the difference between a
+handful of runtime calls per operation and none: `fib(38)` runs ~3.3× faster
+than `-O2`-only.
+
+> **Why not LTO?** Building `libkaappi_rt.a` as bitcode and linking with `-flto`
+> would let LLVM inline every primitive, but Zig's toolchain cannot use LLD for
+> Mach-O (`using LLD to link macho files is unsupported`) and LTO requires LLD —
+> so `-flto` is unavailable on macOS, the primary dev platform, and would only
+> work when targeting Linux. Inline IR is portable across every target (it is
+> just text the emitter writes) and needs no cross-module inlining.
 
 ## LLVM IR Emission
 
@@ -132,7 +165,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 |------|---------------|
 | `constant` | Literal `i64` for immediates; `kaappi_make_string` for strings; `kaappi_intern_symbol` for symbols; `(quote ...)` via `kaappi_eval` for other heap values |
 | `global_ref` | `call @kaappi_global_lookup(...)` |
-| `call` | Three paths: inlined primitive (`+ - * < = car cdr cons null?`); direct `call`/`tail call` to a known native function; otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
+| `call` | Four paths: inline-IR fast path for `+ - * < = null?` (see [Inline primitive fast paths](#inline-primitive-fast-paths)); direct specialized call for `car cdr cons`; direct `call`/`tail call` to a known native function; otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
 | `begin` | Emit each expression sequentially |
 | `if` | LLVM basic blocks with `br`/`phi` |
 | `and`/`or` | Short-circuit with basic blocks and `phi` |
@@ -287,6 +320,10 @@ environment variable controls the C compiler (defaults to `zig cc`).
 - Unicode strings, string ports, string mutation
 - Higher-order functions (`map`, `filter`, `fold`)
 - Tail-recursive loops (100k iterations)
+- Inline fixnum fast paths for `+ - * < = null?` with their runtime fallbacks —
+  overflow → bignum, non-fixnum (flonum/rational) operands, and sign-extended
+  negatives (`native-inline-primitives.scm`, all diffed against the interpreter,
+  including under a forced-collection `KAAPPI_GC_THRESHOLD=1` run)
 
 ## Related Documents
 

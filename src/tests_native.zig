@@ -116,6 +116,13 @@ fn expectContains(haystack: []const u8, needle: []const u8) !void {
     }
 }
 
+fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
+    if (std.mem.indexOf(u8, haystack, needle) != null) {
+        std.debug.print("\n--- Expected NOT to find ---\n{s}\n--- but it appears in output (len={d}) ---\n", .{ needle, haystack.len });
+        return error.TestUnexpectedResult;
+    }
+}
+
 // -- Preamble and structure --
 
 test "LLVM emit: preamble has target triple and runtime calls" {
@@ -188,46 +195,90 @@ test "LLVM emit: general call emits kaappi_call_scheme" {
     try expectContains(res.toSlice(), "@kaappi_call_scheme");
 }
 
-test "LLVM emit: inline add" {
+// Arithmetic + comparison + null? lower to inline fixnum fast paths (#1493).
+// Each emits the fixnum-fast-path IR *and* keeps a call to the runtime for the
+// slow path (non-fixnum operands, or overflow out of the i48 range → bignum).
+// car/cdr/cons keep a direct specialized call: their Pair layout is an
+// auto-layout struct that cannot be encoded in hand-written IR, and cons always
+// allocates.
+
+test "LLVM emit: inline add uses fixnum fast path + runtime fallback" {
     var res = try emitSourceResult("(+ a b)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_fixnum_add");
+    try expectContains(res.toSlice(), "@llvm.sadd.with.overflow.i64");
+    try expectContains(res.toSlice(), "call i64 @kaappi_fixnum_add"); // slow-path call
 }
 
-test "LLVM emit: inline sub" {
+test "LLVM emit: inline sub uses fixnum fast path + runtime fallback" {
     var res = try emitSourceResult("(- a b)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_fixnum_sub");
+    try expectContains(res.toSlice(), "@llvm.ssub.with.overflow.i64");
+    try expectContains(res.toSlice(), "call i64 @kaappi_fixnum_sub");
 }
 
-test "LLVM emit: inline mul" {
+test "LLVM emit: inline mul uses fixnum fast path + runtime fallback" {
     var res = try emitSourceResult("(* a b)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_fixnum_mul");
+    try expectContains(res.toSlice(), "@llvm.smul.with.overflow.i64");
+    try expectContains(res.toSlice(), "call i64 @kaappi_fixnum_mul");
 }
 
-test "LLVM emit: inline car" {
+test "LLVM emit: inline < uses inline compare + runtime fallback" {
+    var res = try emitSourceResult("(< a b)");
+    defer res.deinit();
+    try expectContains(res.toSlice(), "icmp slt i64");
+    try expectContains(res.toSlice(), "call i64 @kaappi_fixnum_lt");
+}
+
+test "LLVM emit: inline = uses inline compare + runtime fallback" {
+    var res = try emitSourceResult("(= a b)");
+    defer res.deinit();
+    try expectContains(res.toSlice(), "select i1");
+    try expectContains(res.toSlice(), "call i64 @kaappi_fixnum_eq");
+}
+
+test "LLVM emit: inline car keeps a direct specialized call" {
     var res = try emitSourceResult("(car x)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_car");
+    try expectContains(res.toSlice(), "call i64 @kaappi_car");
 }
 
-test "LLVM emit: inline cdr" {
+test "LLVM emit: inline cdr keeps a direct specialized call" {
     var res = try emitSourceResult("(cdr x)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_cdr");
+    try expectContains(res.toSlice(), "call i64 @kaappi_cdr");
 }
 
-test "LLVM emit: inline cons" {
+test "LLVM emit: inline cons keeps a direct specialized call" {
     var res = try emitSourceResult("(cons a b)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_cons");
+    try expectContains(res.toSlice(), "call i64 @kaappi_cons");
 }
 
-test "LLVM emit: inline null?" {
+test "LLVM emit: null? inlines to a nil comparison with no runtime call" {
     var res = try emitSourceResult("(null? x)");
     defer res.deinit();
-    try expectContains(res.toSlice(), "@kaappi_is_null");
+    // Inlined: a single comparison + boolean select, and crucially NO call to
+    // the runtime (only the always-present preamble `declare` mentions it).
+    try expectContains(res.toSlice(), "select i1");
+    try expectNotContains(res.toSlice(), "call i64 @kaappi_is_null");
+}
+
+test "LLVM emit: inline binary skips rooting when operands cannot allocate (#1493)" {
+    // Both operands are leaves (variable ref + immediate), so nothing can
+    // collect while the second is evaluated — the shadow-stack push/pop pair is
+    // pure call overhead and must be elided.
+    var res = try emitSourceResult("(+ a 1)");
+    defer res.deinit();
+    try expectNotContains(res.toSlice(), "call void @kaappi_gc_push_root");
+}
+
+test "LLVM emit: inline binary still roots when a later operand may allocate (#1493)" {
+    // The second operand is a call, which may allocate and trigger a GC, so the
+    // first operand's result must stay rooted across it.
+    var res = try emitSourceResult("(+ a (f b))");
+    defer res.deinit();
+    try expectContains(res.toSlice(), "call void @kaappi_gc_push_root");
 }
 
 // -- Control flow --
