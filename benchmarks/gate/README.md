@@ -160,18 +160,37 @@ kaappi#1489 hang and were recorded as `TIMEOUT` failures (see limitation 2).
 - `none` — per-message envelopes exactly as `shared_channel.zig` ships.
 - `c` — `none` + immediates (fixnum/boolean/char/flonum/nil) skip the envelope
   heap. Implemented.
-- `cd` — `c` + a refcounted immutable side-heap for large bytevectors/strings.
-  **Not yet implemented in the real path** — a follow-up wires it behind this
-  flag. Until then `--levers cd` selects the `c` path. **The gate cannot be
-  evaluated until lever D exists** (§2): the gate cells are levers `C+D`.
+- `cd` — `c` + a refcounted immutable side-heap for large **bytevectors**
+  (kaappi#1472 lever D), implemented in the real path. A bytevector ≥ 4 KiB
+  crossing a channel is snapshotted once into a `SharedBuffer`
+  (`src/shared_buffer.zig`) and shared by refcount: zero-copy on receive,
+  copy-on-write on mutation. This is the lever the gate's `C+D` cells require
+  (§2). Two scope points to confirm before the frozen run:
+  - **Bytevectors only.** Strings are a follow-up; flonum *vectors*
+    (IP-MAP/IP-MATMUL/FO-SLICE) and the record/vector tree (FO-TREE) are
+    byte-opaque, so D does not apply to them — that "walk tax" is exactly the
+    pre-KEP-0003 reality §1 measures, and is what flat f64 storage (KEP-0003)
+    would address. So at `C+D`, D helps the bytevector workloads (IP-BAND,
+    FO-DIGEST) and correctly leaves the vector workloads at their `none` share.
+  - **No source promotion.** D elides the zero-copy *receive* of a distinct
+    payload and re-aliases an already-backed payload, but does not promote a
+    plain *source* bytevector to shared on first send — so a fan-out of the same
+    plain bytevector still snapshots per task envelope. This affects only
+    bytevector fan-out (FO-DIGEST), which is compute-dominated (share < 1 %), so
+    it does not change the gate classification. Add source promotion only if a
+    bytevector fan-out workload ever proves copy-bound.
 
 ## Known limitations & PRE-FREEZE findings
 
 These surfaced during harness bring-up and must be resolved or explicitly
 adopted **before** the frozen run starts (once it starts, the protocol freezes):
 
-1. **Lever D is not in the real path yet.** The gate's cells are `C+D`; it is a
-   hard blocker for evaluating the gate (§2). Follow-up PR.
+1. **Lever D scope (bytevectors; no source promotion; strings deferred).**
+   Lever D is implemented in the real path (see the Levers section), but two
+   scoping decisions — bytevectors only, and no plain-source promotion for
+   fan-out — should be explicitly adopted (or closed) before the frozen run.
+   Neither changes the gate classification (the only affected workload,
+   FO-DIGEST fan-out, is compute-dominated), but both are protocol-visible.
 
 2. **Intermittent pool hang (kaappi#1489).** The cross-thread wakeup path can
    lose a wakeup and hang, at any submission count (probability grows with
@@ -204,7 +223,8 @@ adopted **before** the frozen run starts (once it starts, the protocol freezes):
 
 ## What is deferred
 
-The frozen §4 collection on **both** reference machines (macOS aarch64 + Linux
-x86_64, ≥ 8 physical cores), the A/B/C/D + gate worksheet fill-in, and the
-KEP-0002 UQ 1 amendment are the campaign's remaining operational steps, to run
-once lever D lands and the harness is reviewed.
+Lever D has now landed, so the gate's `C+D` cells are runnable. The frozen §4
+collection on **both** reference machines (macOS aarch64 + Linux x86_64, ≥ 8
+physical cores), the gate worksheet fill-in, and the KEP-0002 UQ 1 amendment are
+the campaign's remaining operational steps, to run once the harness is reviewed
+(ideally after kaappi#1489 is fixed — see limitation 2).

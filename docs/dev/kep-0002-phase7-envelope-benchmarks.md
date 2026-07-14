@@ -220,8 +220,11 @@ Still open for Phase 7 / #1472:
    #1472 that feeds #1474. **Harness landed** in `benchmarks/gate/` (see
    `benchmarks/gate/README.md`): the six workloads + controls, the real-
    path `share` counters (`src/channel_instrument.zig` →
-   `src/shared_channel.zig`), levers `none`/`c`, and the K–J driver
-   emitting the §6 CSV, all locally piloted on macOS aarch64. Still open
-   there: **lever D in the real path** (the gate cells are `C+D`, so the
-   gate is blocked until it lands), the frozen two-machine §4 collection,
-   and the worksheet fill-in.
+   `src/shared_channel.zig`), levers `none`/`c`/`cd`, and the K–J driver
+   emitting the §6 CSV, all locally piloted on macOS aarch64. **Lever D**
+   (refcounted immutable side-heap for large bytevectors,
+   `src/shared_buffer.zig`, zero-copy receive + copy-on-write) is wired
+   into the real deepCopy path behind `-Dchannel-instrument`, so the gate's
+   `C+D` cells are now runnable. Still open there: the frozen two-machine
+   §4 collection and the worksheet fill-in — ideally after kaappi#1489
+   (the intermittent pool hang) is fixed.

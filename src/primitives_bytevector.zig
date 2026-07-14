@@ -94,6 +94,10 @@ fn bytevectorU8Set(args: []const Value) PrimitiveError!Value {
     const val = types.toFixnum(args[2]);
     if (idx < 0 or @as(usize, @intCast(idx)) >= bv.data.len) return primitives.typeError("bytevector-u8-set!", "valid index", args[1]);
     if (val < 0 or val > 255) return primitives.typeError("bytevector-u8-set!", "exact integer 0-255", args[2]);
+    // Lever D copy-on-write (kaappi#1472): if this bytevector borrows a shared
+    // immutable buffer, privatize it before writing. No-op otherwise.
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    gc.unshareBytevector(bv) catch return PrimitiveError.OutOfMemory;
     bv.data[@intCast(@as(u64, @bitCast(idx)))] = @intCast(@as(u64, @bitCast(val)));
     return types.VOID;
 }
@@ -127,6 +131,13 @@ fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     const end = range.end;
     const count = end - start;
     if (at + count > to.data.len) return primitives.typeError("bytevector-copy!", "valid range", args[0]);
+
+    // Lever D copy-on-write (kaappi#1472): privatize the destination before
+    // writing if it borrows a shared immutable buffer. `from` is read only, so
+    // it needs no COW even when `to` and `from` are the same object (after COW
+    // both refer to the new private buffer, preserving memmove semantics).
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    gc.unshareBytevector(to) catch return PrimitiveError.OutOfMemory;
 
     // Use memmove semantics for overlapping regions
     if (at <= start) {
@@ -344,6 +355,10 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("read-bytevector!", "bytevector", args[0]);
     if (types.toObject(args[0]).flags.immutable) return primitives.typeError("read-bytevector!", "mutable bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
+    // Lever D copy-on-write (kaappi#1472): privatize before the read loop writes
+    // into it; idempotent across the parked-retry protocol below.
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    gc.unshareBytevector(bv) catch return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 1, "read-bytevector!");
     const len = bv.data.len;
 

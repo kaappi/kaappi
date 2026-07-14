@@ -91,7 +91,20 @@ pub const Envelope = struct {
         const env = try std.heap.c_allocator.create(Envelope);
         errdefer std.heap.c_allocator.destroy(env);
         env.* = .{ .gc = gc };
-        env.value = try gc.deepCopy(payload);
+        if (comptime instrument.enabled) {
+            // Lever C+D (kaappi#1472): signal deepCopy to snapshot a large
+            // bytevector into a shared immutable side-buffer (lever D) instead
+            // of copying it. Saved/restored so a nested build (a message
+            // carrying a channel whose queue drains via Envelope.create) can't
+            // clobber an outer build's mode. Comptime-pruned to the plain
+            // deepCopy below in the shipped build.
+            const prev_build_d = instrument.envelope_build_d;
+            instrument.envelope_build_d = (instrument.lever() == .cd);
+            defer instrument.envelope_build_d = prev_build_d;
+            env.value = try gc.deepCopy(payload);
+        } else {
+            env.value = try gc.deepCopy(payload);
+        }
         // Secondary metric (§3): the live per-message heap footprint invisible
         // to any GC. No-op when the instrument flag is off.
         instrument.envelopeBytesAdd(gc.bytes_allocated);

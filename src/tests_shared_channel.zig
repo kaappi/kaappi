@@ -428,6 +428,50 @@ test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1
     try std.testing.expectEqual(baseline, shared_object.liveCount());
 }
 
+test "instrument lever D: a large bytevector crosses by shared buffer, then copies on write (kaappi#1472)" {
+    if (comptime !instrument.enabled) return;
+    const baseline = shared_object.liveCount();
+    defer instrument.setLever(.none); // process-global; restore for other tests
+    instrument.setLever(.cd);
+
+    const sc = try shared_channel.SharedChannel.create();
+
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    var data: [8192]u8 = undefined; // >= the 4 KiB lever-D threshold
+    for (&data, 0..) |*b, i| b.* = @intCast(i % 256);
+    const bv = try src_gc.allocBytevector(&data);
+
+    _ = try shared_channel.send(sc, bv, null);
+    // Send side: the envelope's bytevector is backed by a SharedBuffer (one
+    // snapshot), not a plain byte copy.
+    const env_bv = types.toObject(sc.queue_head.?.value).as(types.Bytevector);
+    try std.testing.expect(env_bv.shared != null);
+    const shared_ptr = env_bv.shared.?;
+
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+    const recv = try shared_channel.receive(sc, &dest_gc, null);
+    const recv_bv = types.toObject(recv.value).as(types.Bytevector);
+    // Receive side: aliased the SAME buffer (no new snapshot), bytes intact.
+    try std.testing.expect(recv_bv.shared == shared_ptr);
+    try std.testing.expectEqualSlices(u8, &data, recv_bv.data);
+
+    // Copy-on-write: unshare privatizes the bytes and drops the reference, so
+    // the copy is byte-identical and then safe to mutate.
+    try dest_gc.unshareBytevector(recv_bv);
+    try std.testing.expect(recv_bv.shared == null);
+    try std.testing.expectEqualSlices(u8, &data, recv_bv.data);
+    recv_bv.data[0] = 0xFF;
+    try std.testing.expectEqual(@as(u8, 0xFF), recv_bv.data[0]);
+
+    sc.release();
+    // The SharedBuffer was freed when unshare dropped the last reference (the
+    // envelope's own reference went at receive-time env.deinit); the channel is
+    // freed by release. Both were shared_object.liveCount() entries.
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
 test "send: bounded-and-full channel registers a send waiter and would park" {
     // White-box: no Phase-1 Scheme API constructs a channel with a
     // non-null capacity yet (KEP-0002 Phase 4) -- direct construction only.

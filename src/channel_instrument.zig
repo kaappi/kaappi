@@ -112,8 +112,10 @@ pub const Lever = enum(u8) {
     /// `none` + immediates (fixnums/booleans/chars/flonums/nil) skip the
     /// envelope heap entirely.
     c = 1,
-    /// `C` + a refcounted immutable side-heap for large bytevectors/strings
-    /// (implemented in a follow-up; selects like `C` until then).
+    /// `C` + a refcounted immutable side-heap (`shared_buffer.SharedBuffer`)
+    /// for large bytevectors: snapshot once, share by refcount, copy-on-write.
+    /// Wired into the real deepCopy path (gc_deep_copy.zig); the gate's `C+D`
+    /// cells run on this lever.
     cd = 2,
 };
 
@@ -123,6 +125,20 @@ pub fn setLever(l: Lever) void {
     if (comptime !enabled) return;
     active_lever.store(@intFromEnum(l), .monotonic);
 }
+
+/// True only while `Envelope.create` is building an envelope under lever C+D,
+/// so `gc_deep_copy`'s bytevector arm knows to snapshot a large payload into a
+/// shared side-buffer (lever D) instead of copying it. Threadlocal: concurrent
+/// envelope builds on different threads must not see each other's mode. The
+/// receive side needs no such flag -- it aliases any already-backed bytevector
+/// unconditionally, since the immutable buffer already exists.
+pub threadlocal var envelope_build_d: bool = false;
+
+/// Lever D size gate. BEAM ships refcounted binaries above 64 bytes; the gate
+/// sweeps 64 KiB..64 MiB with per-worker chunks down to a few KiB, so a 4 KiB
+/// threshold keeps tiny control messages on the copy path while every gate
+/// payload (and its chunks) crosses by reference.
+pub const d_side_heap_threshold_bytes: usize = 4096;
 
 pub inline fn lever() Lever {
     if (comptime !enabled) return .none;
