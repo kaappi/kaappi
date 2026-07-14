@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784050070688,
+  "lastUpdate": 1784050118277,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fa451202863a3fa0d29ab925c29555eca96c18c6",
-          "message": "Fix SRFI-134 ideque-filter calling unbound 'filter' (#1212) (#1341)\n\nideque-filter called 'filter' which is not exported by (scheme base).\nDefine a local filter-list helper, consistent with the existing local\nfold-left in the same library. Re-enable the previously disabled test.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T06:02:47+05:30",
-          "tree_id": "40b14051a70a65ddea4373d594068c496c6f97d5",
-          "url": "https://github.com/kaappi/kaappi/commit/fa451202863a3fa0d29ab925c29555eca96c18c6"
-        },
-        "date": 1783559026583,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.08113,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.683051,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.024605,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.479889,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013881,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225982,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.514154,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068081,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.626942,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.990783,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.307326,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.125681,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.293784,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.844426,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046125,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045152,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63079083ff2d5d36e7f3d7e6c394a85518338832",
+          "message": "Unskip eval tail-call test under gc-stress via frame-depth proxy (#1540)\n\nThe #1253 regression test detected non-tail-called `eval` by forcing a\nframe-limit overflow, which is only decisive past MAX_FRAME_LIMIT (32768)\niterations. Every iteration recompiles the expression through `eval`, so\nunder -Dgc-stress=true that is millions of full collections — hours — and\nthe test was unconditionally skipped there (#1452), leaving no bound on\nwhen it might become practical again.\n\nOverflow-based detection is inherently unaffordable under stress: it needs\n>32768 compile-heavy iterations no matter how the count is tuned. Instead,\nobserve the guarded property (\"constant frame depth\") directly. A test-only\nobserver native records vm.frame_count at the base case of the recursion;\nrunning the loop at two very different iteration counts, a tail-called eval\nreuses its caller's frame so both depths match, while a non-tail-called eval\nwould push a frame per iteration and diverge. This is decisive with a few\nhundred iterations (910ms under gc-stress) and now runs on every build.\n\nVerified decisive by injecting the regression (eval in non-tail position):\ndepth grows 202 -> 2002 across the two counts and the test fails.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-14T22:30:08+05:30",
+          "tree_id": "9a3cec2046f7a0eb1928590fffa928fe403c77dd",
+          "url": "https://github.com/kaappi/kaappi/commit/63079083ff2d5d36e7f3d7e6c394a85518338832"
+        },
+        "date": 1784050117185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.298789,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.477254,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.973109,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.490982,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006524,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054323,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.518938,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071087,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.69996,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.983621,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.598785,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.440946,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.836982,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.657527,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045203,
             "unit": "seconds"
           }
         ]
