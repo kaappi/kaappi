@@ -429,3 +429,157 @@ test "#1478: fd->port rejects the standard streams and non-fixnums" {
     try std.testing.expectError(error.TypeError, vm.eval("(fd->port 1)"));
     try std.testing.expectError(error.TypeError, vm.eval("(fd->port \"nope\")"));
 }
+
+// #1460: readOneByte reads a chunk into read_buf and serves subsequent bytes
+// from memory, so byte-at-a-time consumers (read-u8, read-char,
+// read-bytevector, read-string, read-line) pay one read(2) per burst rather
+// than one per byte.
+
+test "readOneByte batches an available burst into read_buf, not one syscall per byte" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pipe = makePipe();
+    const rport = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    defer _ = std.posix.system.close(pipe[1]);
+
+    // Stage a burst, then read a single byte. Batching pulls the whole burst
+    // in one read(2) and parks the tail in read_buf; without it every byte
+    // would cost its own read(2) and read_buf would stay empty -- this is the
+    // one assertion that fails on the pre-#1460 single-byte reader.
+    const burst = "ABCDEFGHIJ";
+    try std.testing.expectEqual(@as(isize, burst.len), std.posix.system.write(pipe[1], burst, burst.len));
+    const first = try vm.eval("(read-u8 rp)");
+    try std.testing.expectEqual(types.makeFixnum('A'), first);
+    try std.testing.expectEqual(@as(usize, burst.len - 1), rport.read_buf_len);
+
+    // The buffered tail is then served in order from memory.
+    const rest = try vm.eval("(read-string 9 rp)");
+    const s = types.toObject(rest).as(types.SchemeString);
+    try std.testing.expectEqualStrings("BCDEFGHIJ", s.data[0..s.len]);
+}
+
+test "read-bytevector over a large file preserves byte order across batched chunk boundaries" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-large.bin");
+    // 10000 bytes spans the 4096-byte read chunk twice. A deterministic,
+    // position-dependent pattern makes any dropped, duplicated, or reordered
+    // byte across a chunk boundary fail the equal? against the in-memory
+    // original (which never touched the fd).
+    const r = try vm.eval(
+        \\(let ((n 10000) (path "/tmp/kaappi-readbv-large.bin"))
+        \\  (define original (make-bytevector n 0))
+        \\  (let loop ((i 0))
+        \\    (when (< i n)
+        \\      (bytevector-u8-set! original i (modulo (* i 31) 256))
+        \\      (loop (+ i 1))))
+        \\  (let ((out (open-binary-output-file path)))
+        \\    (write-bytevector original out)
+        \\    (close-port out))
+        \\  (let ((in (open-binary-input-file path)))
+        \\    (let ((got (read-bytevector n in)))
+        \\      (close-port in)
+        \\      (and (= (bytevector-length got) n) (equal? got original)))))
+    );
+    try std.testing.expectEqual(types.TRUE, r);
+}
+
+test "read-bytevector composes read_buf left by a prior (read) with fresh fd reads" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-afterread.txt");
+    // (read) slurps a chunk, parses (a b c), and stashes that chunk's tail in
+    // read_buf; the 6000 trailing 'z' bytes overflow one chunk, so
+    // read-bytevector must drain the stash and then batch more from the fd,
+    // with byte 122 ('z') throughout.
+    const r = try vm.eval(
+        \\(let ((path "/tmp/kaappi-readbv-afterread.txt"))
+        \\  (let ((out (open-output-file path)))
+        \\    (write-string "(a b c)" out)
+        \\    (write-string (make-string 6000 #\z) out)
+        \\    (close-port out))
+        \\  (let ((in (open-input-file path)))
+        \\    (let ((datum (read in)))
+        \\      (let ((bv (read-bytevector 6000 in)))
+        \\        (close-port in)
+        \\        (and (equal? datum '(a b c))
+        \\             (= (bytevector-length bv) 6000)
+        \\             (let chk ((i 0))
+        \\               (if (= i 6000) #t
+        \\                   (and (= (bytevector-u8-ref bv i) 122) (chk (+ i 1))))))))))
+    );
+    try std.testing.expectEqual(types.TRUE, r);
+}
+
+test "read-bytevector after peek-char includes the peeked byte in order" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-afterpeek.txt");
+    // peek-char pulls a batched chunk: byte 0 goes back into peek_byte, the
+    // rest stays in read_buf. read-bytevector must then deliver the peeked
+    // byte first, the read_buf tail next, and the fd last -- all in order.
+    const r = try vm.eval(
+        \\(let ((path "/tmp/kaappi-readbv-afterpeek.txt"))
+        \\  (let ((out (open-output-file path)))
+        \\    (write-string "hello world" out)
+        \\    (close-port out))
+        \\  (let ((in (open-input-file path)))
+        \\    (let ((pc (peek-char in)))
+        \\      (let ((bv (read-bytevector 11 in)))
+        \\        (close-port in)
+        \\        (and (char=? pc #\h)
+        \\             (equal? bv (string->utf8 "hello world")))))))
+    );
+    try std.testing.expectEqual(types.TRUE, r);
+}
+
+test "a parked mid-read-bytevector retry over a pipe loses no bytes" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pipe = makePipe();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+
+    _ = try vm.eval("(import (kaappi fibers) (srfi 18))");
+    // 10000 bytes, position-dependent. The writer sends it in two 5000-byte
+    // bursts with a sleep between: the reader consumes burst one (crossing a
+    // chunk boundary), finds the pipe dry, stashes its 5000-byte partial
+    // progress and parks. Its retry must re-serve that stash and then batch
+    // burst two -- any loss or reordering across the park fails equal?.
+    _ = try vm.eval(
+        \\(begin
+        \\  (define n 10000)
+        \\  (define half 5000)
+        \\  (define original (make-bytevector n 0))
+        \\  (let loop ((i 0))
+        \\    (when (< i n)
+        \\      (bytevector-u8-set! original i (modulo i 256))
+        \\      (loop (+ i 1)))))
+    );
+    _ = try vm.eval("(define reader (spawn (lambda () (read-bytevector n rp))))");
+    _ = try vm.eval(
+        \\(define writer (spawn (lambda ()
+        \\  (write-bytevector original wp 0 half) (flush-output-port wp)
+        \\  (thread-sleep! 0.05)
+        \\  (write-bytevector original wp half n) (flush-output-port wp)
+        \\  (close-port wp))))
+    );
+    _ = try vm.eval("(fiber-join writer)");
+    const r = try vm.eval("(equal? (fiber-join reader) original)");
+    try std.testing.expectEqual(types.TRUE, r);
+}
