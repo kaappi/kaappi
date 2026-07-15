@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784102099204,
+  "lastUpdate": 1784112087205,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a03e120143032efdd47bc39c2f8934e3f60d7e5e",
-          "message": "Fix SRFI-143 comparison and min/max to accept variadic arguments (#1226) (#1361)\n\nfx=?/fx<?/fx>?/fx<=?/fx>=? now accept two or more arguments (chained\ncomparison) and fxmax/fxmin accept one or more, matching the SRFI-143 spec.\nPreviously all were fixed at exactly 2 arguments.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T14:55:29+05:30",
-          "tree_id": "3e2863162aaaa8d7841b173c6ea354377b740f54",
-          "url": "https://github.com/kaappi/kaappi/commit/a03e120143032efdd47bc39c2f8934e3f60d7e5e"
-        },
-        "date": 1783591203172,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.351094,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.145511,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.969931,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.397312,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012563,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204161,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.503941,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069178,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.69444,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.948383,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.168648,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.000758,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.409193,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.687733,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043763,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.027789,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a2acef2006a24341e882901b0bc208347fb91bf",
+          "message": "Grow native lambda analysis buffers + loop variadic self-tail-calls (#1498) (#1567)\n\n* Grow native lambda analysis buffers + loop variadic self-tail-calls (#1498)\n\nThe native lambda emitter (src/llvm_emit_lambda.zig) bailed to kaappi_eval\nwhenever a function exceeded a fixed-size stack buffer, and compiled\nself-tail-recursion as a loop only for non-variadic functions. Both were\narbitrary cliffs on otherwise-compilable code.\n\nPart 1 — remove the fixed analysis buffers. The per-function scratch arrays\n([16] params, [64] body nodes, [16] free vars, [17]/[18] name buffers, [32]\nformal names, FreeNameWalk's [64] bound / [16] output, BoxAnalysis's [16]/[17]\nflags) now grow on the emitter's existing arena. The only ceiling left is the\nruntime's real one: a native closure's arity and each upvalue index are u8, so\na function past 255 fixed params or captured upvalues still falls back.\n\nPart 2 — loop variadic self-tail-calls. A self-call in tail position now branches\nback to the body label for variadic functions too, rebuilding the rest list from\nthe args past the fixed arity (reusing the cons idiom) before the branch. The\nrest builder moves to the entry block so the loop does not re-run it.\n\nAlso fixes a pre-existing latent GC bug the loop would hit constantly: the\nvariadic rest list was built in a bare, un-rooted alloca, so a body allocation\nthat did not itself mention the rest list could collect the freshly-consed\nspine (native output diverged from the interpreter under GC pressure). The rest\nslot is now GC-rooted for the frame (frame_box_roots generalized to\nframe_entry_roots) and popped before every ret, including tail-call rets.\n\nTests: new tests_native.zig emit tests for the over-limit cases and the\nvariadic loop; new tests/e2e programs (native-many-params, native-many-captures,\nnative-variadic-tail). zig build test, gc-stress native tests, and\ntests/e2e/run-e2e.sh (35/35) all green.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: raise macos-latest test job timeout to 30 min\n\nThe macOS runner is ~1.5x slower than the Linux ones: unit tests (~6 min) plus\nthe Scheme suites (~11 min) alone take ~17 min, so the job routinely drifts past\nthe default 20-min cap and is cancelled mid-run — a pre-existing flake seen on\nmain, not tied to any one PR. Bump macos-latest/ReleaseSafe to 30 min, matching\nthe timeout already used for the Debug and riscv64 jobs. Applied as an include\nentry that merges the timeout into the existing combination (no extra job).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: set macos timeout via an os-aware expression, not a merged include\n\nThe previous commit added the macOS 30-min cap through a matrix `include` entry\nthat merges into the existing macos-latest/ReleaseSafe combination. Whether such\na merge exposes `timeout` as `matrix.timeout` (vs. being dropped) is a subtle\nmatrix-expansion detail the auto-generated job name did not confirm. Replace it\nwith an explicit `matrix.os == 'macos-latest'` check in the timeout expression,\nwhich is unambiguous and does not depend on include-merge semantics.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T15:42:19+05:30",
+          "tree_id": "4851bb46928d76c07f37225544d34bf9d66cebee",
+          "url": "https://github.com/kaappi/kaappi/commit/5a2acef2006a24341e882901b0bc208347fb91bf"
+        },
+        "date": 1784112085116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.374728,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.821511,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.899459,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.467845,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006345,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053545,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507518,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069311,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.463918,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.973989,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.573364,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432518,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.838532,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.704451,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04315,
             "unit": "seconds"
           }
         ]
