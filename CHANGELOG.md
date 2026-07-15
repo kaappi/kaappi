@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **LLVM backend: cache eval-fallback compilation per call site** — forms the native backend cannot lower (`letrec`, `cond`, `case`, `do`, `guard`, quasiquote, named `let`, and fallback lambdas) are compiled at most once per call site via `kaappi_eval_cached` instead of being re-parsed and re-compiled on every execution, removing a severe cliff inside loops and hot functions (#1494)
+
 ### Fixed
 - Run the fuzz generator-coverage gates (grammar/native/portable evaluate-rate and the differential oracle) under `-Dgc-stress=true` by bounding evaluation with an instruction budget instead of the wall-clock deadline a stress build makes meaningless (#1447)
 

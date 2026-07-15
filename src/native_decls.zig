@@ -49,6 +49,9 @@ pub const decls: []const Decl = &.{
     .{ .export_name = "kaappi_box_set", .scheme_name = null, .param_types = &.{ .i64, .i64 }, .ret = .void_ty, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_create_native_closure", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .ptr, .i64, .i64, .ptr, .i64 }, .ret = .i64, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_eval", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64 }, .ret = .i64, .inline_kind = .not_inlined },
+    // Compile-once caching eval for the backend's per-call-site eval fallbacks
+    // (#1494). The trailing ptr is the call site's global cache slot.
+    .{ .export_name = "kaappi_eval_cached", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64, .ptr }, .ret = .i64, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_gc_push_root", .scheme_name = null, .param_types = &.{.ptr}, .ret = .void_ty, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_gc_pop_roots", .scheme_name = null, .param_types = &.{.i64}, .ret = .void_ty, .inline_kind = .not_inlined },
 };

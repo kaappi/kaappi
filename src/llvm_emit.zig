@@ -96,6 +96,11 @@ pub const LLVMEmitter = struct {
     string_counter: u32,
     sym_counter: u32,
     lambda_counter: u32,
+    // One global cache slot is emitted per eval-fallback call site (#1494);
+    // this counts them and names each `@.eval_cache.N`. Like the other module
+    // counters (string/sym/lambda) it is monotonic across the whole module and
+    // deliberately NOT part of SavedScope.
+    eval_cache_counter: u32,
     arena: std.heap.ArenaAllocator,
     backing_alloc: std.mem.Allocator,
     current_fn_name: ?[]const u8 = null,
@@ -182,6 +187,7 @@ pub const LLVMEmitter = struct {
             .string_counter = 0,
             .sym_counter = 0,
             .lambda_counter = 0,
+            .eval_cache_counter = 0,
             .arena = std.heap.ArenaAllocator.init(backing),
             .backing_alloc = backing,
         };
@@ -238,6 +244,15 @@ pub const LLVMEmitter = struct {
 
         for (self.string_decls.items) |decl| {
             try self.write(decl);
+        }
+
+        // One mutable global per eval-fallback call site (#1494): 0 until the
+        // form is compiled, then the cached Function value. Emitted here, at
+        // module scope, so both the top-level body and lambda bodies (in
+        // lambda_defs) can reference the slots they were assigned.
+        var cache_slot: u32 = 0;
+        while (cache_slot < self.eval_cache_counter) : (cache_slot += 1) {
+            try self.print("@.eval_cache.{d} = internal global i64 0\n", .{cache_slot});
         }
 
         for (self.lambda_defs.items) |def| {
@@ -523,10 +538,7 @@ pub const LLVMEmitter = struct {
             current = types.cdr(current);
         }
         source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
-        const str_name = try self.internString(source_buf.items);
-        const tmp = try self.freshTemp();
-        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
-        return tmp;
+        return self.emitCachedEval(source_buf.items);
     }
 
     // Abandon a partially emitted native let and compile the whole form via
@@ -1030,10 +1042,7 @@ pub const LLVMEmitter = struct {
         }
         source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
 
-        const str_name = try self.internString(source_buf.items);
-        const tmp = try self.freshTemp();
-        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
-        return tmp;
+        return self.emitCachedEval(source_buf.items);
     }
 
     fn emitPassthrough(self: *LLVMEmitter, expr: Value) EmitError![]const u8 {
@@ -1345,10 +1354,7 @@ pub const LLVMEmitter = struct {
     fn emitEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
         const source = printer.valueToString(self.backing_alloc, value, .write) catch return error.OutOfMemory;
         defer self.backing_alloc.free(source);
-        const str_name = try self.internString(source);
-        const tmp = try self.freshTemp();
-        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
-        return tmp;
+        return self.emitCachedEval(source);
     }
 
     fn emitQuotedEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
@@ -1370,6 +1376,28 @@ pub const LLVMEmitter = struct {
         }
         const id = self.symbols.get(name).?;
         return std.fmt.allocPrint(self.allocator(), "@.sym.{d}", .{id}) catch return error.OutOfMemory;
+    }
+
+    // Emit a call to the compile-once caching eval (#1494) for a serialized
+    // form. Interns the source string, allocates a fresh per-call-site cache
+    // slot, and emits the call passing the slot by pointer. Every code-shaped
+    // eval fallback (letrec/cond/case/do/guard/quasiquote/named-let, let/let*,
+    // fallback lambdas, and general expressions) routes through here instead of
+    // @kaappi_eval so the reader + compiler run at most once per call site.
+    // Quoted heap constants intentionally stay on plain @kaappi_eval — building
+    // them once is a distinct optimization tracked as #1495.
+    pub fn emitCachedEval(self: *LLVMEmitter, source: []const u8) EmitError![]const u8 {
+        const str_name = try self.internString(source);
+        const slot_name = try self.nextEvalCacheSlot();
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_eval_cached(ptr %vm, ptr {s}, i64 {d}, ptr {s})\n", .{ tmp, str_name, source.len, slot_name });
+        return tmp;
+    }
+
+    fn nextEvalCacheSlot(self: *LLVMEmitter) EmitError![]const u8 {
+        const id = self.eval_cache_counter;
+        self.eval_cache_counter += 1;
+        return std.fmt.allocPrint(self.allocator(), "@.eval_cache.{d}", .{id}) catch return error.OutOfMemory;
     }
 
     pub fn internString(self: *LLVMEmitter, data: []const u8) EmitError![]const u8 {

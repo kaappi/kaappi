@@ -64,7 +64,8 @@ functions that native code calls:
 | `kaappi_make_string` | Allocate a string on the GC heap |
 | `kaappi_intern_symbol` | Intern a symbol via the GC symbol table (ensures `eq?` identity) |
 | `kaappi_make_box` / `kaappi_box_ref` / `kaappi_box_set` | Allocate / read / write a one-slot heap box for a captured+mutated variable (assignment conversion, see [Mutable captured variables](#mutable-captured-variables-assignment-conversion)) |
-| `kaappi_eval` | Parse, compile, and evaluate a Scheme expression |
+| `kaappi_eval` | Parse, compile, and evaluate a Scheme expression (used only for quoted heap constants now) |
+| `kaappi_eval_cached` | Like `kaappi_eval`, but compiles the source once per call site and caches the resulting `Function` in a per-site global slot (see [Cached eval fallback](#cached-eval-fallback)) |
 
 All functions use `callconv(.c)` and pass Values as plain `u64` (the
 NaN-boxed representation crosses C ABI trivially).
@@ -170,12 +171,12 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `if` | LLVM basic blocks with `br`/`phi` |
 | `and`/`or` | Short-circuit with basic blocks and `phi` |
 | `when`/`unless` | Conditional body execution |
-| `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy); other values `call @kaappi_define_global(...)` (compound values via `kaappi_eval`) |
+| `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy); other values `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
-| `lambda` | Compiled to a native LLVM function + closure, or `kaappi_eval` fallback (see Lambda Strategy) |
-| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval` for forms it cannot lower in scope |
-| `letrec`, `letrec*`, `cond`, `case`, `do`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval(...)` |
-| `passthrough` | Serialize to source text, `call @kaappi_eval(...)` |
+| `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
+| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope |
+| `letrec`, `letrec*`, `cond`, `case`, `do`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
+| `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
 
 ## Compile-Time Processing
 
@@ -189,8 +190,10 @@ so their effects are available to subsequent expressions during IR lowering:
 | `define-syntax` | Compiles and executes the macro definition |
 | `define-record-type` | Compiles and executes the record type definition |
 
-All four are also emitted as `kaappi_eval` calls for runtime execution
-in the native binary.
+All four are also serialized for runtime execution in the native binary. They
+emit through `kaappi_eval_cached` like other passthrough forms, but as special
+top-level forms they are not cacheable — `kaappi_eval_cached` declines them and
+runs a plain `eval` each time (see [Cached eval fallback](#cached-eval-fallback)).
 
 ## Heap-Allocated Constants
 
@@ -203,9 +206,60 @@ handled differently:
 - **Symbols**: `kaappi_intern_symbol(vm, name_ptr, len)` — interned at runtime,
   ensuring `eq?` identity matches between native code and interpreter closures
 - **Pairs, vectors, other heap values**: Serialized via `(quote ...)` and
-  evaluated at runtime via `kaappi_eval`
+  evaluated at runtime via `kaappi_eval` (building these once rather than
+  re-consing per execution is a separate optimization, tracked as #1495)
 - **Fixnums, booleans, characters, nil, void**: Embedded directly as `i64`
   literals (these are NaN-boxed immediates with no heap allocation)
+
+## Cached eval fallback
+
+Forms the backend cannot lower natively — `letrec`, `letrec*`, `cond`, `case`,
+`do`, `guard`, quasiquote, named `let`, `let`/`let*` it cannot scope, fallback
+lambdas, and general passthrough expressions — are serialized to a Scheme source
+string and executed by the interpreter. Plain `kaappi_eval` re-parses **and
+re-compiles** that string every time the enclosing native code runs it; inside a
+loop body or a frequently-called function that is a severe, easily-overlooked
+cliff (#1494).
+
+To remove it, every **code** fallback routes through `kaappi_eval_cached` instead
+(`emitCachedEval` in `src/llvm_emit.zig`). The emitter allocates one mutable
+global slot per fallback call site:
+
+```llvm
+@.eval_cache.0 = internal global i64 0
+...
+  %t2 = call i64 @kaappi_eval_cached(ptr %vm, ptr @.str.0, i64 30, ptr @.eval_cache.0)
+```
+
+`kaappi_eval_cached` (`src/runtime_exports.zig`) reads the slot: on the first
+execution it parses and compiles the source once, permanently GC-roots the
+resulting `Function`, and stashes its Value in the slot; every later execution
+reads the slot and runs the cached `Function` directly, skipping the reader and
+compiler. The compiled bytecode still resolves globals by name at run time, so a
+fallback that first republishes the enclosing frame's params/upvalues as globals
+(`bindParamsAsGlobals`, see #1410) observes the current values on each execution
+— behavior is identical to plain `kaappi_eval`.
+
+The compile-once split point is code vs. data:
+
+- **Code fallbacks** → `kaappi_eval_cached` (compile the form once; #1494).
+- **Quoted heap constants** → plain `kaappi_eval` still, because caching the
+  *compiled form* would only avoid the re-parse, not the per-execution
+  re-consing; building the constant once is the distinct #1495 optimization.
+
+Two safety properties:
+
+- **GC rooting.** The slot is an ordinary module global the collector never
+  scans, so the cached `Function` is kept alive independently via `extra_roots`
+  (which, unlike the LIFO shadow stack, holds a root for the program's lifetime).
+  See `compileCachedForm` in `src/vm_eval.zig`.
+- **Threads.** Only the main runtime thread (whose GC is the runtime's own)
+  touches a slot — the check precedes both the slot read and write. A spawned
+  SRFI-18 thread has its own VM and GC, so caching a `Function` from a child heap
+  (freed at thread-join) or running a main-heap `Function` under a child VM would
+  be cross-heap hazards; child threads always take the plain, uncached path.
+  Non-cacheable sources (a special top-level form, multiple data) also fall back
+  to a plain `eval`.
 
 ## Lambda Strategy
 
@@ -243,10 +297,12 @@ The three tiers, tried in order:
    instead of going through `kaappi_call_scheme`.
 
 3. **Eval fallback** (`emitLambdaViaEval`) — when neither native tier applies,
-   serialize `(lambda ...)` to source text and `kaappi_eval` it at runtime. A
-   lambda that appears inside a `let` body and cannot compile natively instead
-   forces the whole enclosing `let` to the interpreter, preserving lexical
-   scope (#827).
+   serialize `(lambda ...)` to source text and run it via the [cached eval
+   fallback](#cached-eval-fallback) (`kaappi_eval_cached`) at runtime, so a
+   lambda reached repeatedly (e.g. a variadic inner lambda in a hot function) is
+   compiled only once. A lambda that appears inside a `let` body and cannot
+   compile natively instead forces the whole enclosing `let` to the interpreter,
+   preserving lexical scope (#827).
 
 **Supported natively:** fixed arity; variadic **rest parameters** (the rest
 list is built with a `kaappi_cons` loop, `emitRestListBuilder`); closures with
@@ -254,7 +310,7 @@ by-value capture; and **self-tail-recursion compiled as a loop** — a self-call
 in tail position stores the new arguments and `br`s back to the function's body
 label rather than recursing (non-variadic named functions only).
 
-**Falls back to `kaappi_eval` when the body:**
+**Falls back to the [cached eval](#cached-eval-fallback) when the body:**
 - contains an eval-fallback form (`letrec`, `cond`, `case`, `do`, `guard`,
   named `let`, …);
 - contains an internal `define` (the closure tier sets up no locals scope for

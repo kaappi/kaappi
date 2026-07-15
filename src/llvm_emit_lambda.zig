@@ -408,10 +408,7 @@ fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const 
     }
     source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
 
-    const str_name = try self.internString(source_buf.items);
-    const tmp = try self.freshTemp();
-    try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
-    return tmp;
+    return self.emitCachedEval(source_buf.items);
 }
 
 pub fn tryCompileLambdaNative(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 {
