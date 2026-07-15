@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784127019982,
+  "lastUpdate": 1784131270869,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9aba97b7fc2fa6e2ee8e42259ae0f390a380cea6",
-          "message": "Export owner/unchanged and group/unchanged constants from SRFI-170 (#1163) (#1363)\n\n* Export owner/unchanged and group/unchanged constants from SRFI-170 (#1163)\n\nSRFI-170 specifies these as integer constants (-1) for partial chown\nvia set-file-owner. The implementation already handled -1 correctly in\nvalidateUid but the constants were never exported.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard SRFI-170 constants with comptime !is_wasm\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T15:29:49+05:30",
-          "tree_id": "78527ccddd40d530ece8ed7fe828238d170e1305",
-          "url": "https://github.com/kaappi/kaappi/commit/9aba97b7fc2fa6e2ee8e42259ae0f390a380cea6"
-        },
-        "date": 1783593171714,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.093713,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.590853,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.013155,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.420086,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013895,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226404,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512089,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068028,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.760372,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.983107,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.3403,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.150227,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.271918,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.859988,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045433,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041249,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ebd9235a4588a8a473f776aa33de20991899a63d",
+          "message": "Bound fuzz generator gates by instruction count on emulated targets (#1573) (#1574)\n\nThe riscv64-test CI job cross-compiles the unit-test binary to riscv64-linux\nand runs it under QEMU user-mode (~10-30x slower than native). The fuzz\ngenerator \"programs evaluate without error\" gates in tests_fuzz.zig bound each\ngenerated program by a 100 ms wall clock, so under emulation a correct-but-slow\nprogram blows the deadline, lands in the .scheme_error bucket, and pushes the\npass rate below the 90% gate -- a spurious failure that needs a manual rerun\nand, while it flakes, nearly doubles the job's wall time.\n\nThis is the same wall-clock-vs-slow-execution class already fixed for gc-stress\n(#1447/#1449), where the gates bound by instruction count instead -- a\nspeed-independent measure identical no matter how fast each instruction runs.\nThat treatment was never extended to the emulated riscv64 path.\n\nDetect a cross-compiled target in build.zig (resolved target arch/os != host)\nand expose it as build_options.emulated_target, then fold it into the existing\ngc-stress gate: speed_independent = gc_stress or emulated_target now drives both\nthe loose 120 s wall-clock backstop and the 2M-instruction bound. The 2M budget\nis reused unchanged (it clears the largest correct generator program by ~50x).\nemulated_target is consumed only by tests_fuzz.zig; the shipped binary is\nunaffected. Skipping was the alternative, but instruction-count bounding keeps\nthe generator-correctness coverage on the emulated path.\n\nAdds a regression test pinning the invariant: under gc-stress or emulation the\nbound is instruction-count (limit set, deadline loosened); on native builds the\ntight 100 ms deadline and no instruction cap are retained. Without the\nemulated-target half it fails on the riscv64 CI job instead of the gates\nflaking silently.\n\nVerified: native 1037/1037; gc-stress gates green; and a genuinely\ncross-compiled x86_64-macos build under Rosetta (emulated_target=true) runs all\nthree generator gates plus the differential oracle green (12/12) under the\ninstruction-count bound.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T20:59:56+05:30",
+          "tree_id": "874e80307c4eb4c5bdae8f795219bf77b6e926d6",
+          "url": "https://github.com/kaappi/kaappi/commit/ebd9235a4588a8a473f776aa33de20991899a63d"
+        },
+        "date": 1784131268874,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.314645,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.364966,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.938721,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.450346,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006465,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054231,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512432,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068736,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.454546,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986484,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.566969,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433295,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.80524,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.723125,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044285,
             "unit": "seconds"
           }
         ]
