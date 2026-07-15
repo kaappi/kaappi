@@ -167,7 +167,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 |------|---------------|
 | `constant` | Literal `i64` for immediates; `kaappi_make_string` for strings; `kaappi_intern_symbol` for symbols; `(quote ...)` via `kaappi_quote_cached` (built once per call site) for other heap values |
 | `global_ref` | `call @kaappi_global_lookup(...)` |
-| `call` | Four paths: inline-IR fast path for `+ - * < = null?` (see [Inline primitive fast paths](#inline-primitive-fast-paths)); direct specialized call for `car cdr cons`; direct `call`/`tail call` to a known native function; otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
+| `call` | Five paths: inline-IR fast path for `+ - * < = null?` (see [Inline primitive fast paths](#inline-primitive-fast-paths)); direct specialized call for `car cdr cons`; a register-argument `call tailcc` (or guaranteed `musttail call tailcc` in tail position) to a known native **fast entry** (see [Guaranteed mutual tail calls](#guaranteed-mutual-tail-calls-tailcc--musttail)); a uniform-ABI `call`/`tail call` to a known native function without a fast entry (variadic / boxed / over the arity bound); otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
 | `begin` | Emit each expression sequentially |
 | `if` | LLVM basic blocks with `br`/`phi` |
 | `and`/`or` | Short-circuit with basic blocks and `phi` |
@@ -326,6 +326,11 @@ define i64 @lambda_0(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) { ... }
 ```
 
 Fixed parameters are read from `%args`, captured variables from `%upvalues`.
+This is the signature `kaappi_create_native_closure` stores and
+`kaappi_call_scheme` invokes for indirect dispatch. A fixed-arity, non-variadic,
+non-boxed **named** function additionally gets a register-argument `tailcc`
+**fast entry** for direct calls and guaranteed mutual tail recursion — see
+[Guaranteed mutual tail calls](#guaranteed-mutual-tail-calls-tailcc--musttail).
 
 The three tiers, tried in order:
 
@@ -409,6 +414,62 @@ mutated bindings are boxed — everything else keeps the by-value fast path. Box
 frames disable the self-tail-call loop and lower their body non-tail so the box
 roots are popped at a single `ret`.
 
+### Guaranteed mutual tail calls (`tailcc` + `musttail`)
+
+Self-tail-recursion is constant-stack via the arg-overwrite loop above, but a
+tail call to *another* function cannot be: the uniform entry reads its parameters
+from a caller-frame `%args` array, and a real tail call tears that frame down, so
+the callee would read freed stack. `even?`/`odd?`-style **mutual** recursion
+therefore grew the stack. #1499 makes it constant-stack with LLVM's `tailcc`
+calling convention + `musttail` marker (which `tailcc` frees from the
+prototype-match rule, so functions of different arity may mutually tail-call).
+
+A fixed-arity, non-variadic, non-boxed **named** function (arity ≤
+`max_fast_arity`, currently 8) is emitted as **two** LLVM functions:
+
+- **`@name.fast`** — the body, `tailcc`, taking arguments **by value** in
+  registers. Its entry block copies those registers into a local `%args` array,
+  so the rest of the body — param resolution, the self-tail loop's in-place
+  overwrite, `bindParamsAsGlobals` — is byte-identical to the uniform entry. The
+  array is this frame's own; outgoing calls pass argument *values*, never a
+  pointer into it, so `musttail` stays sound.
+- **`@name`** — an `internal` uniform-ABI **trampoline** that unpacks `%args` and
+  `call tailcc @name.fast(...)`. This is what `kaappi_create_native_closure`
+  stores; indirect dispatch (`kaappi_call_scheme`) still goes through it. LLVM
+  drops it when a define's value is materialized via the interpreter and nothing
+  takes its address.
+
+Direct calls reach `@name.fast` with register arguments (no args array). A tail
+call from one fast entry to another emits `musttail call tailcc … ; ret` —
+LLVM-guaranteed constant stack. `mustTailSafe` gates this: the caller must be a
+fast entry, in tail position, with a balanced shadow stack — specifically **not
+inside a rooted `let`** (`self.locals == null`) and with the frame-entry roots
+(rest list / boxed params, always 0 in a fast entry) already popped, so the
+`musttail` immediately precedes its `ret` as LLVM requires. When those do not
+hold, it degrades to a best-effort `tail call tailcc` hint. Self-recursion keeps
+the loop (better than any call); variadic, boxed, over-arity, and closure
+functions keep the single uniform entry and are unchanged.
+
+**Forward references.** Mutual recursion needs the *forward* call (a callee
+defined later) to resolve to a direct `musttail` too, but `native_fns` is
+populated in emission order. A syntactic **pre-scan** (`preScanReserve`, run over
+all top-level nodes at the top of `emitProgram`) reserves a stable
+`@r{i}`/`@r{i}.fast` name pair for every top-level function define that is
+defined exactly once, never a top-level `set!` target, and has a proper list of
+symbol formals within the arity bound. A forward tail call to a reserved name
+emits `musttail call tailcc @r{i}.fast`; a reference to a reserved name in
+free-variable analysis counts as a **global**, not a capture
+(`isKnownOrReservedGlobal`), so the caller still compiles natively. When a
+reserved name's define turns out non-native (it falls back to the interpreter),
+finalization emits an `internal tailcc` **stub** `@r{i}.fast` that rebuilds an
+args array and dispatches through `kaappi_call_scheme` — so the `musttail` target
+always links, correct though not itself constant-stack for that one edge.
+
+**Per-target gate.** `fast_tailcalls_supported` (a comptime switch on the host
+arch) enables all of the above only on `aarch64` and `x86_64`, whose LLVM
+backends support `tailcc`/`musttail`. Other hosts keep the uniform-only ABI
+unchanged; RISC-V can be enabled once its `musttail` support is confirmed.
+
 ## Testing
 
 End-to-end tests live in `tests/e2e/`:
@@ -436,6 +497,10 @@ environment variable controls the C compiler (defaults to `zig cc`).
 - Unicode strings, string ports, string mutation
 - Higher-order functions (`map`, `filter`, `fold`)
 - Tail-recursive loops (100k iterations)
+- Guaranteed constant-stack **mutual** tail recursion via `tailcc`/`musttail`
+  (`even?`/`odd?` and a 3-function cycle at millions of alternating calls,
+  `native-mutual-tail.scm`) — a non-tail-calling native binary would overflow,
+  so the interpreter diff doubles as the constant-stack regression check
 - Inline fixnum fast paths for `+ - * < = null?` with their runtime fallbacks —
   overflow → bignum, non-fixnum (flonum/rational) operands, and sign-extended
   negatives (`native-inline-primitives.scm`, all diffed against the interpreter,

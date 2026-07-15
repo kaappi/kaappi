@@ -123,6 +123,22 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
     }
 }
 
+// A named native function is emitted either as a `tailcc` register-argument fast
+// entry (#1499) — the case for a fixed-arity, non-variadic, non-boxed named
+// define within max_fast_arity — or as a uniform array-ABI definition otherwise
+// (variadic, boxed, or over the arity bound). Both are tagged with a `; <name>`
+// header comment. This asserts one of the two forms is present for `name`.
+fn expectNativeDef(ll: []const u8, name: []const u8) !void {
+    var fast_buf: [128]u8 = undefined;
+    var uniform_buf: [128]u8 = undefined;
+    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine tailcc i64 @", .{name});
+    const uniform = try std.fmt.bufPrint(&uniform_buf, "; {s}\ndefine i64 @", .{name});
+    if (std.mem.indexOf(u8, ll, fast) == null and std.mem.indexOf(u8, ll, uniform) == null) {
+        std.debug.print("\n--- no native definition (fast or uniform) for {s} ---\n", .{name});
+        return error.TestExpectedNativeDef;
+    }
+}
+
 // Total eval-fallback (code) call sites in emitted IR, regardless of caching:
 // a define-time binding, a general expression, or a lambda the closure tiers
 // can't express. These route through either plain @kaappi_eval or the
@@ -709,7 +725,9 @@ test "LLVM emit: eval fallback routes through the compile-once cache (#1494)" {
     var res = try emitMultiResult("(define (make-summer base) (lambda (a . rest) (+ base a)))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "define i64 @lambda_0(ptr %vm");
+    // make-summer is a fixed-arity named define, so its body lives in a tailcc
+    // fast entry (#1499); the inner variadic lambda still takes the eval cache.
+    try expectNativeDef(ll, "make-summer");
     try expectContains(ll, "call i64 @kaappi_eval_cached(ptr %vm");
     try expectContains(ll, "@.eval_cache.0 = internal global i64 0");
     // The inner lambda must NOT go through the uncached kaappi_eval anymore.
@@ -877,7 +895,7 @@ test "LLVM emit: a function whose body is a cond compiles natively (#1496)" {
     var res = try emitMultiResult("(define (sign n) (cond ((< n 0) -1) ((= n 0) 0) (else 1)))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "; sign\ndefine i64 @lambda_");
+    try expectNativeDef(ll, "sign");
     try expectContains(ll, "cond_merge_");
     try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
@@ -886,7 +904,7 @@ test "LLVM emit: do in a function body stays native (#1496)" {
     var res = try emitMultiResult("(define (sumto n) (do ((i 0 (+ i 1)) (s 0 (+ s i))) ((= i n) s)))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "; sumto\ndefine i64 @lambda_");
+    try expectNativeDef(ll, "sumto");
     try expectContains(ll, "do_header_");
     try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
@@ -933,7 +951,7 @@ test "LLVM emit: a function body with more than 64 forms compiles natively (#149
     try src.appendSlice(std.testing.allocator, ")");
     var res = try emitMultiResult(src.items);
     defer res.deinit();
-    try expectContains(res.toSlice(), "; f\ndefine i64 @lambda_");
+    try expectNativeDef(res.toSlice(), "f");
 }
 
 // -- Variadic self-tail-call loop (#1498) --
@@ -961,6 +979,115 @@ test "LLVM emit: a variadic frame's rest list is GC-rooted for the frame (#1498)
     try expectContains(ll, "; f\ndefine i64 @lambda_");
     try expectContains(ll, "call void @kaappi_gc_push_root");
     try expectContains(ll, "call void @kaappi_gc_pop_roots");
+}
+
+// -- Guaranteed mutual tail calls via tailcc + musttail (#1499) --
+//
+// These positive tests assert that tailcc/musttail/fast-entry IR is emitted,
+// which only happens on hosts where `fast_tailcalls_supported` is true
+// (aarch64/x86_64). The test binary embeds its target arch, so on an unsupported
+// target (e.g. the riscv64-via-QEMU CI job) the feature is off and these skip;
+// the uniform-fallback behavior for those arches is covered by the
+// variadic/boxed/over-arity tests below, which pass on every target.
+
+test "LLVM emit: mutually recursive functions tail-call via musttail (#1499)" {
+    if (!llvm_emit.fast_tailcalls_supported) return error.SkipZigTest;
+    var res = try emitMultiResult("(define (ev? n) (if (= n 0) #t (od? (- n 1))))" ++
+        "(define (od? n) (if (= n 0) #f (ev? (- n 1))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // Both functions get a tailcc register-argument fast entry ...
+    try expectContains(ll, "define tailcc i64 ");
+    try expectNativeDef(ll, "ev?");
+    try expectNativeDef(ll, "od?");
+    // ... and both directions of the cycle are guaranteed musttail tail calls:
+    // the backward call (od? -> ev?) resolves through native_fns, the forward
+    // call (ev? -> od?, defined later) through the pre-scan reservation.
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call tailcc"));
+}
+
+test "LLVM emit: a fast-entry function also emits a uniform trampoline (#1499)" {
+    if (!llvm_emit.fast_tailcalls_supported) return error.SkipZigTest;
+    var res = try emitMultiResult("(define (inc n) (+ n 1))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // The body lives in a tailcc register-argument fast entry ...
+    try expectContains(ll, "(fast entry)\ndefine tailcc i64 ");
+    // ... reached by a uniform C-ABI trampoline (internal, so LLVM drops it when
+    // unused) that unpacks %args and tail-calls it — the entry indirect dispatch
+    // stores via kaappi_create_native_closure.
+    try expectContains(ll, "; trampoline:");
+    try expectContains(ll, "define internal i64 ");
+    try expectContains(ll, "call tailcc i64 ");
+}
+
+test "LLVM emit: a non-tail direct call to a fast entry passes register args (#1499)" {
+    if (!llvm_emit.fast_tailcalls_supported) return error.SkipZigTest;
+    var res = try emitMultiResult("(define (sq x) (* x x))" ++
+        "(define (f a b) (+ (sq a) (sq b)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // f calls sq in operand (non-tail) position: a register-argument `call
+    // tailcc`, not a musttail and not the uniform kaappi_call_scheme dispatch.
+    try expectContains(ll, "call tailcc i64 ");
+    try expectNotContains(ll, "call i64 @kaappi_call_scheme");
+}
+
+test "LLVM emit: self-recursion stays a branch loop, not a musttail (#1499)" {
+    // A self-tail-call keeps the in-place arg-overwrite loop (#1498), which is
+    // strictly better than a call; musttail is only for tail calls to OTHERS.
+    var res = try emitMultiResult("(define (loop n) (if (= n 0) 'done (loop (- n 1))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "br label %body_");
+    try expectNotContains(ll, "musttail");
+}
+
+test "LLVM emit: a variadic function keeps the uniform entry, no fast/musttail (#1499)" {
+    var res = try emitMultiResult("(define (v a . rest) (+ a (length rest)))" ++
+        "(define (t n) (if (= n 0) 0 (v n)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // v is variadic: uniform array-ABI entry only, and the tail call to it from
+    // t cannot be a musttail (v has no fast entry).
+    try expectContains(ll, "; v\ndefine i64 @");
+    try expectNotContains(ll, "; v (fast entry)");
+    try expectNotContains(ll, "musttail call tailcc i64 @r"); // no musttail targets v
+}
+
+test "LLVM emit: a boxed-parameter function has no fast entry (#1499)" {
+    // `n` is captured by the inner lambda and mutated, so make's frame is boxed
+    // (assignment conversion, #1497); boxed frames keep the uniform entry.
+    var res = try emitMultiResult("(define (make n) (lambda () (set! n (+ n 1)) n))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; make\ndefine i64 @");
+    try expectNotContains(ll, "; make (fast entry)");
+}
+
+test "LLVM emit: a function over the fast-arity bound has no fast entry (#1499)" {
+    // 10 params > max_fast_arity (8): the uniform array ABI is kept.
+    var res = try emitMultiResult("(define (wide a b c d e g h i j k) (+ a b c d e g h i j k))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; wide\ndefine i64 @");
+    try expectNotContains(ll, "(fast entry)");
+}
+
+test "LLVM emit: a forward-referenced non-native define gets a tailcc stub (#1499)" {
+    if (!llvm_emit.fast_tailcalls_supported) return error.SkipZigTest;
+    var res = try emitMultiResult("(define (caller n) (if (= n 0) 0 (helper (- n 1))))" ++
+        "(define (helper n) (letrec ((loop (lambda (x) x))) (loop n)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // caller (a fast entry) tail-calls helper before it is defined: a musttail
+    // to the reserved @r{i}.fast.
+    try expectContains(ll, "musttail call tailcc");
+    // helper's body needs letrec (an eval fallback) so it has no real native
+    // fast body; finalization emits a forwarding stub so the musttail resolves.
+    try expectContains(ll, "forward-ref stub:");
+    try expectContains(ll, "define internal tailcc i64 ");
+    try expectContains(ll, "call i64 @kaappi_call_scheme"); // the stub dispatches indirectly
 }
 
 test "LLVM emit: a lambda capturing a param through a cond gets an upvalue (#1496)" {
@@ -1226,12 +1353,13 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
         // require the named native function definition that the emitter
         // tags with a `; <name>` header comment.
         for (names[0..name_count]) |n| {
-            var needle_buf: [64]u8 = undefined;
-            const needle = try std.fmt.bufPrint(&needle_buf, "; {s}\ndefine i64 @lambda_", .{n});
-            if (std.mem.indexOf(u8, ll, needle) == null) {
+            // A named define is emitted as a tailcc fast entry (#1499) or, when
+            // not fast-eligible, a uniform definition — expectNativeDef accepts
+            // either. (A false return would mean the whole define fell back.)
+            expectNativeDef(ll, n) catch {
                 std.debug.print("seed {d}: no native definition for {s}\n", .{ seed, n });
                 return error.NativeSubsetFellBackToEval;
-            }
+            };
         }
     }
 }

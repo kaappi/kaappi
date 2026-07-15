@@ -3,6 +3,8 @@ const ir = @import("ir.zig");
 const types = @import("types.zig");
 const printer = @import("printer.zig");
 const native_decls = @import("native_decls.zig");
+// #1499 forward-reference reservation + finalization stubs (mutual tail calls).
+const tailcall = @import("llvm_emit_tailcall.zig");
 
 const Value = types.Value;
 
@@ -50,10 +52,42 @@ const ArithOp = enum {
     }
 };
 
+// #1499: tailcc + musttail give guaranteed constant-stack mutual tail calls,
+// but only on backends whose LLVM target supports them. aarch64 and x86_64 both
+// do; other hosts keep the uniform array ABI (best-effort `tail call` hint).
+// RISC-V musttail is recent LLVM work and can be enabled here once verified.
+pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
+    .aarch64, .x86_64 => true,
+    else => false,
+};
+
+// A named native function with at most this many fixed parameters gets a
+// register-argument `tailcc` fast entry (see emitLambdaFunction). Beyond it the
+// uniform array ABI is kept — the bound keeps register pressure and signature
+// width reasonable; it is not an ABI limit and can be raised.
+pub const max_fast_arity: usize = 8;
+
 const NativeLambda = struct {
     llvm_name: []const u8,
     arity: u8,
     is_variadic: bool,
+    // The `tailcc` register-argument entry (`@<name>.fast`) for a fixed-arity,
+    // non-variadic, non-boxed function, or null when the function has only the
+    // uniform array-ABI entry. Direct call sites emit register-argument calls —
+    // and `musttail` for guaranteed mutual TCO — when this is set (#1499).
+    fast_name: ?[]const u8 = null,
+};
+
+// A top-level define reserved by the pre-scan (preScanReserve) so a *forward*
+// tail call — a mutually-recursive callee defined later in the program — still
+// resolves to a direct `musttail` to a stable `@r{i}.fast` name. The real body
+// (when the define compiles natively) or a finalization stub (when it falls back
+// to the interpreter) defines that symbol, so the reference always links (#1499).
+pub const ReservedFast = struct {
+    base: []const u8, // "@r{i}" — the uniform trampoline name
+    fast: []const u8, // "@r{i}.fast" — the register-arg entry a musttail targets
+    arity: u8,
+    consumed: bool = false, // a top-level define of this name has been emitted
 };
 
 fn nameInList(names: []const []const u8, name: []const u8) bool {
@@ -136,6 +170,21 @@ pub const LLVMEmitter = struct {
     // self-tail loop keeps tail calls, so emitCallNode/emitDirectCall also pop
     // these before a tail-call `ret` (a no-op when the count is zero).
     frame_entry_roots: usize = 0,
+    // True only while emitting a `tailcc` register-argument fast-entry body
+    // (#1499). A tail call to another native fast entry may be a guaranteed
+    // `musttail call tailcc` only here — the uniform (ccc) entries, closures,
+    // and the top-level body never can (calling-convention mismatch).
+    in_fast_entry: bool = false,
+    // Forward-reference plumbing (#1499): populated once by preScanReserve and
+    // then read-only. reserved_fast maps a reserved top-level define name to its
+    // stable @r{i}/@r{i}.fast names; fulfilled_fast records names whose real
+    // @r{i}.fast body was emitted; forward_referenced records names a musttail
+    // was emitted to, so finalization can stub any that never got a real body.
+    reserved_fast: std.StringHashMap(ReservedFast),
+    fulfilled_fast: std.StringHashMap(void),
+    forward_referenced: std.StringHashMap(void),
+    // Monotonic counter naming the reserved @r{i} entries (see ReservedFast).
+    reserved_counter: u32,
 
     pub const SavedScope = struct {
         buf: std.ArrayList(u8),
@@ -151,6 +200,7 @@ pub const LLVMEmitter = struct {
         locals: ?std.StringHashMap([]const u8),
         boxes: ?std.StringHashMap([]const u8),
         frame_entry_roots: usize,
+        in_fast_entry: bool,
     };
 
     pub fn saveScope(self: *LLVMEmitter) SavedScope {
@@ -168,6 +218,7 @@ pub const LLVMEmitter = struct {
             .locals = self.locals,
             .boxes = self.boxes,
             .frame_entry_roots = self.frame_entry_roots,
+            .in_fast_entry = self.in_fast_entry,
         };
     }
 
@@ -185,6 +236,7 @@ pub const LLVMEmitter = struct {
         self.locals = s.locals;
         self.boxes = s.boxes;
         self.frame_entry_roots = s.frame_entry_roots;
+        self.in_fast_entry = s.in_fast_entry;
     }
 
     pub fn init(backing: std.mem.Allocator) LLVMEmitter {
@@ -195,6 +247,10 @@ pub const LLVMEmitter = struct {
             .lambda_defs = .empty,
             .native_fns = std.StringHashMap(NativeLambda).init(backing),
             .rebound_globals = std.StringHashMap(void).init(backing),
+            .reserved_fast = std.StringHashMap(ReservedFast).init(backing),
+            .fulfilled_fast = std.StringHashMap(void).init(backing),
+            .forward_referenced = std.StringHashMap(void).init(backing),
+            .reserved_counter = 0,
             .params = null,
             .upvalues = null,
             .tmp_counter = 0,
@@ -220,10 +276,17 @@ pub const LLVMEmitter = struct {
         self.lambda_defs.deinit(self.backing_alloc);
         self.native_fns.deinit();
         self.rebound_globals.deinit();
+        self.reserved_fast.deinit();
+        self.fulfilled_fast.deinit();
+        self.forward_referenced.deinit();
         self.arena.deinit();
     }
 
     pub fn emitProgram(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!void {
+        // Reserve stable @r{i}.fast names for top-level defines so a forward
+        // mutually-recursive tail call still lowers to a direct musttail (#1499).
+        try tailcall.preScanReserve(self, nodes);
+
         // Emit body into a separate buffer to collect string decls
         var body: std.ArrayList(u8) = .empty;
         defer body.deinit(self.backing_alloc);
@@ -234,6 +297,13 @@ pub const LLVMEmitter = struct {
         for (nodes) |node| {
             _ = self.emitNode(node) catch return error.OutOfMemory;
         }
+
+        // Any reserved name a musttail targeted but that never got a real native
+        // body (fell back to the interpreter) needs a forwarding stub so its
+        // @r{i}.fast symbol resolves at link time (#1499). Appended to
+        // lambda_defs — and its symbol interning done — before the symbol
+        // constants below are emitted.
+        try tailcall.emitForwardStubs(self);
 
         body = self.buf;
         self.buf = saved_buf;
@@ -358,6 +428,17 @@ pub const LLVMEmitter = struct {
         return false;
     }
 
+    // Whether `name` resolves to a top-level global rather than a lexical
+    // capture: a built-in / special form (ir.isKnownGlobal), or a name reserved
+    // for a top-level define emitted later in the program (#1499). The latter is
+    // what lets a *forward* mutual-recursion reference — a callee defined after
+    // its caller — count as a global call instead of a free variable that would
+    // wrongly reject native compilation of the caller. Callers must still check
+    // isNameShadowed first: a lexical binding of the same name outranks a global.
+    pub fn isKnownOrReservedGlobal(self: *LLVMEmitter, name: []const u8) bool {
+        return ir.isKnownGlobal(name) or self.reserved_fast.contains(name);
+    }
+
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
@@ -452,7 +533,27 @@ pub const LLVMEmitter = struct {
                     else
                         call.args.len == native.arity;
                     if (arity_ok) {
+                        // A fast-entry callee takes register arguments and, in
+                        // tail position from another fast entry, a guaranteed
+                        // `musttail` (#1499); otherwise the uniform array ABI.
+                        if (native.fast_name) |fast|
+                            return self.emitFastCall(fast, call.args, is_tail);
                         return self.emitDirectCall(native.llvm_name, call.args, is_tail);
+                    }
+                }
+                // Forward reference to a reserved mutually-recursive callee
+                // defined later in the program (#1499): only lowered to a direct
+                // musttail when it is provably safe (tail position, inside a fast
+                // entry, shadow stack balanced). Unsafe/non-tail forward refs
+                // fall through to the indirect path, which observes the runtime
+                // binding. The reserved @r{i}.fast is defined by the real body or
+                // a finalization stub, so the reference always links.
+                if (!self.rebound_globals.contains(op_name) and self.mustTailSafe(is_tail)) {
+                    if (self.reserved_fast.get(op_name)) |rf| {
+                        if (call.args.len == rf.arity) {
+                            self.forward_referenced.put(op_name, {}) catch return error.OutOfMemory;
+                            return self.emitFastCall(rf.fast, call.args, is_tail);
+                        }
                     }
                 }
             }
@@ -1396,6 +1497,61 @@ pub const LLVMEmitter = struct {
         try self.print("  {s} = icmp eq i64 {s}, {d}\n", .{ cond, v, nanbox.nil });
         const result = try self.freshTemp();
         try self.print("  {s} = select i1 {s}, i64 {d}, i64 {d}\n", .{ result, cond, nanbox.true_val, nanbox.false_val });
+        return result;
+    }
+
+    // Whether a tail call here can be a guaranteed `musttail call tailcc`
+    // (#1499). It must be in tail position, inside a `tailcc` fast-entry body
+    // (matching calling convention), and the shadow stack must hold no roots a
+    // torn-down frame would strand: not inside a rooted `let` (self.locals is
+    // non-null only there) and with the frame-entry roots — rest list / boxed
+    // params, always 0 in a fast entry — already balanced. LLVM also requires
+    // the musttail to immediately precede its `ret`, which these guarantee.
+    fn mustTailSafe(self: *LLVMEmitter, is_tail: bool) bool {
+        return is_tail and self.in_fast_entry and self.locals == null and self.frame_entry_roots == 0;
+    }
+
+    // Direct call to a native fast entry (#1499): arguments are passed by value
+    // in registers (no caller-frame args array), so a real `musttail` is sound.
+    // Emits `musttail call tailcc` when mustTailSafe, a `tail call tailcc` hint
+    // for a tail call from a non-fast caller, else a plain `call tailcc`.
+    fn emitFastCall(self: *LLVMEmitter, fast_name: []const u8, args: []const *ir.Node, is_tail: bool) EmitError![]const u8 {
+        const nargs = args.len;
+        const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
+        var root_count: usize = 0;
+        for (args, 0..) |arg, i| {
+            arg_tmps[i] = try self.emitNode(arg);
+            if (i + 1 < nargs) {
+                try self.emitRootPush(arg_tmps[i]);
+                root_count += 1;
+            }
+        }
+        try self.emitPopRoots(root_count);
+
+        const musttail = self.mustTailSafe(is_tail);
+        const prefix: []const u8 = if (musttail)
+            "musttail call tailcc"
+        else if (is_tail)
+            "tail call tailcc"
+        else
+            "call tailcc";
+
+        const result = try self.freshTemp();
+        // By-value args: (ptr %vm, i64 a0, …, ptr null). Fast entries are the
+        // direct-call targets — closed functions — so upvalues is always null.
+        try self.print("  {s} = {s} i64 {s}(ptr %vm", .{ result, prefix, fast_name });
+        for (arg_tmps) |a| try self.print(", i64 {s}", .{a});
+        try self.write(", ptr null)\n");
+
+        if (is_tail) {
+            // A fast entry has no frame-entry roots, so for musttail this is a
+            // no-op and the musttail immediately precedes ret as LLVM requires;
+            // a non-fast tail caller may still have some to balance (#1498).
+            if (!musttail) try self.emitPopRoots(self.frame_entry_roots);
+            try self.print("  ret i64 {s}\n", .{result});
+            try self.emitOrphanAfterTail();
+        }
+
         return result;
     }
 

@@ -3,8 +3,9 @@ const ir = @import("ir.zig");
 const types = @import("types.zig");
 const printer = @import("printer.zig");
 
-const LLVMEmitter = @import("llvm_emit.zig").LLVMEmitter;
-const EmitError = @import("llvm_emit.zig").EmitError;
+const llvm_emit = @import("llvm_emit.zig");
+const LLVMEmitter = llvm_emit.LLVMEmitter;
+const EmitError = llvm_emit.EmitError;
 
 const Value = types.Value;
 
@@ -493,17 +494,49 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
 fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node, rest_name: ?[]const u8, boxed: BoxAnalysis) ?[]const u8 {
     const id = self.lambda_counter;
     self.lambda_counter += 1;
-    const fn_name = std.fmt.allocPrint(self.allocator(), "@lambda_{d}", .{id}) catch return null;
 
-    if (name) |n| {
-        self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len), .is_variadic = rest_name != null }) catch {};
+    // #1499: a fixed-arity, non-variadic, non-boxed *named* function within the
+    // fast-arity bound gets a register-argument `tailcc` fast entry (holding the
+    // body) plus a uniform C-ABI trampoline. Direct callers reach the fast entry
+    // — and, in tail position from another fast entry, via a guaranteed
+    // `musttail`. Everything else keeps the single uniform array-ABI entry.
+    const use_fast = llvm_emit.fast_tailcalls_supported and
+        name != null and
+        rest_name == null and
+        !boxed.any and
+        param_names.len <= llvm_emit.max_fast_arity;
+
+    // A reserved name (preScanReserve) gives forward mutual tail calls a stable
+    // @r{i}.fast target. Use the reserved name pair for the first (only) define
+    // of a reserved name; otherwise a fresh @lambda_{id} pair.
+    var reserved: ?*llvm_emit.ReservedFast = if (name) |n| self.reserved_fast.getPtr(n) else null;
+    if (reserved) |rp| {
+        if (rp.consumed) reserved = null;
     }
 
-    // The native_fns entry is registered up front so a self-recursive tail call
-    // in the body can resolve to it, but body emission can still fail (e.g. an
-    // eval fallback that captures a boxed variable, #1497). If it does, remove
-    // the stale entry — otherwise a call site would emit a direct call to a
-    // @lambda_N that was never defined.
+    const base_name = if (reserved) |rp|
+        rp.base
+    else
+        std.fmt.allocPrint(self.allocator(), "@lambda_{d}", .{id}) catch return null;
+    const fast_name = if (reserved) |rp|
+        rp.fast
+    else
+        std.fmt.allocPrint(self.allocator(), "@lambda_{d}.fast", .{id}) catch return null;
+
+    if (name) |n| {
+        self.native_fns.put(n, .{
+            .llvm_name = base_name,
+            .arity = @intCast(param_names.len),
+            .is_variadic = rest_name != null,
+            .fast_name = if (use_fast) fast_name else null,
+        }) catch {};
+    }
+
+    // native_fns is registered up front so a self-recursive tail call in the
+    // body can resolve to it, but body emission can still fail (e.g. an eval
+    // fallback that captures a boxed variable, #1497). If it does, remove the
+    // stale entry — otherwise a call site would emit a direct call to a function
+    // that was never defined.
     var success = false;
     defer if (!success) {
         if (name) |n| _ = self.native_fns.fetchRemove(n);
@@ -527,6 +560,9 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.boxes = if (boxed.any) std.StringHashMap([]const u8).init(self.backing_alloc) else null;
         defer if (self.boxes) |*b| b.deinit();
         self.frame_entry_roots = 0;
+        // A tail call in this body may be a guaranteed `musttail` only from a
+        // `tailcc` fast entry (#1499).
+        self.in_fast_entry = use_fast;
 
         var p = std.StringHashMap(u8).init(self.backing_alloc);
         defer p.deinit();
@@ -547,16 +583,41 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.rest_param_name = rest_name;
         self.rest_param_alloca = null;
 
-        const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ name orelse "(lambda)", fn_name }) catch return null;
-        defer self.allocator().free(header);
-        self.write(header) catch return null;
+        // Function signature. The fast entry takes its arguments by value in
+        // registers; the uniform entry takes the caller's args array. Both make
+        // the body read parameters from `%args`, so body emission below is
+        // identical — the fast entry just materializes that `%args` locally.
+        if (use_fast) {
+            self.print("; {s} (fast entry)\ndefine tailcc i64 {s}(ptr %vm", .{ name orelse "(lambda)", fast_name }) catch return null;
+            for (0..param_names.len) |i| self.print(", i64 %a{d}", .{i}) catch return null;
+            self.write(", ptr %upvalues) {\nentry:\n") catch return null;
+        } else {
+            const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ name orelse "(lambda)", base_name }) catch return null;
+            defer self.allocator().free(header);
+            self.write(header) catch return null;
+        }
         self.current_block = "entry";
+
+        // Fast-entry prologue: copy the register arguments into a local %args
+        // array so the rest of the body — param resolution, the self-tail loop's
+        // in-place overwrite, bindParamsAsGlobals — reads/writes `%args`
+        // unchanged. The array is this frame's own; outgoing tail calls pass
+        // argument *values*, never a pointer into it, so `musttail` stays sound.
+        if (use_fast and param_names.len > 0) {
+            self.print("  %args = alloca [{d} x i64], align 8\n", .{param_names.len}) catch return null;
+            for (0..param_names.len) |i| {
+                const gep = self.freshTemp() catch return null;
+                self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, i }) catch return null;
+                self.print("  store i64 %a{d}, ptr {s}\n", .{ i, gep }) catch return null;
+            }
+        }
 
         // Build the rest list once, in the entry block, BEFORE branching to the
         // body label. The self-tail loop branches back to body_lbl, so keeping
         // the builder out of that block stops it re-running each iteration — its
         // allocas would otherwise grow the stack per iteration and it would
-        // clobber the rest list the self-call just rebuilt.
+        // clobber the rest list the self-call just rebuilt. (Never runs for a
+        // fast entry, which is non-variadic.)
         if (rest_name != null) {
             emitRestListBuilder(self, param_names.len) catch return null;
         }
@@ -582,8 +643,56 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
     self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
 
+    // Uniform C-ABI trampoline: unpacks the caller's args array and tail-calls
+    // the fast entry. This is what kaappi_create_native_closure stores for
+    // indirect dispatch (callNativeClosure invokes the uniform signature). It is
+    // `internal`, so LLVM drops it when a define's value is materialized via the
+    // interpreter and nothing takes its address (#1499).
+    if (use_fast) {
+        emitFastTrampoline(self, base_name, fast_name, param_names.len) catch return null;
+    }
+
+    if (reserved) |rp| {
+        rp.consumed = true;
+        // Record that this reserved name's @r{i}.fast got a real body, so no
+        // forwarding stub is emitted for it at finalization.
+        if (use_fast) self.fulfilled_fast.put(name.?, {}) catch {};
+    }
+
     success = true;
-    return fn_name;
+    return base_name;
+}
+
+// The uniform C-ABI shim (`@base`) around a fast entry (`@fast`): load each
+// argument from the caller's %args array and tail-call the register-argument
+// fast entry (#1499). Emitted into its own buffer and appended to lambda_defs.
+fn emitFastTrampoline(self: *LLVMEmitter, base_name: []const u8, fast_name: []const u8, arity: usize) EmitError!void {
+    const saved_buf = self.buf;
+    const saved_tmp = self.tmp_counter;
+    self.buf = .empty;
+    self.tmp_counter = 0;
+    defer {
+        self.buf = saved_buf;
+        self.tmp_counter = saved_tmp;
+    }
+
+    try self.print("; trampoline: {s}\ndefine internal i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ base_name, base_name });
+    const arg_tmps = self.allocator().alloc([]const u8, arity) catch return error.OutOfMemory;
+    for (0..arity) |i| {
+        const gep = try self.freshTemp();
+        try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, i });
+        const v = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ v, gep });
+        arg_tmps[i] = v;
+    }
+    const result = try self.freshTemp();
+    try self.print("  {s} = call tailcc i64 {s}(ptr %vm", .{ result, fast_name });
+    for (arg_tmps) |a| try self.print(", i64 {s}", .{a});
+    try self.write(", ptr %upvalues)\n");
+    try self.print("  ret i64 {s}\n}}\n", .{result});
+
+    const def = self.buf.toOwnedSlice(self.backing_alloc) catch return error.OutOfMemory;
+    self.lambda_defs.append(self.backing_alloc, def) catch return error.OutOfMemory;
 }
 
 fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
@@ -961,7 +1070,10 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
             // An enclosing lexical binding outranks a known global of the
             // same name: this reference is a capture, not the primitive.
             if (self.isNameShadowed(name)) return true;
-            if (ir.isKnownGlobal(name)) return false;
+            // A built-in, or a name reserved for a later top-level define, is a
+            // global reference — not a free variable. The reserved case is what
+            // lets a forward mutual-recursion call compile natively (#1499).
+            if (self.isKnownOrReservedGlobal(name)) return false;
             return true;
         },
         .call => {
@@ -1058,8 +1170,9 @@ fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const
                 if (std.mem.eql(u8, name, p)) return true;
             }
             // A shadowed known global is a capture; only an unshadowed one
-            // may be skipped as a genuine global reference.
-            if (ir.isKnownGlobal(name) and !self.isNameShadowed(name)) return true;
+            // may be skipped as a genuine global reference (incl. a name
+            // reserved for a later top-level define, #1499).
+            if (self.isKnownOrReservedGlobal(name) and !self.isNameShadowed(name)) return true;
             for (list.items) |existing| {
                 if (std.mem.eql(u8, name, existing)) return true;
             }
@@ -1155,8 +1268,9 @@ const FreeNameWalk = struct {
             if (std.mem.eql(u8, name, b)) return;
         }
         // A shadowed known global is a capture; only an unshadowed one is a
-        // genuine global reference (see the section comment above).
-        if (ir.isKnownGlobal(name) and !w.emitter.isNameShadowed(name)) return;
+        // genuine global reference (see the section comment above), including a
+        // name reserved for a later top-level define (#1499).
+        if (w.emitter.isKnownOrReservedGlobal(name) and !w.emitter.isNameShadowed(name)) return;
         w.found = true;
         if (w.buf) |buf| {
             for (buf.items) |existing| {
