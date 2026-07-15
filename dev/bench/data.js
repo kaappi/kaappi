@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784133185482,
+  "lastUpdate": 1784140152056,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "57d7c5d43b62b943e15f3f16067a7537c979cab8",
-          "message": "Fix string-trim default criterion to use Unicode whitespace (#826) (#1368)\n\nThe no-argument fast paths in string-trim, string-trim-right, and\nstring-trim-both scanned raw bytes with a hard-coded ASCII whitespace\ncheck, missing vertical tab, form feed, and all multi-byte Unicode\nwhitespace (NBSP, EM SPACE, IDEOGRAPHIC SPACE, etc.). Now decodes\ncodepoints and delegates to isUnicodeWhitespace, matching char-whitespace?\nand the SRFI-13 spec (default criterion is char-set:whitespace).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T16:55:14+05:30",
-          "tree_id": "2c25551b37d3c270ffd7d0c8790e3d7450338162",
-          "url": "https://github.com/kaappi/kaappi/commit/57d7c5d43b62b943e15f3f16067a7537c979cab8"
-        },
-        "date": 1783598633849,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.084027,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.140564,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.012393,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.428552,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013968,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226089,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512854,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06815,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.655432,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.976762,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.33801,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.123657,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.301226,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.905559,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046609,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043074,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "020289ab9c636ae761ad98d274b6656f09854cbb",
+          "message": "Add crash-reporting panic handler with context breadcrumb (#1575)\n\nWhen a bug is in kaappi itself, ReleaseSafe dies with a raw Zig panic and\ntrace. Better than a silent segfault, but the user gets no guidance and no\nversion context, and we get reports that arrive unreproducible or not at all.\n\nAdd a custom panic handler for the user-facing binaries (kaappi, thottam):\neach root file sets `pub const panic = crash.PanicHandler(\"<name>\")`, a\nFullPanic that prints a banner then delegates to defaultPanic so the message\nand full stack trace are preserved. The banner names whose bug it is, the\nexact build (version, arch-os, build mode), the pipeline stage and file in\nflight, and where to report it.\n\nThe `while:` line is driven by a near-zero-cost breadcrumb (a plain enum + a\nslice, read only from the panic handler) updated at reading/expanding/\ncompiling/executing boundaries in runFile, runStdin, the embedded path, the\nREPL, the pipeline dumps, and the native compiler. It is omitted when idle,\nso thottam (no Scheme pipeline) shows only the build + report lines.\n\n`--panic-test[=<stage>]` is an internal, undocumented hook that deliberately\npanics so CI can verify the banner. It is intentionally not Debug-gated: the\nerror suite runs against the shipped ReleaseSafe build, which is the path a\nreal user hits and the mode the banner names.\n\nCloses #1514.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T23:26:39+05:30",
+          "tree_id": "84f006da0d0a6da8a508cb085e71f31d764fdd0e",
+          "url": "https://github.com/kaappi/kaappi/commit/020289ab9c636ae761ad98d274b6656f09854cbb"
+        },
+        "date": 1784140150277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.363256,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.415797,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.940195,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.490336,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006469,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054269,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50616,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07021,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.459541,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.994219,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596976,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.442638,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.867736,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.775098,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044849,
             "unit": "seconds"
           }
         ]
