@@ -55,16 +55,19 @@ check() {
         fail=1
     fi
 
-    # Pin the compilation tier when requested.
+    # Pin the compilation tier when requested. A native user-function definition
+    # is `@lambda_N` (uniform) or, since #1499, a reserved `@rN` / `@rN.fast` /
+    # `@lambda_N.fast` fast entry — all tagged `define [internal|tailcc ...] i64`.
     if [[ -n "$expect_native" ]]; then
         (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1) || true
+        local native_def_re='^define ([a-z]+ )*i64 @(lambda_|r[0-9])'
         if [[ "$expect_native" == "yes" ]]; then
-            if ! grep -q '^define i64 @lambda_' "$DIR/$name.ll" 2>/dev/null; then
+            if ! grep -qE "$native_def_re" "$DIR/$name.ll" 2>/dev/null; then
                 echo "FAIL: $name — expected native fn definition in LLVM IR" >&2
                 fail=1
             fi
         elif [[ "$expect_native" == "no" ]]; then
-            if grep -q '^define i64 @lambda_' "$DIR/$name.ll" 2>/dev/null; then
+            if grep -qE "$native_def_re" "$DIR/$name.ll" 2>/dev/null; then
                 echo "FAIL: $name — expected NO native fn definition (should fall back)" >&2
                 fail=1
             fi
