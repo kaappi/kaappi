@@ -413,4 +413,11 @@ discriminator exists to survive, not a real error to clean up after.
    (referring to the same bug as #1463) — now that the core fix has
    landed, those comments are stale and the workaround could be
    revisited (low priority, not urgent since the `yield`-based workaround
-   already works).
+   already works). **Resolved:** both comments were rewritten to record
+   that the core fix landed in #1463 — `threadSleepFn` now takes the same
+   `dispatched_from_scheduler`-aware yield-retry path `waitForFd` uses
+   (`src/primitives_srfi18.zig`), so `thread-sleep!` is no longer dangerous
+   in a retry loop. The `yield`-based loops were kept rather than reverted,
+   since `yield` plus a short poll timeout is just as reasonable a design
+   ([kaappi-net#4](https://github.com/kaappi/kaappi-net/pull/4),
+   [kaappi-pg#2](https://github.com/kaappi/kaappi-pg/pull/2)).
