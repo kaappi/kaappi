@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784112087205,
+  "lastUpdate": 1784117781660,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a8e2352167b36a93122c923bbe1a3207af9de31e",
-          "message": "Fix SRFI-13 wrong-typed optional args silently ignored (#1159) (#1360)\n\nstring-pad/string-pad-right treated a non-char pad argument as absent\n(defaulting to space). string-unfold/string-unfold-right did the same\nfor a non-string base argument, and silently dropped make-final return\nvalues that weren't strings. All six sites now raise a type error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T15:16:35+05:30",
-          "tree_id": "1c4086d0ce7506ba81efcb5051ec8e4562f34205",
-          "url": "https://github.com/kaappi/kaappi/commit/a8e2352167b36a93122c923bbe1a3207af9de31e"
-        },
-        "date": 1783592112659,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.360633,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.514839,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.002208,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.408966,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013032,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.205765,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504587,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069824,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.763283,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.957858,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.266607,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.003305,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.721833,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.779457,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045596,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04315,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "64d2e5d7c7b76a4fc81dbd1f64b3b2f4a136b060",
+          "message": "Add `kaappi doctor` installation and environment self-check (#1513) (#1569)\n\n\"Why doesn't `(import (kaappi json))` work?\" has a fixed set of answers —\nlibrary-path resolution, thottam state, a missing native library, the wrong\nbinary on PATH — that were previously diagnosed by hand. Making the toolchain\ncheck itself lets both new users and agents go from a broken setup to a fix\nusing only documented CLI output, the operational test of the machine-\nlegibility epic (#1503).\n\n`doctor` is a meta-command like `explain` and `test`: it inspects the\nenvironment and runs no user code, so it dispatches before any VM/GC/library\nsetup exists. It reports PASS/WARN/FAIL per check across six groups (binary,\nlibrary search path, package manager, native backend, REPL, FFI), each failure\ncarrying an actionable suggestion, in a human table or one `--json` object.\n\nThe exit code is nonzero only on FAIL. WARN describes a degraded-but-usable\nenvironment (no libraries installed yet, no C compiler) and must not fail\nscripts or CI; the one FAIL is an explicit `KAAPPI_LIB_DIR` that does not\nresolve, an unambiguous misconfiguration. When a compiler and `libkaappi_rt.a`\nare both found, a smoke link against the archive proves the native toolchain\nend to end — run in a private 0700 temp dir, and skipped under the test binary\nso unit tests stay hermetic.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T17:17:41+05:30",
+          "tree_id": "3fe0bd1dd1724c2173013e7284569ce186d5f1d0",
+          "url": "https://github.com/kaappi/kaappi/commit/64d2e5d7c7b76a4fc81dbd1f64b3b2f4a136b060"
+        },
+        "date": 1784117780260,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.374633,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.941094,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.894415,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.424641,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006302,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055397,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.495753,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069199,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.509009,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.937368,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587685,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433354,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.965359,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.682319,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042603,
             "unit": "seconds"
           }
         ]
