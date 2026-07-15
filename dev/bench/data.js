@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784080946022,
+  "lastUpdate": 1784090286781,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04149d24b24b018ca79ed6a63d1f7df98c8448ff",
-          "message": "Implement SRFI-61 general cond clause (generator guard => receiver) (#1206) (#1357)\n\nReplace the empty SRFI-61 stub with a syntax-rules macro that shadows the\nbuilt-in cond, adding the (generator guard => receiver) clause form. The\ngenerator may return multiple values via call-with-values; the guard is\napplied to them, and if true the receiver gets the same argument list.\n\nAll standard R7RS cond clause forms are preserved by the macro.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T06:12:55Z",
-          "tree_id": "b8e062272dda90b26a925d89e269a3ecbdb41862",
-          "url": "https://github.com/kaappi/kaappi/commit/04149d24b24b018ca79ed6a63d1f7df98c8448ff"
-        },
-        "date": 1783579969785,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.047641,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.763082,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.028305,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.411822,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01397,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226041,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.543857,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068488,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.633277,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981726,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.330798,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.116436,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.276736,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.86241,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046734,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044637,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c8e209b63da89b16fc32cba26b07a044144a747",
+          "message": "Thread full source spans through to runtime diagnostics (#1506) (#1557)\n\nReader errors already carried line and column, but compile and runtime\nerrors reported file:line only, and nothing carried end positions.\nStructured diagnostics, precise editor squiggles, and automated fixes\nall need full spans.\n\nTrack (line, col, end_line, end_col) for every datum the reader can key\non heap identity (pairs, vectors) and thread it through the pipeline:\n\n- Reader records a full span per datum in gc.source_spans (was the\n  line-only source_lines), computed in a single scan.\n- IR nodes carry the span (Annotations.span); the compiler emits the\n  start column into the bytecode line table (LineEntry gains col).\n- Runtime errors map the failing instruction offset back to line:col via\n  Function.locForOffset and report file:line:col.\n- Compile errors report the innermost failing form's span through a\n  threadlocal channel, so a nested error points at the inner form (e.g.\n  the (if) in (define (f) (if))), with a full start/end range under\n  --diagnostics=json.\n\nThe .sbc bytecode cache format is bumped to v9 for the new column; a\nversion mismatch makes the loader ignore and recompile stale caches\ncleanly. Runtime debug info carries the start column only — end\npositions stay a reader/compile-time concern, per the acceptance\ncriteria.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T09:39:42+05:30",
+          "tree_id": "2ef9485be509029b1f158afaf90ab4311115ef49",
+          "url": "https://github.com/kaappi/kaappi/commit/4c8e209b63da89b16fc32cba26b07a044144a747"
+        },
+        "date": 1784090285454,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.339777,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.329826,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920426,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.459968,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006409,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054901,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504753,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0697,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.437021,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.968079,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.601023,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43491,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.8664,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712531,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042947,
             "unit": "seconds"
           }
         ]
