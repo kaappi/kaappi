@@ -19,7 +19,7 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
-    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false has_doctor=false
+    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false has_doctor=false has_features=false
     \\    for word in "${COMP_WORDS[@]}"; do
     \\        [[ "$word" == "compile" ]] && has_compile=true
     \\        [[ "$word" == "explain" ]] && has_explain=true
@@ -27,10 +27,16 @@ const kaappi_bash =
     \\        [[ "$word" == "check" ]] && has_check=true
     \\        [[ "$word" == "ir" ]] && has_ir=true
     \\        [[ "$word" == "doctor" ]] && has_doctor=true
+    \\        [[ "$word" == "features" ]] && has_features=true
     \\    done
     \\
     \\    if $has_explain; then
     \\        COMPREPLY=($(compgen -W "--json --all" -- "$cur"))
+    \\        return
+    \\    fi
+    \\
+    \\    if $has_features; then
+    \\        COMPREPLY=($(compgen -W "--json" -- "$cur"))
     \\        return
     \\    fi
     \\
@@ -62,7 +68,7 @@ const kaappi_bash =
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile check explain test ast expand ir doctor" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile check explain features test ast expand ir doctor" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -99,7 +105,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile check explain test ast expand ir doctor)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile check explain features test ast expand ir doctor)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -131,6 +137,7 @@ const kaappi_fish =
     \\complete -c kaappi -a compile -d 'Compile to native binary via LLVM'
     \\complete -c kaappi -a check -d 'Compile-only static analysis (no execution)'
     \\complete -c kaappi -a explain -d 'Explain a diagnostic code (KP####)'
+    \\complete -c kaappi -a features -d 'Report this build''s capabilities (--json)'
     \\complete -c kaappi -a test -d 'Run SRFI-64 test suites (--json, --seed)'
     \\complete -c kaappi -a ast -d 'Print post-read datums (read + write)'
     \\complete -c kaappi -a expand -d 'Print the program after full macro expansion'

@@ -294,6 +294,7 @@ pub fn printUsage() void {
             "       kaappi compile <file.scm> [-o output]\n" ++
             "       kaappi check <file.scm>\n" ++
             "       kaappi explain <code>\n" ++
+            "       kaappi features [--json]\n" ++
             "       kaappi test [paths...]\n" ++
             "       kaappi ast|expand|ir <file.scm>\n" ++
             "       kaappi doctor [--json]\n" ++
@@ -304,6 +305,8 @@ pub fn printUsage() void {
             "                     read/compile errors and KP4xxx lint findings.\n" ++
             "                     Honors --diagnostics=json; --deny-warnings\n" ++
             "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
+            "  features           Report this build's capabilities (version, target,\n" ++
+            "                     subsystems, SRFIs, limits); --json\n" ++
             "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
             "                     --changed/--list-affected [--since <rev>]\n" ++
             "  ast <file>         Print post-read datums (read + write)\n" ++

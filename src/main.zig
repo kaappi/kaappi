@@ -46,6 +46,7 @@ pub const diagnostics = @import("diagnostics.zig");
 pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
 pub const explain = @import("explain.zig");
+pub const features = @import("features.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const doctor = @import("doctor.zig");
 pub const check = @import("check.zig");
@@ -172,6 +173,11 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // of that exists and exit. (Skipped on WASM, whose entry just runs a file.)
     if (comptime !is_wasm) {
         if (explain.maybeRun(allocator, init.args)) |exit_code| {
+            std.process.exit(exit_code);
+        }
+        // `kaappi features` is a pure query over static build/registry data
+        // (like explain, no VM needed), so dispatch it before any setup too.
+        if (features.maybeRun(allocator, init.args)) |exit_code| {
             std.process.exit(exit_code);
         }
         // `kaappi test` is an orchestrator over worker subprocesses; like
@@ -1059,6 +1065,7 @@ test {
     _ = repl_mod;
     _ = cli;
     _ = explain;
+    _ = features;
     _ = test_runner;
     _ = doctor;
     _ = check;
