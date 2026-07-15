@@ -57,7 +57,13 @@ see `docs/dev/observing-the-pipeline.md`. `kaappi doctor [--json]` runs an
 installation/environment self-check (binary, library search path, thottam state,
 native backend + smoke link, REPL, FFI) printing `PASS`/`WARN`/`FAIL` per check
 with a fix for each failure; exit is nonzero only on `FAIL` — see
-`docs/dev/doctor.md`. Version is defined as `pub const version`
+`docs/dev/doctor.md`. `kaappi fmt [--check] files...` is the
+canonical, comment-preserving formatter (2-space R7RS indentation, single-space
+separators, closing parens gathered, reflowed to 80 cols): it rewrites files in
+place (or formats stdin to stdout), while `--check` writes nothing and exits
+nonzero listing paths that need formatting; every write is guarded by a
+real-reader `equal?` round-trip so it can never change a program — see
+`docs/dev/fmt.md`. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),
@@ -246,6 +252,8 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
 | `runtime_exports.zig` | C-ABI bridge for LLVM native backend (21 exported functions) |
+| `fmt.zig` | `kaappi fmt`: comment-preserving CST reader (lexer + parser), CLI entry, real-reader `equal?` round-trip safety net |
+| `fmt_print.zig` | `kaappi fmt` layout engine: fits-or-breaks pretty-printer, special-form indentation rules |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_ir.zig` | IR tests: bytecode parity, behavioral correctness, analysis, optimizations |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |

@@ -52,6 +52,7 @@ pub const doctor = @import("doctor.zig");
 pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const config = @import("config.zig");
+pub const fmt = @import("fmt.zig");
 
 pub const version = @import("build_options").version;
 
@@ -477,6 +478,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (opts.ir_mode) {
         const fp = opts.file_path orelse usageError("Usage: kaappi ir <file.scm> [--no-opt]\n");
         std.process.exit(pipeline.runIr(vm, fp, opts.ir_no_opt));
+    }
+
+    // Canonical formatter (kaappi#1518). Reads and re-lays-out source; no
+    // program code runs. With no files it formats stdin to stdout.
+    if (opts.fmt_mode) {
+        std.process.exit(fmt.run(&gc, .{ .check = opts.fmt_check, .files = opts.scriptArgs() }));
     }
 
     if (opts.disassemble_mode) {
@@ -1075,4 +1082,6 @@ test {
     _ = pipeline;
     _ = @import("tests_pipeline.zig");
     _ = config;
+    _ = fmt;
+    _ = @import("fmt_print.zig");
 }
