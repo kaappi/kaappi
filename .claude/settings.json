@@ -36,7 +36,7 @@
       "Bash(git push*--force*)",
       "Read(.env*)",
       "Read(~/.ssh/**)",
-      "Write(.git/**)"
+      "Edit(.git/**)"
     ]
   },
   "hooks": {
