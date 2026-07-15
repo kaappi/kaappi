@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784120219857,
+  "lastUpdate": 1784127019982,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ff6ee45706025061d044aed7852d2cb3549c9c7c",
-          "message": "Accept native procedures in make-thread and spawn (#1155) (#1366)\n\n* Accept native procedures in make-thread and spawn (#1155)\n\nmake-thread (SRFI-18) and spawn (fibers) rejected native built-in\nprocedures like `list` or `newline` because they checked isClosure\ninstead of isProcedure. For make-thread, the downstream callWithArgs\nalready handles all procedure types, so the fix is a predicate change.\n\nFor spawn, the fiber scheduler sets up an initial bytecode frame\ndirectly from the closure's code, so non-closure procedures need a\ntrampoline: a synthetic closure whose bytecode loads the real procedure\nfrom an upvalue and calls it. The fiber is rooted across the trampoline\nallocation to prevent GC from freeing it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Move fiber-native-thunk test to smoke/ and add ISA coupling comment\n\nfiber-native-thunk.scm tests (kaappi fibers), not an SRFI library,\nso it belongs in tests/scheme/smoke/ per test directory conventions.\n\nAlso adds a comment noting the trampoline bytecode's operand width\ndependency on vm_dispatch.zig's fixed_operand_bytes table.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T15:28:54+05:30",
-          "tree_id": "bd14513def1bf2b57215ab3fbf10feed8533c787",
-          "url": "https://github.com/kaappi/kaappi/commit/ff6ee45706025061d044aed7852d2cb3549c9c7c"
-        },
-        "date": 1783593169593,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.411998,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.309634,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.011141,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.459255,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012721,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203873,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511586,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068621,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.589531,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.954491,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.178288,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.007721,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.447222,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.67817,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04457,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043951,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e95f6b51812e94eae19f5a1b98de85b7a3b685f4",
+          "message": "Guaranteed native mutual tail calls via tailcc + musttail (#1499) (#1572)\n\nSelf-tail-recursion in the LLVM backend was already constant-stack (an\narg-overwrite branch loop), but a tail call to *another* function was not:\nthe uniform entry reads its parameters from a caller-frame `%args` array,\nand a real tail call tears that frame down, so the callee would read freed\nstack. `even?`/`odd?`-style mutual recursion therefore grew the stack and\neventually overflowed. Guaranteed TCO needs arguments passed by value, not\nvia a pointer into the caller's frame — an ABI change.\n\nA fixed-arity, non-variadic, non-boxed named function (arity <= 8) now emits\ntwo LLVM functions: a `tailcc` register-argument fast entry holding the body\n(it copies the registers into a local `%args` array, so the existing body\nmachinery is reused unchanged), and an `internal` uniform-ABI trampoline for\nindirect dispatch. Direct tail calls between fast entries emit `musttail call\ntailcc` — LLVM-guaranteed constant stack (`tailcc` relaxes musttail's\nprototype-match rule, so different-arity mutual calls are legal). Self-\nrecursion keeps its loop; variadic/boxed/over-arity/closure functions keep the\nuniform entry unchanged.\n\nForward references (a callee defined later) resolve through a syntactic\npre-scan that reserves stable `@r{i}.fast` names for single-definition\ntop-level functions; a finalization stub covers any reserved name that falls\nback to the interpreter, so every musttail target links. A reference to a\nreserved name counts as a global in free-variable analysis, so the caller\nstill compiles natively.\n\n`musttail` is gated (`mustTailSafe`) on being in a fast entry, in tail\nposition, and outside any rooted `let`, so it never strands shadow-stack\nroots. The whole feature is gated per target on aarch64/x86_64, whose LLVM\nbackends support tailcc/musttail; other hosts keep the prior uniform ABI.\n\nVerified: 50M-deep mutual recursion runs native in flat ~3 MB RSS (would\notherwise overflow); GC-safe under forced collection; full unit suite and\n36/36 e2e programs green, incl. a new native-mutual-tail e2e whose\ninterpreter diff doubles as the constant-stack regression check.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T19:48:43+05:30",
+          "tree_id": "b36f7ffa43c838d4c6fde4e11402061af20b8569",
+          "url": "https://github.com/kaappi/kaappi/commit/e95f6b51812e94eae19f5a1b98de85b7a3b685f4"
+        },
+        "date": 1784127018206,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.671164,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.889918,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.881979,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.15441,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006686,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.051003,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.461468,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.065116,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.477426,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.775696,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.461,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.40386,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.913235,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.913307,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041249,
             "unit": "seconds"
           }
         ]
