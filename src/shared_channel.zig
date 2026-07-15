@@ -6,7 +6,15 @@ const reactor_mod = @import("reactor.zig");
 const vm_mod = @import("vm.zig");
 const pct_stress = @import("pct_stress.zig");
 const instrument = @import("channel_instrument.zig");
+const gc_collect = @import("gc_collect.zig");
+const build_options = @import("build_options");
 const Value = types.Value;
+
+/// KEP-0002 Phase 7 lever-B prototype (kaappi#1472). Compiled in only with
+/// `-Dchannel-arena=true`; a comptime no-op otherwise, so the shipped default
+/// keeps lever A (a fresh per-message envelope heap) byte for byte. See
+/// `SharedChannel.cached_gc` and `resetForReuse` for the mechanism.
+const arena_enabled: bool = build_options.channel_arena;
 
 /// KEP-0002 Phase 3 (#1468) PCT stress hook: a no-op unless
 /// src/stress_channel.zig has enabled pct_stress, in which case it injects
@@ -68,6 +76,20 @@ pub const Envelope = struct {
     /// revisit only alongside a genuinely process-global (not per-thread
     /// chained) symbol table.
     pub fn create(payload: Value) !*Envelope {
+        return createReusing(null, payload);
+    }
+
+    /// Lever-B prototype (kaappi#1472, `-Dchannel-arena`): build into `reuse`
+    /// -- a reset, buffer-warm arena GC handed back by a prior receive -- when
+    /// the channel had one cached, saving this message the GC-struct + ~8 KiB
+    /// root-buffer allocation. `reuse` is only ever non-null for a pointer
+    /// payload (send guards with isPointer); an immediate never needs a heap.
+    /// On any failure the GC (reused or fresh) is torn down completely, so the
+    /// caller's cache slot -- already emptied by the atomic take -- is just one
+    /// buffer lighter, never left holding a half-built graph. `reuse` is always
+    /// null in the shipped default (arena_enabled=false), where this is exactly
+    /// the original lever-A/C `create`.
+    fn createReusing(reuse: ?*memory.GC, payload: Value) !*Envelope {
         // Lever C (kaappi#1472) -- shipped as the default. A non-pointer
         // immediate (fixnum/boolean/char/flonum/nil) is self-contained:
         // deepCopy returns it unchanged (gc_deep_copy.zig, `if (!isPointer)
@@ -87,17 +109,23 @@ pub const Envelope = struct {
         else
             true;
         if (elide_immediates and !types.isPointer(payload)) {
+            std.debug.assert(reuse == null); // callers only reuse for pointers
             const env = try std.heap.c_allocator.create(Envelope);
             env.* = .{ .gc = null, .value = payload };
             return env;
         }
 
-        const gc = try std.heap.c_allocator.create(memory.GC);
-        gc.* = memory.GC.init(std.heap.c_allocator);
+        const gc = reuse orelse blk: {
+            const g = try std.heap.c_allocator.create(memory.GC);
+            g.* = memory.GC.init(std.heap.c_allocator);
+            break :blk g;
+        };
         // Defense in depth: deepCopy's own no_collect guard already
         // suppresses any collection attempt while filling this heap (see
         // gc_deep_copy.zig); this additionally guards against ever running
         // a real collect() on a heap that no other GC's root marker can see.
+        // A reused GC already carries enabled=false, but set it unconditionally
+        // so the invariant never depends on the recycling path.
         gc.enabled = false;
         errdefer {
             gc.deinit();
@@ -140,7 +168,60 @@ pub const Envelope = struct {
         }
         std.heap.c_allocator.destroy(self);
     }
+
+    /// Lever-B teardown (kaappi#1472, `-Dchannel-arena`): the receiver has
+    /// copied `value` out, so reset this envelope's GC for reuse and hand it
+    /// back to `sc`'s cache (or free it if a spare is already parked), then
+    /// free the envelope struct. An immediate envelope (gc == null) owns no
+    /// heap to recycle, so it degenerates to `deinit`. Never reached in the
+    /// shipped default; `receive` calls plain `deinit` there.
+    fn recycleInto(self: *Envelope, sc: *SharedChannel) void {
+        if (self.gc) |gc| {
+            instrument.envelopeBytesSub(gc.bytes_allocated);
+            resetForReuse(gc);
+            // Single cache slot: deposit iff empty, else free -- at most one
+            // ~8 KiB buffer is ever retained per channel (bounded), and a
+            // concurrent depositor that loses the CAS simply frees its own.
+            if (sc.cached_gc.cmpxchgStrong(null, gc, .release, .monotonic) != null) {
+                gc.deinit();
+                std.heap.c_allocator.destroy(gc);
+            }
+        }
+        std.heap.c_allocator.destroy(self);
+    }
 };
+
+/// Lever-B prototype (kaappi#1472): free a received message's object graph and
+/// its interned symbols, but KEEP the GC's own buffers (struct, ~8 KiB root
+/// buffer, hash-table capacity) so the channel can hand this GC to the next
+/// send instead of malloc/free-ing a fresh one. Unlike bench_channel.zig's
+/// symbol-free `freeArena`, this also resets `symbols`: `gc_collect.freeObject`
+/// frees each Symbol's `name`, which is the very slice used as that symbol's
+/// key in the table (memory.zig `allocSymbol`), so every entry dangles
+/// afterwards -- `clearRetainingCapacity` discards them without touching (and
+/// thus without double-freeing) the keys. The GC never collects
+/// (enabled=false), so nothing is promoted to `old_objects` and the remembered
+/// set stays empty; both are cleared defensively regardless.
+fn resetForReuse(gc: *memory.GC) void {
+    var obj = gc.objects;
+    while (obj) |o| {
+        const next = o.next;
+        gc_collect.freeObject(gc, o);
+        obj = next;
+    }
+    obj = gc.old_objects;
+    while (obj) |o| {
+        const next = o.next;
+        gc_collect.freeObject(gc, o);
+        obj = next;
+    }
+    gc.objects = null;
+    gc.old_objects = null;
+    gc.object_count = 0;
+    gc.bytes_allocated = 0;
+    gc.symbols.clearRetainingCapacity();
+    gc.remembered_set.clearRetainingCapacity();
+}
 
 pub const SharedChannel = struct {
     header: shared_object.Header = undefined,
@@ -166,6 +247,14 @@ pub const SharedChannel = struct {
     recv_waiters: std.ArrayList(*ThreadNotifier) = .empty,
     send_waiters: std.ArrayList(*ThreadNotifier) = .empty,
 
+    /// Lever-B prototype (kaappi#1472, `-Dchannel-arena`): a single recycled
+    /// envelope GC kept buffer-warm between a receive (which resets and parks
+    /// it here) and the next send (which takes it to build into). Lock-free
+    /// single slot -- concurrent takers/depositors race via swap/CAS, and at
+    /// most one buffer is retained. Always null and untouched in the shipped
+    /// default (arena_enabled=false); the field costs one pointer there.
+    cached_gc: std.atomic.Value(?*memory.GC) = .init(null),
+
     /// §1 refcount state machine: creates with refcount 1 -- the promoting
     /// object itself becomes the first counted stub.
     pub fn create() !*SharedChannel {
@@ -173,6 +262,13 @@ pub const SharedChannel = struct {
         self.* = .{};
         shared_object.init(&self.header, destroyHook);
         return self;
+    }
+
+    /// Lever-B: take the cached recycled GC (buffer-warm, already reset), or
+    /// null if none. A concurrent taker gets null and allocates fresh, so at
+    /// most one in-flight send reuses the slot at a time.
+    fn takeCachedGc(self: *SharedChannel) ?*memory.GC {
+        return self.cached_gc.swap(null, .acquire);
     }
 
     /// +1: a new stub was created (deepCopy's alias arm).
@@ -244,6 +340,16 @@ pub const SharedChannel = struct {
             const next = e.next;
             e.deinit();
             env = next;
+        }
+
+        // Lever-B (kaappi#1472): free the parked recycled GC, if any. Runs at
+        // refcount 0 -- no other thread references this channel -- so the swap
+        // is uncontended. No-op in the shipped default (slot always null).
+        if (comptime arena_enabled) {
+            if (self.cached_gc.swap(null, .acquire)) |gc| {
+                gc.deinit();
+                std.heap.c_allocator.destroy(gc);
+            }
         }
 
         for (self.recv_waiters.items) |n| releaseNotifier(n);
@@ -488,7 +594,17 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
     // own threadlocal, which the gate never reads. No-op when the instrument
     // build flag is off.
     const copy_timer = instrument.begin();
-    const env = Envelope.create(payload) catch |err| {
+    // Lever-B prototype (kaappi#1472): reuse the channel's cached, buffer-warm
+    // GC for this build when one is parked and the payload needs a heap. Only
+    // pointer payloads build a heap -- an immediate takes lever C's inline
+    // path, which needs no GC -- so acquiring for an immediate would just strand
+    // a buffer. Comptime-null (identical to plain `create`) in the shipped
+    // default.
+    const reuse: ?*memory.GC = if (comptime arena_enabled)
+        (if (types.isPointer(payload)) sc.takeCachedGc() else null)
+    else
+        null;
+    const env = Envelope.createReusing(reuse, payload) catch |err| {
         lockChannel(sc);
         sc.reserved -= 1;
         var snap: std.ArrayList(*ThreadNotifier) = .empty;
@@ -552,7 +668,10 @@ pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifi
             return err;
         };
         instrument.endResult(copy_timer);
-        env.deinit();
+        // Lever-B (kaappi#1472): reset this envelope's GC and park it in the
+        // channel cache for the next send instead of freeing its buffers.
+        // Plain teardown in the shipped default.
+        if (comptime arena_enabled) env.recycleInto(sc) else env.deinit();
         return .{ .value = value };
     }
     if (sc.closed and sc.reserved == 0) {
