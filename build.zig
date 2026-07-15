@@ -47,11 +47,24 @@ pub fn build(b: *std.Build) void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Only run unit tests whose names match the filter (repeatable)") orelse &.{};
 
+    // A cross-compiled test binary runs under an emulator: CI cross-compiles to
+    // riscv64-linux and runs the unit tests under QEMU user-mode (~10-30x slower
+    // than native). The fuzz generator "programs evaluate without error" gates in
+    // tests_fuzz.zig bound each program by a 100 ms wall clock, so under emulation
+    // a correct-but-slow program blows that deadline and the gates fail spuriously
+    // (kaappi#1573). Flag a non-native target so those gates bound by instruction
+    // count instead -- speed-independent, exactly as they already do under
+    // -Dgc-stress (#1447/#1449). Test-only: never affects the shipped binary.
+    const host = b.graph.host.result;
+    const emulated_target = target.result.cpu.arch != host.cpu.arch or
+        target.result.os.tag != host.os.tag;
+
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
     options.addOption(bool, "gc_stress", gc_stress);
+    options.addOption(bool, "emulated_target", emulated_target);
     options.addOption(bool, "channel_instrument", channel_instrument);
     options.addOption(bool, "channel_arena", channel_arena);
     options.addOption([]const u8, "version", zon.version);

@@ -186,20 +186,47 @@ test "fuzz seed .sbc fixture stays loadable" {
 // a per-program execution bound. Ordinary Scheme errors are expected outcomes;
 // only panics, crashes, and leaks fail the target.
 //
-// A normal build bounds by a 100 ms wall clock. A gc-stress build runs a full
-// collection on every allocation, so wall-clock time balloons by orders of
-// magnitude while a program still executes the SAME number of bytecode
-// instructions — a 100 ms deadline there converts correct-but-slow programs
-// into timeouts and makes the generator-coverage gates below measure GC speed
-// instead of generator correctness (#1447). Under gc-stress we therefore bound
-// by instruction count (speed-independent: identical on either build) and keep
-// only a loose wall-clock backstop against a pathological input. The 2M budget
-// clears the largest correct generator program (~35k instructions, measured
-// over 300 seeds of each generator) by ~50x while staying well under the
-// loop-heavy tail (>10M instructions) the gates intentionally count as misses.
-const gc_stress = @import("build_options").gc_stress;
-const eval_deadline_ns: u64 = if (gc_stress) 120_000_000_000 else 100_000_000;
-const eval_instruction_limit: ?u64 = if (gc_stress) 2_000_000 else null;
+// A normal native build bounds by a 100 ms wall clock. Two build/run modes make
+// that deadline meaningless while a program still executes the SAME number of
+// bytecode instructions — so a 100 ms deadline converts correct-but-slow
+// programs into timeouts and makes the generator-coverage gates below measure
+// execution speed instead of generator correctness:
+//   • gc-stress runs a full collection on every allocation, ballooning
+//     wall-clock time by orders of magnitude (#1447).
+//   • a cross-compiled target runs under an emulator — CI runs the riscv64 unit
+//     tests under QEMU user-mode, ~10-30x slower than native — so the same
+//     programs blow the 100 ms deadline (#1573).
+// In both modes we therefore bound by instruction count (speed-independent:
+// identical regardless of how fast each instruction runs) and keep only a loose
+// wall-clock backstop against a pathological input. The 2M budget clears the
+// largest correct generator program (~35k instructions, measured over 300 seeds
+// of each generator) by ~50x while staying well under the loop-heavy tail (>10M
+// instructions) the gates intentionally count as misses.
+const build_options = @import("build_options");
+const speed_independent = build_options.gc_stress or build_options.emulated_target;
+const eval_deadline_ns: u64 = if (speed_independent) 120_000_000_000 else 100_000_000;
+const eval_instruction_limit: ?u64 = if (speed_independent) 2_000_000 else null;
+
+// Regression guard for the fuzz-gate execution bound (#1447/#1573). The
+// generator "programs evaluate without error" gates below must not be able to
+// mistake slow execution for generator error: whenever a build runs bytecode
+// far slower than native — gc-stress (collect-per-alloc) or an emulated
+// cross-compiled target (riscv64 under QEMU in CI) — they bound by instruction
+// count with only a loose wall-clock backstop, never the tight 100 ms deadline.
+// Without the emulated-target half of `speed_independent` this test fails on the
+// riscv64 CI job (eval_instruction_limit == null while emulated_target is true),
+// which is exactly the flake #1573 tracked. On native, non-stress builds it pins
+// the tight deadline so the gates stay cheap and still catch real slow-program
+// regressions.
+test "fuzz eval bound is speed-independent under gc-stress or emulation (#1447/#1573)" {
+    if (speed_independent) {
+        try std.testing.expect(eval_instruction_limit != null);
+        try std.testing.expect(eval_deadline_ns > 100_000_000);
+    } else {
+        try std.testing.expect(eval_instruction_limit == null);
+        try std.testing.expectEqual(@as(u64, 100_000_000), eval_deadline_ns);
+    }
+}
 
 const EvalOutcome = enum { ok, scheme_error, harness_unavailable };
 
@@ -485,9 +512,10 @@ test "fuzz grammar" {
 // generator change made programs start dying at runtime — fix the generator
 // or consciously re-baseline.
 test "grammar generator: majority of programs evaluate without error" {
-    // Runs under gc-stress too: evalNormalized bounds by instruction count
-    // there (not the 100 ms wall clock), so this still measures the generator's
-    // correctness rate rather than GC speed (#1447).
+    // Under gc-stress or an emulated (cross-compiled) target, evalNormalized
+    // bounds by instruction count rather than the 100 ms wall clock, so this
+    // still measures the generator's correctness rate rather than execution
+    // speed (#1447/#1573).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -519,7 +547,8 @@ test "grammar generator: majority of programs evaluate without error" {
 // VM-vs-native harness (tests/fuzz/native-diff.sh) skips nothing on clean
 // programs, so a drop here directly costs oracle coverage.
 test "native-subset generator: programs evaluate without error" {
-    // Runs under gc-stress: bounded by instruction count, not wall clock (#1447).
+    // gc-stress and emulated (cross-compiled) targets bound by instruction
+    // count, not the 100 ms wall clock (#1447/#1573).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -545,7 +574,8 @@ test "native-subset generator: programs evaluate without error" {
 // sides exit cleanly, so every runtime error costs oracle coverage AND
 // suggests the generator leaked outside its total-by-construction subset.
 test "portable-subset generator: programs evaluate without error" {
-    // Runs under gc-stress: bounded by instruction count, not wall clock (#1447).
+    // gc-stress and emulated (cross-compiled) targets bound by instruction
+    // count, not the 100 ms wall clock (#1447/#1573).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -629,9 +659,10 @@ test "fuzz differential (opt vs no-opt)" {
 // off-by-one planted in the `*` constant fold diverges at seed 30 (and 3
 // more within 500), so this window has real detection power.
 test "differential oracle: fixed-seed programs agree opt vs no-opt" {
-    // Runs under gc-stress: evalNormalized bounds by instruction count there,
-    // so both compilation paths run to completion and produce comparable
-    // observables rather than degenerating into resource_limit pairs (#1447).
+    // Under gc-stress or an emulated (cross-compiled) target, evalNormalized
+    // bounds by instruction count rather than the 100 ms wall clock, so both
+    // compilation paths run to completion and produce comparable observables
+    // rather than degenerating into resource_limit pairs (#1447/#1573).
     var seed_n: u64 = 0;
     while (seed_n < 60) : (seed_n += 1) {
         const src = try fuzz_gen.generateSeeded(seed_n, std.testing.allocator);
