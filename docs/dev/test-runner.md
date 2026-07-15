@@ -135,6 +135,71 @@ Summary object (always last):
 }
 ```
 
+## `--changed`: affected-test selection over the import graph
+
+R7RS makes file-level dependency tracking unusually cheap: `define-library` and
+`import` declare a file's dependencies explicitly, so a suite's dependency
+closure is derivable by *reading library declarations* — no build-system
+integration, no compiler instrumentation. `kaappi test` exploits this to run
+only the suites a change actually touches (kaappi#1510).
+
+```
+kaappi test --changed [--since <rev>]     # run only affected suites
+kaappi test --list-affected [--since <rev>]  # print them, run nothing
+```
+
+- **`--changed`** runs only affected suites. An empty affected set is a clean
+  exit (0) — "nothing changed" is success, not "no tests found".
+- **`--list-affected`** prints the affected suites (one path per line to stdout)
+  without running them, so the list pipes cleanly. With `--json` it prints one
+  `{"type":"affected","since":…,"full_run":<bool>,"count":N,"files":[…]}` object.
+- **`--since <rev>`** sets the git revision the change set is diffed against
+  (default `HEAD`, i.e. working-tree changes since the last commit; use e.g.
+  `--since main` for everything on the branch). Requires one of the two modes.
+
+### How the closure is computed
+
+The change set is `git diff --name-only <rev>` plus untracked files
+(`git ls-files --others`), so a brand-new, uncommitted suite counts as changed.
+For each discovered suite the runner computes the transitive closure of the
+Scheme source it depends on and runs the suite iff its own file or anything in
+that closure is in the change set:
+
+- **imports** — each `(import <spec>…)` library name (unwrapping
+  `only`/`except`/`prefix`/`rename`) is resolved to its `.sld` file with the
+  same search path a real run uses (cwd, `lib/`, then each `--lib-path`), and
+  followed recursively. A name with no `.sld` on disk is a built-in library
+  (implemented in Zig) and contributes nothing to the *source* graph.
+- **includes** — `include`, `include-ci`, and `include-library-declarations`
+  files are resolved relative to the including file (exactly as the loader does)
+  and followed.
+- **containers** — `define-library`, `begin`, and `cond-expand` are walked for
+  nested declarations; every `cond-expand` clause body is visited (running a
+  suite a feature would have excluded is safe; skipping one is not).
+
+Diamond dependencies (two libraries importing a common third) and cycles are
+handled by a visited set, and each file is parsed once and memoised.
+
+### What is and isn't tracked
+
+The selection is **safe over precise**: a suite is skipped only when its whole
+import closure is provably unchanged. Every "can't be sure" case runs *more*
+tests, never fewer, and says why on stderr.
+
+| Situation | Behaviour |
+|-----------|-----------|
+| A file in a suite's import closure changed | suite runs |
+| The suite's own file changed / is untracked | suite runs |
+| `(load <path>)` anywhere in the closure | that suite runs (the path may be computed — an **untrackable edge**), noted on stderr |
+| A dependency can't be read or parsed | that suite runs (its worker surfaces the real error) |
+| A native/FFI artifact changed (`csrc/…`, `*.dylib`/`*.so`/`*.dll`) | **all** suites run — `ffi-open` binds a shared library by name at runtime, invisible to the static import graph, so the package's tests are all treated as dirty |
+| git is unavailable / not a repo / unknown `--since` revision | **all** suites run |
+| Behaviour change in a built-in (Zig) library | **not tracked** — it lives in the binary, not a `.sld`; rebuild + full run |
+
+The stderr note is always printed: either `N of M tests affected since <rev>`
+(with the forced-because-incomplete suites listed), or the reason for a full-run
+fallback. `--json` stdout stays pure — all of this goes to stderr.
+
 ## Relationship to `run-all.sh`
 
 [`tests/scheme/run-all.sh`](../../tests/scheme/run-all.sh) is the **legacy**
@@ -144,20 +209,25 @@ runs `kaappi test`'s own acceptance shell tests
 (`tests/scheme/test-runner/*.sh`). Over time SRFI-64 suites can delegate to
 `kaappi test`; nothing forces the switch.
 
-`--changed` (affected-test selection over the import graph) is tracked
-separately in kaappi#1510 and is intentionally not part of this runner.
-
 ## Tests
 
 - `src/test_runner.zig` unit tests — JSON serialization round-trips, the
   SRFI-64 discovery gate, and the `suppress_exit` behaviour (the guard on the
   `exitFn` change in `src/primitives_r7rs.zig`).
+- `src/test_selection.zig` unit tests — import-spec unwrapping, the
+  native-artifact classifier, lexical path canonicalisation, and the closure
+  BFS over synthetic graphs (diamond deps, incomplete edges, cycles).
 - `tests/scheme/test-runner/json.sh` — the `--json` contract, validated with a
   real JSON parser (python3): per-file + summary objects, counts, failure
   detail, errored-file message, pure-JSON stdout, and exit status.
 - `tests/scheme/test-runner/seed.sh` — `--seed` reproducibility (same seed →
   same draw, different seed → different draw, seed echoed on every run),
   observed through the JSON.
+- `tests/scheme/test-runner/changed.sh` — `--changed`/`--list-affected` over a
+  throwaway git repo with a known dependency shape: diamond import, `include`,
+  a `(load …)` escape hatch, native-artifact and unknown-revision full-run
+  fallbacks, untracked-suite detection, and the `--since` usage guard.
 
-Both shell tests generate their fixtures in a temp dir so an intentionally
-failing suite never pollutes a plain `kaappi test ./tests` run of the repo.
+The shell tests generate their fixtures in a temp dir (a throwaway git repo for
+`changed.sh`) so an intentionally failing suite never pollutes — and the git
+fixture never touches — the kaappi repo's own state.

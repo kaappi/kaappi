@@ -746,7 +746,7 @@ fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8,
     vm_mod.writeStderr(s);
 }
 
-fn extractDir(path: []const u8) []const u8 {
+pub fn extractDir(path: []const u8) []const u8 {
     if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| {
         return path[0 .. pos + 1];
     }
