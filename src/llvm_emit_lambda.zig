@@ -495,6 +495,13 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const id = self.lambda_counter;
     self.lambda_counter += 1;
 
+    // Snapshot the module-monotonic code-eval-fallback counter so we can tell,
+    // after emitting this function's body, whether it reached one (its nested
+    // lambdas emit into lambda_defs but share this counter). Recorded on the
+    // native_fns entry as has_eval_fallback so the #1500 value materialization
+    // can decline a function whose body's bindParamsAsGlobals would alias.
+    const eval_cache_start = self.eval_cache_counter;
+
     // #1499: a fixed-arity, non-variadic, non-boxed *named* function within the
     // fast-arity bound gets a register-argument `tailcc` fast entry (holding the
     // body) plus a uniform C-ABI trampoline. Direct callers reach the fast entry
@@ -657,6 +664,15 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // Record that this reserved name's @r{i}.fast got a real body, so no
         // forwarding stub is emitted for it at finalization.
         if (use_fast) self.fulfilled_fast.put(name.?, {}) catch {};
+    }
+
+    // Record whether the body reached a code eval fallback, for #1500's value
+    // materialization gate. The entry was put before body emission (so a
+    // self-call resolves); update it in place now that the counter delta is known.
+    if (name) |n| {
+        if (self.native_fns.getPtr(n)) |e| {
+            e.has_eval_fallback = self.eval_cache_counter > eval_cache_start;
+        }
     }
 
     success = true;

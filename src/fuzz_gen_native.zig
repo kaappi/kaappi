@@ -64,9 +64,11 @@
 //! here is void-valued (define / set! / when / unless / if-with-statement-
 //! arms / begin / let-ending-in-set! / write / newline) and all observable
 //! output is explicit: `(write ...)` of the final expressions plus of every
-//! non-procedure global (procedure values are never written — they print
-//! as `#<procedure name>` in the VM but `#<procedure>` natively, a
-//! representation difference by design, not a bug).
+//! non-procedure global. Procedure values are never written — nothing here
+//! produces an int-comparable result from one, and while the VM and native
+//! backends now print them identically (`#<procedure name>` both ways since
+//! #1500 made native closures print as procedures), keeping them out of the
+//! written output stays robust regardless of representation.
 //!
 //! Shares the Smith/PRNG Chooser, scope tracking, and byte-budget
 //! infrastructure with the full generator (fuzz_gen.zig).

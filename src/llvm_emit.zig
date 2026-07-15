@@ -76,6 +76,18 @@ const NativeLambda = struct {
     // uniform array-ABI entry. Direct call sites emit register-argument calls —
     // and `musttail` for guaranteed mutual TCO — when this is set (#1499).
     fast_name: ?[]const u8 = null,
+    // True when the function's native body reaches a *code* eval fallback
+    // (`kaappi_eval_cached` — a variadic inner lambda, letrec, guard, …). Such a
+    // fallback republishes the enclosing frame's params as globals
+    // (bindParamsAsGlobals), which aliases across separate activations — a
+    // pre-existing native-backend limitation. Direct call sites (immediate use)
+    // are unaffected, but binding the function's *value* to a native closure
+    // (#1500) would run that body from new contexts and widen the aliasing to
+    // the common `(define a (f 1)) (define b (f 2))` pattern, so a function with
+    // this set keeps its correctly-capturing interpreter-closure value. A quoted
+    // constant (`kaappi_quote_cached`) is NOT a code fallback and does not set
+    // this — quotes can't alias and the re-entrant-eval fix covers them.
+    has_eval_fallback: bool = false,
 };
 
 // A top-level define reserved by the pre-scan (preScanReserve) so a *forward*
@@ -1248,12 +1260,43 @@ pub const LLVMEmitter = struct {
                         self.rebound_globals.put(fn_name, {}) catch {};
                         if (self.tryCompileDefineFunction(fn_name, formals, body) != null) {
                             _ = self.rebound_globals.fetchRemove(fn_name);
+                            // #1500: bind the global to a native closure over the
+                            // compiled entry instead of eval'ing the whole define
+                            // form. Fixed-arity, and not when the body reaches a
+                            // code eval fallback (its bindParamsAsGlobals aliases
+                            // across activations — see NativeLambda.has_eval_fallback);
+                            // both keep the eval path, and `@f` still serves direct
+                            // call sites.
+                            if (self.native_fns.get(fn_name)) |info| {
+                                if (!info.is_variadic and !info.has_eval_fallback) {
+                                    const val = try self.emitNativeFnClosureValue(info, fn_name);
+                                    const sym = try self.internSymbol(fn_name);
+                                    try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, fn_name.len, val });
+                                    return self.emitVoid();
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         return self.emitEvalExpr(expr);
+    }
+
+    // Build the runtime Value for a natively-compiled top-level function as a
+    // native closure over its uniform C-ABI entry (#1500). A value use of the
+    // name — passing it to `map`/`apply`, `(eq? f f)`, returning it — then runs
+    // the native `@f` instead of an interpreter closure, and startup no longer
+    // parses and compiles the lambda through the eval fallback. Valid only for a
+    // fixed-arity function: `callNativeClosure` dispatches native closures by
+    // exact arity, so a variadic entry keeps the eval-fallback value. Referencing
+    // the entry here also takes its address, which keeps LLVM from dropping the
+    // `internal` fast-entry trampoline it would otherwise discard (#1499).
+    fn emitNativeFnClosureValue(self: *LLVMEmitter, info: NativeLambda, name: []const u8) EmitError![]const u8 {
+        const name_str = try self.internString(name);
+        const result = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_create_native_closure(ptr %vm, ptr {s}, ptr null, i64 0, i64 {d}, ptr {s}, i64 {d})\n", .{ result, info.llvm_name, info.arity, name_str, name.len });
+        return result;
     }
 
     fn emitDefine(self: *LLVMEmitter, data: ir.DefineData) EmitError![]const u8 {
@@ -1295,12 +1338,23 @@ pub const LLVMEmitter = struct {
             }
         }
 
-        const val = if (types.isPair(data.value))
-            try self.emitEvalExpr(data.value)
-        else if (types.isSymbol(data.value))
-            try self.emitGlobalRef(data.value)
-        else
-            try self.emitConstant(data.value);
+        const val = blk: {
+            // #1500: the value compiled to a native function — bind the global
+            // to a native closure over its uniform entry instead of eval'ing the
+            // lambda source. Fixed-arity, and not when the body reaches a code
+            // eval fallback (its bindParamsAsGlobals aliases across activations;
+            // see NativeLambda.has_eval_fallback and emitNativeFnClosureValue).
+            if (self.native_fns.get(name)) |info| {
+                if (!info.is_variadic and !info.has_eval_fallback)
+                    break :blk try self.emitNativeFnClosureValue(info, name);
+            }
+            break :blk if (types.isPair(data.value))
+                try self.emitEvalExpr(data.value)
+            else if (types.isSymbol(data.value))
+                try self.emitGlobalRef(data.value)
+            else
+                try self.emitConstant(data.value);
+        };
 
         try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
 
