@@ -779,8 +779,9 @@ test "cached form compiles once and re-executes correctly (#1494)" {
     try ctx.init();
     defer ctx.deinit();
 
-    // A cond is one of the forms the native backend serializes to eval.
-    const fv = try ctx.vm.compileCachedForm("(cond (#f 1) (#t 42) (else 0))");
+    // guard is one of the forms the native backend still serializes to eval
+    // (cond/case/do now lower natively — #1496); the cache path is form-agnostic.
+    const fv = try ctx.vm.compileCachedForm("(guard (e (#t 0)) 42)");
     try std.testing.expect(types.isFunction(fv));
 
     // Re-running the one compiled Function is the cache fast path; it must yield
@@ -821,6 +822,106 @@ test "cached form declines non-cacheable sources (#1494)" {
     try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("1 2"));
     // Empty source has nothing to compile.
     try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("   "));
+}
+
+// -- cond / case / do native lowering (#1496) --
+// These forms used to be serialized and evaluated (kaappi_eval); they now lower
+// to native if-style block chains (cond/case) and a self-branching loop (do).
+// The gate falls back only for sub-forms that cannot be lowered in scope.
+
+test "LLVM emit: cond lowers to a native block chain, no eval" {
+    var res = try emitSourceResult("(cond ((< a 1) 10) ((< a 2) 20) (else 30))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "cond_merge_");
+    try expectContains(ll, "cond_body_");
+    try expectContains(ll, "phi i64");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: cond no-body clause yields the test value, no eval" {
+    // (test) with no body returns the test value when truthy — it must branch
+    // straight to the merge with that value, not re-evaluate anything.
+    var res = try emitSourceResult("(cond ((assv a b)) (else 0))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "cond_merge_");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: case lowers to eqv? dispatch, no eval" {
+    var res = try emitSourceResult("(case k ((1 2 3) 'lo) ((4 5 6) 'hi) (else 'other))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "case_merge_");
+    try expectContains(ll, "case_body_");
+    // Each datum is compared with the interpreter's eqv? via a runtime call.
+    try expectContains(ll, "call i64 @kaappi_call_scheme");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: do lowers to a native loop, no eval" {
+    var res = try emitSourceResult("(do ((i 0 (+ i 1)) (acc 0 (+ acc i))) ((= i 5) acc))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "do_header_");
+    try expectContains(ll, "do_body_");
+    try expectContains(ll, "do_exit_");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a function whose body is a cond compiles natively (#1496)" {
+    // Previously the whole define fell back to eval because cond was an
+    // eval-fallback form; now only the define-time binding evals (1), and the
+    // body is a native @lambda with a cond block chain.
+    var res = try emitMultiResult("(define (sign n) (cond ((< n 0) -1) ((= n 0) 0) (else 1)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; sign\ndefine i64 @lambda_");
+    try expectContains(ll, "cond_merge_");
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: do in a function body stays native (#1496)" {
+    var res = try emitMultiResult("(define (sumto n) (do ((i 0 (+ i 1)) (s 0 (+ s i))) ((= i n) s)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; sumto\ndefine i64 @lambda_");
+    try expectContains(ll, "do_header_");
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a lambda capturing a param through a cond gets an upvalue (#1496)" {
+    // The free-variable analysis must descend into the cond's clauses, or the
+    // capture of `base` degrades to a global lookup.
+    var res = try emitSourceResult("(define g (lambda (base) (lambda (n) (cond ((> n 0) (+ base n)) (else base)))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_");
+    // base is read from the upvalue array, never interned for a global lookup.
+    try expectContains(ll, "ptr %upvalues, i64 0");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"base\"") == null);
+}
+
+test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#1496)" {
+    // apply is a passthrough form the native path can't lower in a lexical
+    // scope; the whole enclosing function must fall back to the interpreter,
+    // not emit a native cond that evaluates apply in the global environment.
+    var res = try emitMultiResult("(define (f lst) (cond ((null? lst) 0) (else (apply + lst))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNotContains(ll, "cond_merge_");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a cond containing letrec falls back to the interpreter (#1496)" {
+    var res = try emitSourceResult("(cond (#t (letrec ((x 1)) x)) (else 0))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // A nested eval-fallback form makes the whole cond ineligible; at top level
+    // the correct choice is a whole-form eval, not a native block chain.
+    try expectNotContains(ll, "cond_merge_");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
 // -- NativeClosure dispatch tests (#1376) --

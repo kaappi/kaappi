@@ -114,6 +114,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     var emitter = llvm_emit.LLVMEmitter.init(allocator);
     defer emitter.deinit();
+    // Native cond/case/do lowering consults the macro table so a macro use is
+    // sent to the interpreter (which expands it) instead of being mis-compiled
+    // as a call to a same-named global (#1496).
+    emitter.macros = &vm.macros;
     emitter.emitProgram(ir_nodes.items) catch |err| {
         const code = diagnostics.Code.internal_error;
         var cbuf: [diagnostics.Code.render_width]u8 = undefined;

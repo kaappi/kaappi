@@ -176,7 +176,8 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
 | `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
 | `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope |
-| `letrec`, `letrec*`, `cond`, `case`, `do`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
+| `cond`, `case`, `do` | Native `if`-style block/`phi` chains (`cond`/`case`) and a self-branching `alloca` loop (`do`) when every sub-form is emittable in the current lexical scope; otherwise a whole-form `kaappi_eval_cached` fallback (`src/llvm_emit_forms.zig`, kaappi#1496) |
+| `letrec`, `letrec*`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
 | `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
 
 ## Compile-Time Processing
@@ -217,9 +218,10 @@ handled differently:
 
 ## Cached eval fallback
 
-Forms the backend cannot lower natively — `letrec`, `letrec*`, `cond`, `case`,
-`do`, `guard`, quasiquote, named `let`, `let`/`let*` it cannot scope, fallback
-lambdas, and general passthrough expressions — are serialized to a Scheme source
+Forms the backend cannot lower natively — `letrec`, `letrec*`, `guard`,
+quasiquote, named `let`, `let`/`let*` it cannot scope, a `cond`/`case`/`do` whose
+clauses reach an unlowerable sub-form (kaappi#1496), fallback lambdas, and
+general passthrough expressions — are serialized to a Scheme source
 string and executed by the interpreter. Plain `kaappi_eval` re-parses **and
 re-compiles** that string every time the enclosing native code runs it; inside a
 loop body or a frequently-called function that is a severe, easily-overlooked
@@ -360,8 +362,8 @@ in tail position stores the new arguments and `br`s back to the function's body
 label rather than recursing (non-variadic named functions only).
 
 **Falls back to the [cached eval](#cached-eval-fallback) when the body:**
-- contains an eval-fallback form (`letrec`, `cond`, `case`, `do`, `guard`,
-  named `let`, …);
+- contains an eval-fallback form (`letrec`, `guard`, named `let`, …), or a
+  `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
 - contains an internal `define` (the closure tier sets up no locals scope for
   it), or a rest parameter that is captured and mutated (no box model yet);
 - captures an unmutated `let`-local, or a rest parameter, that has no copyable

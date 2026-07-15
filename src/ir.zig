@@ -103,6 +103,20 @@ pub const llvm_node_table: [18]LLVMNodeEntry = .{
 
 const eval_fallback_name_count = countEvalFallbackNames();
 
+// FormKinds the LLVM native backend lowers directly rather than routing through
+// `kaappi_eval`, so they are NOT in `eval_fallback_form_names` and do not force
+// an enclosing native let/lambda body to fall back. `named_let` is excluded
+// because `lowerLet` handles it structurally (no keyword mapping); `cond`,
+// `case_form`, and `do_form` are excluded because the backend emits them
+// natively (kaappi#1496) — `llvm_emit_forms.zig` gates each on
+// `exprNativeEmittable` and only the ungated remainder reaches the interpreter.
+fn isNativeLoweredForm(fk: FormKind) bool {
+    return switch (fk) {
+        .named_let, .cond, .case_form, .do_form => true,
+        else => false,
+    };
+}
+
 fn countEvalFallbackNames() usize {
     var count: usize = 0;
     for (llvm_node_table) |entry| {
@@ -112,7 +126,7 @@ fn countEvalFallbackNames() usize {
     const form_fields = @typeInfo(FormKind).@"enum".fields;
     for (form_fields) |f| {
         const fk: FormKind = @enumFromInt(f.value);
-        if (fk == .named_let) continue;
+        if (isNativeLoweredForm(fk)) continue;
         count += 1;
     }
     return count;
@@ -132,7 +146,7 @@ pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: 
     const form_fields = @typeInfo(FormKind).@"enum".fields;
     for (form_fields) |f| {
         const fk: FormKind = @enumFromInt(f.value);
-        if (fk == .named_let) continue;
+        if (isNativeLoweredForm(fk)) continue;
         names[i] = fk.keyword();
         i += 1;
     }

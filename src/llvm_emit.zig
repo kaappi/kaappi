@@ -89,6 +89,14 @@ pub const LLVMEmitter = struct {
     lambda_defs: std.ArrayList([]const u8),
     native_fns: std.StringHashMap(NativeLambda),
     rebound_globals: std.StringHashMap(void),
+    // The VM's macro table, borrowed for the lifetime of emission (never
+    // mutated here). Used only to keep native cond/case/do lowering (#1496)
+    // from mis-compiling a macro use as a call to a same-named global: a form
+    // that invokes a macro is not `exprNativeEmittable` and is sent to the
+    // interpreter, which expands it. Null when the emitter is driven without a
+    // VM (unit tests) — then no name is treated as a macro, which is correct
+    // because those tests never exercise macros inside these forms.
+    macros: ?*const std.StringHashMap(Value) = null,
     params: ?std.StringHashMap(u8),
     upvalues: ?std.StringHashMap(u8),
     tmp_counter: u32,
@@ -304,7 +312,7 @@ pub const LLVMEmitter = struct {
         };
     }
 
-    fn emitConstant(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
+    pub fn emitConstant(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
         if (types.isString(value)) {
             const str_data = types.toObject(value).as(types.SchemeString).data;
             const str_name = try self.internString(str_data);
@@ -954,7 +962,7 @@ pub const LLVMEmitter = struct {
         return self.emitVoid();
     }
 
-    fn inLexicalScope(self: *LLVMEmitter) bool {
+    pub fn inLexicalScope(self: *LLVMEmitter) bool {
         return self.params != null or self.locals != null or
             self.rest_param_name != null or self.upvalues != null;
     }
@@ -1027,9 +1035,30 @@ pub const LLVMEmitter = struct {
         return self.emitImm(@bitCast(types.VOID));
     }
 
+    const forms = @import("llvm_emit_forms.zig");
+
+    // True if `name` is bound as a syntax transformer in the VM's macro table.
+    // Guards native lowering of cond/case/do (#1496): a macro use must not be
+    // compiled as a call to a same-named global — it has to reach the
+    // interpreter, which expands it.
+    pub fn isMacroName(self: *LLVMEmitter, name: []const u8) bool {
+        const m = self.macros orelse return false;
+        return m.contains(name);
+    }
+
     fn emitSexprEval(self: *LLVMEmitter, node: *const ir.Node) EmitError![]const u8 {
         if (node.tag != .sexpr_form) return error.UnsupportedNodeType;
         const sf = node.data.sexpr_form;
+        // cond/case/do are lowered natively when every sub-form is emittable in
+        // the current lexical scope; otherwise they fall back like any other
+        // sexpr form (#1496). The dispatch is here so nested occurrences reached
+        // via emitNode take the same path.
+        switch (sf.form) {
+            .cond => return forms.emitCond(self, sf.args, node.ann.is_tail),
+            .case_form => return forms.emitCase(self, sf.args, node.ann.is_tail),
+            .do_form => return forms.emitDo(self, sf.args, node.ann.is_tail),
+            else => {},
+        }
         return self.emitFormEval(sf.args, sf.form.keyword());
     }
 
@@ -1037,7 +1066,7 @@ pub const LLVMEmitter = struct {
         return self.emitFormEval(args, form_name);
     }
 
-    fn emitFormEval(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
+    pub fn emitFormEval(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
         try lambda.bindParamsAsGlobals(self);
 
         var source_buf: std.ArrayList(u8) = .empty;
@@ -1487,18 +1516,18 @@ pub const LLVMEmitter = struct {
         try self.write("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
     }
 
-    fn emitRootPush(self: *LLVMEmitter, tmp: []const u8) EmitError!void {
+    pub fn emitRootPush(self: *LLVMEmitter, tmp: []const u8) EmitError!void {
         const slot = try self.freshTemp();
         try self.print("  {s} = alloca i64, align 8\n", .{slot});
         try self.print("  store i64 {s}, ptr {s}\n", .{ tmp, slot });
         try self.print("  call void @kaappi_gc_push_root(ptr {s})\n", .{slot});
     }
 
-    fn emitRootPushAlloca(self: *LLVMEmitter, alloca: []const u8) EmitError!void {
+    pub fn emitRootPushAlloca(self: *LLVMEmitter, alloca: []const u8) EmitError!void {
         try self.print("  call void @kaappi_gc_push_root(ptr {s})\n", .{alloca});
     }
 
-    fn emitPopRoots(self: *LLVMEmitter, n: usize) EmitError!void {
+    pub fn emitPopRoots(self: *LLVMEmitter, n: usize) EmitError!void {
         if (n > 0) {
             try self.print("  call void @kaappi_gc_pop_roots(i64 {d})\n", .{n});
         }

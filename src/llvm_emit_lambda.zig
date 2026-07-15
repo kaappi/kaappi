@@ -995,7 +995,15 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
         .let_form => return letSexprHasFreeVars(self, node.data.let_form.args, false, params),
         .let_star => return letSexprHasFreeVars(self, node.data.let_star.args, true, params),
         .lambda => return lambdaSexprHasFreeVars(self, node.data.lambda.args, params),
-        .passthrough, .sexpr_form => return false,
+        // cond/case/do keep their clauses as a raw S-expression that the
+        // backend now lowers natively (#1496); scope them like let/lambda so a
+        // capture hidden in a clause is seen. Other sexpr forms are rejected
+        // upstream and never reach a native body, so they report none.
+        .sexpr_form => switch (node.data.sexpr_form.form) {
+            .cond, .case_form, .do_form => return sexprFormHasFreeVars(self, node.data.sexpr_form.form, node.data.sexpr_form.args, params),
+            else => return false,
+        },
+        .passthrough => return false,
         .letrec, .letrec_star => return false,
     }
 }
@@ -1084,7 +1092,14 @@ fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const
             if (!collectSexprFreeVars(self, node.data.set_form.name, params, buf, count)) return false;
             return collectSexprFreeVars(self, node.data.set_form.value, params, buf, count);
         },
-        .constant, .define, .passthrough, .sexpr_form => return true,
+        // cond/case/do are lowered natively (#1496): collect captures hidden in
+        // their clauses so a closure over such a variable gets its upvalue.
+        // Other sexpr forms never reach a native body (rejected upstream).
+        .sexpr_form => switch (node.data.sexpr_form.form) {
+            .cond, .case_form, .do_form => return collectSexprFormFreeVars(self, node.data.sexpr_form.form, node.data.sexpr_form.args, params, buf, count),
+            else => return true,
+        },
+        .constant, .define, .passthrough => return true,
         .letrec, .letrec_star => return true,
     }
 }
@@ -1174,6 +1189,29 @@ fn collectLambdaSexprFreeVars(self: *LLVMEmitter, args: Value, params: []const [
     return !w.inexact;
 }
 
+// args is the raw form tail (ir.SexprFormData.args) of a natively lowered
+// cond/case/do (#1496). Walks it with the same binder scoping as let/lambda.
+fn sexprFormHasFreeVars(self: *LLVMEmitter, form: ir.FormKind, args: Value, params: []const []const u8) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params };
+    walkSexprForm(&w, form, args);
+    return w.found or w.inexact;
+}
+
+fn collectSexprFormFreeVars(self: *LLVMEmitter, form: ir.FormKind, args: Value, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params, .buf = buf, .count = count };
+    walkSexprForm(&w, form, args);
+    return !w.inexact;
+}
+
+fn walkSexprForm(w: *FreeNameWalk, form: ir.FormKind, args: Value) void {
+    switch (form) {
+        .cond => walkCondSexpr(w, args),
+        .case_form => walkCaseSexpr(w, args),
+        .do_form => walkDoSexpr(w, args),
+        else => w.inexact = true,
+    }
+}
+
 // args is the raw `(bindings body ...)` tail of a let/let* form. For let the
 // init expressions see only the enclosing scope; for let* each init also sees
 // the binders before it. The binders are in scope for the body either way.
@@ -1250,6 +1288,107 @@ fn walkLambdaSexpr(w: *FreeNameWalk, rest: Value) void {
     }
 }
 
+// True if `v` is the symbol `name` — cond/case clause markers (else, =>) that
+// the walks below must skip rather than treat as variable references.
+fn sexprSymEql(v: Value, name: []const u8) bool {
+    return types.isSymbol(v) and std.mem.eql(u8, types.symbolName(v), name);
+}
+
+// clauses is the raw tail of a `cond`: each clause is `(test body ...)`, with a
+// leading `else` or `=> proc` handled structurally (the markers are not refs).
+fn walkCondSexpr(w: *FreeNameWalk, clauses: Value) void {
+    var cl = clauses;
+    while (types.isPair(cl)) : (cl = types.cdr(cl)) {
+        const clause = types.car(cl);
+        if (!types.isPair(clause)) {
+            w.inexact = true;
+            return;
+        }
+        const test_expr = types.car(clause);
+        if (!sexprSymEql(test_expr, "else")) walkSexpr(w, test_expr);
+        var body = types.cdr(clause);
+        if (types.isPair(body) and sexprSymEql(types.car(body), "=>")) body = types.cdr(body);
+        while (types.isPair(body)) : (body = types.cdr(body)) {
+            walkSexpr(w, types.car(body));
+        }
+    }
+}
+
+// args is the raw tail of a `case`: `(key clause ...)`. The datum list in each
+// clause is quoted data (never referenced); only the key and bodies are refs.
+fn walkCaseSexpr(w: *FreeNameWalk, args: Value) void {
+    if (!types.isPair(args)) {
+        w.inexact = true;
+        return;
+    }
+    walkSexpr(w, types.car(args)); // key
+    var cl = types.cdr(args);
+    while (types.isPair(cl)) : (cl = types.cdr(cl)) {
+        const clause = types.car(cl);
+        if (!types.isPair(clause)) {
+            w.inexact = true;
+            return;
+        }
+        var body = types.cdr(clause); // car is the (literal) datum list
+        if (types.isPair(body) and sexprSymEql(types.car(body), "=>")) body = types.cdr(body);
+        while (types.isPair(body)) : (body = types.cdr(body)) {
+            walkSexpr(w, types.car(body));
+        }
+    }
+}
+
+// args is the raw tail of a `do`: `(specs (test result ...) command ...)`. The
+// loop variables are bound for the steps, test, results, and commands, but the
+// init expressions are evaluated in the enclosing scope.
+fn walkDoSexpr(w: *FreeNameWalk, args: Value) void {
+    if (!types.isPair(args)) {
+        w.inexact = true;
+        return;
+    }
+    const specs = types.car(args);
+    const rest = types.cdr(args);
+    if (!types.isPair(rest) or !types.isPair(types.car(rest))) {
+        w.inexact = true;
+        return;
+    }
+    const test_clause = types.car(rest);
+    const commands = types.cdr(rest);
+
+    const saved = w.bound_count;
+    defer w.bound_count = saved;
+
+    // Inits are evaluated before the loop variables are bound.
+    var s = specs;
+    while (types.isPair(s)) : (s = types.cdr(s)) {
+        const spec = types.car(s);
+        if (!types.isPair(spec) or !types.isSymbol(types.car(spec)) or !types.isPair(types.cdr(spec))) {
+            w.inexact = true;
+            return;
+        }
+        walkSexpr(w, types.car(types.cdr(spec)));
+    }
+    if (s != types.NIL) {
+        w.inexact = true;
+        return;
+    }
+    // Bind the loop variables for the rest of the form.
+    s = specs;
+    while (types.isPair(s)) : (s = types.cdr(s)) {
+        w.pushBound(types.symbolName(types.car(types.car(s))));
+    }
+    // Steps see the loop bindings.
+    s = specs;
+    while (types.isPair(s)) : (s = types.cdr(s)) {
+        const step_rest = types.cdr(types.cdr(types.car(s)));
+        if (types.isPair(step_rest)) walkSexpr(w, types.car(step_rest));
+    }
+    walkSexpr(w, types.car(test_clause));
+    var r = types.cdr(test_clause);
+    while (types.isPair(r)) : (r = types.cdr(r)) walkSexpr(w, types.car(r));
+    var c = commands;
+    while (types.isPair(c)) : (c = types.cdr(c)) walkSexpr(w, types.car(c));
+}
+
 fn walkSexpr(w: *FreeNameWalk, expr: Value) void {
     if (w.inexact) return;
     if (types.isSymbol(expr)) {
@@ -1273,6 +1412,11 @@ fn walkSexpr(w: *FreeNameWalk, expr: Value) void {
             }
             return walkLetSexpr(w, rest, !is_let);
         }
+        // cond/case/do are natively lowered (#1496); scope their clauses so a
+        // capture inside one is seen. (They are no longer isEvalFallbackForm.)
+        if (std.mem.eql(u8, name, "cond")) return walkCondSexpr(w, types.cdr(expr));
+        if (std.mem.eql(u8, name, "case")) return walkCaseSexpr(w, types.cdr(expr));
+        if (std.mem.eql(u8, name, "do")) return walkDoSexpr(w, types.cdr(expr));
         // An internal define introduces a binding this walk does not model.
         if (std.mem.eql(u8, name, "define")) {
             w.inexact = true;
