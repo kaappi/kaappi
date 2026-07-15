@@ -27,8 +27,11 @@ zig build -Dgc-stress=true         # force GC on every allocation (stress testin
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
 `-o <file>`, `--disassemble`, `--no-ir-opt` (disable IR optimization passes;
-also skips the `.sbc` cache — useful for miscompilation triage and
-`--disassemble` comparisons), `--sandbox`, `--gc-stats`,
+also skips the `.sbc` cache in both directions — useful for miscompilation
+triage and `--disassemble` comparisons; note the cache key now folds in the
+git build id, so a rebuilt binary never serves the old binary's bytecode —
+the old "delete the cache before testing compiler changes" footgun is fixed,
+see `docs/dev/cache.md`), `--sandbox`, `--gc-stats`,
 `--profile`, `--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
 `Diagnostic` objects on stderr — see `docs/dev/diagnostics-json.md`),
 `--deny-warnings` (`check`-only: promote lint warnings to errors),
@@ -63,8 +66,14 @@ separators, closing parens gathered, reflowed to 80 cols): it rewrites files in
 place (or formats stdin to stdout), while `--check` writes nothing and exits
 nonzero listing paths that need formatting; every write is guarded by a
 real-reader `equal?` round-trip so it can never change a program — see
-`docs/dev/fmt.md`. Version is defined as `pub const version`
-in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
+`docs/dev/fmt.md`. `kaappi cache status|clear` inspects and wipes the central
+bytecode cache: `status` prints its location, entry count, total size, and per
+entry the size, producing build id (current vs. stale), and source path;
+`clear` removes every entry — the supported way to wipe it, so you never need
+to know the path. See `docs/dev/cache.md`. Version is defined as
+`pub const version` in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides
+`libkaappi_rt.a` lookup; `KAAPPI_HOME` (default `~/.kaappi`) locates the
+bytecode cache (`$KAAPPI_HOME/cache`), installed libraries, and REPL history.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),
 `-Dmax-registers=N` (initial register count, default 2048, grows to 65536),

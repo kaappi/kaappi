@@ -92,18 +92,36 @@ assert_works "green fibers" '(import (kaappi fibers)) (fiber-join (spawn (lambda
 echo
 echo "=== Bytecode cache (#785) ==="
 
-# Sandbox must not write .sbc bytecode cache files
+# Sandbox must not write bytecode cache files. The run-cache lives at
+# $KAAPPI_HOME/cache (kaappi#1516), so isolate it in a temp HOME and count .sbc
+# entries. An import-free program is used so a *non-sandbox* run would populate
+# the cache — the positive control below relies on that to prove this check can
+# actually catch a regression.
 tmpdir=$(mktemp -d)
+cachehome=$(mktemp -d)
 echo '(display "hello")(newline)' > "$tmpdir/hello.scm"
-"$KAAPPI" --sandbox "$tmpdir/hello.scm" > /dev/null 2>&1 || true
-if [ -f "$tmpdir/hello.sbc" ]; then
-    echo "FAIL: --sandbox wrote .sbc cache file"
+count_cache() { find "$cachehome/cache" -name '*.sbc' 2>/dev/null | wc -l | tr -d ' '; }
+
+env KAAPPI_HOME="$cachehome" "$KAAPPI" --sandbox "$tmpdir/hello.scm" > /dev/null 2>&1 || true
+if [ "$(count_cache)" != "0" ]; then
+    echo "FAIL: --sandbox wrote a bytecode cache entry"
     FAIL=$((FAIL + 1))
 else
-    echo "PASS: --sandbox did not write .sbc cache"
+    echo "PASS: --sandbox did not write a bytecode cache entry"
     PASS=$((PASS + 1))
 fi
-rm -rf "$tmpdir"
+
+# Positive control: the same program run WITHOUT --sandbox must populate the
+# cache, proving the assertion above isn't vacuously true.
+env KAAPPI_HOME="$cachehome" "$KAAPPI" "$tmpdir/hello.scm" > /dev/null 2>&1 || true
+if [ "$(count_cache)" != "0" ]; then
+    echo "PASS: a normal run writes a bytecode cache entry (control)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: normal run wrote no cache entry — sandbox check would be vacuous"
+    FAIL=$((FAIL + 1))
+fi
+rm -rf "$tmpdir" "$cachehome"
 
 echo
 echo "=== Resource limits ==="

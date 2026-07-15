@@ -312,6 +312,7 @@ pub fn printUsage() void {
             "       kaappi ast|expand|ir <file.scm>\n" ++
             "       kaappi doctor [--json]\n" ++
             "       kaappi fmt [--check] [files...]\n" ++
+            "       kaappi cache <status|clear>\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
@@ -332,6 +333,8 @@ pub fn printUsage() void {
             "  fmt [files...]     Canonically format Scheme in place; --check reports\n" ++
             "                     paths needing formatting (exit 1) without writing.\n" ++
             "                     With no files, formats stdin to stdout\n" ++
+            "  cache status       Show the bytecode cache location, entries, and sizes\n" ++
+            "  cache clear        Remove all bytecode cache entries\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++

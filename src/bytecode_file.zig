@@ -1,5 +1,6 @@
 const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
+const build_options = @import("build_options");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const main = @import("main.zig");
@@ -11,16 +12,25 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
+// v10 (kaappi#1516): the header carries the producing build id and the source
+// path after the compiler hash, so `kaappi cache status` can report which
+// source and which binary produced each cache entry. The compiler hash itself
+// now folds in the git build id (see `compilerHash`), so a dev rebuild at the
+// same version string — different commit or a dirty tree — no longer collides.
 // v9 (kaappi#1506): line-table entries carry a column alongside the line so
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
 // silently recompiled — no stale-cache hazard.
-const VERSION: u16 = 9;
+const VERSION: u16 = 10;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
 const MAX_CONSTANTS_PER_FUNCTION: u32 = 65_535;
 const MAX_SYMBOL_BYTES: u16 = 4_096;
+// Upper bound for the two length-prefixed header strings (build id, source
+// path). A path can approach PATH_MAX (4096 on Linux); build ids are short.
+// Writes truncate to this; reads reject anything longer as corrupt.
+const MAX_HEADER_STR_BYTES: u16 = 4_096;
 const MAX_STRING_BYTES: u32 = 1_048_576;
 const MAX_VECTOR_LEN: u32 = 262_144;
 const MAX_BYTEVECTOR_LEN: u32 = 1_048_576;
@@ -103,6 +113,15 @@ const Writer = struct {
         self.buf.appendSlice(allocator, data) catch return BytecodeError.OutOfMemory;
     }
 
+    /// A u16-length-prefixed header string, truncated to `MAX_HEADER_STR_BYTES`
+    /// (informational fields — provenance for `cache status` — so a pathological
+    /// over-long path is clamped rather than rejected).
+    fn writeStr(self: *Writer, allocator: std.mem.Allocator, s: []const u8) !void {
+        const n: u16 = @intCast(@min(s.len, MAX_HEADER_STR_BYTES));
+        try self.writeU16(allocator, n);
+        try self.writeBytes(allocator, s[0..n]);
+    }
+
     fn deinit(self: *Writer, allocator: std.mem.Allocator) void {
         self.buf.deinit(allocator);
     }
@@ -164,6 +183,14 @@ const Reader = struct {
         const result = self.data[self.pos..][0..len];
         self.pos += len;
         return result;
+    }
+
+    /// Reads a u16-length-prefixed header string, returning a slice that
+    /// borrows `self.data` (valid as long as the backing buffer is).
+    fn readStr(self: *Reader) ![]const u8 {
+        const n = try self.readU16();
+        if (n > MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+        return self.readBytes(n);
     }
 };
 
@@ -587,7 +614,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
 // Enhanced writeFile that records the top-level function count
 // ---------------------------------------------------------------------------
 
-fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64) !std.ArrayList(*Function) {
+fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, source_path: []const u8) !std.ArrayList(*Function) {
     const all_funcs_list = try collectFunctions(allocator, top_level_funcs);
     const all_funcs = all_funcs_list.items;
 
@@ -595,6 +622,12 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, source_hash);
     try w.writeU64(allocator, compilerHash());
+    // Provenance (v10): the build that produced this cache and the source it
+    // came from. Folded into no hash — purely for `kaappi cache status` to
+    // report. The build id is also part of `compilerHash`, so a stale entry is
+    // rejected on load regardless of what these strings say.
+    try w.writeStr(allocator, build_options.git_build_id);
+    try w.writeStr(allocator, source_path);
     try w.writeU32(allocator, @intCast(all_funcs.len));
     try w.writeU32(allocator, @intCast(top_level_funcs.len));
 
@@ -654,11 +687,11 @@ fn writeBufferToFile(w: *Writer, path: []const u8) !void {
     }
 }
 
-pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, path: []const u8) !void {
+pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, source_path: []const u8, path: []const u8) !void {
     var w = Writer.init();
     defer w.deinit(allocator);
 
-    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash);
+    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash, source_path);
     defer all_funcs_list.deinit(allocator);
 
     // Empty bundled files and preamble sections (regular cache files)
@@ -673,6 +706,7 @@ pub fn writeFileWithBundle(
     allocator: std.mem.Allocator,
     top_level_funcs: []*Function,
     source_hash: u64,
+    source_path: []const u8,
     bundled_files: *const std.StringHashMap([]const u8),
     preamble: []const []const u8,
     path: []const u8,
@@ -680,7 +714,7 @@ pub fn writeFileWithBundle(
     var w = Writer.init();
     defer w.deinit(allocator);
 
-    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash);
+    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash, source_path);
     defer all_funcs_list.deinit(allocator);
 
     // Bundled files section
@@ -715,7 +749,10 @@ pub const DeserializeResult = struct {
 fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
     const allocator = gc.allocator;
 
-    if (data.len < 30) return null;
+    // Enough for the fixed prefix (magic + version + source hash + compiler
+    // hash); the variable-length strings that follow are bounds-checked as they
+    // are read.
+    if (data.len < 22) return null;
 
     var r = Reader{ .data = data, .pos = 0 };
 
@@ -732,6 +769,12 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
 
     const file_compiler_hash = r.readU64() catch return null;
     if (file_compiler_hash != compilerHash()) return null;
+
+    // Provenance strings (v10): build id then source path. Read to advance the
+    // cursor; the loaded functions don't need them (they are for `cache
+    // status`). A truncated header here is a corrupt cache — treat as a miss.
+    _ = r.readStr() catch return null;
+    _ = r.readStr() catch return null;
 
     const func_count = r.readU32() catch return null;
     if (func_count == 0 or func_count > MAX_FUNCTIONS) return null;
@@ -930,8 +973,63 @@ pub fn sourceHash(source: []const u8) u64 {
     return std.hash.Wyhash.hash(0, source);
 }
 
+/// The cache-key half that identifies the *compiler*. Combines the release
+/// version string with the git build id (short HEAD hash, `-dirty` when the
+/// tree had uncommitted changes; "unknown" when git is unavailable at build
+/// time). Two binaries built from the same commit with a clean tree share a
+/// key and may reuse each other's cache; any other pair — a dev rebuild after
+/// an edit, a different commit, a dirty vs. clean tree — differs, so a stale
+/// entry is rejected on load and recompiled. This closes the long-standing
+/// footgun where same-version rebuilds silently ran the previous binary's
+/// bytecode (kaappi#1516). Pure in its inputs so the keying is unit-testable.
+pub fn compilerHashFor(version_str: []const u8, build_id: []const u8) u64 {
+    var h = std.hash.Wyhash.init(0);
+    h.update(version_str);
+    h.update(&[_]u8{0}); // separator: keep version/build-id boundary unambiguous
+    h.update(build_id);
+    return h.final();
+}
+
 pub fn compilerHash() u64 {
-    return std.hash.Wyhash.hash(0, main.version);
+    return compilerHashFor(main.version, build_options.git_build_id);
+}
+
+/// A cache entry's header, as surfaced by `kaappi cache status`. The `build_id`
+/// and `source_path` slices borrow the buffer passed to `readHeaderInfo`.
+pub const HeaderInfo = struct {
+    source_hash: u64,
+    compiler_hash: u64,
+    build_id: []const u8,
+    source_path: []const u8,
+    /// True when this entry was produced by the running binary — i.e. a plain
+    /// run of its source would hit (given the source is unchanged).
+    current_build: bool,
+};
+
+/// Parse just the header of a `.sbc` buffer for reporting, without
+/// deserializing any functions. Returns null when the buffer is not a
+/// current-format Kaappi cache file (bad magic, or a version this binary can't
+/// parse) — `cache status` shows such files by size only. Unlike the load path
+/// this does *not* reject on a compiler-hash mismatch: reporting stale entries
+/// from other builds is the whole point.
+pub fn readHeaderInfo(data: []const u8) ?HeaderInfo {
+    if (data.len < 22) return null;
+    var r = Reader{ .data = data, .pos = 0 };
+    const magic = r.readBytes(4) catch return null;
+    if (!std.mem.eql(u8, magic, &MAGIC)) return null;
+    const ver = r.readU16() catch return null;
+    if (ver != VERSION) return null;
+    const source_hash_val = r.readU64() catch return null;
+    const compiler_hash_val = r.readU64() catch return null;
+    const build_id = r.readStr() catch return null;
+    const source_path = r.readStr() catch return null;
+    return .{
+        .source_hash = source_hash_val,
+        .compiler_hash = compiler_hash_val,
+        .build_id = build_id,
+        .source_path = source_path,
+        .current_build = compiler_hash_val == compilerHash(),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -981,7 +1079,7 @@ test "bytecode round-trip: simple function" {
     const hash: u64 = 12345;
     const path = "/tmp/kaappi_test_roundtrip.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
         // Clean up test file
         _ = std.posix.system.unlink(@ptrCast(path));
@@ -1022,7 +1120,7 @@ test "bytecode round-trip: hash mismatch returns null" {
     var funcs_arr = [_]*Function{func};
     const path = "/tmp/kaappi_test_mismatch.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, 12345, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, 12345, "test.scm", path);
     defer {
         _ = std.posix.system.unlink(@ptrCast(path));
     }
@@ -1078,7 +1176,7 @@ test "bytecode round-trip: various constant types" {
     const hash: u64 = 54321;
     const path = "/tmp/kaappi_test_constants.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
         _ = std.posix.system.unlink(@ptrCast(path));
     }
@@ -1145,7 +1243,7 @@ test "bytecode round-trip: nested functions" {
     const hash: u64 = 77777;
     const path = "/tmp/kaappi_test_nested.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
         _ = std.posix.system.unlink(@ptrCast(path));
     }
@@ -1192,11 +1290,83 @@ test "stale compiler version rejects cache" {
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, hash);
     try w.writeU64(allocator, compilerHash() +% 1); // different compiler version
+    try w.writeStr(allocator, "unknown"); // build id
+    try w.writeStr(allocator, "test.scm"); // source path
     try w.writeU32(allocator, 1);
     try w.writeU32(allocator, 1);
 
     const result = try deserializeFromBuffer(&gc, w.buf.items, hash);
     try std.testing.expect(result == null);
+}
+
+test "compilerHashFor: same version, different build id → different key" {
+    // The heart of kaappi#1516: a dev rebuild keeps the version string but
+    // changes the git build id (new commit, or clean→dirty). The compiler key
+    // must change so the older binary's bytecode is never reused.
+    const v = "9.9.9";
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa") != compilerHashFor(v, "bbbbbbb"));
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa") != compilerHashFor(v, "aaaaaaa-dirty"));
+    // A clean rebuild of the exact same commit keeps the key (caches shareable).
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa") == compilerHashFor(v, "aaaaaaa"));
+    // The version/build-id separator prevents boundary collisions: "a"+"bc"
+    // must not hash equal to "ab"+"c".
+    try std.testing.expect(compilerHashFor("a", "bc") != compilerHashFor("ab", "c"));
+}
+
+test "dev rebuild (different build id) rejects cache" {
+    // End-to-end at the load boundary: a cache whose header records a compiler
+    // hash from a *different* build (same version, other commit/dirty state) is
+    // a miss, so a freshly rebuilt binary recompiles rather than running the
+    // previous binary's bytecode.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+
+    const hash: u64 = 0x5EED;
+    const other_build_key = compilerHashFor(main.version, "0000000-other-build");
+    try std.testing.expect(other_build_key != compilerHash()); // precondition
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, VERSION);
+    try w.writeU64(allocator, hash);
+    try w.writeU64(allocator, other_build_key);
+    try w.writeStr(allocator, "0000000-other-build");
+    try w.writeStr(allocator, "prog.scm");
+    try w.writeU32(allocator, 1);
+    try w.writeU32(allocator, 1);
+
+    const result = try deserializeFromBuffer(&gc, w.buf.items, hash);
+    try std.testing.expect(result == null);
+}
+
+test "readHeaderInfo round-trips build id and source path" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try gc.allocFunction();
+    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.arity = 0;
+    func.locals_count = 1;
+
+    var funcs_arr = [_]*Function{func};
+    const path = "/tmp/kaappi_test_headerinfo.sbc";
+    defer _ = std.posix.system.unlink(@ptrCast(path.ptr));
+    try writeFileWithTopLevel(allocator, &funcs_arr, 0xABCD, "/home/u/prog.scm", path);
+
+    const data = try file_utils.readWholeFile(allocator, path, 1 << 20);
+    defer allocator.free(data);
+
+    const info = readHeaderInfo(data) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 0xABCD), info.source_hash);
+    try std.testing.expectEqualStrings(build_options.git_build_id, info.build_id);
+    try std.testing.expectEqualStrings("/home/u/prog.scm", info.source_path);
+    // Written by this very binary, so it reads back as the current build.
+    try std.testing.expect(info.current_build);
 }
 
 test "bytecode validation rejects oversized function count header" {
@@ -1212,6 +1382,8 @@ test "bytecode validation rejects oversized function count header" {
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, hash);
     try w.writeU64(allocator, compilerHash());
+    try w.writeStr(allocator, "unknown"); // build id
+    try w.writeStr(allocator, "test.scm"); // source path
     try w.writeU32(allocator, @as(u32, @intCast(MAX_FUNCTIONS + 1)));
     try w.writeU32(allocator, 1);
 
@@ -1283,7 +1455,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const hash: u64 = 88888;
     const path = "/tmp/kaappi_test_advanced_consts.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
         _ = std.posix.system.unlink(@ptrCast(path));
     }
@@ -1341,7 +1513,7 @@ test "bytecode round-trip: line table and source_line preserved" {
     const hash: u64 = 11111;
     const path = "/tmp/kaappi_test_linetable.sbc";
 
-    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer _ = std.posix.system.unlink(@ptrCast(path));
 
     const result = try readFileWithTopLevel(&gc, hash, path);
@@ -1378,6 +1550,8 @@ test "bytecode validation rejects invalid opcode" {
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, hash);
     try w.writeU64(allocator, compilerHash());
+    try w.writeStr(allocator, "unknown"); // build id
+    try w.writeStr(allocator, "test.scm"); // source path
     try w.writeU32(allocator, 1); // function count
     try w.writeU32(allocator, 1); // top-level count
 

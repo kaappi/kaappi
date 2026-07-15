@@ -35,6 +35,7 @@ investigation produced analysis worth keeping.
 | [explain.md](explain.md) | `kaappi explain <code>`: the binary's own offline diagnostic reference (prose + example + fix), and the generator for the kaappi-lang.org page |
 | [features.md](features.md) | `kaappi features [--json]`: machine-readable capability discovery — version/build id, subsystems (the shared `cond-expand` table), SRFIs, limits |
 | [doctor.md](doctor.md) | `kaappi doctor`: installation/environment self-check — the checks, the exit-code contract, the native-backend smoke link |
+| [cache.md](cache.md) | The `.sbc` bytecode cache: what the key contains (source hash + build id), where entries live, what invalidates them, how to inspect/clear/bypass |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
 ## Design decisions

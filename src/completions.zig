@@ -19,7 +19,7 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
-    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false has_doctor=false has_features=false has_fmt=false
+    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false has_doctor=false has_features=false has_fmt=false has_cache=false
     \\    for word in "${COMP_WORDS[@]}"; do
     \\        [[ "$word" == "compile" ]] && has_compile=true
     \\        [[ "$word" == "explain" ]] && has_explain=true
@@ -29,6 +29,7 @@ const kaappi_bash =
     \\        [[ "$word" == "doctor" ]] && has_doctor=true
     \\        [[ "$word" == "features" ]] && has_features=true
     \\        [[ "$word" == "fmt" ]] && has_fmt=true
+    \\        [[ "$word" == "cache" ]] && has_cache=true
     \\    done
     \\
     \\    if $has_explain; then
@@ -66,6 +67,11 @@ const kaappi_bash =
     \\        return
     \\    fi
     \\
+    \\    if $has_cache; then
+    \\        COMPREPLY=($(compgen -W "status clear" -- "$cur"))
+    \\        return
+    \\    fi
+    \\
     \\    if [[ "$cur" == -* ]]; then
     \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
@@ -74,7 +80,7 @@ const kaappi_bash =
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile check explain features test ast expand ir doctor fmt" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile check explain features test ast expand ir doctor fmt cache" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -112,7 +118,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile check explain features test ast expand ir doctor fmt)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile check explain features test ast expand ir doctor fmt cache)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -152,6 +158,8 @@ const kaappi_fish =
     \\complete -c kaappi -a ir -d 'Print the IR tree (--no-opt for pre-optimization)'
     \\complete -c kaappi -a doctor -d 'Check the installation and environment (--json)'
     \\complete -c kaappi -a fmt -d 'Canonically format Scheme (--check for CI)'
+    \\complete -c kaappi -n '__fish_use_subcommand' -a cache -d 'Inspect or clear the bytecode cache'
+    \\complete -c kaappi -n '__fish_seen_subcommand_from cache' -a 'status clear' -d 'Cache action'
     \\
 ;
 
