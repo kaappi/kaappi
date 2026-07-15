@@ -120,3 +120,43 @@ test "user (error ...) objects are uncoded" {
     const eo = types.toObject(result).as(types.ErrorObject);
     try std.testing.expectEqual(Code.uncategorized, eo.code);
 }
+
+test "natively-propagating runtime errors are coded when caught by guard" {
+    // Type/arity/undefined-variable/index errors propagate as Zig errors, not
+    // pre-built objects; the with-exception-handler boundary stamps their code
+    // onto the object it hands the guard clause, so error-object-code can
+    // recover it (KEP-0005 §4, #1508).
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const cases = .{
+        .{ "(car 5)", Code.type_error },
+        .{ "undefined-name", Code.undefined_variable },
+        .{ "((lambda (x) x) 1 2)", Code.arity_mismatch },
+        .{ "(vector-ref (vector) 0)", Code.index_out_of_bounds },
+    };
+    inline for (cases) |c| {
+        const result = try ctx.vm.eval("(guard (e (#t e)) " ++ c[0] ++ ")");
+        try std.testing.expect(types.isErrorObject(result));
+        try std.testing.expectEqual(c[1], types.toObject(result).as(types.ErrorObject).code);
+    }
+}
+
+test "error-object-code returns the code as an eq?-able KP symbol" {
+    // The accessor materializes an interned symbol from the ordinal, so `eq?`
+    // against the reader's 'KPnnnn is the intended dispatch primitive.
+    try th.expectEvalTrue("(eq? (error-object-code (guard (e (#t e)) (/ 1 0))) 'KP3004)");
+    try th.expectEvalTrue("(eq? (error-object-code (guard (e (#t e)) (car 5))) 'KP3002)");
+    try th.expectEvalTrue("(eq? (error-object-code (guard (e (#t e)) undefined-name)) 'KP3001)");
+}
+
+test "error-object-code is #f for uncoded and non-error inputs" {
+    // A user (error ...) is uncoded; the KP namespace is the implementation's.
+    try th.expectEvalBool("(error-object-code (guard (e (#t e)) (error \"boom\" 1 2)))", false);
+    // error-object-code never raises, unlike error-object-message/-irritants —
+    // a raised non-error value (R7RS `raise` takes any value) and any other
+    // datum both answer #f, so it is safe as a guard's first dispatch check.
+    try th.expectEvalBool("(error-object-code (guard (e (#t e)) (raise 'sym)))", false);
+    try th.expectEvalBool("(error-object-code 42)", false);
+    try th.expectEvalBool("(error-object-code \"not-an-error\")", false);
+}

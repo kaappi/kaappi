@@ -5,6 +5,7 @@ const primitives = @import("primitives.zig");
 const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const primitives_io = @import("primitives_io.zig");
+const diagnostics = @import("diagnostics.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -18,6 +19,9 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "error-object?", .func = &errorObjectP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "error-object-message", .func = &errorObjectMessage, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "error-object-irritants", .func = &errorObjectIrritants, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    // KEP-0005 §4 (#1508): the stable diagnostic code is additive metadata in
+    // its own (kaappi diagnostics) library, never an extension of scheme.base.
+    .{ .name = "error-object-code", .func = &errorObjectCode, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_diagnostics) },
     .{ .name = "file-error?", .func = &fileErrorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "read-error?", .func = &readErrorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "call-with-current-continuation", .func = &callWithCurrentContinuation, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
@@ -113,7 +117,14 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             return PrimitiveError.ExceptionRaised;
         }
         vm.popHandler();
-        // Convert VM-level errors into Scheme exceptions so guard can catch them
+        // Convert VM-level errors into Scheme exceptions so guard can catch them.
+        // This is the single boundary where a natively-propagating runtime error
+        // (undefined variable, type error, arity, ...) becomes the error object a
+        // guard clause sees, so it is where the error's stable diagnostic code
+        // gets stamped onto the object — that is what makes `error-object-code`
+        // able to recover it (KEP-0005 §4, #1508). `runtimeErrorCode` maps the
+        // Zig error to its curated code and yields `.uncategorized` (→ #f) for
+        // anything without one.
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const detail = vm.getErrorDetail();
         var msg_str = if (detail.len > 0)
@@ -122,7 +133,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             gc.allocString("error") catch return PrimitiveError.OutOfMemory;
         gc.pushRoot(&msg_str);
         defer gc.popRoot();
-        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch return PrimitiveError.OutOfMemory;
+        const err_obj = gc.allocErrorObjectCoded(msg_str, types.NIL, diagnostics.runtimeErrorCode(err)) catch return PrimitiveError.OutOfMemory;
         var handler_root = handler;
         gc.pushRoot(&handler_root);
         defer gc.popRoot();
@@ -154,6 +165,30 @@ fn errorObjectIrritants(args: []const Value) PrimitiveError!Value {
     if (!types.isErrorObject(args[0])) return primitives.typeError("error-object-irritants", "error object", args[0]);
     const err = types.toObject(args[0]).as(types.ErrorObject);
     return err.irritants;
+}
+
+/// (error-object-code obj) — KEP-0005 §4 (#1508). Returns the interned symbol
+/// for the stable diagnostic code the implementation stamped on `obj` (e.g.
+/// `KP3004` for a division-by-zero error), or #f when there is none.
+///
+/// Deliberately a *total* function that never raises, unlike the R7RS
+/// error-object-message/-irritants accessors: it is meant to be the first
+/// dispatch check inside a `guard`, where R7RS `raise` may have delivered any
+/// value at all. A non-error object and an uncoded error object (a user
+/// `(error ...)`, whose code stays `.uncategorized`) both answer #f, so a
+/// program can `(eq? (error-object-code e) 'KP3001)` without first proving `e`
+/// is even an error object. `eq?` works because the symbol is interned.
+fn errorObjectCode(args: []const Value) PrimitiveError!Value {
+    if (!types.isErrorObject(args[0])) return types.FALSE;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    // `.uncategorized` is the "no code assigned" sentinel — the KP namespace is
+    // reserved to the implementation, so uncoded errors surface as #f.
+    if (err.code == .uncategorized) return types.FALSE;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var buf: [diagnostics.Code.render_width]u8 = undefined;
+    // `render` writes into the stack buffer and allocSymbol interns from it
+    // (never collecting), so nothing here needs rooting.
+    return gc.allocSymbol(err.code.render(&buf)) catch return PrimitiveError.OutOfMemory;
 }
 
 fn fileErrorP(args: []const Value) PrimitiveError!Value {
