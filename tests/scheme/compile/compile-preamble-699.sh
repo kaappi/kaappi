@@ -1,8 +1,14 @@
 #!/bin/bash
 # Regression test for #699: compileFile GC safety and preamble recording.
 # Exercises the --compile path (compileFile), which roots expr before
-# handleTopLevelForm and always appends to preamble. Compiles to .sbc,
-# then re-runs the .scm (which loads the cached .sbc) to verify imports replay.
+# handleTopLevelForm and always appends to preamble, then re-runs the .scm to
+# confirm the program still evaluates correctly.
+#
+# Note (kaappi#1516): the run-cache moved to ~/.kaappi/cache and is skipped for
+# programs that import, so the re-run below is a fresh compile — it no longer
+# loads the co-located test.sbc. Preamble *replay from a .sbc* is covered by
+# the bundle tests (compile-preamble-gc-700.sh, compile-import-error-703.sh),
+# which embed the .sbc and replay its preamble via readFromBuffer.
 #
 # Usage: bash tests/scheme/compile/compile-preamble-699.sh [path-to-kaappi]
 

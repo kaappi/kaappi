@@ -17,10 +17,17 @@ if [[ ! -x zig-out/bin/kaappi ]]; then
 fi
 KAAPPI=zig-out/bin/kaappi
 
+# Isolate ~/.kaappi so the suite is hermetic: plain `kaappi <file>` runs write a
+# bytecode cache under $KAAPPI_HOME/cache (kaappi#1516), and we don't want the
+# suite reading or polluting the developer's real cache (or history/config).
+# Tests that need their own HOME (e.g. exe-relative-lib-1523) override this.
+KAAPPI_HOME_TMP=$(mktemp -d /tmp/kaappi-test-home-XXXXXX)
+export KAAPPI_HOME="$KAAPPI_HOME_TMP"
+
 TMPOUT=$(mktemp /tmp/kaappi-test-XXXXXX)
 TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
 TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
-trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"' EXIT
+trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
 
 TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 PASS=0
@@ -159,6 +166,7 @@ run_shell_suite "Test runner" tests/scheme/test-runner
 run_shell_suite "Pipeline dumps" tests/scheme/pipeline
 run_shell_suite "Doctor" tests/scheme/doctor
 run_shell_suite "Formatter" tests/scheme/fmt
+run_shell_suite "Cache" tests/scheme/cache
 
 echo "=== R7RS test suite ==="
 set +e

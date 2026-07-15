@@ -145,7 +145,7 @@ const loader_corpus = [_][]const u8{
     seed(loader_buf_len, sbc_fixture[0 .. sbc_fixture.len - 1]), // one byte short
     seed(loader_buf_len, corruptedFixture(0, 0x01)), // corrupt magic
     seed(loader_buf_len, corruptedFixture(4, 0xFF)), // corrupt format version
-    seed(loader_buf_len, corruptedFixture(22, 0x10)), // corrupt function count
+    seed(loader_buf_len, corruptedFixture(22, 0x10)), // corrupt build-id length field (v10 header)
     seed(loader_buf_len, corruptedFixture(sbc_fixture.len / 2, 0x01)), // mid-body bit flip
     seed(loader_buf_len, corruptedFixture(sbc_fixture.len - 2, 0x80)), // tail bit flip
 };

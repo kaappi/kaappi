@@ -77,11 +77,11 @@ fi
 # Negative control: the same isolated binary with no sibling lib/ at all
 # must fail the same way the bug report did, proving the positive case above
 # actually exercises the exe-relative fallback rather than some other path.
-# The .sbc bytecode cache from the run above would otherwise let this load
-# straight from cached bytecode without re-resolving the library — delete it
-# first so the negative control genuinely re-imports (srfi 151).
+# No cached bytecode can mask this: the run-cache lives under HOME/.kaappi/cache
+# (kaappi#1516) — here the fake empty HOME — and is skipped anyway for programs
+# that import, which portable-srfi.scm does. So the negative control genuinely
+# re-imports (srfi 151).
 rm -rf "$TMPDIR_TESTS/dist/lib"
-rm -f "$TMPDIR_TESTS/elsewhere/portable-srfi.sbc"
 assert_isolated_exit "portable SRFI import fails without a sibling lib/" 1
 
 echo ""

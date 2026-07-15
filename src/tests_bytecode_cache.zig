@@ -72,7 +72,7 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
     var funcs_arr = [_]*Function{ f0, f1, f2 };
     const hash: u64 = 0x5BC0;
     const path = "/tmp/kaappi_test_sbc_survive_gc.sbc";
-    try bytecode_file.writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    try bytecode_file.writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer _ = std.posix.system.unlink(@ptrCast(path));
 
     const loaded = (try bytecode_file.readFileWithTopLevel(&gc, hash, path)) orelse
@@ -147,7 +147,7 @@ fn expectSbcEquivalence(source: []const u8) !void {
     // Phase 3: serialize → deserialize
     const hash: u64 = 0xE001;
     const path = "/tmp/kaappi_test_sbc_equiv.sbc";
-    try bytecode_file.writeFileWithTopLevel(allocator, funcs.items, hash, path);
+    try bytecode_file.writeFileWithTopLevel(allocator, funcs.items, hash, "test.scm", path);
     defer _ = std.posix.system.unlink(@ptrCast(path));
 
     const loaded = (try bytecode_file.readFileWithTopLevel(&gc2, hash, path)) orelse

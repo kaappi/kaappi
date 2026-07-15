@@ -392,7 +392,7 @@ test "stale .sbc next to .sld must not drop include-library-declarations exports
         try func.code.append(std.testing.allocator, 0); // src low
         func.locals_count = 1;
         var funcs_arr = [_]*types.Function{func};
-        try bytecode_file.writeFileWithTopLevel(std.testing.allocator, &funcs_arr, bytecode_file.sourceHash(sld_source), sbc_path);
+        try bytecode_file.writeFileWithTopLevel(std.testing.allocator, &funcs_arr, bytecode_file.sourceHash(sld_source), "cachedlib/mylib.sld", sbc_path);
     }
 
     var gc = memory.GC.init(std.testing.allocator);
