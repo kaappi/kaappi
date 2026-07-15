@@ -33,6 +33,7 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const file_utils = @import("file_utils.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
+const test_selection = @import("test_selection.zig");
 
 const VM = vm_mod.VM;
 const Value = types.Value;
@@ -276,8 +277,20 @@ fn writeFile(path: []const u8, bytes: []const u8) void {
 const ParentOpts = struct {
     json: bool = false,
     seed: ?u64 = null,
+    /// Run only tests affected by the change set (`--changed`).
+    changed: bool = false,
+    /// Print affected tests without running them (`--list-affected`).
+    list_affected: bool = false,
+    /// git revision the change set is computed against (`--since`, default HEAD).
+    since: []const u8 = "HEAD",
+    since_given: bool = false,
     lib_paths: std.ArrayList([]const u8) = .empty,
     paths: std.ArrayList([]const u8) = .empty,
+
+    /// True when either affected-selection mode is active.
+    fn selecting(self: *const ParentOpts) bool {
+        return self.changed or self.list_affected;
+    }
 
     fn deinit(self: *ParentOpts, allocator: std.mem.Allocator) void {
         self.lib_paths.deinit(allocator);
@@ -328,6 +341,17 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
                 return USAGE_ERROR_EXIT;
             };
             opts.lib_paths.append(allocator, val) catch return oom();
+        } else if (std.mem.eql(u8, arg, "--changed")) {
+            opts.changed = true;
+        } else if (std.mem.eql(u8, arg, "--list-affected")) {
+            opts.list_affected = true;
+        } else if (std.mem.eql(u8, arg, "--since")) {
+            const val = it.next() orelse {
+                writeStderr("kaappi test: --since requires a revision argument\n");
+                return USAGE_ERROR_EXIT;
+            };
+            opts.since = val;
+            opts.since_given = true;
         } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             printUsage();
             return 0;
@@ -339,6 +363,11 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
         } else {
             opts.paths.append(allocator, arg) catch return oom();
         }
+    }
+
+    if (opts.since_given and !opts.selecting()) {
+        writeStderr("kaappi test: --since requires --changed or --list-affected\n");
+        return USAGE_ERROR_EXIT;
     }
 
     return run(allocator, argv0, &opts);
@@ -379,6 +408,23 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     }
     std.mem.sort([]const u8, files.items, {}, lessThanStr);
 
+    // Affected-test selection (--changed / --list-affected). The selection note
+    // always goes to stderr so a full-run fallback is loud and JSON stdout stays
+    // pure. --list-affected prints and exits without running anything.
+    var selection: ?test_selection.Selection = null;
+    defer if (selection) |*s| s.deinit(allocator);
+    if (opts.selecting()) {
+        selection = test_selection.select(allocator, files.items, opts.since, opts.lib_paths.items);
+        const sel = &selection.?;
+        writeStderr(sel.note);
+        writeStderr("\n");
+        if (opts.list_affected) {
+            printAffected(allocator, sel.*, opts.json, opts.since);
+            return 0;
+        }
+    }
+    const run_list: []const []const u8 = if (selection) |*s| s.files else files.items;
+
     // Seed note goes to stderr so JSON Lines on stdout stay pure, and is
     // present on every run per the reproducibility requirement.
     {
@@ -390,7 +436,7 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     var totals: Totals = .{};
     const start_ns = clockNs();
 
-    for (files.items, 0..) |file, i| {
+    for (run_list, 0..) |file, i| {
         runOneFile(allocator, exe_path, file, opts, i, &totals);
     }
 
@@ -742,6 +788,38 @@ fn emitSummary(allocator: std.mem.Allocator, json: bool, t: *Totals, seed: u64, 
     writeStdout(s3);
 }
 
+/// Print the affected suites for `--list-affected` (nothing is run). Text mode
+/// writes one path per line to stdout, so the list pipes cleanly; JSON mode
+/// writes a single `{"type":"affected", …}` object. The explanatory note has
+/// already gone to stderr, so both stdout forms stay machine-clean.
+fn printAffected(allocator: std.mem.Allocator, sel: test_selection.Selection, json: bool, since: []const u8) void {
+    if (!json) {
+        for (sel.files) |f| {
+            writeStdout(f);
+            writeStdout("\n");
+        }
+        return;
+    }
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    const w = &aw.writer;
+    buildAffectedJson(w, sel, since) catch return;
+    writeStdout(aw.written());
+}
+
+fn buildAffectedJson(w: *std.Io.Writer, sel: test_selection.Selection, since: []const u8) !void {
+    try w.writeAll("{\"type\":\"affected\",\"since\":");
+    try lsp_diagnostic.writeJsonString(w, since);
+    try w.writeAll(",\"full_run\":");
+    try w.writeAll(if (sel.full_run) "true" else "false");
+    try w.print(",\"count\":{d},\"files\":[", .{sel.files.len});
+    for (sel.files, 0..) |f, i| {
+        if (i > 0) try w.writeByte(',');
+        try lsp_diagnostic.writeJsonString(w, f);
+    }
+    try w.writeAll("]}\n");
+}
+
 // ── Discovery ──────────────────────────────────────────────────────────
 
 /// Fill `out` with the test files to run. With no explicit paths, recurse
@@ -862,10 +940,20 @@ fn printUsage() void {
         \\                     printed on every run so failures are reproducible).
         \\  --lib-path <path>  Add a library search path (repeatable), forwarded to
         \\                     each test file — e.g. kaappi test --lib-path ./lib.
+        \\  --changed          Run only tests affected by files changed since --since,
+        \\                     computed from the R7RS import graph (imports + includes).
+        \\  --list-affected    Print affected tests (one per line) without running them.
+        \\  --since <rev>      git revision the change set is diffed against (default:
+        \\                     HEAD). Requires --changed or --list-affected.
         \\  -h, --help         Show this help.
         \\
         \\Exit status is nonzero iff a test failed, unexpectedly passed, or a file
-        \\errored.
+        \\errored. With --changed, an empty affected set is a clean exit (0).
+        \\
+        \\When the change set can't be trusted — git is unavailable, a revision is
+        \\unknown, or a native/FFI artifact changed — all tests run and the reason is
+        \\printed to stderr; a test is skipped only when its whole import closure is
+        \\provably unchanged.
         \\
     );
 }

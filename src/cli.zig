@@ -256,7 +256,8 @@ pub fn printUsage() void {
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
             "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
-            "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path\n" ++
+            "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
+            "                     --changed/--list-affected [--since <rev>]\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++

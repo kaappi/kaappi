@@ -1028,5 +1028,6 @@ test {
     _ = cli;
     _ = explain;
     _ = test_runner;
+    _ = @import("test_selection.zig");
     _ = config;
 }
