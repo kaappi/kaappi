@@ -261,6 +261,32 @@ pub fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reas
     return PrimitiveError.ExceptionRaised;
 }
 
+/// KEP-0002 §2 / invariant 4: a fiber (thread) value can only reach another OS
+/// thread through a shared global. Fibers sit on gc_deep_copy's uncopyable
+/// list, so they never ride a thread thunk or a channel message -- a thunk
+/// that captures a thread handle is rejected at thread-start! before any child
+/// spawns, and a child's own `(current-thread)` is a distinct fiber that
+/// ensureScheduler allocated on the child heap. So a fiber whose `owner` is not
+/// this GC is exactly the shared-global situation behind #1484: two threads
+/// clearing the same `os_thread` and double-`thread.join()`ing it (pthread-level
+/// UB), a losing joiner reading `target.result` before the winner has stored
+/// it, or a foreign thread-terminate! mutating another scheduler's fiber. Refuse
+/// it up front -- the same total treatment channel-send/-receive/-close!/-closed?
+/// give a foreign channel (only the `thread?` predicate is exempt, mirroring
+/// `channel?`) -- so the whole class is unreachable instead of patched case by
+/// case inside reapOsThread. The reason irritant is VOID, never the fiber
+/// itself: storing a foreign-heap object in an error the owner's GC may free
+/// would just re-open the dangling-pointer hazard this check exists to close.
+fn checkThreadOwner(fiber_val: Value, comptime proc: []const u8) PrimitiveError!void {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (types.toObject(fiber_val).owner == gc.id) return;
+    const msg = std.fmt.comptimePrint(
+        "{s}: thread belongs to another OS thread; a thread handle may only be used by the thread that created it",
+        .{proc},
+    );
+    _ = try raiseError(.general, msg, types.VOID);
+}
+
 // ---------------------------------------------------------------------------
 // Thread primitives
 // ---------------------------------------------------------------------------
@@ -300,6 +326,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
 fn threadNameFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-name", "thread", args[0]);
+    try checkThreadOwner(args[0], "thread-name");
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
     return fiber.name;
 }
@@ -307,6 +334,7 @@ fn threadNameFn(args: []const Value) PrimitiveError!Value {
 fn threadSpecificFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-specific", "thread", args[0]);
+    try checkThreadOwner(args[0], "thread-specific");
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
     return fiber.specific;
 }
@@ -314,6 +342,7 @@ fn threadSpecificFn(args: []const Value) PrimitiveError!Value {
 fn threadSpecificSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-specific-set!", "thread", args[0]);
+    try checkThreadOwner(args[0], "thread-specific-set!");
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
     fiber.specific = args[1];
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
@@ -333,6 +362,7 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
 fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-start!", "thread", args[0]);
+    try checkThreadOwner(args[0], "thread-start!");
 
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
@@ -600,6 +630,7 @@ fn getSleepSeconds(v: Value) PrimitiveError!f64 {
 fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-terminate!", "thread", args[0]);
+    try checkThreadOwner(args[0], "thread-terminate!");
 
     const ctx = try ensureScheduler();
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
@@ -660,6 +691,12 @@ fn sleepNs(ns: u64) void {
 fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-join!", "thread", args[0]);
+    // Before anything reads target.os_thread/status/result: a foreign fiber
+    // (reached only via a shared global) is the double-join UB and
+    // loser-reads-VOID race from #1484. Self-join stays a distinct, friendlier
+    // error below -- the current fiber is always this GC's own, so it passes
+    // here first.
+    try checkThreadOwner(args[0], "thread-join!");
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
