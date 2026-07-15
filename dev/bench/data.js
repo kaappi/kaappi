@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784140152056,
+  "lastUpdate": 1784142070741,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e965c1bab1118b4b936f6c678cbc72a4183cbc0b",
-          "message": "Fix non-exported library macros leaking to importers (#1332) (#1372)\n\ncopyTransformerFreeRefs copies free references of exported macros into\nthe importing environment so expansion chains work at the use site.\nWhen a free ref was itself a transformer, it was put into both vm.globals\n(as a value binding) and vm.macros (as a macro keyword), making\nnon-exported helper macros accessible via e.g. (display helper).\n\nSkip putting transformer free refs into vm.globals — they only need to\nbe in vm.macros for the compiler to expand them when the exported macro\nproduces code containing the helper keyword.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T11:41:51Z",
-          "tree_id": "500c69ca09c8de9df8e8399dc0b7f6e2848f0f4a",
-          "url": "https://github.com/kaappi/kaappi/commit/e965c1bab1118b4b936f6c678cbc72a4183cbc0b"
-        },
-        "date": 1783599275307,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.323339,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.023677,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.994178,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.384313,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012583,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.207109,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504567,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070018,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.664344,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.936869,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.243939,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.00673,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.484902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.719277,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043356,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044849,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1154d5c9e96c07f234baa6f9153af9163f9fdccb",
+          "message": "Cache transparency: `kaappi cache status|clear` + build-id cache keys (#1516) (#1576)\n\n* Add cache transparency: `kaappi cache status|clear` + build-id keys (#1516)\n\nThe `.sbc` bytecode cache was keyed on source hash + version *string*. During\ndevelopment the version string doesn't change between rebuilds, so a freshly\nrebuilt kaappi silently executed bytecode compiled by the previous binary —\nmanufacturing phantom bugs and masking real fixes. The standing workaround\n(\"delete the cache before testing compiler changes\") was tribal knowledge. For\nan agent, an invisible cache is a correctness hazard, not a convenience.\n\nHonest keys: `compilerHash` now folds in the git build id (short HEAD hash +\n`-dirty`) via a pure `compilerHashFor`, so any recompiled binary misses a cache\nthe old binary wrote. Two clean builds of the same commit still share a key.\n\nCentral store: the run-cache moves from co-located `file.sbc` to a single\n`$KAAPPI_HOME/cache` (default `~/.kaappi/cache`), keyed by absolute source path.\nThe `.sbc` header (VERSION 9→10) records the producing build id and source path\nfor reporting. `--compile` outputs are unchanged — explicit artifacts, not the\ncache — so the `--no-ir-opt --compile` poisoning guard is no longer needed and\nis removed.\n\nNew subcommands (`src/cache.zig`, dispatched before VM setup like doctor):\n  kaappi cache status   location, entry count, total size, and per entry the\n                        size, producing build id (current/stale), source path\n  kaappi cache clear    remove every entry — the one supported way to wipe it\n\nTests: unit tests prove the build-id key changes on same-version/different-build\nand that a foreign-build entry misses on load; `renderStatus`/`clearDir` are\ncovered over a temp dir; a new `cache-transparency-1516.sh` covers status/clear\n+ HIT-after-MISS end-to-end. `run-all.sh` isolates `KAAPPI_HOME` so the suite\nnever touches the developer's real cache. Fuzz `.sbc` fixture regenerated for\nthe v10 header.\n\nDocs: `docs/dev/cache.md` documents the key, location, invalidation, and bypass;\nCLAUDE.md and the project-notes footgun entries updated to \"fixed by build-id\nkeys\". HIT/MISS under `--timings` remains tracked in #1515.\n\nPart of #1503.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* cache: get entry size portably in cache clear (fix Linux build)\n\n`std.c.fstatat`/`std.c.Stat` are macOS-only in this Zig std — on Linux the\nglibc `__xstat` indirection leaves `std.c.fstatat` typed `void`, so the cache\nbuild failed to compile on every Linux target. Read the file length through\n`file_utils.readWholeFile` (the same portable path `renderStatus` already\nuses) instead of stat'ing, avoiding per-OS stat code for a cosmetic byte total.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T23:56:47+05:30",
+          "tree_id": "85dafc013bc586a500141db38b31db1f057d72e8",
+          "url": "https://github.com/kaappi/kaappi/commit/1154d5c9e96c07f234baa6f9153af9163f9fdccb"
+        },
+        "date": 1784142068506,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.380795,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.748018,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.963922,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.564705,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006372,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054475,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.527443,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070459,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.507386,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.035782,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.600623,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.445347,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.874458,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.771672,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044364,
             "unit": "seconds"
           }
         ]
