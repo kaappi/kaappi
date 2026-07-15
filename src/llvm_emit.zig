@@ -101,6 +101,11 @@ pub const LLVMEmitter = struct {
     // counters (string/sym/lambda) it is monotonic across the whole module and
     // deliberately NOT part of SavedScope.
     eval_cache_counter: u32,
+    // One global cache slot per quoted-heap-constant call site (#1495), naming
+    // each `@.quote_cache.N`. Distinct from eval_cache: it memoizes the built
+    // constant itself (a pair/vector value), not a compiled Function. Same
+    // module-monotonic, non-SavedScope discipline as the counters above.
+    quote_cache_counter: u32,
     arena: std.heap.ArenaAllocator,
     backing_alloc: std.mem.Allocator,
     current_fn_name: ?[]const u8 = null,
@@ -188,6 +193,7 @@ pub const LLVMEmitter = struct {
             .sym_counter = 0,
             .lambda_counter = 0,
             .eval_cache_counter = 0,
+            .quote_cache_counter = 0,
             .arena = std.heap.ArenaAllocator.init(backing),
             .backing_alloc = backing,
         };
@@ -253,6 +259,14 @@ pub const LLVMEmitter = struct {
         var cache_slot: u32 = 0;
         while (cache_slot < self.eval_cache_counter) : (cache_slot += 1) {
             try self.print("@.eval_cache.{d} = internal global i64 0\n", .{cache_slot});
+        }
+
+        // One mutable global per quoted-heap-constant call site (#1495): 0 until
+        // the literal is first built, then the cached pair/vector value. Emitted
+        // at module scope for the same reason as the eval-cache slots above.
+        var quote_slot: u32 = 0;
+        while (quote_slot < self.quote_cache_counter) : (quote_slot += 1) {
+            try self.print("@.quote_cache.{d} = internal global i64 0\n", .{quote_slot});
         }
 
         for (self.lambda_defs.items) |def| {
@@ -1357,15 +1371,32 @@ pub const LLVMEmitter = struct {
         return self.emitCachedEval(source);
     }
 
+    // A quoted heap constant (pair/vector/… — anything with no immediate
+    // representation) is serialized to a `(quote …)` source string and built
+    // once via the caching runtime entry point (#1495). Plain @kaappi_eval
+    // re-reads and re-builds the constant on every execution, which is both a
+    // hot-path cliff and a correctness divergence: the interpreter compiles a
+    // quote to a single constant-pool entry, so every evaluation of one literal
+    // returns the SAME object (`eq?`). @kaappi_quote_cached memoizes the built
+    // constant in a per-call-site global slot, reproducing that per-site sharing
+    // in native code. Distinct source occurrences get distinct slots, so two
+    // textually separate literals stay non-`eq?`, again matching the interpreter.
     fn emitQuotedEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
         const printed = printer.valueToString(self.backing_alloc, value, .write) catch return error.OutOfMemory;
         defer self.backing_alloc.free(printed);
         const source = std.fmt.allocPrint(self.backing_alloc, "(quote {s})", .{printed}) catch return error.OutOfMemory;
         defer self.backing_alloc.free(source);
         const str_name = try self.internString(source);
+        const slot_name = try self.nextQuoteCacheSlot();
         const tmp = try self.freshTemp();
-        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
+        try self.print("  {s} = call i64 @kaappi_quote_cached(ptr %vm, ptr {s}, i64 {d}, ptr {s})\n", .{ tmp, str_name, source.len, slot_name });
         return tmp;
+    }
+
+    fn nextQuoteCacheSlot(self: *LLVMEmitter) EmitError![]const u8 {
+        const id = self.quote_cache_counter;
+        self.quote_cache_counter += 1;
+        return std.fmt.allocPrint(self.allocator(), "@.quote_cache.{d}", .{id}) catch return error.OutOfMemory;
     }
 
     pub fn internSymbol(self: *LLVMEmitter, name: []const u8) EmitError![]const u8 {
