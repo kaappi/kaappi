@@ -48,7 +48,11 @@ closure changed, falling back to a loud full run when the graph can't be trusted
 pipeline-stage dumps: `ast` prints post-read datums (`read`+`write`), `expand`
 prints the program after full macro expansion (round-trips), `ir` prints the IR
 tree (`--no-opt` = before the optimization passes); none execute program code —
-see `docs/dev/observing-the-pipeline.md`. Version is defined as `pub const version`
+see `docs/dev/observing-the-pipeline.md`. `kaappi doctor [--json]` runs an
+installation/environment self-check (binary, library search path, thottam state,
+native backend + smoke link, REPL, FFI) printing `PASS`/`WARN`/`FAIL` per check
+with a fix for each failure; exit is nonzero only on `FAIL` — see
+`docs/dev/doctor.md`. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),

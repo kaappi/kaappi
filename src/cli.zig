@@ -296,6 +296,7 @@ pub fn printUsage() void {
             "       kaappi explain <code>\n" ++
             "       kaappi test [paths...]\n" ++
             "       kaappi ast|expand|ir <file.scm>\n" ++
+            "       kaappi doctor [--json]\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
@@ -309,6 +310,8 @@ pub fn printUsage() void {
             "  expand <file>      Print the program after full macro expansion\n" ++
             "  ir <file> [--no-opt]  Print the IR tree; --no-opt shows it before the\n" ++
             "                     optimization passes (default: after)\n" ++
+            "  doctor [--json]    Check the installation and environment; PASS/WARN/FAIL\n" ++
+            "                     per check with a fix for each failure\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++
