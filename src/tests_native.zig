@@ -891,6 +891,78 @@ test "LLVM emit: do in a function body stays native (#1496)" {
     try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
 
+// -- Removed fixed-size analysis buffers (#1498) --
+// The native lambda tiers used to bail to the interpreter when a function
+// exceeded fixed stack buffers ([16] params, [64] body forms, [16] captured
+// free vars, ...). Those are now arena-backed growable arrays, so only the
+// runtime's real u8 arity/upvalue ceiling remains.
+
+test "LLVM emit: a function with more than 16 params compiles natively (#1498)" {
+    // 20 fixed params — over the retired [16] param buffer. Before #1498 the
+    // whole define fell back to the interpreter (no @lambda_ for it).
+    var res = try emitMultiResult("(define (sum20 a b c d e f g h i j k l m n o p q r s t)" ++
+        " (+ a b c d e f g h i j k l m n o p q r s t))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; sum20\ndefine i64 @lambda_");
+    // The last (20th) parameter is read from its own %args slot, proving all
+    // params made it into the native frame.
+    try expectContains(ll, "getelementptr i64, ptr %args, i64 19");
+}
+
+test "LLVM emit: a closure capturing more than 16 free vars compiles natively (#1498)" {
+    // The inner lambda captures all 20 outer params — over the retired [16]
+    // free_vars buffer. Before #1498 it degraded to a closed closure with the
+    // captures resolved as globals.
+    var res = try emitMultiResult("(define (make a b c d e f g h i j k l m n o p q r s t)" ++
+        " (lambda (x) (+ x a b c d e f g h i j k l m n o p q r s t)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "define i64 @closure_");
+    // The 20th capture occupies upvalue slot 19; a real capture, not a global.
+    try expectContains(ll, "ptr %upvalues, i64 19");
+}
+
+test "LLVM emit: a function body with more than 64 forms compiles natively (#1498)" {
+    // 70 body forms — over the retired [64] body_nodes buffer.
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    try src.appendSlice(std.testing.allocator, "(define (f x)");
+    var i: usize = 0;
+    while (i < 70) : (i += 1) try src.appendSlice(std.testing.allocator, " x");
+    try src.appendSlice(std.testing.allocator, ")");
+    var res = try emitMultiResult(src.items);
+    defer res.deinit();
+    try expectContains(res.toSlice(), "; f\ndefine i64 @lambda_");
+}
+
+// -- Variadic self-tail-call loop (#1498) --
+
+test "LLVM emit: variadic self-tail recursion compiles as a loop, not a call (#1498)" {
+    var res = try emitMultiResult("(define (go n acc . rest)" ++
+        " (if (= n 0) acc (go (- n 1) (+ acc 1) n n)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; go\ndefine i64 @lambda_");
+    // The self-tail-call is a branch back to the body label (a loop), not a
+    // fresh recursive call, and it rebuilds the rest list with cons.
+    try expectContains(ll, "br label %body_");
+    try expectContains(ll, "call i64 @kaappi_cons");
+    // No self-call falls through to the general dispatch path.
+    try expectNotContains(ll, "call i64 @kaappi_call_scheme");
+}
+
+test "LLVM emit: a variadic frame's rest list is GC-rooted for the frame (#1498)" {
+    // The rest slot is pushed as a frame root at entry and popped before the
+    // trailing ret, so an allocation in the body cannot collect the spine.
+    var res = try emitMultiResult("(define (f a . rest) (+ a (length rest)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; f\ndefine i64 @lambda_");
+    try expectContains(ll, "call void @kaappi_gc_push_root");
+    try expectContains(ll, "call void @kaappi_gc_pop_roots");
+}
+
 test "LLVM emit: a lambda capturing a param through a cond gets an upvalue (#1496)" {
     // The free-variable analysis must descend into the cond's clauses, or the
     // capture of `base` degrades to a global lookup.

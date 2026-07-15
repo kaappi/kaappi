@@ -356,19 +356,28 @@ The three tiers, tried in order:
    preserving lexical scope (#827).
 
 **Supported natively:** fixed arity; variadic **rest parameters** (the rest
-list is built with a `kaappi_cons` loop, `emitRestListBuilder`); closures with
-by-value capture; and **self-tail-recursion compiled as a loop** — a self-call
-in tail position stores the new arguments and `br`s back to the function's body
-label rather than recursing (non-variadic named functions only).
+list is built once in the entry block with a `kaappi_cons` loop,
+`emitRestListBuilder`, and its frame slot is GC-rooted so an allocation in the
+body cannot collect the freshly-consed spine); closures with by-value capture;
+and **self-tail-recursion compiled as a loop** — a self-call in tail position
+stores the new arguments and `br`s back to the function's body label rather than
+recursing. A **variadic** self-call also rebuilds the rest list from the args
+past the fixed arity before branching, so variadic named functions loop too
+(kaappi#1498). (Boxed frames still disable the loop; see below.)
 
 **Falls back to the [cached eval](#cached-eval-fallback) when the body:**
 - contains an eval-fallback form (`letrec`, `guard`, named `let`, …), or a
   `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
 - contains an internal `define` (the closure tier sets up no locals scope for
-  it), or a rest parameter that is captured and mutated (no box model yet);
+  it), or a rest parameter that is captured and mutated (no box model yet); or
 - captures an unmutated `let`-local, or a rest parameter, that has no copyable
-  slot; or
-- exceeds a fixed analysis limit (parameter/body-node/name buffers).
+  slot.
+
+The per-function analysis buffers (parameters, body nodes, captured free
+variables, bound names) grow on the emitter's arena, so the only size ceiling is
+the runtime's real one: a native closure's arity and each upvalue index are `u8`,
+so a function with more than 255 fixed parameters or captured upvalues falls back
+(kaappi#1498).
 
 The resulting value (native closure or eval'd closure) is uniformly callable
 via `kaappi_call_scheme`, which dispatches through the VM's `callWithArgs`
