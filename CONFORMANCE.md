@@ -1,6 +1,6 @@
 # R7RS Conformance
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 601 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,391 pass, 0 fail.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 613 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,391 pass, 0 fail.
 
 ---
 

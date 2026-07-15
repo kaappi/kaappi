@@ -7,19 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-16
+
 ### Added
-- **`kaappi ast` / `expand` / `ir` — pipeline-stage dumps** — three read-only introspection commands over the stages between source and bytecode, so every stage is now observable from the CLI (`--disassemble` already covered bytecode). `kaappi ast <file>` prints the post-read datums with `write` (revealing quote abbreviations, `#!fold-case`, datum labels, and literal parsing); `kaappi expand <file>` prints the program after full macro expansion as S-expressions — the most useful dump for debugging `syntax-rules`, and its output round-trips (feeding it back preserves behavior); `kaappi ir <file> [--no-opt]` prints the IR tree the compiler lowers each form to, optimized by default or, with `--no-opt`, straight after lowering, so the five optimization passes read as a before/after diff. None execute program code — like `check`, only environment-establishing forms (`import`, `define-syntax`, `define-record-type`, …) are processed. New dev doc `docs/dev/observing-the-pipeline.md` ties the four stages together (#1512)
-- **`kaappi check <file>` — compile-only static analysis** — reads, expands, and compiles a program without executing it, reporting the usual read/compile diagnostics plus the reserved `KP4xxx` lint findings: an unknown top-level variable (`KP4001`, a warning — forward references are legal), a wrong argument count on a direct call to a built-in (`KP4002`), and a wrong-type literal argument to a built-in (`KP4003`, e.g. `(car 5)`, `(vector-ref "s" 0)`). Exit status is nonzero on errors; `--deny-warnings` promotes warnings. Honors `--diagnostics=json` (one LSP `Diagnostic` per line). The analysis reuses the real compiler's scope resolution, so shadowed and redefined names are never flagged, and calls a macro synthesises are not linted — the invariant is that `check` never rejects a program R7RS permits. The full R7RS suite passes `kaappi check` with zero errors (#1511)
-- **Full source spans in diagnostics** — the reader now records a `(line, col, end_line, end_col)` span for every datum, threaded through IR into the bytecode line table. Compile and runtime errors report `file:line:col` (previously `file:line` only), the column pointing at the offending form — including nested forms, so `(define (f) (if))` flags the inner `(if)` at its own column. Under `--diagnostics=json`, reader/compile diagnostics carry a full start/end range; runtime diagnostics carry the start column. The `.sbc` bytecode cache format is bumped to v9; stale caches invalidate and recompile cleanly (#1506)
-- **`error-object-code` accessor** — the new `(kaappi diagnostics)` library exports `(error-object-code e)`, which returns the stable `KP` diagnostic code (an interned symbol like `KP3001`, `eq?`-dispatchable) for a runtime error the implementation raised, and `#f` for a plain `(error …)` or any non-error value. Guarded by the `kaappi-diagnostics` `cond-expand` feature. The R7RS error-object surface (`error-object?`, `error-object-message`, `error-object-irritants`) is unchanged (KEP-0005 §4, #1508)
+
+#### Machine legibility: CLI diagnostics & tooling (epic #1503)
+- **`kaappi check <file>`** — compile-only static analysis: reads, expands, and compiles without executing, reporting read/compile diagnostics plus `KP4xxx` lint findings (unknown top-level variable, wrong arity or wrong-type literal on a direct built-in call). Never rejects a program R7RS permits (#1511)
+- **`kaappi ast` / `expand` / `ir`** — read-only pipeline-stage dumps: post-read datums, fully macro-expanded source (round-trips), and the IR tree before/after the five optimization passes (#1512)
+- **Full source spans in diagnostics** — the reader records `(line, col, end_line, end_col)` per datum; compile and runtime errors report `file:line:col` instead of `file:line`, down to the exact offending sub-form. `.sbc` cache format bumped to v9 (#1506)
+- **`error-object-code`** — new `(kaappi diagnostics)` library accessor returning the stable `KP` code stamped on a runtime error object, `#f` otherwise; a total, non-raising dispatch primitive for guard clauses (#1508)
+- **Stable `KP` diagnostic codes on every error path** — a comptime registry (`src/diagnostics.zig`) gives each diagnostic a code, message template, and explanation; text output now shows `error[KP3001]: ...` instead of ever leaking a raw Zig error name (#1534)
+- **`--diagnostics=json`** — every read/expand/compile/runtime diagnostic as JSON Lines on stderr, shaped as LSP `Diagnostic` objects shared with the language server (#1505)
+- **`kaappi explain <code>`** — prints a diagnostic's registry entry (meaning, minimal triggering example, fix), like `rustc --explain`; `--json`/`--all` for tooling (#1507)
+- **`kaappi doctor [--json]`** — installation/environment self-check across six groups (binary, library path, package manager, native backend, REPL, FFI), PASS/WARN/FAIL with a fix per failure; a smoke link proves the native toolchain end to end (#1513)
+- **`kaappi features [--json]`** — capability discovery: version + build id, target triple, build mode, compiled-in subsystems, built-in vs. portable SRFIs, VM/GC limits — every field derived from the same source `cond-expand` and `(features)` use, so it can't drift (#1517)
+- **`kaappi cache status|clear`** + build-id cache keys — the `.sbc` cache now folds the git build id into its key, so a freshly rebuilt binary never silently serves bytecode compiled by the previous one; cache moves to a central `$KAAPPI_HOME/cache` (#1516)
+- **`kaappi test`** — first-class SRFI-64 runner with `--json` and `--seed`, aggregating pass/fail/skip from the runner's own counters via subprocess-per-file isolation (#1509); `--changed`/`--list-affected [--since <rev>]` run only suites whose R7RS import closure actually changed (#1510)
+- **`kaappi fmt [--check]`** — canonical, comment-preserving formatter: a dedicated CST reader/printer applies 2-space R7RS indentation and 80-column reflow, guarded by a real-reader `equal?` round-trip check before every write so it can never change a program's meaning (#1518)
+- **Crash-reporting panic handler** — a custom panic banner on `kaappi`/`thottam` names the build (version, target, mode), the pipeline stage in flight, and where to report the bug, before falling through to the normal Zig trace (#1514)
+- **`--timings[=json]`** — per-stage pipeline wall time (read/expand/lower/optimize/emit/execute, plus native `llvm-emit`/`link`) and an always-present cache HIT/MISS line with path, using a self-time profiler stack so nested stages stay disjoint (#1515)
+
+#### Concurrency: fiber I/O reactor (KEP-0001)
+- **Reactor core** — per-OS-thread event loop with kqueue/epoll backends and a userspace timer heap (#1446)
+- **Scheduler integration** — blocking fiber operations (channel/join/mutex/condvar waits, `thread-sleep!`) now park on the reactor instead of blocking the OS thread or busy-polling (#1453)
+- **Non-blocking port I/O** — reads/writes that would block suspend the calling fiber instead of the thread, so fibers serving different connections interleave; ports buffer writes (8 KiB high water) with real `flush-output-port` semantics (#1459)
+- **WASI `poll_oneoff` backend** — the reactor works under wasmtime/browser WASI runtimes too, with `thread-sleep!` now Scheme-visible on WASM (#1461)
+- **`fd->port`** — wraps a raw file descriptor as a reactor-integrated binary port, so FFI socket libraries (kaappi-net) get non-blocking, fiber-friendly I/O with no C changes (#1478)
+- **O(1) fiber scheduling** — a ready ring + free-slot list replace the old O(n) scan on every dispatch and spawn (154x faster dispatch at 5,000 concurrent fibers) (#1477); wake paths are further indexed by waited-on object for O(1) wakes instead of scanning every fiber (~8x at 10,000 fibers) (#1530)
+
+#### Concurrency: cross-thread channels (KEP-0002)
+- **`SharedChannel`** — a channel now promotes automatically for use across `thread-start!`ed OS threads; reaching one through a shared global instead of a legitimate handoff raises a descriptive error instead of corrupting memory (#1482)
+- **Envelope-based `thread-start!`/`thread-join!`** — thunks, results, and exceptions cross threads via a copy-once envelope, closing a concurrent-copy race and enabling channels created inside a thunk to promote correctly (#1483)
+- **Cross-thread wakeup** — a reactor-backed `ThreadNotifier` (kqueue/epoll/WASI) replaces the placeholder panic left by earlier phases (#1485)
+- **Channel capacity, timeouts, close** — `make-channel` takes an optional bound, `channel-send`/`channel-receive` take `[timeout [timeout-val]]`, and `channel-close!`/`channel-closed?` work across both local and cross-thread channels (#1469)
+- **`(kaappi parallel)`** — `make-pool`/`pool-submit`/`task-wait`/`pool-shutdown!`, `parallel-map`/`parallel-for-each`, and `processor-count`, degrading to fiber workers under `--sandbox` and on WASM (#1522)
+- **Envelope-cost elision shipped as default** — immediate payloads (fixnums, booleans, chars) skip the per-message envelope heap entirely (28–120x faster sends), and pointer payloads reuse a recycled per-channel buffer (~50–63% lower round-trip latency for small messages) (#1472)
+
+#### Other
+- **Configurable REPL syntax highlighting** — dark/light presets, `NO_COLOR` support, per-token overrides, and configurable prompts via a new `~/.kaappi/config` file (#1456)
+- **`cond-expand`/`(features)`** gain `kaappi-fibers`, `kaappi-reactor`, and `kaappi-threads` subsystem identifiers (KEP-0004 Phase 0/1) (#1488)
+- **KEP-0003 access-semantics research experiment** — measures the cost of `unordered`-atomic element access for shared flat buffers ahead of building them; resolves KEP-0003's Unresolved Question 2 to a hybrid design. Docs/benchmarks only, no source changes (#1473)
 
 ### Changed
-- **Cross-thread channels: ship envelope elision lever B (per-channel recycled-GC arena) as the default** — a channel now keeps one drained message heap buffer-warm and reuses it for the next pointer-payload send instead of allocating a fresh per-message GC struct + ~8 KiB root buffer, cutting small-pointer-message round-trip latency by ~50–63% in the low-contention case (real-path ping-pong, ReleaseSafe). Bounded to one retained buffer per channel; a cache miss under concurrent traffic degrades gracefully to the previous per-message path. `-Dchannel-arena=false` restores the old behavior; the KEP-0002 Phase 7 gate instrument build forces it off to preserve the frozen baseline (#1472)
-- **LLVM backend: cache eval-fallback compilation per call site** — forms the native backend cannot lower (`letrec`, `cond`, `case`, `do`, `guard`, quasiquote, named `let`, and fallback lambdas) are compiled at most once per call site via `kaappi_eval_cached` instead of being re-parsed and re-compiled on every execution, removing a severe cliff inside loops and hot functions (#1494)
-- **LLVM backend: build quoted heap constants once per call site** — quoted pairs/vectors and other non-immediate literals are built once via `kaappi_quote_cached` and memoized in a per-site global slot, instead of being re-consed by `kaappi_eval` on every execution. This also fixes a correctness divergence: every evaluation of one quoted literal now returns the same object, so `(eq? …)` identity for quoted literals matches the interpreter's constant-pool sharing (#1495)
+
+#### Native (LLVM) backend
+- **Guaranteed native mutual tail calls** — a fixed-arity direct tail call between natively-compiled functions now emits `musttail call tailcc`, giving mutual recursion (not just self-recursion) LLVM-guaranteed constant stack (#1499)
+- **Native `cond`/`case`/`do` lowering** — emitted directly instead of falling back to a whole-function `kaappi_eval` (#1564)
+- **Cached eval-fallback compilation** — a form the native backend can't lower (`letrec`, `guard`, quasiquote, named `let`, …) is parsed and compiled once per call site instead of on every execution (#1494)
+- **Cached quoted constants** — quoted pairs/vectors are built once per call site instead of re-consed on every execution, also fixing an `eq?`-identity divergence from the interpreter (#1495)
+- **Inline fixnum fast paths** — `+ - * < = null?` lower to inline IR with a slow-path fallback, eliding shadow-stack rooting where the second operand can't allocate; `fib(38)` runs 3.30x faster (#1493)
+- **`-O2` native compilation** with an IR-verify safety net ensuring hand-emitted IR stays well-formed under stricter optimization (#1492)
+- **Boxed mutable captured variables** — assignment conversion for bindings both captured and mutated, fixing a `set!`-after-capture correctness divergence and lifting the ban on natively-compiling closures with internal `set!`/defines (#1497)
+- **Fixed-arity `define` values bind as native closures** instead of being evaluated, so passing a defined function as a value also runs native code (#1500)
+- **Native lambda analysis buffers grow instead of bailing out** at fixed size limits, and variadic self-tail-calls now loop instead of recursing (#1498)
+
+#### Performance
+- **Batched fd reads** in `readOneByte` — up to 4096 bytes per syscall instead of one syscall per byte for byte-at-a-time port consumers (#1460)
 
 ### Fixed
-- Run the fuzz generator-coverage gates (grammar/native/portable evaluate-rate and the differential oracle) under `-Dgc-stress=true` by bounding evaluation with an instruction budget instead of the wall-clock deadline a stress build makes meaningless (#1447)
+
+#### Concurrency
+- Lost cross-thread wakeup in shared channel send/receive that could park a receiver permanently (#1489)
+- Dirty-snapshot dispatch hazard in `mutex-lock!`, `condition-variable-wait`, `thread-join!`, and timed channel ops, via a generic `driving` guard that excludes an in-flight fiber from re-dispatch (#1487)
+- `mutex-lock!`/`mutex-unlock!`+condvar giving up instantly across OS threads instead of polling shared state, which could silently corrupt lock ownership (#1454)
+- epoll stale-fire stranding a waiter on the opposite direction of a partially-fired fd (#1462)
+- `thread-sleep!` unbounded native-stack growth under concurrently retrying fibers (#1463)
+- Foreign thread handles in fiber primitives (`thread-join!`/`-terminate!`/`-specific`/…), closing a double-join/UB class reachable only through a shared global (#1484)
+- Cross-heap mutex abandonment on fiber death — held mutexes are now tracked on the fiber itself instead of found by scanning its GC heap, which never contained a mutex shared from the parent (#1458)
+- Closures losing their library environment when deep-copied across threads, which hung or raised "undefined variable" for any library-defined procedure called from a `thread-start!` thunk (#1479)
+
+#### GC and memory
+- Stale "gap" registers (dead slots between live frame windows) copied verbatim into `call/cc` continuation snapshots (#1464) and fiber suspension snapshots (#1529) — both use-after-free hazards under `-Dgc-stress=true`
+
+#### Compiler and tooling
+- Portable SRFI libraries now resolve via an exe-relative `lib/` fallback, so a `zig build`-produced binary run from any directory (with no prior `thottam` setup) can still find them (#1523)
+- Fuzz generator-coverage gates bounded by instruction count instead of wall clock, so they measure generator correctness rather than timing out under `-Dgc-stress=true` or on emulated (QEMU riscv64) CI targets (#1447)
 
 ## [0.14.1] - 2026-07-11
 
