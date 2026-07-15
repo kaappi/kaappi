@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784142070741,
+  "lastUpdate": 1784144806513,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f75588de4b34f117138abb003f0325fc74572a6c",
-          "message": "Fix SRFI-9 record-type redefinition retargeting old procedures (#1203) (#1371)\n\n* Fix record-type redefinition retargeting old procedures (#1203)\n\nThe desugared constructors/predicates/accessors/mutators referenced the\nrecord type through a global name resolved at call time.  Redefining the\nsame record type overwrote that global, silently retargeting every\npreviously created procedure to the new type.\n\nWrap each generated procedure in (let ((__rt <global>)) (lambda ...)) so\nthe record-type object is captured at definition time via closure.\nApplied to both the top-level path (handleDefineRecordType) and the body\ncontext path (expandRecordTypeDefines).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update stale comment in SRFI-9 test to reflect the fix\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T17:32:45+05:30",
-          "tree_id": "81770361e9307bbba42f74f8198ea059886a5546",
-          "url": "https://github.com/kaappi/kaappi/commit/f75588de4b34f117138abb003f0325fc74572a6c"
-        },
-        "date": 1783600207052,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.326211,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.066385,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.984779,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.380743,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012817,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204798,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505951,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069381,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.672672,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.950852,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.219527,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.0044,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.458626,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.701472,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043811,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044364,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e797a76817dab6c47237ac5ba5aceca0ce5f87a",
+          "message": "LLVM backend: bind fixed-arity define values as native closures (#1500) (#1577)\n\nA natively-compiled define's global value was still eval'd even though @f\nwas already emitted for its direct call sites. Materialize a fixed-arity\nfunction's value as a native closure over that compiled entry instead\n(emitNativeFnClosureValue), so value uses (map/apply/eq?/returning) run\nnative code and startup skips the per-program parse+compile. Native closures\nnow print as #<procedure name> to match the interpreter's closures.\n\nThe value path runs native @f bodies from new contexts, exposing two issues:\n\n- vm.execute is not re-entrant (it resets to frame 0). A native value whose\n  body reaches an eval/quote fallback, invoked from inside an outer execute,\n  clobbered the suspended outer form. runTopLevelFunction runs the nested\n  thunk through the re-entrant callWithArgs path when the VM is already\n  executing, leaving the outer form intact.\n\n- An eval fallback republishes captured params as globals\n  (bindParamsAsGlobals), which aliases across activations -- a pre-existing\n  native-backend limitation that a native value would widen to the common\n  (define a (f 1)) (define b (f 2)) pattern. Gate the materialization on\n  NativeLambda.has_eval_fallback: a function whose body has a code eval\n  fallback keeps its correctly-capturing interpreter-closure value. A quoted\n  constant is not a code fallback (it can't alias, and the re-entrancy fix\n  covers building it), so quote-body functions stay eligible.\n\nCloses the last child of #1491. The 36 tests/e2e/programs drop from 59 to 27\nemitted eval-fallback sites (20 now at zero). Unit suite, e2e (37/37), and\nthe scheme suites are green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T19:13:28Z",
+          "tree_id": "ba3f0a1e2cddcf4a8fbe0cee3590f95ef37d1d56",
+          "url": "https://github.com/kaappi/kaappi/commit/9e797a76817dab6c47237ac5ba5aceca0ce5f87a"
+        },
+        "date": 1784144805135,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.03654,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.876272,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.92127,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.456583,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006716,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053109,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504195,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068114,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.214932,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.96491,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.516778,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.477943,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731698,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.903735,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045401,
             "unit": "seconds"
           }
         ]
