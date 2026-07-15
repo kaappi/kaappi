@@ -1,0 +1,17 @@
+# P1 access-semantics campaign metadata
+machine_label: macos-aarch64
+date_utc: 2026-07-15T19:33:01Z
+uname: Darwin bmuthuka-mac 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:29 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6030 arm64
+arch: arm64
+cpu: Apple M3 Pro
+cores_physical: 12
+cores_logical: 12
+l1d_bytes: 65536
+l2_bytes: 4194304
+mem_bytes: 38654705664
+compiler: zig cc
+compiler_version: Homebrew clang version 21.1.8
+compiler_version: Target: aarch64-apple-macosx26.5.2-unknown
+zig_version: 0.16.0
+git_commit: 9e797a76817dab6c47237ac5ba5aceca0ce5f87a
+pipeline_flags: -w -O2   (src/native_compiler.zig tryLink)

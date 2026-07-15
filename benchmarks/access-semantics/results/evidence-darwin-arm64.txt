@@ -1,0 +1,36 @@
+### f64_fill / plain: LIBCALL (vector_ops=0, libcall=memset)
+
+### f64_fill / unordered: SCALAR (vector_ops=0)
+
+### f64_fill / monotonic: SCALAR (vector_ops=0)
+
+### f64_map / plain: VECTOR (vector_ops=10)
+
+### f64_map / unordered: SCALAR (vector_ops=0)
+
+### f64_map / monotonic: SCALAR (vector_ops=0)
+
+### f64_sum / plain: SCALAR (vector_ops=0)
+
+### f64_sum / unordered: SCALAR (vector_ops=0)
+
+### f64_sum / monotonic: SCALAR (vector_ops=0)
+
+### i64_checksum / plain: VECTOR (vector_ops=8)
+
+### i64_checksum / unordered: SCALAR (vector_ops=0)
+
+### i64_checksum / monotonic: SCALAR (vector_ops=0)
+
+### u8_fill / plain: LIBCALL (vector_ops=0, libcall=memset)
+
+### u8_fill / unordered: SCALAR (vector_ops=0)
+
+### u8_fill / monotonic: SCALAR (vector_ops=0)
+
+### u8_copy / plain: VECTOR (vector_ops=2)
+
+### u8_copy / unordered: SCALAR (vector_ops=0)
+
+### u8_copy / monotonic: SCALAR (vector_ops=0)
+
