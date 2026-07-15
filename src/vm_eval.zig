@@ -64,6 +64,73 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     return null;
 }
 
+// Predicate mirror of the dispatch chain in handleTopLevelForm: true for the
+// top-level-only forms that eval() interprets specially rather than compiling
+// to a single reusable Function. compileCachedForm (#1494) consults this to
+// decline caching such a form — the caller falls back to a plain eval(). Keep
+// this list in sync with handleTopLevelForm above.
+fn isSpecialTopLevelForm(expr: Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (!types.isSymbol(head)) return false;
+    const name = types.symbolName(head);
+    return std.mem.eql(u8, name, "import") or
+        std.mem.eql(u8, name, "define-library") or
+        std.mem.eql(u8, name, "define-record-type") or
+        std.mem.eql(u8, name, "define-values") or
+        std.mem.eql(u8, name, "include") or
+        std.mem.eql(u8, name, "include-ci") or
+        std.mem.eql(u8, name, "begin");
+}
+
+/// Compile a single expression for the native eval-fallback cache (#1494):
+/// parse exactly one datum from `source`, compile it, and return the resulting
+/// Function wrapped as a Value that is permanently GC-rooted. The native
+/// call-site slot that holds the returned value is invisible to the collector,
+/// so the Function must be kept alive independently for the program's lifetime.
+///
+/// Returns CompileError — signaling the caller to fall back to a plain,
+/// uncached eval() — when `source` is not a single compilable expression: it is
+/// empty, carries a trailing second datum, or is a special top-level form
+/// (import, define-library, ...) that eval() must interpret rather than
+/// compile. The emitter's code fallbacks never produce those in practice; the
+/// checks keep the cache correct if one ever does.
+pub fn compileCachedForm(vm: *VM, source: []const u8) VMError!Value {
+    vm_mod.setVMInstance(vm);
+    const reader_mod = @import("reader.zig");
+    var reader = reader_mod.Reader.init(vm.gc, source);
+    defer reader.deinit();
+
+    if (!(reader.hasMore() catch return VMError.CompileError)) return VMError.CompileError;
+    var expr = reader.readDatum() catch return VMError.CompileError;
+    vm.gc.pushRoot(&expr);
+    defer vm.gc.popRoot();
+
+    if (isSpecialTopLevelForm(expr)) return VMError.CompileError;
+    if (reader.hasMore() catch return VMError.CompileError) return VMError.CompileError;
+
+    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+    const func_val = types.makePointer(@ptrCast(func));
+    // No GC-triggering allocation runs between the compile above and the
+    // rootedSlot below (unrootFunction and rootedSlot only touch the
+    // C-allocated extra_roots list), so `func` needs no interim shadow root.
+    // eval() moves this Function to a transient shadow-stack root and drops the
+    // compiler's extra_roots entry; the cache instead needs it alive for the
+    // whole program, so drop the compiler's transient root and take an
+    // explicit, permanent one of our own via extra_roots (which, unlike the
+    // LIFO shadow stack, can hold a root indefinitely).
+    compiler_mod.Compiler.unrootFunction(vm.gc, func);
+    _ = vm.gc.rootedSlot(func_val) catch return VMError.OutOfMemory;
+    return func_val;
+}
+
+/// Execute a Function previously produced by compileCachedForm. This is the
+/// cache fast path: it runs the already-compiled form directly, skipping the
+/// reader and compiler that plain eval() re-runs on every call.
+pub fn runCachedForm(vm: *VM, func_val: Value) VMError!Value {
+    return vm.execute(types.toObject(func_val).as(types.Function));
+}
+
 fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
     var last: Value = types.VOID;
     var rest = body;

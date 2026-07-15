@@ -157,6 +157,55 @@ pub export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) c
     return result;
 }
 
+// Caching entry point for the LLVM backend's eval fallbacks (#1494). Forms the
+// native backend cannot lower (letrec, cond, case, do, guard, quasiquote, named
+// let, and eval-fallback lambdas) are serialized to a source string; plain
+// kaappi_eval re-parses and re-compiles that string every time the enclosing
+// native code runs it — a severe cliff inside a loop or hot function.
+//
+// The emitter allocates one `slot` global per fallback call site. On the first
+// execution the form is parsed and compiled once, the resulting Function is
+// permanently rooted, and its Value is stashed in `slot`; every later execution
+// reads `slot` and runs the cached Function directly. The compiled bytecode
+// looks up globals by name at run time, so a fallback that first republishes
+// the enclosing frame's params/upvalues as globals still observes the current
+// values on each execution — behavior is identical to plain kaappi_eval.
+pub export fn kaappi_eval_cached(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64, slot: *u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const len: usize = @intCast(src_len);
+    const source = src_ptr[0..len];
+
+    // Only the main runtime thread touches the cache — this check comes before
+    // the slot is read OR written. A natively-compiled lambda that reaches an
+    // eval fallback can run on a spawned SRFI-18 thread, which has its own VM
+    // and GC. Two cross-heap hazards must both be avoided: populating the slot
+    // with a Function compiled in a child heap (freed at thread-join, leaving a
+    // dangling pointer), and executing a main-heap cached Function under a child
+    // VM. Child threads therefore always take the plain, uncached path — exactly
+    // the pre-caching behavior — so the shared slot stays main-thread-only and
+    // race-free.
+    if (v.gc != &rt_gc) {
+        return v.eval(source) catch |err| fatalVMError(v, "eval error", err);
+    }
+
+    // Fast path: this call site has already compiled its form. `slot` holds the
+    // cached Function value, kept alive by a permanent GC root created when it
+    // was compiled; re-run it directly.
+    if (slot.* != 0) {
+        return v.runCachedForm(slot.*) catch |err| fatalVMError(v, "eval error", err);
+    }
+
+    // Slow path (first execution at this call site): compile once, permanently
+    // root the Function, and cache it. A source that is not a single compilable
+    // expression (e.g. a special top-level form) yields an error here; fall back
+    // to a plain, uncached eval, which both handles those forms and reports any
+    // genuine syntax error with full detail.
+    const func_val = v.compileCachedForm(source) catch
+        return v.eval(source) catch |err| fatalVMError(v, "eval error", err);
+    slot.* = func_val;
+    return v.runCachedForm(func_val) catch |err| fatalVMError(v, "eval error", err);
+}
+
 fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
     const vm = vm_mod.vm_instance orelse {
         _ = std.posix.system.write(2, "runtime: no VM instance\n", 24);

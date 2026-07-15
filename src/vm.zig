@@ -804,6 +804,14 @@ pub const VM = struct {
     pub fn handleTopLevelForm(self: *VM, expr: Value) ?VMError!Value {
         return vm_eval.handleTopLevelForm(self, expr);
     }
+
+    pub fn compileCachedForm(self: *VM, source: []const u8) VMError!Value {
+        return vm_eval.compileCachedForm(self, source);
+    }
+
+    pub fn runCachedForm(self: *VM, func_val: Value) VMError!Value {
+        return vm_eval.runCachedForm(self, func_val);
+    }
 };
 
 test {

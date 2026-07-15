@@ -123,6 +123,16 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
     }
 }
 
+// Total eval-fallback call sites in emitted IR, regardless of caching. Code
+// fallbacks route through @kaappi_eval_cached (#1494) while quoted heap
+// constants stay on plain @kaappi_eval; a test that only cares "how many forms
+// crossed to the interpreter" counts both. The trailing "(" keeps the plain
+// count from also matching the "_cached(" spelling.
+fn countEvalFallbacks(ll: []const u8) usize {
+    return std.mem.count(u8, ll, "call i64 @kaappi_eval(") +
+        std.mem.count(u8, ll, "call i64 @kaappi_eval_cached(");
+}
+
 // -- Preamble and structure --
 
 test "LLVM emit: preamble has target triple and runtime calls" {
@@ -471,7 +481,7 @@ test "LLVM emit: capture through a nested lambda chains upvalues natively (#1410
     // u must never degrade to a global lookup / interned symbol...
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
     // ...and nothing may fall back to eval beyond the define-time binding.
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: depth-3 nested capture chains through every closure level (#1410)" {
@@ -480,7 +490,7 @@ test "LLVM emit: depth-3 nested capture chains through every closure level (#141
     const ll = res.toSlice();
     try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: capture through a let-wrapped nested lambda chains natively (#1410)" {
@@ -489,7 +499,7 @@ test "LLVM emit: capture through a let-wrapped nested lambda chains natively (#1
     const ll = res.toSlice();
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: eval fallback inside a native closure republishes upvalues (#1410)" {
@@ -503,7 +513,7 @@ test "LLVM emit: eval fallback inside a native closure republishes upvalues (#14
     try expectContains(ll, "c\"u\"");
     try expectContains(ll, "@kaappi_define_global");
     try expectContains(ll, "getelementptr i64, ptr %upvalues, i64 0");
-    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 2), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: eval fallback republishes the enclosing rest parameter (#1410)" {
@@ -515,7 +525,7 @@ test "LLVM emit: eval fallback republishes the enclosing rest parameter (#1410)"
     const ll = res.toSlice();
     try expectContains(ll, "c\"xs\"");
     try expectContains(ll, "@kaappi_define_global");
-    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 2), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: let eval fallback republishes enclosing params (#1410)" {
@@ -526,7 +536,7 @@ test "LLVM emit: let eval fallback republishes enclosing params (#1410)" {
     const ll = res.toSlice();
     try expectContains(ll, "c\"u\"");
     try expectContains(ll, "@kaappi_define_global");
-    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_eval("));
+    try std.testing.expectEqual(@as(usize, 2), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: lambda in a let binding init falls back instead of aborting (#1410)" {
@@ -678,7 +688,92 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 24), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 25), native_decls.decls.len);
+}
+
+// -- Compile-once eval-fallback cache (#1494) --
+// Forms the backend can't lower are serialized and evaluated; the caching eval
+// entry point compiles each such form at most once per call site instead of on
+// every execution. These verify the emitter side (cached call + per-site slot)
+// and the runtime side (compile once, execute repeatedly, re-read globals).
+
+test "LLVM emit: eval fallback routes through the compile-once cache (#1494)" {
+    // make-summer compiles natively; its inner variadic lambda has no native
+    // closure tier, so its body takes the eval fallback inside @lambda_0 —
+    // exactly the hot, per-call cliff the cache removes.
+    var res = try emitMultiResult("(define (make-summer base) (lambda (a . rest) (+ base a)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "define i64 @lambda_0(ptr %vm");
+    try expectContains(ll, "call i64 @kaappi_eval_cached(ptr %vm");
+    try expectContains(ll, "@.eval_cache.0 = internal global i64 0");
+    // The inner lambda must NOT go through the uncached kaappi_eval anymore.
+    try expectNotContains(ll, "call i64 @kaappi_eval(");
+    // Exactly one global cache slot is emitted per cached-eval call site.
+    const sites = std.mem.count(u8, ll, "call i64 @kaappi_eval_cached(");
+    const slots = std.mem.count(u8, ll, " = internal global i64 0");
+    try std.testing.expect(sites > 0);
+    try std.testing.expectEqual(sites, slots);
+}
+
+test "LLVM emit: quoted heap constants stay on the uncached eval (#1494/#1495)" {
+    // Building quoted data once is a separate optimization (#1495); the caching
+    // eval is only for code fallbacks, so a quoted list keeps plain kaappi_eval.
+    var res = try emitSourceResult("(quote (1 2 3))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call i64 @kaappi_eval(ptr %vm");
+    try expectNotContains(ll, "call i64 @kaappi_eval_cached(");
+    try expectNotContains(ll, "@.eval_cache.0");
+}
+
+test "cached form compiles once and re-executes correctly (#1494)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // A cond is one of the forms the native backend serializes to eval.
+    const fv = try ctx.vm.compileCachedForm("(cond (#f 1) (#t 42) (else 0))");
+    try std.testing.expect(types.isFunction(fv));
+
+    // Re-running the one compiled Function is the cache fast path; it must yield
+    // the same result every time.
+    const r1 = try ctx.vm.runCachedForm(fv);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r1));
+    const r2 = try ctx.vm.runCachedForm(fv);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r2));
+}
+
+test "cached form re-reads globals on every execution (#1494)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The compiled bytecode looks up globals by name at run time, so a fallback
+    // that republishes params as globals before each call still sees the current
+    // value — this models that invariant with a plain global mutation.
+    _ = try ctx.vm.eval("(define g 10)");
+    const fv = try ctx.vm.compileCachedForm("(* g 2)");
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(try ctx.vm.runCachedForm(fv)));
+
+    _ = try ctx.vm.eval("(set! g 100)");
+    // Same cached Function, new global value.
+    try std.testing.expectEqual(@as(i64, 200), types.toFixnum(try ctx.vm.runCachedForm(fv)));
+}
+
+test "cached form declines non-cacheable sources (#1494)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Special top-level forms are interpreted, not compiled to a reusable
+    // Function; the caller falls back to a plain eval for these.
+    try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("(begin 1 2)"));
+    try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("(import (scheme base))"));
+    // More than one datum is not a single cacheable form.
+    try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("1 2"));
+    // Empty source has nothing to compile.
+    try std.testing.expectError(error.CompileError, ctx.vm.compileCachedForm("   "));
 }
 
 // -- NativeClosure dispatch tests (#1376) --
@@ -808,7 +903,8 @@ test "NativeClosure arity mismatch raises a catchable error" {
 // as strong as the generated programs' nativeness: every form that falls
 // back to the interpreter shrinks the diff to VM-vs-VM. This gate emits
 // fixed-seed native-subset programs through the LLVM emitter and counts
-// `kaappi_eval` calls in the IR. Two shapes legitimately eval:
+// eval-fallback call sites in the IR (countEvalFallbacks spans both the plain
+// and the compile-once-cached spelling — #1494). Two shapes legitimately eval:
 //
 //   - defining a function/lambda emits exactly ONE eval
 //     (emitDefine/emitPassthrough create the global binding via the
@@ -885,7 +981,9 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
             break :blk try emitMultiResultOpts(src, false);
         };
         defer res_noopt.deinit();
-        const actual_noopt = std.mem.count(u8, res_noopt.toSlice(), "call i64 @kaappi_eval(");
+        // Count both eval spellings: define-time and inline-variadic-lambda
+        // fallbacks now route through @kaappi_eval_cached (#1494).
+        const actual_noopt = countEvalFallbacks(res_noopt.toSlice());
         if (actual_noopt != expected) {
             std.debug.print("seed {d}: expected {d} kaappi_eval calls unoptimized ({d} defines + {d} inline variadic lambdas), found {d}\n", .{ seed, expected, ndefines, nvariadic, actual_noopt });
             return error.NativeSubsetFellBackToEval;
@@ -896,7 +994,7 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
         var res = try emitMultiResult(src);
         defer res.deinit();
         const ll = res.toSlice();
-        const actual = std.mem.count(u8, ll, "call i64 @kaappi_eval(");
+        const actual = countEvalFallbacks(ll);
         if (actual < ndefines or actual > expected) {
             std.debug.print("seed {d}: expected {d}..{d} kaappi_eval calls optimized, found {d}\n", .{ seed, ndefines, expected, actual });
             return error.NativeSubsetFellBackToEval;
