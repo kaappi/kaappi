@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784080189468,
+  "lastUpdate": 1784080532133,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d26037326c3bd929ddacf668e41ba9c99eeab975",
-          "message": "Export lazy and eager from SRFI-45 (#1207) (#1353)\n\nThe library only re-exported the R7RS (scheme lazy) surface. SRFI-45\nspecifies two additional names: lazy (alias for delay-force) and eager\n(wraps make-promise). Add both and enable the disabled tests.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T11:28:56+05:30",
-          "tree_id": "0aaa2bf84e35c4670dca31d16756e32199762b26",
-          "url": "https://github.com/kaappi/kaappi/commit/d26037326c3bd929ddacf668e41ba9c99eeab975"
-        },
-        "date": 1783579579325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.048278,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.031534,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.026483,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.397855,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014198,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225819,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512987,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06784,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.694373,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.979417,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.331747,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.116877,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.306339,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.855549,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04675,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045277,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e806e5568785615f7e6d0f5089f6fd4a6d1b13f1",
+          "message": "Cache LLVM eval-fallback compilation per call site (#1494) (#1552)\n\nForms the native backend cannot lower (letrec, cond, case, do, guard,\nquasiquote, named let, and fallback lambdas) are serialized to a source\nstring and run via @kaappi_eval, which re-parses and re-compiles that\nstring on every execution. Inside a loop body or a frequently-called\nnative function — most commonly an inner variadic lambda, which no\nclosure tier accepts and which keeps its enclosing function native —\nthat is a severe, easily-overlooked cliff.\n\nAdd @kaappi_eval_cached: the emitter allocates one global slot per\nfallback call site; the first execution parses and compiles the form\nonce, permanently GC-roots the resulting Function, and stashes it in the\nslot, and every later execution runs the cached Function directly. The\ncompiled bytecode still resolves globals by name at run time, so a\nfallback that first republishes the enclosing frame as globals observes\nthe current values on each execution — behavior is identical to today.\n\nThe cached Function is rooted via extra_roots (which, unlike the LIFO\nshadow stack, holds a program-lifetime root) because the call-site slot\nis a module global the collector never scans. Only the main runtime\nthread touches a slot — the guard precedes both the read and the write —\nso a spawned SRFI-18 thread never caches a Function from a child heap or\nruns a main-heap Function under its own VM. Quoted heap constants stay on\nplain @kaappi_eval; building those once is the separate #1495 change.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T06:57:00+05:30",
+          "tree_id": "afff88ac6abf20bf0d6bf7fbfd9bb93024ceaf4b",
+          "url": "https://github.com/kaappi/kaappi/commit/e806e5568785615f7e6d0f5089f6fd4a6d1b13f1"
+        },
+        "date": 1784080530225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.527297,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.171142,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.974894,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.734468,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006326,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054168,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509067,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070075,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.424427,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.011005,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.581451,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435266,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.816263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.716132,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046214,
             "unit": "seconds"
           }
         ]
