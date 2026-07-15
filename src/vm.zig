@@ -225,6 +225,7 @@ pub const VM = struct {
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
+    last_error_col: u32 = 0,
     last_error_source: ?[]const u8 = null,
     // Diagnostic code of the escaping error (KEP-0005, #1504). Set by
     // noteUncaughtException from the raised error object; reset per top-level
@@ -529,6 +530,7 @@ pub const VM = struct {
 
     fn captureErrorLocation(self: *VM) void {
         self.last_error_line = 0;
+        self.last_error_col = 0;
         self.last_error_source = null;
         if (self.frame_count == 0) return;
         var i = self.frame_count;
@@ -538,15 +540,17 @@ pub const VM = struct {
                 const func = cls.func;
                 if (func.line_table.items.len > 0) {
                     const ip = if (self.frames[i].ip > 0) self.frames[i].ip - 1 else 0;
-                    const line = func.lineForOffset(ip);
-                    if (line > 0) {
-                        self.last_error_line = line;
+                    const loc = func.locForOffset(ip);
+                    if (loc.line > 0) {
+                        self.last_error_line = loc.line;
+                        self.last_error_col = loc.col;
                         self.last_error_source = func.source_name;
                         return;
                     }
                 }
                 if (func.source_line > 0) {
                     self.last_error_line = func.source_line;
+                    self.last_error_col = 0;
                     self.last_error_source = func.source_name;
                     return;
                 }

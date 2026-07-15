@@ -13,11 +13,14 @@ const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 
 pub fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
-    if (node.ann.source_line > 0 and node.ann.source_line != self.current_line) {
-        self.current_line = node.ann.source_line;
+    const sp = node.ann.span;
+    if (sp.line > 0 and (sp.line != self.current_line or sp.col != self.current_col)) {
+        self.current_line = sp.line;
+        self.current_col = sp.col;
         try self.func.line_table.append(self.gc.allocator, .{
             .offset = @intCast(self.func.code.items.len),
-            .line = node.ann.source_line,
+            .line = sp.line,
+            .col = sp.col,
         });
     }
 

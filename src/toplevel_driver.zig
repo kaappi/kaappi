@@ -1,4 +1,5 @@
 const std = @import("std");
+const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const compiler_mod = @import("compiler.zig");
 const reporting = @import("reporting.zig");
@@ -10,6 +11,10 @@ const writeStderr = reporting.writeStderr;
 pub const Location = struct {
     source: []const u8,
     line: u32,
+    /// 1-based column of the failing instruction, or 0 when unknown (older
+    /// functions with only a `source_line`, or a top-level form line). Rendered
+    /// as `file:line:col` when known (kaappi#1506).
+    col: u32 = 0,
 };
 
 /// How top-level diagnostics are rendered. `text` is the default human format
@@ -77,7 +82,7 @@ pub fn reportReadError(source_name: []const u8, line: u32, col: u32, err: anyerr
     writeStderr(s);
 }
 
-pub fn reportCompileError(source_name: []const u8, line: u32, err: anyerror) void {
+pub fn reportCompileError(source_name: []const u8, line: u32, col: u32, err: anyerror) void {
     var cbuf: [diagnostics.Code.render_width]u8 = undefined;
     const detail = compiler_mod.getSyntaxErrorDetail();
     // A macro/syntax-rules rejection carries a detail string and is the "expand"
@@ -85,9 +90,17 @@ pub fn reportCompileError(source_name: []const u8, line: u32, err: anyerror) voi
     const code = if (detail.len > 0) diagnostics.Code.syntax_error else diagnostics.compileErrorCode(err);
     const msg = if (detail.len > 0) detail else code.message();
 
+    // Prefer the precise span the compiler recorded for the failing form; fall
+    // back to the top-level datum position the caller passed (kaappi#1506).
+    const span = compiler_mod.getCompileErrorSpan() orelse
+        types.Span{ .line = line, .col = col };
+    const eff_line = if (span.line > 0) span.line else line;
+    const eff_col = if (span.line > 0) span.col else col;
+    defer compiler_mod.resetCompileErrorSpan();
+
     if (diagnostic_format == .json) {
         emitJsonLine(.{
-            .range = lsp_diagnostic.pointRange(line, 0),
+            .range = lsp_diagnostic.spanRange(span),
             .severity = lspSeverity(code),
             .code = code.render(&cbuf),
             .message = msg,
@@ -98,14 +111,20 @@ pub fn reportCompileError(source_name: []const u8, line: u32, err: anyerror) voi
 
     if (detail.len > 0) {
         var buf: [256]u8 = undefined;
-        const prefix = std.fmt.bufPrint(&buf, "{s}:{d}: syntax-error[{s}]: ", .{ source_name, line, code.render(&cbuf) }) catch "syntax-error: ";
+        const prefix = if (eff_col > 0)
+            std.fmt.bufPrint(&buf, "{s}:{d}:{d}: syntax-error[{s}]: ", .{ source_name, eff_line, eff_col, code.render(&cbuf) }) catch "syntax-error: "
+        else
+            std.fmt.bufPrint(&buf, "{s}:{d}: syntax-error[{s}]: ", .{ source_name, eff_line, code.render(&cbuf) }) catch "syntax-error: ";
         writeStderr(prefix);
         writeStderr(detail);
         writeStderr("\n");
         compiler_mod.syntax_error_detail_len = 0;
     } else {
         var buf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&buf, "{s}:{d}: compile error[{s}]: {s}\n", .{ source_name, line, code.render(&cbuf), code.message() }) catch "compile error\n";
+        const s = if (eff_col > 0)
+            std.fmt.bufPrint(&buf, "{s}:{d}:{d}: compile error[{s}]: {s}\n", .{ source_name, eff_line, eff_col, code.render(&cbuf), code.message() }) catch "compile error\n"
+        else
+            std.fmt.bufPrint(&buf, "{s}:{d}: compile error[{s}]: {s}\n", .{ source_name, eff_line, code.render(&cbuf), code.message() }) catch "compile error\n";
         writeStderr(s);
     }
 }
@@ -133,7 +152,10 @@ pub fn reportRuntimeError(vm: *vm_mod.VM, err: anyerror, location: ?Location) vo
             clean_msg = messageWithoutSuggestion(msg, replacement);
         }
         emitJsonLine(.{
-            .range = lsp_diagnostic.pointRange(if (location) |loc| loc.line else 0, 0),
+            .range = lsp_diagnostic.pointRange(
+                if (location) |loc| loc.line else 0,
+                if (location) |loc| loc.col else 0,
+            ),
             .severity = lspSeverity(code),
             .code = code_str,
             .message = clean_msg,
@@ -147,7 +169,9 @@ pub fn reportRuntimeError(vm: *vm_mod.VM, err: anyerror, location: ?Location) vo
 
     if (location) |loc| {
         var buf: [512]u8 = undefined;
-        const s = if (loc.line > 0)
+        const s = if (loc.line > 0 and loc.col > 0)
+            std.fmt.bufPrint(&buf, "{s}:{d}:{d}: error[{s}]: {s}\n", .{ loc.source, loc.line, loc.col, code_str, msg }) catch "runtime error\n"
+        else if (loc.line > 0)
             std.fmt.bufPrint(&buf, "{s}:{d}: error[{s}]: {s}\n", .{ loc.source, loc.line, code_str, msg }) catch "runtime error\n"
         else
             std.fmt.bufPrint(&buf, "{s}: error[{s}]: {s}\n", .{ loc.source, code_str, msg }) catch "runtime error\n";
@@ -186,9 +210,13 @@ pub fn runtimeCode(vm: *vm_mod.VM, err: anyerror) diagnostics.Code {
 }
 
 pub fn vmErrorLocation(vm: *vm_mod.VM, fallback_source: []const u8, fallback_line: u32) Location {
+    const have_precise = vm.last_error_line > 0;
     return .{
         .source = vm.last_error_source orelse fallback_source,
-        .line = if (vm.last_error_line > 0) vm.last_error_line else fallback_line,
+        .line = if (have_precise) vm.last_error_line else fallback_line,
+        // Only trust the column when it pairs with the precise line; a fallback
+        // line has no matching column.
+        .col = if (have_precise) vm.last_error_col else 0,
     };
 }
 

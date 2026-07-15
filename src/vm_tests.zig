@@ -26,4 +26,5 @@ test {
     _ = @import("tests_scheduler.zig");
     _ = @import("tests_port_io.zig");
     _ = @import("tests_diagnostics.zig");
+    _ = @import("tests_spans.zig");
 }

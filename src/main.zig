@@ -683,7 +683,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
-            toplevel_driver.reportCompileError(path, datum_lc.line, err);
+            toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
             script_had_error = true;
             continue;
         };
@@ -767,6 +767,10 @@ fn runStdin(vm: *vm_mod.VM) !void {
         script_had_error = true;
         return;
     }) {
+        // Capture the datum's start position before reading it, so a compile
+        // error with no recorded span still falls back to the form's start
+        // column (not the post-datum position) — kaappi#1506.
+        const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError("<stdin>", lc.line, lc.col, err);
@@ -787,9 +791,8 @@ fn runStdin(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<stdin>", false) catch |err| {
-            const lc = r.getLineCol();
-            toplevel_driver.reportCompileError("<stdin>", lc.line, err);
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<stdin>", false) catch |err| {
+            toplevel_driver.reportCompileError("<stdin>", datum_lc.line, datum_lc.col, err);
             script_had_error = true;
             return;
         };
@@ -850,7 +853,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
-            toplevel_driver.reportCompileError(path, datum_lc.line, err);
+            toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
             script_had_error = true;
             continue;
         };
@@ -931,7 +934,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
-            toplevel_driver.reportCompileError(path, datum_lc.line, err);
+            toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
             script_had_error = true;
             continue;
         };

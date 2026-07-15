@@ -10,8 +10,16 @@ pub fn readDatum(self: *Reader) ReadError!Value {
     if (self.depth >= Reader.MAX_NESTING_DEPTH) return ReadError.NestingTooDeep;
     self.depth += 1;
     defer self.depth -= 1;
+    // Capture the datum's start byte offset before reading. `nextToken` skips
+    // leading whitespace/comments the same way, so skipping here first makes
+    // `start_pos` the offset of the datum's first significant character. Only
+    // heap-keyable results (pairs, vectors) get a span recorded (kaappi#1506).
+    try self.skipWhitespaceAndCommentsChecked();
+    const start_pos = self.pos;
     const tok = try self.nextToken();
-    return tokenToValue(self, tok);
+    const val = try tokenToValue(self, tok);
+    self.recordSpan(val, start_pos);
+    return val;
 }
 
 fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
@@ -103,7 +111,6 @@ fn readList(self: *Reader) ReadError!Value {
         return types.NIL;
     }
 
-    const list_line = self.getLineCol().line;
     const first = try readDatum(self);
     var first_root = first;
     self.gc.pushRoot(&first_root);
@@ -124,7 +131,6 @@ fn readList(self: *Reader) ReadError!Value {
             self.pos += 1;
             const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
             if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
-            self.gc.source_lines.put(pair, list_line) catch {};
             return pair;
         }
     }
@@ -135,7 +141,6 @@ fn readList(self: *Reader) ReadError!Value {
     defer self.gc.popRoot();
     const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
     if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
-    self.gc.source_lines.put(pair, list_line) catch {};
     return pair;
 }
 
@@ -177,11 +182,9 @@ fn readListTail(self: *Reader) ReadError!Value {
             return result;
         }
 
-        const elem_line = self.getLineCol().line;
         elem = try readDatum(self);
         const pair = self.gc.allocPair(elem, types.NIL) catch return ReadError.OutOfMemory;
         if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
-        self.gc.source_lines.put(pair, elem_line) catch {};
 
         if (result == types.NIL) {
             result = pair;

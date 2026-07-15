@@ -37,10 +37,12 @@ understand. The CLI and the LSP share one serializer
 | `message` | string | Human-readable text. Free to be reworded release to release — do not match on it. |
 | `data.suggestions` | array | Present only when a fix is offered (see *Suggestions*). Omitted otherwise. |
 
-Example (an undefined variable with a "did you mean" fix):
+Example (an undefined variable on the second line, with a "did you mean" fix).
+The range is a point at the start of the enclosing form — a runtime diagnostic
+carries a start column but no end (see *Positions*):
 
 ```json
-{"range":{"start":{"line":1,"character":9},"end":{"line":1,"character":15}},"severity":1,"code":"KP3001","source":"kaappi","message":"undefined variable 'countr'","data":{"suggestions":[{"kind":"rename","replacement":"count"}]}}
+{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"severity":1,"code":"KP3001","source":"kaappi","message":"undefined variable 'countr'","data":{"suggestions":[{"kind":"rename","replacement":"count"}]}}
 ```
 
 ## Coverage — all four stages
@@ -62,17 +64,23 @@ LSP positions are **zero-based** for both `line` and `character`, so a reader
 error the text formatter prints as `file.scm:2:5` becomes
 `{"line":1,"character":4}`.
 
-Ranges are only as precise as the position Kaappi knows today:
+The reader records a `(line, col, end_line, end_col)` span for every datum,
+threaded through IR into the bytecode line table
+([kaappi#1506](https://github.com/kaappi/kaappi/issues/1506)). How much of that
+span reaches a diagnostic depends on the stage:
 
-- **Read errors** have a line and column, so the range is a point at the error
-  column.
-- **Compile and runtime errors** have a line but no column, so the range is a
-  point at the start of that line (`character` 0); an unknown line maps to line
-  0.
+- **Read errors** carry a line and column, so the range is a point at the error
+  position.
+- **Compile errors** carry a full range: `start` at the offending form's opening
+  paren and `end` one past its closing paren. The form is the innermost one the
+  compiler was working on, so a nested error is pinpointed — `(define (f) (if))`
+  ranges over just the inner `(if)`.
+- **Runtime errors** carry the start column of the form whose instruction
+  raised (from the bytecode line table), but no end; the range is a point at
+  that column. An unknown position maps to line/character 0.
 
-Ranges are points (`start == end`) for now; they widen into real spans as span
-tracking lands ([kaappi#1506](https://github.com/kaappi/kaappi/issues/1506)). The
-`code` and `message` are stable regardless.
+Widths therefore vary by stage; the `code` and `message` are stable regardless.
+An unknown component (line or column) is `0`.
 
 ## Suggestions
 

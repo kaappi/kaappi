@@ -360,6 +360,48 @@ assert_output_contains "index out of bounds is KP3006" \
 assert_output_contains "uncaught user error is KP3000" \
     '(error "boom")' 'error[KP3000]: boom'
 
+# --- Full source columns: file:line:col (#1506) ---
+# Spans are threaded from the reader through IR into the bytecode line table, so
+# compile and runtime errors now carry a column, not just a line. The column
+# points at the offending form's opening paren.
+echo
+echo "-- Source columns (#1506) --"
+
+# A top-level compile error points at column 1.
+assert_output_contains "compile error has column" \
+    '(if)' '<stdin>:1:1: compile error'
+
+# Leading indentation shifts the column to the form's open paren.
+assert_output_contains "compile error column tracks indentation" \
+    '   (if)' '<stdin>:1:4: compile error'
+
+# A compile error nested inside a top-level form points at the inner form, not
+# the top-level datum: '(if)' begins at column 13 of '(define (f) (if))'.
+assert_output_contains "compile error column points at the inner form" \
+    '(define (f) (if))' '<stdin>:1:13: compile error'
+
+# syntax-error carries a column too.
+assert_output_contains "syntax-error has column" \
+    '(syntax-error "msg")' '<stdin>:1:1: syntax-error'
+
+# Runtime errors carry a column via the bytecode line table (file mode).
+COLDIR=$(mktemp -d)
+cat > "$COLDIR/rt-col.scm" << 'SCHEME'
+(define (foo x) (+ x "hello"))
+(foo 42)
+SCHEME
+assert_file_output_contains "runtime error has column" \
+    "$COLDIR/rt-col.scm" "rt-col.scm:1:17: error"
+
+cat > "$COLDIR/rt-col2.scm" << 'SCHEME'
+(define (f x)
+  (car x))
+(f 5)
+SCHEME
+assert_file_output_contains "runtime error column tracks the failing form" \
+    "$COLDIR/rt-col2.scm" "rt-col2.scm:2:3: error"
+rm -rf "$COLDIR"
+
 # --- No leaked Zig error names on any path (KEP-0005, #1504) ---
 echo
 echo "-- No leaked Zig error names --"

@@ -323,9 +323,37 @@ pub const DebugLocal = struct {
     slot: u16,
 };
 
+/// A source span in 1-based `(line, col)` coordinates, half-open at the end
+/// (`end_line:end_col` points just past the last character). A zero `line`
+/// means "unknown" — the same sentinel `Function.source_line` has always used.
+/// `end_line == 0` means only the start is known (the reader/compiler fills the
+/// end in for datum forms; runtime debug info records the start only). Threaded
+/// from the reader through IR into diagnostics (kaappi#1506).
+pub const Span = struct {
+    line: u32 = 0,
+    col: u32 = 0,
+    end_line: u32 = 0,
+    end_col: u32 = 0,
+
+    /// The start position is known (a datum was located in source).
+    pub fn known(self: Span) bool {
+        return self.line > 0;
+    }
+
+    /// The end position is known, so a full range (not just a point) exists.
+    pub fn hasEnd(self: Span) bool {
+        return self.end_line > 0;
+    }
+};
+
+/// One entry in a function's line table: at bytecode `offset`, source position
+/// is `line:col` (both 1-based). Runtime error reports read the start position
+/// via `Function.locForOffset`; end positions are not carried in bytecode debug
+/// info (only reader/compile diagnostics need them — kaappi#1506).
 pub const LineEntry = struct {
     offset: u16,
     line: u32,
+    col: u32 = 0,
 };
 
 pub const Function = struct {
@@ -359,6 +387,22 @@ pub const Function = struct {
             if (entry.offset <= offset) best = entry.line else break;
         }
         return best;
+    }
+
+    /// The `(line, col)` of the instruction at `offset`, from the line table.
+    /// Both 1-based; `col == 0` when no column was recorded (e.g. a function
+    /// with only a `source_line`). Used by the runtime error path to report
+    /// `file:line:col` (kaappi#1506).
+    pub fn locForOffset(self: *const Function, offset: usize) struct { line: u32, col: u32 } {
+        var line: u32 = self.source_line;
+        var col: u32 = 0;
+        for (self.line_table.items) |entry| {
+            if (entry.offset <= offset) {
+                line = entry.line;
+                col = entry.col;
+            } else break;
+        }
+        return .{ .line = line, .col = col };
     }
 };
 
