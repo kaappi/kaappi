@@ -526,8 +526,14 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                 try writer.print("#<builtin {s}>", .{nf.name});
             },
             .native_closure => {
+                // A native closure is the LLVM backend's representation of a
+                // Scheme procedure; print it exactly like an interpreter closure
+                // so native output matches the interpreter (#1500). Native
+                // closures never exist in interpreter mode, so this only affects
+                // native binaries — where a define'd function's value is now a
+                // native closure rather than an eval'd interpreter closure.
                 const nc = obj.as(types.NativeClosure);
-                try writer.print("#<native-closure {s}>", .{nc.name});
+                try writer.print("#<procedure {s}>", .{nc.name});
             },
             .function => {
                 try writer.writeAll("#<function>");

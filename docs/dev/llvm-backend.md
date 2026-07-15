@@ -172,7 +172,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `if` | LLVM basic blocks with `br`/`phi` |
 | `and`/`or` | Short-circuit with basic blocks and `phi` |
 | `when`/`unless` | Conditional body execution |
-| `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy); other values `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
+| `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy). A fixed-arity one's global value is a native closure over that entry (`kaappi_create_native_closure`, #1500); a variadic one's value stays `kaappi_eval_cached`. Non-lambda values: `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
 | `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
 | `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope |
@@ -388,6 +388,81 @@ The resulting value (native closure or eval'd closure) is uniformly callable
 via `kaappi_call_scheme`, which dispatches through the VM's `callWithArgs`
 (closures, native functions, continuations, etc.).
 
+### Native closure values for compiled defines
+
+A top-level `(define (f …) …)` (or `(define f (lambda …))`) has two independent
+needs: **call sites** — `(f x)` — and **value uses** — passing `f` to `map`,
+`apply`, `(eq? f f)`, or returning it. The compiled `@f` entry (registered in
+`native_fns`) serves direct call sites. The value was, until #1500, a *separate*
+interpreter closure built by eval'ing the lambda/define source through the
+`kaappi_eval_cached` fallback — even though `@f` was already emitted natively.
+
+Since #1500 a **fixed-arity** define binds its global to a native closure over
+that same entry: `emitDefine` / `emitPassthrough` look up the just-registered
+`native_fns` record and emit
+`kaappi_create_native_closure(@f, null, 0, arity, …)` instead of the eval
+fallback (`emitNativeFnClosureValue` in `llvm_emit.zig`). This removes the
+per-program startup parse+compile for the value and makes value uses run native
+code, and — because taking `@f`'s address keeps the otherwise-`internal`
+fast-entry trampoline (#1499) alive — it also stops that trampoline being
+dropped. The value and the direct call sites now run the *same* native code
+(previously the value ran the interpreter), so the native backend's
+value-vs-call paths no longer diverge.
+
+**Re-entrant eval.** Making `@f` reachable as a value exposed a latent
+non-re-entrancy in the cached-eval fallback. When `@f`'s body itself reaches an
+eval or quote fallback and `f`'s *value* is invoked from inside an active
+`vm.execute` — e.g. `(define p (f 5))` eval'd at top level runs native `@f`
+under the VM's `CALL` dispatch, and `@f` calls `kaappi_eval_cached` /
+`kaappi_quote_cached` for its inner fallback — the nested run landed in
+`vm.execute`, which `resetExecutionState`s and runs from frame 0, corrupting the
+suspended outer form (it returned garbage or crashed with `car: not a pair`).
+`runTopLevelFunction` (`vm_eval.zig`) now guards this: at true top level
+(`frame_count == 0`) it stays `vm.execute`; when the VM is already executing it
+runs the compiled thunk through the same re-entrant path native callbacks use
+(`callWithArgs`, which pushes a frame *above* the current ones), leaving the
+outer execution intact. Both `eval` and `runCachedForm` route through it, so the
+quoted-constant and uncached fallbacks are covered too (before #1500 a native
+body only ran from native call sites, never from an outer `vm.execute`, so this
+nesting could not arise).
+
+Two kinds of define keep the eval-fallback value:
+
+- A **variadic** define: `callNativeClosure` dispatches native closures by
+  **exact** arity (`args.len != nc.arity` is an error), so a variadic entry
+  cannot be a native closure value.
+- A define whose body reaches a **code eval fallback** (a variadic inner lambda,
+  `letrec`, `guard`, a `let` it can't scope — anything that emits
+  `kaappi_eval_cached`, tracked as `NativeLambda.has_eval_fallback`). Such a
+  fallback republishes the enclosing frame's params as globals
+  (`bindParamsAsGlobals`), which **aliases across separate activations** — a
+  pre-existing native-backend limitation (two live closures from
+  `(f 1)` and `(f 2)` both read the last-published global). Direct call sites use
+  the closure immediately, so they don't expose it, but binding the value to a
+  native closure would run that body from new contexts and widen the aliasing to
+  the common `(define a (f 1)) (define b (f 2))` pattern. The gate keeps the
+  interpreter-closure value, which captures by location correctly. A **quoted
+  constant** (`kaappi_quote_cached`) is *not* a code fallback and does not gate:
+  quotes can't alias, and the re-entrant-eval fix above covers building them.
+
+In both cases `@f` still serves its direct call sites — a variadic entry passes
+the real argument count and builds the rest list itself — so only the value pays
+the eval fallback.
+
+(Native closure values are also why native closures now print as
+`#<procedure name>`, matching the interpreter's closures — see `printer.zig` —
+rather than a distinct `#<native-closure>` tag: a define'd function used as a
+written value is representation-identical across both backends.)
+
+Remaining eval-fallback lambda positions after #1500 (natural follow-ups): the
+value of a **variadic** define; the value of a define whose body has a **code
+eval fallback** (gated above — closing this needs the underlying
+`bindParamsAsGlobals` aliasing fixed, i.e. real by-location capture for
+eval-fallback closures, not just wider reach); a **bare variadic**
+`(lambda args …)` / `(lambda (a . rest) …)` expression (no closure tier builds a
+rest list for an anonymous lambda); and any lambda whose body still reaches an
+eval-fallback form (`letrec`, `guard`, named `let`, an internal `define`).
+
 ### Mutable captured variables (assignment conversion)
 
 The by-value `%upvalues` copy above is correct only while a captured binding is
@@ -505,6 +580,10 @@ environment variable controls the C compiler (defaults to `zig cc`).
   overflow → bignum, non-fixnum (flonum/rational) operands, and sign-extended
   negatives (`native-inline-primitives.scm`, all diffed against the interpreter,
   including under a forced-collection `KAAPPI_GC_THRESHOLD=1` run)
+- Native closure values for compiled defines (#1500) — a fixed-arity define used
+  as a *value* (`map`/`apply`/`eq?`/`procedure?`/returned from another function)
+  runs its native entry and prints as `#<procedure name>` exactly like the
+  interpreter's closure (`native-fn-value.scm`, diffed against the interpreter)
 
 ## Related Documents
 

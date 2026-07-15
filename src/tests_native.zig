@@ -501,8 +501,9 @@ test "LLVM emit: capture through a nested lambda chains upvalues natively (#1410
     try expectContains(ll, "getelementptr i64, ptr %upvalues, i64 0");
     // u must never degrade to a global lookup / interned symbol...
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
-    // ...and nothing may fall back to eval beyond the define-time binding.
-    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    // ...and nothing falls back to eval: g0 is fixed-arity, so since #1500 its
+    // global binding is a native closure over @g0, not an eval'd lambda.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: depth-3 nested capture chains through every closure level (#1410)" {
@@ -511,7 +512,8 @@ test "LLVM emit: depth-3 nested capture chains through every closure level (#141
     const ll = res.toSlice();
     try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
-    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    // g0 (fixed arity) binds a native closure, not an eval'd lambda (#1500).
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: capture through a let-wrapped nested lambda chains natively (#1410)" {
@@ -520,7 +522,8 @@ test "LLVM emit: capture through a let-wrapped nested lambda chains natively (#1
     const ll = res.toSlice();
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @closure_"));
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"u\"") == null);
-    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    // g0 (fixed arity) binds a native closure, not an eval'd lambda (#1500).
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: eval fallback inside a native closure republishes upvalues (#1410)" {
@@ -534,6 +537,10 @@ test "LLVM emit: eval fallback inside a native closure republishes upvalues (#14
     try expectContains(ll, "c\"u\"");
     try expectContains(ll, "@kaappi_define_global");
     try expectContains(ll, "getelementptr i64, ptr %upvalues, i64 0");
+    // Two evals: the variadic inner lambda, plus g0's own value — its body
+    // reaches that code eval fallback, so the #1500 gate keeps g0's global an
+    // eval'd interpreter closure (not a native closure whose upvalue republish
+    // would alias across activations).
     try std.testing.expectEqual(@as(usize, 2), countEvalFallbacks(ll));
 }
 
@@ -557,6 +564,9 @@ test "LLVM emit: let eval fallback republishes enclosing params (#1410)" {
     const ll = res.toSlice();
     try expectContains(ll, "c\"u\"");
     try expectContains(ll, "@kaappi_define_global");
+    // Two evals: the let's whole-form fallback, plus f's own value — its body
+    // reaches that code eval fallback, so the #1500 gate keeps f's global an
+    // eval'd interpreter closure rather than a native closure over @f.
     try std.testing.expectEqual(@as(usize, 2), countEvalFallbacks(ll));
 }
 
@@ -890,14 +900,15 @@ test "LLVM emit: do lowers to a native loop, no eval" {
 
 test "LLVM emit: a function whose body is a cond compiles natively (#1496)" {
     // Previously the whole define fell back to eval because cond was an
-    // eval-fallback form; now only the define-time binding evals (1), and the
-    // body is a native @lambda with a cond block chain.
+    // eval-fallback form; now the body is a native @lambda with a cond block
+    // chain and (since #1500) the fixed-arity define binds a native closure
+    // over it, so nothing evals at all.
     var res = try emitMultiResult("(define (sign n) (cond ((< n 0) -1) ((= n 0) 0) (else 1)))");
     defer res.deinit();
     const ll = res.toSlice();
     try expectNativeDef(ll, "sign");
     try expectContains(ll, "cond_merge_");
-    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 test "LLVM emit: do in a function body stays native (#1496)" {
@@ -906,7 +917,8 @@ test "LLVM emit: do in a function body stays native (#1496)" {
     const ll = res.toSlice();
     try expectNativeDef(ll, "sumto");
     try expectContains(ll, "do_header_");
-    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    // Fixed-arity define binds a native closure over @sumto (#1500), no eval.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 // -- Removed fixed-size analysis buffers (#1498) --
@@ -1090,6 +1102,94 @@ test "LLVM emit: a forward-referenced non-native define gets a tailcc stub (#149
     try expectContains(ll, "call i64 @kaappi_call_scheme"); // the stub dispatches indirectly
 }
 
+// -- Native closure values for natively-compiled defines (#1500) --
+// A fixed-arity define whose function compiled natively binds its global to a
+// native closure over the compiled entry (kaappi_create_native_closure) rather
+// than eval'ing the lambda/define source. So a value use of the name runs
+// native code and startup skips the reader+compiler. A variadic entry keeps the
+// eval-fallback value: callNativeClosure dispatches native closures by exact
+// arity, so a variadic one cannot be a native closure value.
+
+test "LLVM emit: a sugared fixed-arity define binds a native closure value (#1500)" {
+    var res = try emitMultiResult("(define (sq x) (* x x))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "sq");
+    // The global binding is a native closure over the compiled entry...
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @");
+    try expectContains(ll, "@kaappi_define_global");
+    // ...not an eval of the serialized define form.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+    try expectNotContains(ll, "c\"(define (sq");
+}
+
+test "LLVM emit: an un-sugared lambda-valued define binds a native closure value (#1500)" {
+    var res = try emitMultiResult("(define double (lambda (x) (+ x x)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "double");
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @");
+    // The lambda source is not serialized for eval anymore.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+    try expectNotContains(ll, "c\"(lambda ");
+}
+
+test "LLVM emit: a variadic define keeps the eval-fallback value (#1500)" {
+    // A native closure value dispatches by exact arity (callNativeClosure), so a
+    // variadic entry cannot be one; its global binding stays the eval fallback,
+    // while @go still serves direct call sites natively.
+    var res = try emitMultiResult("(define (go a . rest) (cons a rest))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "go");
+    // Exactly the one define-time eval, and it is NOT a native closure value.
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+    try expectNotContains(ll, "call i64 @kaappi_create_native_closure");
+}
+
+test "LLVM emit: a define that falls back to eval keeps its interpreter value (#1500)" {
+    // guard is an eval-fallback form, so safe-div never compiles natively; the
+    // whole define form must still eval (no native_fns entry to build a closure
+    // over) — the #1500 native-closure path must not fire on a rejected define.
+    var res = try emitMultiResult("(define (safe-div a b) (guard (e (#t 0)) (/ a b)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNotContains(ll, "call i64 @kaappi_create_native_closure");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a native define whose body has a code eval fallback keeps its value interpreted (#1500)" {
+    // mk compiles natively (its @mk serves direct calls), but its body reaches a
+    // code eval fallback (the variadic inner lambda). Binding mk's value to a
+    // native closure would run that body from new call contexts, widening the
+    // bindParamsAsGlobals aliasing to `(define a (mk 1)) (define b (mk 2))`, so
+    // the gate keeps the correctly-capturing interpreter closure value: the
+    // outer @mk exists, but mk's value is NOT a native closure over it.
+    var res = try emitMultiResult("(define (mk u) (lambda (c . r) u))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "mk");
+    // The inner variadic lambda still evals (its @mk body), and mk's value is
+    // eval'd too (the whole define form) — but no native closure value is built.
+    try expectNotContains(ll, "call i64 @kaappi_create_native_closure");
+    try std.testing.expect(countEvalFallbacks(ll) >= 2);
+}
+
+test "LLVM emit: a native define whose body only quotes still binds a native closure value (#1500)" {
+    // A quoted constant routes through kaappi_quote_cached, not a code eval
+    // fallback: it cannot alias, and the re-entrant-eval fix (runTopLevelFunction)
+    // covers its build when the value is invoked from inside an outer execute. So
+    // a quote-body define stays eligible for a native closure value.
+    var res = try emitMultiResult("(define (digits) (quote (1 2 3)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "digits");
+    try expectContains(ll, "call i64 @kaappi_create_native_closure(ptr %vm, ptr @");
+    // No CODE eval fallback (the quote uses the quote cache, counted separately).
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+    try expectContains(ll, "@kaappi_quote_cached");
+}
+
 test "LLVM emit: a lambda capturing a param through a cond gets an upvalue (#1496)" {
     // The free-variable analysis must descend into the cond's clauses, or the
     // capture of `base` degrades to a global lookup.
@@ -1253,13 +1353,20 @@ test "NativeClosure arity mismatch raises a catchable error" {
 // eval-fallback call sites in the IR (countEvalFallbacks spans both the plain
 // and the compile-once-cached spelling — #1494). Two shapes legitimately eval:
 //
-//   - defining a function/lambda emits exactly ONE eval
-//     (emitDefine/emitPassthrough create the global binding via the
-//     interpreter; call sites still use the direct native path);
+//   - a define emits ONE eval for its global binding when it is VARIADIC (a
+//     native closure value dispatches by exact arity, so a variadic entry can't
+//     be one) OR when its body reaches a code eval fallback (an inline variadic
+//     lambda, whose bindParamsAsGlobals would alias across activations if the
+//     value ran natively — the #1500 gate keeps the interpreter closure). A
+//     fixed-arity define with a fallback-free body emits ZERO: since #1500 its
+//     global binding is a native closure over the compiled entry (call sites
+//     already used the direct native path either way);
 //   - an inline VARIADIC lambda emits exactly ONE eval (#1420): no
 //     closure tier accepts a rest parameter, so it goes through
 //     emitLambdaViaEval, which first republishes the enclosing frame as
-//     globals — the #1410 codegen this shape exists to exercise.
+//     globals — the #1410 codegen this shape exists to exercise. (This is the
+//     same code fallback that gates the enclosing define's value above, so a
+//     define with an inline variadic body contributes both evals.)
 //
 // The exact count is checked on UNOPTIMIZED emission: dead-branch
 // elimination legitimately deletes variadic lambdas from constant-test
@@ -1277,36 +1384,28 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
         defer gpa.free(src);
         errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed, src });
 
-        // One eval per function define and per lambda-valued global define,
-        // plus one per inline variadic lambda. The generator emits one
-        // top-level form per line, so define position is line-syntactic.
-        var ndefines: usize = 0;
+        // The generator emits one top-level form per line, so define position
+        // is line-syntactic, and every parameter list is flat — a " . " in one
+        // (before its closing ')') marks a rest parameter.
+        //
+        // Per line we count two things:
+        //   value_evals: a define whose global binding evals — variadic, or a
+        //     fixed-arity define whose body reaches a code eval fallback. For a
+        //     generator body the only such fallback is an inline variadic
+        //     lambda, so "line has an inline variadic lambda" ⟺ the define's
+        //     body has a code fallback ⟺ #1500 keeps the interpreter value.
+        //   nvariadic: every inline variadic lambda (each one its own eval).
+        var value_evals: usize = 0;
         var nvariadic: usize = 0;
         var names: [8][]const u8 = undefined;
         var name_count: usize = 0;
         var lines = std.mem.splitScalar(u8, src, '\n');
         while (lines.next()) |line| {
-            var name: ?[]const u8 = null;
-            if (std.mem.startsWith(u8, line, "(define (")) {
-                const rest = line["(define (".len..];
-                const end = std.mem.indexOfAny(u8, rest, " )") orelse rest.len;
-                name = rest[0..end];
-            } else if (std.mem.startsWith(u8, line, "(define ") and
-                std.mem.indexOf(u8, line, "(lambda ") != null)
-            {
-                const rest = line["(define ".len..];
-                const end = std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len;
-                name = rest[0..end];
-            }
-            if (name) |n| {
-                ndefines += 1;
-                names[name_count] = n;
-                name_count += 1;
-            }
-            // Inline variadic lambdas: every "(lambda (" occurrence except
-            // the define-position one on a `(define name (lambda ...)` line.
-            // The parameter list is flat, so it ends at the first ')'; a
-            // " . " inside it marks a rest parameter.
+            // Inline variadic lambdas: every "(lambda (" occurrence except the
+            // define-position one on a `(define name (lambda ...)` line. The
+            // parameter list is flat, so it ends at the first ')'; a " . "
+            // inside it marks a rest parameter.
+            var line_inline_variadic: usize = 0;
             var from: usize = 0;
             if (std.mem.startsWith(u8, line, "(define ") and !std.mem.startsWith(u8, line, "(define (")) {
                 if (std.mem.indexOf(u8, line, "(lambda (")) |pos| from = pos + "(lambda (".len;
@@ -1314,10 +1413,48 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
             while (std.mem.indexOfPos(u8, line, from, "(lambda (")) |pos| {
                 from = pos + "(lambda (".len;
                 const plist_end = std.mem.indexOfScalarPos(u8, line, from, ')') orelse line.len;
-                if (std.mem.indexOf(u8, line[from..plist_end], " . ") != null) nvariadic += 1;
+                if (std.mem.indexOf(u8, line[from..plist_end], " . ") != null) line_inline_variadic += 1;
+            }
+            nvariadic += line_inline_variadic;
+
+            var name: ?[]const u8 = null;
+            var define_plist: ?[]const u8 = null; // the define's formal list
+            if (std.mem.startsWith(u8, line, "(define (")) {
+                const rest = line["(define (".len..];
+                const end = std.mem.indexOfAny(u8, rest, " )") orelse rest.len;
+                name = rest[0..end];
+                // Sugared `(define (f a . rest) ...)`: formals close at the
+                // first ')'.
+                const plist_end = std.mem.indexOfScalar(u8, rest, ')') orelse rest.len;
+                define_plist = rest[0..plist_end];
+            } else if (std.mem.startsWith(u8, line, "(define ") and
+                std.mem.indexOf(u8, line, "(lambda ") != null)
+            {
+                const rest = line["(define ".len..];
+                const end = std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len;
+                name = rest[0..end];
+                // `(define f (lambda (a . rest) ...))`: the define-position
+                // lambda's formals close at the first ')' after "(lambda (".
+                if (std.mem.indexOf(u8, line, "(lambda (")) |pos| {
+                    const pos_from = pos + "(lambda (".len;
+                    const plist_end = std.mem.indexOfScalarPos(u8, line, pos_from, ')') orelse line.len;
+                    define_plist = line[pos_from..plist_end];
+                }
+            }
+            if (name) |n| {
+                names[name_count] = n;
+                name_count += 1;
+                // The define's value evals when it is variadic, or when its body
+                // has a code eval fallback (#1500 gate) — an inline variadic
+                // lambda on this line.
+                const define_variadic = if (define_plist) |pl|
+                    std.mem.indexOf(u8, pl, " . ") != null
+                else
+                    false;
+                if (define_variadic or line_inline_variadic > 0) value_evals += 1;
             }
         }
-        const expected = ndefines + nvariadic;
+        const expected = value_evals + nvariadic;
 
         // Exact accounting on unoptimized emission: every source shape
         // reaches the emitter, so any count mismatch is a shape that
@@ -1332,18 +1469,20 @@ test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
         // fallbacks now route through @kaappi_eval_cached (#1494).
         const actual_noopt = countEvalFallbacks(res_noopt.toSlice());
         if (actual_noopt != expected) {
-            std.debug.print("seed {d}: expected {d} kaappi_eval calls unoptimized ({d} defines + {d} inline variadic lambdas), found {d}\n", .{ seed, expected, ndefines, nvariadic, actual_noopt });
+            std.debug.print("seed {d}: expected {d} kaappi_eval calls unoptimized ({d} define-value evals + {d} inline variadic lambdas), found {d}\n", .{ seed, expected, value_evals, nvariadic, actual_noopt });
             return error.NativeSubsetFellBackToEval;
         }
 
         // Production pass pipeline: elimination can only remove eval sites,
-        // never add them.
+        // never add them. A define's value eval is top-level (never in a dead
+        // branch), so it is the unremovable floor; inline variadic lambdas in
+        // constant-test branches may be eliminated above it.
         var res = try emitMultiResult(src);
         defer res.deinit();
         const ll = res.toSlice();
         const actual = countEvalFallbacks(ll);
-        if (actual < ndefines or actual > expected) {
-            std.debug.print("seed {d}: expected {d}..{d} kaappi_eval calls optimized, found {d}\n", .{ seed, ndefines, expected, actual });
+        if (actual < value_evals or actual > expected) {
+            std.debug.print("seed {d}: expected {d}..{d} kaappi_eval calls optimized, found {d}\n", .{ seed, value_evals, expected, actual });
             return error.NativeSubsetFellBackToEval;
         }
 

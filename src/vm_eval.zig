@@ -8,6 +8,28 @@ const Value = types.Value;
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
+// Run a compiled top-level Function (an expression thunk), re-entrant-safely.
+//
+// At true top level (`frame_count == 0`) this is `vm.execute`, which resets the
+// execution state and runs the form from frame 0. But since #1500 a natively
+// compiled function is bound to a native closure *value*; when such a value is
+// itself invoked from inside an outer `vm.execute` (e.g. `(define p (g0 5))`
+// eval'd at top level runs the native `@g0` under the VM's CALL dispatch), and
+// `@g0`'s body reaches an eval/quote fallback, that fallback lands back here
+// with the outer form still suspended on frame 0. A nested `vm.execute` would
+// `resetExecutionState` and overwrite frame 0's registers, corrupting the outer
+// run. Detect the active execution and run the thunk through the same
+// re-entrant path native callbacks use (`callWithArgs` pushes a frame above the
+// current ones and returns when it unwinds), leaving the outer execution intact.
+//
+// `func` must already be GC-rooted by the caller (both call sites root it), so
+// the `allocClosure` here — which may collect — cannot free it.
+fn runTopLevelFunction(vm: *VM, func: *types.Function) VMError!Value {
+    if (vm.frame_count == 0) return vm.execute(func);
+    const closure_val = try vm.gc.allocClosure(func);
+    return vm.callWithArgs(closure_val, &.{});
+}
+
 pub fn eval(vm: *VM, source: []const u8) VMError!Value {
     vm_mod.setVMInstance(vm);
     const reader_mod = @import("reader.zig");
@@ -31,7 +53,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            last_result = vm.execute(func) catch |err| return err;
+            last_result = runTopLevelFunction(vm, func) catch |err| return err;
         }
     }
     return last_result;
@@ -128,7 +150,7 @@ pub fn compileCachedForm(vm: *VM, source: []const u8) VMError!Value {
 /// cache fast path: it runs the already-compiled form directly, skipping the
 /// reader and compiler that plain eval() re-runs on every call.
 pub fn runCachedForm(vm: *VM, func_val: Value) VMError!Value {
-    return vm.execute(types.toObject(func_val).as(types.Function));
+    return runTopLevelFunction(vm, types.toObject(func_val).as(types.Function));
 }
 
 fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
