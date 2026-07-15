@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784144806513,
+  "lastUpdate": 1784150298218,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "53034d9c9022375e8945ccd54b98bcab5b2bde82",
-          "message": "Fix yield raising inside with-exception-handler after spawn (#1314) (#1369)\n\n* Fix yield raising inside with-exception-handler after spawn (#1314)\n\nTwo fixes:\n- yield is now a no-op when no other fibers are runnable (checks\n  scheduler.schedule() instead of just scheduler != null)\n- with-exception-handler propagates VMError.Yielded instead of\n  catching it and converting to a Scheme exception\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Drop with-exception-handler Yielded propagation\n\nReverts the withExceptionHandlerFn change per review: propagating\nVMError.Yielded through callReentrant discards the thunk's frames\n(native-frame limitation), producing a silent wrong value. The\nyieldFn schedule() check alone fixes #1314.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T17:31:37+05:30",
-          "tree_id": "11fd4f7715a2632ade5728a5190f7064bec6beda",
-          "url": "https://github.com/kaappi/kaappi/commit/53034d9c9022375e8945ccd54b98bcab5b2bde82"
-        },
-        "date": 1783600264906,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.273671,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.308032,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.965494,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.464661,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012604,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204438,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.501082,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069016,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.69045,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.945853,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.193762,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.003445,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.424818,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.693697,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043464,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045401,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc9233ddadd086537e3b2520ad041f5b20cf0903",
+          "message": "Add `--timings`: per-stage pipeline timings + cache HIT/MISS visibility (#1515) (#1578)\n\n`--profile` profiles the user's program; nothing reported how long kaappi's\nown pipeline stages take, or whether a run was served from the invisible `.sbc`\ncache — the same cache whose staleness (#1516) has cost real debugging hours.\n\n`--timings` / `--timings=json` give `zig build`-style transparency on stderr:\nper-stage wall time (read / expand / lower / optimize / emit / execute, plus\nnative `llvm-emit` / `link`) and, as the headline, an always-present cache line\nstating HIT or MISS and the path. JSON is for CI regression tracking alongside\nthe benchmark workflows. Wired into the run, `--compile`, and native `compile`\npaths.\n\nThe pipeline is not flat — macro expansion is interleaved with emission (a macro\nuse lowers to a passthrough node expanded and re-compiled during\n`compileFromNode`), so a naive accumulator would double-count nested regions.\n`src/timings.zig` uses a self-time profiler stack that credits wall time to the\ninnermost active stage, so the buckets are disjoint regardless of nesting or\nwhich driver is on top. Instrumentation lives at the shared chokepoints\n(`ir.lowerAndOptimize`, `expander.expandMacro`, `compiler.compile`,\n`native_compiler`, the run/compile drivers), so every caller is covered at once.\n\n`enabled` is threadlocal (like `ir.optimize_enabled`) so child SRFI-18 threads\nneither race on nor pollute the buckets, and each begin/end is a single\npredicted branch when the flag is absent — no measurable overhead on a normal\nrun.\n\nTests: `src/timings.zig` unit tests drive the stack on a deterministic clock\n(gated on `builtin.is_test`) and check text/JSON rendering; the end-to-end\n`tests/scheme/timings/timings-1515.sh` validates the JSON shape (parsed with\npython3 when available), HIT/MISS transitions, cache-off reasons, the compile\nshape, and that timings never leak onto stdout. Full suite 1866 pass / 0 fail;\nLinux and WASM cross-builds green. Part of #1503; see docs/dev/timings.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T20:43:43Z",
+          "tree_id": "385ff3f291d7c92322d3493e5ca266296593df5b",
+          "url": "https://github.com/kaappi/kaappi/commit/dc9233ddadd086537e3b2520ad041f5b20cf0903"
+        },
+        "date": 1784150296144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.397693,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.63466,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.921916,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.495434,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006683,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054256,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507712,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070132,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.400486,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.979366,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.584042,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.44148,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.851259,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.748725,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044948,
             "unit": "seconds"
           }
         ]
