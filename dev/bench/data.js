@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784131270869,
+  "lastUpdate": 1784133185482,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3e196f07ea359df662d9f22182dbb794e4595c39",
-          "message": "Fix random-source-make-reals to honor the unit argument (#1194) (#1367)\n\n* Fix random-source-make-reals to honor the unit argument (#1194)\n\nThe procedure validated that 0 < unit < 1 but then discarded it,\nalways returning a default-precision flonum. With an exact rational\nunit, the SRFI-27 spec requires exact results quantized as\nx*unit for random x in {1, ..., floor(1/unit)-1}.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: fix bound for non-integer reciprocal units, add tests\n\nWhen 1/unit is not an integer (e.g. unit=3/5, 3/10), use floor(1/unit)\ndirectly instead of floor(1/unit)-1, which would undershoot or hit zero.\nThe -1 is only needed when 1/unit is an integer (to avoid generating\nexactly 1.0). Also drops the redundant exact wrapper.\n\nAdds test cases for 3/10, 3/5, and 2/3 units covering the non-integer\nreciprocal and (1/2,1) edge cases.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update lib/srfi/27.sld\n\n* Document exact-unit quantization choice in CONFORMANCE.md\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T10:33:28Z",
-          "tree_id": "4782af2069e953fe97349fb0d6ea3f64e34b122b",
-          "url": "https://github.com/kaappi/kaappi/commit/3e196f07ea359df662d9f22182dbb794e4595c39"
-        },
-        "date": 1783594663555,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.148315,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.722097,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.81296,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.42002,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.010927,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.175614,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.396804,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052682,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 9.959972,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.533468,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.844765,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.871646,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.211644,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.498043,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035903,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044285,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "807fd64ac9c6e38d4e9d492a0117a8958a8d3a90",
+          "message": "Add `kaappi fmt` canonical comment-preserving formatter (#1518) (#1571)\n\nA canonical formatter makes diffs meaningful, ends style review, and gives\nagents format-on-save invariance — the job `zig fmt` does for the compiler's\nown Zig, which nothing did for Scheme. This is the final item of the\nmachine-legibility epic (#1503).\n\nComments are not datums, so the ordinary reader (which discards them) cannot\ndrive a formatter. `fmt` therefore has its own concrete-syntax reader\n(`src/fmt.zig`): a lexer that emits every lexeme — line/block/`#;` comments and\nthe blank-line structure between them — and a parser that builds a CST keeping\natom text verbatim, so number/character/string spellings are never rewritten.\n`src/fmt_print.zig` lays the CST out: 2-space R7RS indentation, single-space\nseparators, closing parens gathered, forms reflowed to 80 columns using the two\nstandard Scheme shapes (body style for define/lambda/let/when/case/…, call\nstyle for calls/cond/vectors/unknown heads).\n\nLayout only rearranges whitespace between lexemes, so the datums a program reads\nare invariant by construction — and that is also checked at runtime: before\nwriting any file, `verifyRoundTrip` re-reads the original and the formatted text\nwith the real reader and compares the datum sequences with `equal?`. On any\nmismatch it refuses to write, so a bug here can never corrupt a source file.\n\n`--check` writes nothing and exits nonzero listing paths that need formatting,\nfor CI; with no files, stdin is formatted to stdout.\n\nVerified over all 558 .scm/.sld files under tests/scheme and lib: zero semantic\ndrift, zero syntax errors, and 558/558 idempotent. Tests: src/tests_fmt.zig\n(exact cases, comment/blank-line preservation, idempotence + round-trip over\ngrammar-fuzzer programs) and tests/scheme/fmt/fmt.sh (CLI behaviour plus the two\ncorpus-wide properties), wired into run-all.sh. Documented in docs/dev/fmt.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T15:59:54Z",
+          "tree_id": "3ec96ad2dae3fb6fb3d1326543572ec1fb4b383a",
+          "url": "https://github.com/kaappi/kaappi/commit/807fd64ac9c6e38d4e9d492a0117a8958a8d3a90"
+        },
+        "date": 1784133184648,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.401971,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.036704,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920499,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.46445,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006526,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054155,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50658,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069704,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.395191,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.989996,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.570437,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434811,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.849904,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.682599,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043074,
             "unit": "seconds"
           }
         ]
