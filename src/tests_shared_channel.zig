@@ -523,14 +523,15 @@ fn expectSymbolNamed(v: types.Value, name: []const u8) !void {
 }
 
 test "lever B arena: a receive parks its GC, the next send reuses it, symbol-bearing messages survive the reset (kaappi#1472)" {
-    // The reusable per-channel arena only exists in the lever-B prototype build
-    // (-Dchannel-arena=true); the shipped default frees each envelope heap, so
-    // there is nothing to observe. White-box: read the cache slot and the
-    // queued envelope's GC directly. The load-bearing correctness claim is the
-    // SYMBOL case -- resetForReuse must clear the arena's symbol table, since
-    // freeObject frees each Symbol's name (its own map key). A stale entry
-    // would make the second message's re-interned symbol alias freed memory.
-    if (comptime !build_options.channel_arena) return;
+    // The reusable per-channel arena is the shipped default (kaappi#1472); it
+    // is compiled out only under `-Dchannel-arena=false` or the gate instrument
+    // build, where each envelope heap is freed and there is nothing to observe.
+    // White-box: read the cache slot and the queued envelope's GC directly. The
+    // load-bearing correctness claim is the SYMBOL case -- resetForReuse must
+    // clear the arena's symbol table, since freeObject frees each Symbol's name
+    // (its own map key). A stale entry would make the second message's
+    // re-interned symbol alias freed memory.
+    if (comptime !shared_channel.arena_enabled) return;
     const baseline = shared_object.liveCount();
 
     const sc = try shared_channel.SharedChannel.create();

@@ -36,13 +36,14 @@ pub fn build(b: *std.Build) void {
     // selects the lever at runtime (protocol §4.4, one binary for all modes).
     const channel_instrument = b.option(bool, "channel-instrument", "Compile in KEP-0002 Phase 7 channel copy-time counters + elision levers (off in shipped builds)") orelse false;
 
-    // KEP-0002 Phase 7 lever-B prototype (kaappi#1472): a reusable per-channel
-    // recycled-GC arena behind the Envelope interface. Off in the shipped
-    // default (lever A, a fresh per-message heap); on, cross-thread sends reuse
-    // one buffer-warm GC per channel instead of malloc/free-ing the ~8 KiB root
-    // buffer every message. Exists to test P3's second (B) clause under
-    // gc-stress + leak checks, not for shipping.
-    const channel_arena = b.option(bool, "channel-arena", "Compile in the KEP-0002 Phase 7 lever-B per-channel recycled-GC arena prototype (off in shipped builds)") orelse false;
+    // KEP-0002 Phase 7 lever B (kaappi#1472): a reusable per-channel recycled-GC
+    // arena behind the Envelope interface, promoted to the shipped default. On,
+    // cross-thread sends reuse one buffer-warm GC per channel instead of
+    // malloc/free-ing the ~8 KiB root buffer every message (~50-63% faster
+    // small-pointer-message round-trips, low-contention). -Dchannel-arena=false
+    // restores lever A (a fresh per-message heap); the gate instrument build
+    // forces lever A regardless so the frozen protocol baseline is unperturbed.
+    const channel_arena = b.option(bool, "channel-arena", "KEP-0002 Phase 7 lever-B per-channel recycled-GC arena (kaappi#1472); shipped default -- pass -Dchannel-arena=false to restore lever A. Forced off under -Dchannel-instrument so the frozen gate baseline stays lever A.") orelse true;
 
     const test_filters = b.option([]const []const u8, "test-filter", "Only run unit tests whose names match the filter (repeatable)") orelse &.{};
 
