@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784080532133,
+  "lastUpdate": 1784080946022,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c20b06e8355a97a0bd15ef3ec072f60fa77c96b3",
-          "message": "Fix SRFI-1 take-right/drop-right to accept dotted lists (#1166) (#1354)\n\nThe spec says flist may be proper or dotted, but the length-counting\nloop required every cdr to be a pair, rejecting dotted tails. Replace\nwith a lead/lag two-pointer walk that naturally handles dotted tails.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T06:12:51Z",
-          "tree_id": "877b9ccafc6d234279581cdefaa0f7c09f92f164",
-          "url": "https://github.com/kaappi/kaappi/commit/c20b06e8355a97a0bd15ef3ec072f60fa77c96b3"
-        },
-        "date": 1783579636498,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.362967,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.182808,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.99893,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.397233,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013135,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204096,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502921,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069175,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.635749,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.932078,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.155653,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.001573,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.439286,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.666999,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04398,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046214,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "09f083c3b4bed806b6432d577073c61452ef9f46",
+          "message": "Index parked fibers by waited-on object for O(1) wakes (#1530) (#1553)\n\nAfter #1525 made fiber dispatch/spawn O(1), the five wake paths\n(wakeWaiters, wakeChannelWaiters, wakeMutexWaiters, wakeOneCondVarWaiter,\nwakeAllCondVarWaiters) still linearly scanned every slot in\n`sched.fibers.items` on each call. On a join-, channel-, or condvar-heavy\nworkload holding thousands of live fibers, each completion/send/close paid\nan O(fiber count) scan — the residual super-linearity #1477 flagged once\ndispatch was already O(1). `wakeWaiters` alone runs on every fiber\ncompletion and scanned all N fibers even with zero joiners, making\nspawn+join O(N^2).\n\nAdd a per-scheduler secondary index `waiter_index` mapping a waited-on\nValue (a fiber to join, a channel, a mutex, a condition variable) to the\nslot indices of the fibers parked on it, so a wake is O(waiters-on-that-\nobject). enrollWaiter feeds it at every local park site; wakeOn is the\nsingle choke point behind all five entry points, with doWake applying the\nper-fiber transition identically on both the index and fallback paths.\n\nDesign points:\n- Store slot indices, not *Fiber. A since-reused or terminated slot is\n  caught by the same validation the ready ring uses at pop (slot still owns\n  its index, still .waiting, still on the key), so a terminated waiter needs\n  no explicit de-index — unlike the pointer-holding shared_waiters registry.\n- The broadcast wakes require a complete index (a \"wake all\" cannot fall\n  back on an empty index the way #1525's lossy ready ring can). Enroll at\n  all nine local park sites; the four shared-channel parks (woken via\n  sweepSharedWaiters) and thread-sleep!'s VOID-keyed timed wait are\n  deliberately excluded, and the mutex/condvar retry spins re-enroll.\n- An enroll allocation failure sets a sticky waiter_index_degraded flag and\n  the wake paths fall back to the exact pre-#1530 scan, so OOM degrades to\n  old behavior instead of a lost-wakeup hang — no per-site park rollback.\n- A tail-check dedup (skip if the list tail is already this slot) bounds the\n  retry spins without a per-fiber flag, which would carry an address-reuse\n  ABA hazard.\n\nSame-machine bench-fibers A/B: spawn+join at 10,000 fibers 18,606 ns ->\n2,309 ns (~8x) and flat across 100/1k/10k instead of super-linear.\n\nAdds six tests_scheduler.zig unit tests (broadcast, hand-off, terminated-\nslot skip, tail-dedup + re-park, join-result hand-off, degraded scan) and\ntests/scheme/smoke/fiber-many-waiters-one-object-1530.scm (500 fibers block\non one channel; close wakes all). Full unit suite, targeted gc-stress on the\nconcurrency tests, and the full Scheme + R7RS suites all green.\n\nhasRunnableFibers and wakeIoWaitersOnFd are left as-is, matching the issue's\nscope: the former early-exits and is O(n) only in the genuine no-progress\ncase, and the latter keys on fd, not waiting_on.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T01:32:41Z",
+          "tree_id": "62504b0b5aa54df7fcd52d49dedc7328bd79cb3e",
+          "url": "https://github.com/kaappi/kaappi/commit/09f083c3b4bed806b6432d577073c61452ef9f46"
+        },
+        "date": 1784080944473,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.393397,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.805135,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.943831,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.592052,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00746,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054286,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513068,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068538,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.52447,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.95959,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592466,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433348,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.797703,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.724979,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044637,
             "unit": "seconds"
           }
         ]
