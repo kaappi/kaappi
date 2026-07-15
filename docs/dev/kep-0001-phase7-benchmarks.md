@@ -388,7 +388,21 @@ discriminator exists to survive, not a real error to clean up after.
 2. [#1478](https://github.com/kaappi/kaappi/issues/1478) — wire
    `kaappi-net`'s raw TCP sockets into `Reactor.register`/`waitForFd`
    properly, so `http-listen-fiber` gets genuine event-driven wakeup
-   instead of a fixed 1ms poll-then-sleep loop.
+   instead of a fixed 1ms poll-then-sleep loop. **Resolved:** core
+   [`fd->port`](https://github.com/kaappi/kaappi/pull/1527) wraps a raw fd as
+   a reactor-integrated port; `kaappi-net` exposes it as `socket-port`
+   ([kaappi-net#5](https://github.com/kaappi/kaappi-net/pull/5)); and
+   `http-listen-fiber` adopts it
+   ([kaappi-http#6](https://github.com/kaappi/kaappi-http/pull/6)) — connection
+   reads/writes now park the handler fiber on the reactor, and accept moves to
+   a blocking `accept()` on a dedicated OS thread feeding a dispatcher fiber
+   through a self-pipe (the diagnosis above under-counted the *accept* poll,
+   which the read/write fix alone leaves in place). conc=1 rises from the
+   747 req/s here to parity with the sequential server. That fix also uncovered
+   and closed a pre-existing serialization bug: `handle-client`'s `guard` is a
+   re-entrant native frame, so a blocking read *drives* the scheduler and a
+   nested drive skips the main fiber — an accept loop on main was starved for
+   the whole duration of any slow request until accept moved off the scheduler.
 3. [#1479](https://github.com/kaappi/kaappi/issues/1479) —
    `http-listen-threaded` hangs on every request — pre-existing,
    reproducible, isolated to library-defined-procedure + cross-thread +
