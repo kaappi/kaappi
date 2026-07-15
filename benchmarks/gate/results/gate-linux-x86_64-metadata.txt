@@ -1,0 +1,16 @@
+machine: linux-x86_64 (DO-Premium-Intel, dedicated vCPU, s-8vcpu-16gb-intel)
+kaappi_commit: 807fd64ac9c6e38d4e9d492a0117a8958a8d3a90
+protocol_commit(keps): af4219004c1f0366a24f798e4e4cd2d4831f7da1
+os: Ubuntu 24.04 LTS (x86_64), kernel 6.8
+cpu_cores: 8 physical / 8 logical (1 socket, 8 cores/socket, 1 thread/core -- no SMT; confirmed via lscpu)
+kj_counts: 20 inv x 10 iter (floor); serial 5x5; warmup 2
+date_started: 2026-07-15T17:14:00Z
+date_completed: 2026-07-15T22:33:00Z
+amendment: fo-digest size capped at 64 KiB/1 MiB/8 MiB (excludes 64 MiB, both levers).
+  Direct timing probe measured ~74-82s per iteration for fo-digest at 64 MiB on
+  this hardware (vs ~13s on the macOS reference) -- full protocol scope at that
+  size alone would have added ~10 hours. Mirrors the existing IP-MATMUL
+  precedent (compute cost makes the largest size infeasible on this class of
+  hardware); does not affect the gate classification (FO-DIGEST is a
+  compute-dominated supporting cell, share << 10% at every collected size on
+  both machines).
