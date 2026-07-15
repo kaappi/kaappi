@@ -24,6 +24,9 @@ Related surfaces built on the registry:
   diagnostics (the LSP `Diagnostic` shape emitted by `--diagnostics=json`).
 - [explain.md](explain.md) — `kaappi explain <code>`, the binary's own offline
   diagnostic reference (prose + example + fix for every code).
+- [`error-object-code`](#the-scheme-visible-surface-error-object-code) — the
+  Scheme-visible accessor in `(kaappi diagnostics)` that lets a program dispatch
+  on a code (`(eq? (error-object-code e) 'KP3001)`).
 
 ---
 
@@ -101,9 +104,16 @@ Two mechanisms, by stage:
   surfaces as the generic `KP3000` "uncaught exception"; the `KP` namespace is
   reserved to the implementation.
 
+  The two worlds converge when a `guard` catches a native error:
+  `with-exception-handler` (`primitives_control.zig`) is the single boundary
+  where a native `VMError` becomes the error object a guard clause sees, so it
+  stamps `runtimeErrorCode(err)` onto that object. From there the code rides on
+  the object exactly like an error-object raise.
+
 Carrying the code on the object (rather than in transient VM state) is what makes
-it survive `guard` catch/re-raise, and it is the seed the Phase-4
-`error-object-code` accessor will read.
+it survive `guard` catch/re-raise, and it is the seed the
+[`error-object-code`](#the-scheme-visible-surface-error-object-code) accessor
+reads.
 
 ### The migration is incremental
 
@@ -112,6 +122,60 @@ The high-traffic diagnostics are coded first; an unmigrated error-object raise
 simply shows `KP3000` until its site is stamped. `runtimeErrorCode` /
 `readErrorCode` / `compileErrorCode` guarantee that *some* real code and message
 always print, so no path ever regresses to leaking a Zig name.
+
+## The Scheme-visible surface: `error-object-code`
+
+The registry is also readable *from Scheme* — a test harness, an agent-driven
+REPL, or an error-handling library can dispatch on a code without scraping prose
+(KEP-0005 §4, [#1508](https://github.com/kaappi/kaappi/issues/1508)).
+
+```scheme
+(import (scheme base) (kaappi diagnostics))
+
+(guard (e ((eq? (error-object-code e) 'KP3001) (offer-rename-fix e))
+          (else (raise e)))
+  (load-user-program))
+```
+
+- **`(error-object-code obj)`** returns the **interned symbol** for the stable
+  code the implementation stamped on `obj` (e.g. `KP3004`), or `#f` when there is
+  none. Because the symbol is interned, `eq?` against a literal `'KP3004` is the
+  intended dispatch primitive — fast, and it reads naturally in a `guard`.
+- It is a **total function that never raises**, unlike the R7RS
+  `error-object-message` / `-irritants` accessors. A non-error object (R7RS
+  `raise` accepts any value) and an uncoded error object (a user `(error …)`,
+  whose code stays `.uncategorized`) both answer `#f`, so a program can make
+  `error-object-code` a guard's *first* check without first proving the caught
+  value is even an error object.
+- **The R7RS surface is untouched.** `error-object?`, `error-object-message`, and
+  `error-object-irritants` behave exactly as specified; the code is additive
+  metadata. A program that never calls `error-object-code` sees no change, which
+  is why the full R7RS suite passes untouched.
+- **Home library.** It lives in `(kaappi diagnostics)`, *never* in `(scheme
+  base)` — adding a non-standard binding to a standard library's namespace is
+  exactly the deviation KEP-0004 forbids. (Like every primitive it is also
+  present in the bare REPL global environment, but only `(kaappi diagnostics)`
+  *exports* it, so `(scheme base)`'s export list is unchanged.)
+- **Feature identifier.** `kaappi-diagnostics` is a `cond-expand` feature (in
+  `types.platform_features`) and appears in `(features)`, so portable code can
+  probe for the capability KEP-0004 style. `(library (kaappi diagnostics))` is a
+  second, equivalent probe.
+
+  ```scheme
+  (cond-expand
+    (kaappi-diagnostics (define (code-of e) (error-object-code e)))
+    (else               (define (code-of e) #f)))   ; older/minimal build
+  ```
+
+**SRFI-35/36 conditions.** Codes attach only to the built-in `ErrorObject`
+(KEP-0005 unresolved question 6). A SRFI-35 condition is a record, not an error
+object, so `error-object-code` answers `#f` for it — consistent with
+`error-object?` already answering `#f`. Wiring codes onto compound conditions is
+left for later; nothing in the load-bearing path depends on it.
+
+**Source:** `src/primitives_control.zig` (`errorObjectCode`, the
+`with-exception-handler` boundary stamp) · **Tests:**
+`src/tests_diagnostics.zig` and `tests/scheme/errors/error-object-code.sh`.
 
 ## Stability policy — the contract
 

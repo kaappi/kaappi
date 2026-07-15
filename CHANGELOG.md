@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`error-object-code` accessor** — the new `(kaappi diagnostics)` library exports `(error-object-code e)`, which returns the stable `KP` diagnostic code (an interned symbol like `KP3001`, `eq?`-dispatchable) for a runtime error the implementation raised, and `#f` for a plain `(error …)` or any non-error value. Guarded by the `kaappi-diagnostics` `cond-expand` feature. The R7RS error-object surface (`error-object?`, `error-object-message`, `error-object-irritants`) is unchanged (KEP-0005 §4, #1508)
+
 ### Changed
 - **LLVM backend: cache eval-fallback compilation per call site** — forms the native backend cannot lower (`letrec`, `cond`, `case`, `do`, `guard`, quasiquote, named `let`, and fallback lambdas) are compiled at most once per call site via `kaappi_eval_cached` instead of being re-parsed and re-compiled on every execution, removing a severe cliff inside loops and hot functions (#1494)
 

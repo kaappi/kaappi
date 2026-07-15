@@ -179,6 +179,7 @@ symbols, and **multi-line input** with automatic paren balancing.
 - **Profiler** — `kaappi --profile` or `,profile expr`: per-function self/total time, call counts, allocation bytes
 - **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
 - **Bytecode caching** — compiled `.sbc` files are reused when the source is unchanged
+- **Machine-legible diagnostics** — every error carries a stable `KP` code (`error[KP3001]`), with `--diagnostics=json` (LSP shape), `kaappi explain <code>`, and a Scheme accessor `(error-object-code e)` in `(kaappi diagnostics)` for dispatching on codes ([details](docs/dev/diagnostics.md))
 - **Editor support** — a bundled LSP server (`kaappi-lsp`) and a [VS Code extension](https://github.com/kaappi/vscode-kaappi)
 
 ## Ecosystem
