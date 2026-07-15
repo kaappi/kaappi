@@ -133,6 +133,16 @@ fn addExportsForLib(library: *Library, lib: Lib, globals: *std.StringHashMap(Val
     }
 }
 
+/// Standard libraries registered by name but with no Zig-primitive exports of
+/// their own: their bindings are syntax already present in scheme.base
+/// (`define-record-type` for srfi.9, `case-lambda` for scheme.case-lambda), so
+/// the library object is just an importable handle. Kept as one list so the
+/// normal and sandboxed registrars can't drift, and so `kaappi features` can
+/// enumerate the built-in SRFIs (the `srfi.*` entries here plus the `srfi_*`
+/// tags of `Lib`) without a second hardcoded list. All entries are pure syntax,
+/// hence safe under `--sandbox` and on WASM.
+pub const extra_std_libraries = [_][]const u8{ "scheme.case-lambda", "srfi.9" };
+
 /// Register the standard R7RS libraries by deriving exports from spec tables.
 pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
     const allocator = registry.allocator;
@@ -146,8 +156,9 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         }
     }
 
-    try registry.register(Library.init(allocator, "scheme.case-lambda"));
-    try registry.register(Library.init(allocator, "srfi.9"));
+    for (extra_std_libraries) |name| {
+        try registry.register(Library.init(allocator, name));
+    }
 }
 
 pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
@@ -163,8 +174,9 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
         }
     }
 
-    try registry.register(Library.init(allocator, "scheme.case-lambda"));
-    try registry.register(Library.init(allocator, "srfi.9"));
+    for (extra_std_libraries) |name| {
+        try registry.register(Library.init(allocator, name));
+    }
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

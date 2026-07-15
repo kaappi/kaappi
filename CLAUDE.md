@@ -40,6 +40,11 @@ expands, compiles, executes nothing) reporting read/compile errors plus the
 wrong-type-literal on direct built-in calls (errors); honors
 `--diagnostics=json` and `--deny-warnings` — see `docs/dev/check.md`;
 `kaappi explain <code>` prints a diagnostic's reference entry;
+`kaappi features [--json]` reports this build's capabilities — version + git
+build id, target triple, build mode, compiled-in subsystems (the KEP-0004
+`cond-expand` identifiers, sharing `types.platform_features`), built-in vs
+portable SRFIs, and initial VM/GC limits — all derived, no hardcoded second
+list; see `docs/dev/features.md`;
 `kaappi test [paths...]` runs SRFI-64 suites (`--json`, `--seed <n>`,
 `--lib-path`) aggregating from the runner's own counters; `--changed`
 /`--list-affected` (with `--since <rev>`) select only suites whose R7RS import
