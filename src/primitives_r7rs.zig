@@ -110,6 +110,15 @@ fn exitCode(args: []const Value) u8 {
 fn exitFn(args: []const Value) PrimitiveError!Value {
     const code = exitCode(args);
     if (vm_mod.vm_instance) |vm| {
+        // `kaappi test` worker: record the request but don't terminate, so the
+        // worker still reaches its result-emission step. A test file's SRFI-64
+        // epilogue calls `(exit 1)` only on failure; suppressing it lets the
+        // worker report that failure structurally instead of losing the run.
+        if (vm.suppress_exit) {
+            vm.exit_requested = true;
+            vm.exit_code = code;
+            return types.VOID;
+        }
         var i = vm.wind_count;
         while (i > 0) {
             i -= 1;

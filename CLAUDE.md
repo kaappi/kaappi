@@ -32,8 +32,11 @@ also skips the `.sbc` cache — useful for miscompilation triage and
 `--profile`, `--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
 `Diagnostic` objects on stderr — see `docs/dev/diagnostics-json.md`),
 `--completions <shell>`.
-Subcommand: `kaappi compile <file> [-o output]`
-compiles to native binary via LLVM. Version is defined as `pub const version`
+Subcommands: `kaappi compile <file> [-o output]` compiles to a native binary
+via LLVM; `kaappi explain <code>` prints a diagnostic's reference entry;
+`kaappi test [paths...]` runs SRFI-64 suites (`--json`, `--seed <n>`,
+`--lib-path`) aggregating from the runner's own counters — see
+`docs/dev/test-runner.md`. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),
