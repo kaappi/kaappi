@@ -137,6 +137,31 @@ pub const FiberScheduler = struct {
     /// order) via free_head, compacted lazily. Slot 0 (main) is never pushed.
     free_slots: std.ArrayList(usize),
     free_head: usize,
+    /// #1530: O(waiters-on-object) wakes. Secondary index mapping a waited-on
+    /// Value (a fiber to join, a channel, a mutex, a condition variable) to the
+    /// slot indices of the fibers currently parked (`.waiting`) on it, so the
+    /// wake paths (wakeWaiters/wakeChannelWaiters/wakeMutexWaiters/
+    /// wakeOneCondVarWaiter/wakeAllCondVarWaiters) touch only the relevant
+    /// waiters instead of rescanning every slot. Slot indices (not `*Fiber`)
+    /// so a since-reused or since-terminated slot is caught by validation at
+    /// wake time (like the ready ring's popReady) rather than dangling — a
+    /// terminated waiter therefore needs no explicit de-index, unlike the
+    /// pointer-holding shared_waiters registry. Enrolled by enrollWaiter at
+    /// every local park site; consulted authoritatively (no fallback scan) by
+    /// the wake paths, EXCEPT when degraded (see below). Only ever holds local
+    /// waiters: a fiber parked on a *promoted* channel is woken through
+    /// sweepSharedWaiters instead and is deliberately never enrolled here.
+    waiter_index: std.AutoHashMap(Value, std.ArrayList(usize)),
+    /// Sticky fallback switch (#1530). enrollWaiter allocates (a map entry and
+    /// a list slot); if that ever OOMs, the just-parked fiber would be absent
+    /// from `waiter_index` and an index-only wake could never find it — a
+    /// lost-wakeup hang. Rather than fail the park (which would need per-site
+    /// rollback of the timer/deadline state), enrollWaiter sets this flag and
+    /// the wake paths permanently fall back to the pre-#1530 authoritative
+    /// O(fiber count) scan. Post-OOM the VM is usually about to die anyway, so
+    /// giving up the accelerator forever (rather than trying to recover it) is
+    /// the responsible trade: worst case is exactly the old behavior.
+    waiter_index_degraded: bool,
 
     pub fn init(vm: *VM) FiberScheduler {
         return .{
@@ -149,6 +174,8 @@ pub const FiberScheduler = struct {
             .ready_head = 0,
             .free_slots = .empty,
             .free_head = 0,
+            .waiter_index = std.AutoHashMap(Value, std.ArrayList(usize)).init(vm.gc.allocator),
+            .waiter_index_degraded = false,
         };
     }
 
@@ -157,6 +184,9 @@ pub const FiberScheduler = struct {
         self.shared_waiters.deinit(allocator);
         self.ready.deinit(allocator);
         self.free_slots.deinit(allocator);
+        var it = self.waiter_index.valueIterator();
+        while (it.next()) |list| list.deinit(allocator);
+        self.waiter_index.deinit();
     }
 
     /// Shared lazy-compaction for the FIFO rings (`ready`, `free_slots`):
@@ -649,35 +679,142 @@ pub const FiberScheduler = struct {
         if (self.vm.reactor) |r| r.removeTimer(fiber);
     }
 
-    pub fn wakeWaiters(self: *FiberScheduler, completed_fiber: *Fiber) void {
-        const completed_val = types.makePointer(@ptrCast(&completed_fiber.header));
+    /// What doWake should do to each matched waiter beyond the common
+    /// suspend + cancel-timer + markRunnable. `all` distinguishes a broadcast
+    /// (wake every matching waiter) from a hand-off (wake the first, leave the
+    /// rest parked). `result`, when set, is stored into each woken fiber (the
+    /// fiber-join hand-off). `clear_waiting_on` blanks the woken fiber's
+    /// `waiting_on` (the channel retry contract; the join/mutex/condvar paths
+    /// leave it, matching their pre-#1530 behavior exactly).
+    const WakeSpec = struct {
+        all: bool,
+        result: ?Value = null,
+        clear_waiting_on: bool = false,
+    };
+
+    /// Enroll `fiber` (already flipped to `.waiting` with its `waiting_on`
+    /// set) into waiter_index so the matching wake path finds it without
+    /// scanning every slot (#1530). Call at every LOCAL park site; a park on a
+    /// promoted channel must NOT call this — it is woken via sweepSharedWaiters
+    /// (a stale local-index entry for it would merely be validated away).
+    /// A `waiting_on` of VOID (thread-sleep!'s pure timed wait) is never a
+    /// wake target, so it is skipped. The tail check makes a re-park on the
+    /// same object idempotent: the mutex/condvar retry loops re-enter
+    /// `.waiting` without an intervening wake, and dropping the duplicate keeps
+    /// the list length ~= concurrent waiters rather than growing with spins.
+    /// An allocation failure degrades the whole index to the fallback scan
+    /// (waiter_index_degraded) rather than leaving this fiber unfindable.
+    pub fn enrollWaiter(self: *FiberScheduler, fiber: *Fiber) void {
+        if (self.waiter_index_degraded) return;
+        const key = fiber.waiting_on;
+        if (key == types.VOID) return;
+        const gop = self.waiter_index.getOrPut(key) catch {
+            self.waiter_index_degraded = true;
+            return;
+        };
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        const list = gop.value_ptr;
+        // Tail dedup: a re-park on the same object would otherwise append a
+        // second copy of this slot every spin. The prior entry is still valid
+        // (this fiber is `.waiting` on `key` again), so skipping keeps the
+        // list bounded by concurrent waiters, not iterations.
+        if (list.items.len != 0 and list.items[list.items.len - 1] == fiber.sched_idx) return;
+        list.append(self.vm.gc.allocator, fiber.sched_idx) catch {
+            // A brand-new key whose first append failed left an empty list in
+            // the map; drop it so an empty entry can't linger.
+            if (!gop.found_existing) _ = self.waiter_index.remove(key);
+            self.waiter_index_degraded = true;
+        };
+    }
+
+    /// The common tail of every wake path: move `fiber` from `.waiting` back
+    /// to `.suspended`, hand off any join result, cancel a pending timeout
+    /// timer, and enqueue it on the ready ring. Factored out so the index and
+    /// fallback-scan paths apply byte-identical semantics.
+    fn doWake(self: *FiberScheduler, fiber: *Fiber, spec: WakeSpec) void {
+        if (spec.result) |r| {
+            fiber.result = r;
+            self.vm.gc.writeBarrier(&fiber.header, r);
+        }
+        fiber.status = .suspended;
+        if (spec.clear_waiting_on) fiber.waiting_on = types.VOID;
+        self.cancelPendingTimer(fiber);
+        self.markRunnable(fiber);
+    }
+
+    /// Wake fibers parked on `key`, per `spec`. Uses waiter_index when healthy
+    /// (O(waiters-on-key)); falls back to the pre-#1530 O(fiber count) scan
+    /// only after an enroll OOM degraded the index. The single choke point
+    /// behind all five public wake entry points.
+    fn wakeOn(self: *FiberScheduler, key: Value, spec: WakeSpec) void {
+        if (self.waiter_index_degraded) return self.scanWakeOn(key, spec);
+        self.indexWakeOn(key, spec);
+    }
+
+    /// Index-driven wake. Walks only the slot indices enrolled under `key`,
+    /// validating each exactly as popReady validates a ready-ring entry (slot
+    /// still owns its index, still `.waiting`, still on `key`) so a
+    /// since-reused or since-woken slot can never wake the wrong fiber. Stale
+    /// entries and the woken one are compacted out; a broadcast empties the
+    /// list, a hand-off keeps the still-parked tail. An emptied list frees its
+    /// key so the map stays bounded by currently-contended objects — essential
+    /// for fiber-join keys, which are one-shot (one per completed fiber).
+    fn indexWakeOn(self: *FiberScheduler, key: Value, spec: WakeSpec) void {
+        const entry = self.waiter_index.getEntry(key) orelse return;
+        const list = entry.value_ptr;
+        var w: usize = 0; // write cursor: entries to keep, compacted in place
+        var woke_one = false;
+        for (list.items) |idx| {
+            // Hand-off: once the single waiter is woken, keep the rest verbatim
+            // (they stay parked; their validity is rechecked at the next wake).
+            if (!spec.all and woke_one) {
+                list.items[w] = idx;
+                w += 1;
+                continue;
+            }
+            const occ: ?*Fiber = if (idx < self.fibers.items.len) self.fibers.items[idx] else null;
+            if (occ) |fiber| {
+                if (fiber.sched_idx == idx and fiber.status == .waiting and fiber.waiting_on == key) {
+                    self.doWake(fiber, spec);
+                    woke_one = true;
+                    continue; // drop the woken entry
+                }
+            }
+            // stale (reused/absent slot, or no longer waiting on `key`): drop
+        }
+        if (w == 0) {
+            list.deinit(self.vm.gc.allocator);
+            _ = self.waiter_index.remove(key);
+        } else {
+            list.shrinkRetainingCapacity(w);
+        }
+    }
+
+    /// Pre-#1530 authoritative scan, retained as the enroll-OOM fallback
+    /// (waiter_index_degraded). Behaviorally identical to the original wake
+    /// loops: every `.waiting` fiber on `key` for a broadcast, the first for a
+    /// hand-off.
+    fn scanWakeOn(self: *FiberScheduler, key: Value, spec: WakeSpec) void {
         for (self.fibers.items) |f| {
             if (f) |fiber| {
-                if (fiber.status == .waiting and fiber.waiting_on == completed_val) {
-                    fiber.status = .suspended;
-                    fiber.result = completed_fiber.result;
-                    self.vm.gc.writeBarrier(&fiber.header, completed_fiber.result);
-                    self.cancelPendingTimer(fiber);
-                    self.markRunnable(fiber);
+                if (fiber.status == .waiting and fiber.waiting_on == key) {
+                    self.doWake(fiber, spec);
+                    if (!spec.all) return;
                 }
             }
         }
+    }
+
+    pub fn wakeWaiters(self: *FiberScheduler, completed_fiber: *Fiber) void {
+        const completed_val = types.makePointer(@ptrCast(&completed_fiber.header));
+        self.wakeOn(completed_val, .{ .all = true, .result = completed_fiber.result });
     }
 
     /// Wake every fiber parked on this channel (status .waiting via the
     /// channel-receive retry protocol). Waking all is safe: each re-executes
     /// channel-receive and re-parks if the channel is empty again.
     pub fn wakeChannelWaiters(self: *FiberScheduler, ch_val: Value) void {
-        for (self.fibers.items) |f| {
-            if (f) |fiber| {
-                if (fiber.status == .waiting and fiber.waiting_on == ch_val) {
-                    fiber.status = .suspended;
-                    fiber.waiting_on = types.VOID;
-                    self.cancelPendingTimer(fiber);
-                    self.markRunnable(fiber);
-                }
-            }
-        }
+        self.wakeOn(ch_val, .{ .all = true, .clear_waiting_on = true });
     }
 
     /// KEP-0002 §5's per-scheduler shared-waiter registry: a fiber joins
@@ -735,42 +872,21 @@ pub const FiberScheduler = struct {
         self.shared_waiters.clearRetainingCapacity();
     }
 
+    /// Hand the mutex to one parked waiter (mutex unlock / abandonment). The
+    /// woken fiber re-races the claim and re-parks on failure, so waking
+    /// exactly one is the correct SRFI-18 hand-off.
     pub fn wakeMutexWaiters(self: *FiberScheduler, mutex_val: Value) void {
-        for (self.fibers.items) |f| {
-            if (f) |fiber| {
-                if (fiber.status == .waiting and fiber.waiting_on == mutex_val) {
-                    fiber.status = .suspended;
-                    self.cancelPendingTimer(fiber);
-                    self.markRunnable(fiber);
-                    return;
-                }
-            }
-        }
+        self.wakeOn(mutex_val, .{ .all = false });
     }
 
+    /// condition-variable-signal!: wake exactly one waiter.
     pub fn wakeOneCondVarWaiter(self: *FiberScheduler, cv_val: Value) void {
-        for (self.fibers.items) |f| {
-            if (f) |fiber| {
-                if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
-                    fiber.status = .suspended;
-                    self.cancelPendingTimer(fiber);
-                    self.markRunnable(fiber);
-                    return;
-                }
-            }
-        }
+        self.wakeOn(cv_val, .{ .all = false });
     }
 
+    /// condition-variable-broadcast!: wake every waiter.
     pub fn wakeAllCondVarWaiters(self: *FiberScheduler, cv_val: Value) void {
-        for (self.fibers.items) |f| {
-            if (f) |fiber| {
-                if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
-                    fiber.status = .suspended;
-                    self.cancelPendingTimer(fiber);
-                    self.markRunnable(fiber);
-                }
-            }
-        }
+        self.wakeOn(cv_val, .{ .all = true });
     }
 
     pub fn markRoots(self: *FiberScheduler, gc: *memory.GC) void {

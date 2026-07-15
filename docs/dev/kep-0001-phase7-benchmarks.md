@@ -379,7 +379,12 @@ discriminator exists to survive, not a real error to clean up after.
    `FiberScheduler.schedule()`/`addFiber()` O(fiber count) scans don't
    scale past ~1,000 concurrently-live fibers — replace with an O(1)/O(log
    n) ready-queue design. Directly explains the `http-listen-fiber` p99
-   regression above.
+   regression above. **Resolved:** the dispatch/spawn hot path became O(1)
+   in [#1525](https://github.com/kaappi/kaappi/pull/1525) (ready ring +
+   free-slot list); the residual O(fiber count) *wake* scans
+   (`wakeWaiters`/`wakeChannelWaiters`/mutex+condvar wakes) were the
+   follow-up [#1530](https://github.com/kaappi/kaappi/issues/1530), fixed
+   with a by-object waiter index (each wake now O(waiters-on-that-object)).
 2. [#1478](https://github.com/kaappi/kaappi/issues/1478) — wire
    `kaappi-net`'s raw TCP sockets into `Reactor.register`/`waitForFd`
    properly, so `http-listen-fiber` gets genuine event-driven wakeup

@@ -726,6 +726,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         me.waiting_on = args[0];
         me.status = .waiting;
         me.timed_out = false;
+        ctx.sched.enrollWaiter(me); // #1530: O(1) wake when the joined fiber completes
         if (deadline_ns) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);
@@ -1026,6 +1027,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     me.waiting_on = mutex_val;
     me.status = .waiting;
     me.timed_out = false;
+    ctx.sched.enrollWaiter(me); // #1530: O(1) wake on mutex unlock / abandonment
     if (deadline) |d| {
         me.deadline_ns = d;
         try ctx.reactor.addTimer(d, me);
@@ -1061,6 +1063,10 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
                 try ctx.reactor.addTimer(d, me);
             }
             me.status = .waiting;
+            // A local wake dropped me's index entry; re-enroll so the next
+            // unlock finds me again (#1530). No-op via the tail check when a
+            // cross-thread resolution left the entry in place.
+            ctx.sched.enrollWaiter(me);
             continue;
         }
         if (!crossThreadWaitPossible()) {
@@ -1077,6 +1083,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
             try ctx.reactor.addTimer(d, me);
         }
         me.status = .waiting;
+        ctx.sched.enrollWaiter(me); // #1530: re-index after this spin (see above)
     }
     // A cross-thread resolution never runs local wake bookkeeping (the
     // unlocking thread's scheduler/reactor doesn't even know `me` exists),
@@ -1151,6 +1158,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         me.waiting_on = args[1];
         me.status = .waiting;
         me.timed_out = false;
+        ctx.sched.enrollWaiter(me); // #1530: O(1) wake on signal / broadcast
         if (deadline) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);
@@ -1179,6 +1187,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
             }
             sleepNs(CROSS_THREAD_POLL_NS);
             me.status = .waiting;
+            ctx.sched.enrollWaiter(me); // #1530: re-index after this spin (see mutexLockFn)
         }
         // See the matching comment in mutexLockFn: a cross-thread signal
         // never runs local wake bookkeeping, so any timer registered above

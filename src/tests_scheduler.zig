@@ -150,7 +150,7 @@ test "enrollSharedWaiter dedups by pointer; removeSharedWaiter is a no-op if abs
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
@@ -170,7 +170,7 @@ test "sweepSharedWaiters unconditionally flips every enrolled .waiting fiber and
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
@@ -191,7 +191,7 @@ test "sweepSharedWaiters does not clobber a fiber no longer .waiting" {
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
@@ -219,7 +219,7 @@ test "scheduleForDispatch() does not select a .suspended fiber whose own nested 
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
@@ -251,7 +251,7 @@ test "hasRunnableFibers does not count a .suspended fiber whose own nested drive
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f_val = try ctx.vm.eval("f");
     const f = types.toObject(f_val).as(fiber_mod.Fiber);
 
@@ -274,7 +274,7 @@ test "runSchedulerStep sets driving for its whole extent and clears it on return
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const main_fiber = sched.fibers.items[0].?;
     const f = types.toObject(try ctx.vm.eval("f")).as(fiber_mod.Fiber);
     try std.testing.expect(!main_fiber.driving);
@@ -367,7 +367,7 @@ test "#1477: addFiber assigns each fiber its stable slot index" {
     defer ctx.deinit();
 
     _ = try ctx.vm.eval("(import (kaappi fibers)) (define f (spawn (lambda () 1)))");
-    const sched = ctx.vm.scheduler.?;
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
     const f = types.toObject(try ctx.vm.eval("f")).as(fiber_mod.Fiber);
 
     // f lives at exactly the slot addFiber recorded on it, and that slot is
@@ -466,4 +466,183 @@ test "fiber suspend does not save stale gap registers (#1529)" {
         \\out
     );
     try std.testing.expectEqual(@as(i64, 16), types.toFixnum(result));
+}
+
+// #1530: the by-object waiter index (waiter_index / enrollWaiter). These
+// drive the index directly — parking a spawned fiber is simulated by setting
+// its status/waiting_on and calling enrollWaiter, exactly as the real park
+// sites do — so the wake mechanics are checked in isolation from the full
+// scheduler loop the Scheme-level tests already cover.
+
+fn parkOn(sched: *fiber_mod.FiberScheduler, f: *fiber_mod.Fiber, key: types.Value) void {
+    f.status = .waiting;
+    f.waiting_on = key;
+    sched.enrollWaiter(f);
+}
+
+test "#1530: a broadcast wakes every enrolled waiter on the object and frees the key" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    // A rooted channel Value is the wake key (any non-VOID Value keys the index).
+    const key = try ctx.vm.eval("(define k (make-channel)) k");
+    _ = try ctx.vm.eval("(define a (spawn (lambda () 1)))");
+    _ = try ctx.vm.eval("(define b (spawn (lambda () 2)))");
+    _ = try ctx.vm.eval("(define c (spawn (lambda () 3)))");
+    const fa = types.toObject(try ctx.vm.eval("a")).as(fiber_mod.Fiber);
+    const fb = types.toObject(try ctx.vm.eval("b")).as(fiber_mod.Fiber);
+    const fc = types.toObject(try ctx.vm.eval("c")).as(fiber_mod.Fiber);
+
+    for ([_]*fiber_mod.Fiber{ fa, fb, fc }) |f| parkOn(sched, f, key);
+    try std.testing.expect(sched.waiter_index.count() == 1); // one object contended
+    try std.testing.expectEqual(@as(usize, 3), sched.waiter_index.get(key).?.items.len);
+
+    sched.wakeChannelWaiters(key); // broadcast
+
+    for ([_]*fiber_mod.Fiber{ fa, fb, fc }) |f| {
+        try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, f.status);
+        try std.testing.expectEqual(types.VOID, f.waiting_on); // channel path clears it
+    }
+    // The emptied list is dropped so the map stays bounded by live contention.
+    try std.testing.expect(sched.waiter_index.count() == 0);
+}
+
+test "#1530: a hand-off wakes exactly one waiter and leaves the rest enrolled" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (srfi 18) (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    const key = try ctx.vm.eval("(define m (make-mutex)) m");
+    _ = try ctx.vm.eval("(define a (spawn (lambda () 1)))");
+    _ = try ctx.vm.eval("(define b (spawn (lambda () 2)))");
+    _ = try ctx.vm.eval("(define c (spawn (lambda () 3)))");
+    const fa = types.toObject(try ctx.vm.eval("a")).as(fiber_mod.Fiber);
+    const fb = types.toObject(try ctx.vm.eval("b")).as(fiber_mod.Fiber);
+    const fc = types.toObject(try ctx.vm.eval("c")).as(fiber_mod.Fiber);
+
+    for ([_]*fiber_mod.Fiber{ fa, fb, fc }) |f| parkOn(sched, f, key);
+
+    sched.wakeMutexWaiters(key); // hand-off: first enrolled (a) only
+
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fa.status);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.waiting, fb.status);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.waiting, fc.status);
+    // a's entry is consumed; b and c stay enrolled for the next unlock.
+    try std.testing.expectEqual(@as(usize, 2), sched.waiter_index.get(key).?.items.len);
+}
+
+test "#1530: a terminated (.errored) waiter still in the index is skipped, not resurrected" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    const key = try ctx.vm.eval("(define k (make-channel)) k");
+    _ = try ctx.vm.eval("(define a (spawn (lambda () 1)))");
+    _ = try ctx.vm.eval("(define b (spawn (lambda () 2)))");
+    const fa = types.toObject(try ctx.vm.eval("a")).as(fiber_mod.Fiber);
+    const fb = types.toObject(try ctx.vm.eval("b")).as(fiber_mod.Fiber);
+
+    parkOn(sched, fa, key);
+    parkOn(sched, fb, key);
+    // thread-terminate! flips a directly to .errored without de-indexing it
+    // (the index holds slot indices, not pointers, so validation catches it).
+    fa.status = .errored;
+
+    sched.wakeChannelWaiters(key);
+
+    try std.testing.expectEqual(fiber_mod.FiberStatus.errored, fa.status); // not woken
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fb.status); // woken
+    try std.testing.expect(sched.waiter_index.count() == 0);
+}
+
+test "#1530: tail dedup bounds a same-object re-park; a wake+re-park re-indexes" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (srfi 18) (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    const key = try ctx.vm.eval("(define m (make-mutex)) m");
+    _ = try ctx.vm.eval("(define a (spawn (lambda () 1)))");
+    const fa = types.toObject(try ctx.vm.eval("a")).as(fiber_mod.Fiber);
+
+    parkOn(sched, fa, key);
+    // Re-parking on the SAME object with no intervening wake must not grow the
+    // list (the mutex/condvar spin loops re-enter .waiting repeatedly).
+    sched.enrollWaiter(fa);
+    sched.enrollWaiter(fa);
+    try std.testing.expectEqual(@as(usize, 1), sched.waiter_index.get(key).?.items.len);
+
+    // A hand-off consumes a's entry and drops the now-empty key.
+    sched.wakeMutexWaiters(key);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fa.status);
+    try std.testing.expect(sched.waiter_index.get(key) == null);
+
+    // The retry loop re-parks: enrollWaiter must re-add it (waiting_on is still
+    // the mutex on the mutex path), and the next unlock must find it again.
+    fa.status = .waiting;
+    sched.enrollWaiter(fa);
+    try std.testing.expectEqual(@as(usize, 1), sched.waiter_index.get(key).?.items.len);
+    sched.wakeMutexWaiters(key);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fa.status);
+}
+
+test "#1530: wakeWaiters hands the completed fiber's result to an indexed joiner" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    _ = try ctx.vm.eval("(define t (spawn (lambda () 1)))");
+    _ = try ctx.vm.eval("(define j (spawn (lambda () 2)))");
+    const t_val = try ctx.vm.eval("t");
+    const ft = types.toObject(t_val).as(fiber_mod.Fiber);
+    const fj = types.toObject(try ctx.vm.eval("j")).as(fiber_mod.Fiber);
+
+    // j joins t (keyed on t's own Value, exactly what blockOrDeadlock sets).
+    parkOn(sched, fj, t_val);
+
+    ft.status = .completed;
+    ft.result = types.makeFixnum(99);
+    sched.wakeWaiters(ft);
+
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fj.status);
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(fj.result));
+    try std.testing.expect(sched.waiter_index.count() == 0);
+}
+
+test "#1530: a degraded index falls back to the full scan and still wakes" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (kaappi fibers))");
+    const sched = (try fiber_mod.ensureScheduler(ctx.vm)).sched;
+    const key = try ctx.vm.eval("(define k (make-channel)) k");
+    _ = try ctx.vm.eval("(define a (spawn (lambda () 1)))");
+    _ = try ctx.vm.eval("(define b (spawn (lambda () 2)))");
+    const fa = types.toObject(try ctx.vm.eval("a")).as(fiber_mod.Fiber);
+    const fb = types.toObject(try ctx.vm.eval("b")).as(fiber_mod.Fiber);
+
+    // Simulate a prior enroll OOM: the index is abandoned and enroll no-ops.
+    sched.waiter_index_degraded = true;
+    fa.status = .waiting;
+    fa.waiting_on = key;
+    fb.status = .waiting;
+    fb.waiting_on = key;
+    sched.enrollWaiter(fa); // no-op while degraded
+    try std.testing.expect(sched.waiter_index.count() == 0);
+
+    // The wake must still find both by scanning fibers.items (pre-#1530 path).
+    sched.wakeChannelWaiters(key);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fa.status);
+    try std.testing.expectEqual(fiber_mod.FiberStatus.suspended, fb.status);
 }
