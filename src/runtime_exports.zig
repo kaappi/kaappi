@@ -206,6 +206,57 @@ pub export fn kaappi_eval_cached(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len:
     return v.runCachedForm(func_val) catch |err| fatalVMError(v, "eval error", err);
 }
 
+// Build-once cache for the LLVM backend's quoted heap constants (#1495). A
+// quoted pair/vector literal has no immediate representation, so the emitter
+// serializes it to a `(quote …)` source string. Plain kaappi_eval re-reads and
+// re-builds that constant on every execution — both a hot-path cliff and a
+// correctness divergence: the interpreter compiles a quote to a single
+// constant-pool entry, so every evaluation of one literal returns the SAME
+// object (`eq?`), whereas a fresh rebuild is `eq?` to nothing.
+//
+// The emitter allocates one `slot` global per quoted-literal call site. The
+// first execution builds the constant, permanently roots it, and stashes it in
+// `slot`; every later execution returns the cached object directly — matching
+// the interpreter's per-call-site constant sharing. This is the data analogue
+// of kaappi_eval_cached: that caches a compiled Function, this caches the built
+// value itself.
+pub export fn kaappi_quote_cached(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64, slot: *u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const len: usize = @intCast(src_len);
+    const source = src_ptr[0..len];
+
+    // Only the main runtime thread touches the shared slot — the guard precedes
+    // both the read and the write, exactly as in kaappi_eval_cached. A natively
+    // compiled body that evaluates a quoted literal can run on a spawned SRFI-18
+    // thread, which has its own VM and GC; caching a child-heap constant (freed
+    // at join) or returning a main-heap one under a child VM are cross-heap
+    // hazards. Child threads therefore build the constant fresh on every
+    // execution — exactly the pre-caching behavior — so the slot stays
+    // main-thread-only and race-free.
+    if (v.gc != &rt_gc) {
+        return v.eval(source) catch |err| fatalVMError(v, "eval error", err);
+    }
+
+    // Fast path: already built. `slot` holds the cached constant, kept alive by
+    // a permanent GC root created on first build.
+    if (slot.* != 0) return slot.*;
+
+    // Slow path (first execution at this call site): build once, permanently
+    // root, and cache. rootedSlot only appends to the C-allocated extra_roots
+    // list, so no Scheme-heap allocation runs between eval returning the fresh
+    // constant and it becoming rooted — the young constant cannot be swept in
+    // the gap. The root lives for the whole program (the slot is a module global
+    // the collector never scans), so extra_roots — not the LIFO shadow stack —
+    // is the right anchor.
+    const val = v.eval(source) catch |err| fatalVMError(v, "eval error", err);
+    _ = v.gc.rootedSlot(val) catch {
+        _ = std.posix.system.write(2, "OOM: failed to root quoted constant\n", 36);
+        std.process.exit(1);
+    };
+    slot.* = val;
+    return val;
+}
+
 fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
     const vm = vm_mod.vm_instance orelse {
         _ = std.posix.system.write(2, "runtime: no VM instance\n", 24);

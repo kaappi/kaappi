@@ -123,11 +123,16 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
     }
 }
 
-// Total eval-fallback call sites in emitted IR, regardless of caching. Code
-// fallbacks route through @kaappi_eval_cached (#1494) while quoted heap
-// constants stay on plain @kaappi_eval; a test that only cares "how many forms
-// crossed to the interpreter" counts both. The trailing "(" keeps the plain
-// count from also matching the "_cached(" spelling.
+// Total eval-fallback (code) call sites in emitted IR, regardless of caching:
+// a define-time binding, a general expression, or a lambda the closure tiers
+// can't express. These route through either plain @kaappi_eval or the
+// compile-once @kaappi_eval_cached (#1494); a test that only cares "how many
+// forms crossed to the interpreter as code" counts both. The trailing "("
+// keeps the plain count from also matching the "_cached(" spelling.
+//
+// Quoted heap constants are deliberately NOT counted here: since #1495 they
+// route through @kaappi_quote_cached, a build-once *data* cache, not an eval
+// fallback — a separate concern with its own emit tests below.
 fn countEvalFallbacks(ll: []const u8) usize {
     return std.mem.count(u8, ll, "call i64 @kaappi_eval(") +
         std.mem.count(u8, ll, "call i64 @kaappi_eval_cached(");
@@ -688,7 +693,7 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 25), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 26), native_decls.decls.len);
 }
 
 // -- Compile-once eval-fallback cache (#1494) --
@@ -716,15 +721,57 @@ test "LLVM emit: eval fallback routes through the compile-once cache (#1494)" {
     try std.testing.expectEqual(sites, slots);
 }
 
-test "LLVM emit: quoted heap constants stay on the uncached eval (#1494/#1495)" {
-    // Building quoted data once is a separate optimization (#1495); the caching
-    // eval is only for code fallbacks, so a quoted list keeps plain kaappi_eval.
+// -- Build-once quoted-constant cache (#1495) --
+// A quoted pair/vector literal has no immediate form, so it is serialized to a
+// (quote …) source and built via @kaappi_quote_cached, which memoizes the built
+// constant in a per-call-site global slot. Before #1495 it was rebuilt by plain
+// @kaappi_eval on every execution — wasteful, and non-eq? to the interpreter's
+// shared constant-pool entry. These verify the emitter side; the runtime side
+// (build once, eq? identity) is covered by tests/e2e/programs/native-quote-cache.scm.
+
+test "LLVM emit: quoted heap constant builds once via the quote cache (#1495)" {
     var res = try emitSourceResult("(quote (1 2 3))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "call i64 @kaappi_eval(ptr %vm");
+    // The literal routes through the build-once cache with a per-site slot...
+    try expectContains(ll, "call i64 @kaappi_quote_cached(ptr %vm");
+    try expectContains(ll, "@.quote_cache.0 = internal global i64 0");
+    // ...and no longer through the plain, rebuild-every-time eval. (The eval
+    // *declaration* stays in the preamble; only a `call` would be the fallback.)
+    try expectNotContains(ll, "call i64 @kaappi_eval(");
     try expectNotContains(ll, "call i64 @kaappi_eval_cached(");
-    try expectNotContains(ll, "@.eval_cache.0");
+    // Data caching is not an eval fallback, so it must not inflate that count.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: distinct quoted literals get distinct cache slots (#1495)" {
+    // Two textually separate literals are independent constants (the interpreter
+    // gives them separate constant-pool entries and they are not eq?), so each
+    // must get its own slot; a shared slot would alias them into eq?.
+    var res = try emitSourceResult("(cons (quote (1 2)) (quote (3 4)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    const calls = std.mem.count(u8, ll, "call i64 @kaappi_quote_cached(");
+    const slots = std.mem.count(u8, ll, "@.quote_cache.");
+    try std.testing.expectEqual(@as(usize, 2), calls);
+    // Two slot definitions + two references (one per call) = four mentions.
+    try expectContains(ll, "@.quote_cache.0 = internal global i64 0");
+    try expectContains(ll, "@.quote_cache.1 = internal global i64 0");
+    try expectNotContains(ll, "@.quote_cache.2");
+    // Each call names a slot, so mentions are strictly more than the two defs.
+    try std.testing.expect(slots > calls);
+}
+
+test "LLVM emit: quoted symbols and immediates skip the quote cache (#1495)" {
+    // Only heap constants need building. A quoted symbol interns directly and a
+    // quoted fixnum is an immediate — neither touches @kaappi_quote_cached.
+    var res = try emitSourceResult("(cons (quote sym) 7)");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call i64 @kaappi_intern_symbol");
+    // Only a `call` is the build path; the preamble `declare` is unconditional.
+    try expectNotContains(ll, "call i64 @kaappi_quote_cached(");
+    try expectNotContains(ll, "@.quote_cache.");
 }
 
 test "cached form compiles once and re-executes correctly (#1494)" {

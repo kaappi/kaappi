@@ -52,6 +52,10 @@ pub const decls: []const Decl = &.{
     // Compile-once caching eval for the backend's per-call-site eval fallbacks
     // (#1494). The trailing ptr is the call site's global cache slot.
     .{ .export_name = "kaappi_eval_cached", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64, .ptr }, .ret = .i64, .inline_kind = .not_inlined },
+    // Build-once cache for quoted heap constants (#1495). Same slot-passing
+    // shape as kaappi_eval_cached, but the slot memoizes the built pair/vector
+    // value itself rather than a compiled Function.
+    .{ .export_name = "kaappi_quote_cached", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64, .ptr }, .ret = .i64, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_gc_push_root", .scheme_name = null, .param_types = &.{.ptr}, .ret = .void_ty, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_gc_pop_roots", .scheme_name = null, .param_types = &.{.i64}, .ret = .void_ty, .inline_kind = .not_inlined },
 };

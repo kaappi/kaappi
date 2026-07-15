@@ -64,8 +64,9 @@ functions that native code calls:
 | `kaappi_make_string` | Allocate a string on the GC heap |
 | `kaappi_intern_symbol` | Intern a symbol via the GC symbol table (ensures `eq?` identity) |
 | `kaappi_make_box` / `kaappi_box_ref` / `kaappi_box_set` | Allocate / read / write a one-slot heap box for a captured+mutated variable (assignment conversion, see [Mutable captured variables](#mutable-captured-variables-assignment-conversion)) |
-| `kaappi_eval` | Parse, compile, and evaluate a Scheme expression (used only for quoted heap constants now) |
+| `kaappi_eval` | Parse, compile, and evaluate a Scheme expression (now only the uncached fallback path inside the two caching entry points below, and the child-thread path) |
 | `kaappi_eval_cached` | Like `kaappi_eval`, but compiles the source once per call site and caches the resulting `Function` in a per-site global slot (see [Cached eval fallback](#cached-eval-fallback)) |
+| `kaappi_quote_cached` | Build a quoted heap constant once per call site and memoize the built value in a per-site global slot (see [Cached quoted constants](#cached-quoted-constants)) |
 
 All functions use `callconv(.c)` and pass Values as plain `u64` (the
 NaN-boxed representation crosses C ABI trivially).
@@ -164,7 +165,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 
 | Node | LLVM IR output |
 |------|---------------|
-| `constant` | Literal `i64` for immediates; `kaappi_make_string` for strings; `kaappi_intern_symbol` for symbols; `(quote ...)` via `kaappi_eval` for other heap values |
+| `constant` | Literal `i64` for immediates; `kaappi_make_string` for strings; `kaappi_intern_symbol` for symbols; `(quote ...)` via `kaappi_quote_cached` (built once per call site) for other heap values |
 | `global_ref` | `call @kaappi_global_lookup(...)` |
 | `call` | Four paths: inline-IR fast path for `+ - * < = null?` (see [Inline primitive fast paths](#inline-primitive-fast-paths)); direct specialized call for `car cdr cons`; direct `call`/`tail call` to a known native function; otherwise stack-allocate args array and `call @kaappi_call_scheme(...)` |
 | `begin` | Emit each expression sequentially |
@@ -205,9 +206,12 @@ handled differently:
 - **Strings**: `kaappi_make_string(vm, data_ptr, len)` — allocated at runtime
 - **Symbols**: `kaappi_intern_symbol(vm, name_ptr, len)` — interned at runtime,
   ensuring `eq?` identity matches between native code and interpreter closures
-- **Pairs, vectors, other heap values**: Serialized via `(quote ...)` and
-  evaluated at runtime via `kaappi_eval` (building these once rather than
-  re-consing per execution is a separate optimization, tracked as #1495)
+- **Pairs, vectors, other heap values**: Serialized via `(quote ...)` and built
+  at runtime via `kaappi_quote_cached`, which builds the constant once per call
+  site and memoizes it in a global slot (#1495) — so a literal in a hot path is
+  no longer re-consed per execution, and every evaluation returns the same object
+  (`eq?`), matching the interpreter's constant-pool sharing. See
+  [Cached quoted constants](#cached-quoted-constants).
 - **Fixnums, booleans, characters, nil, void**: Embedded directly as `i64`
   literals (these are NaN-boxed immediates with no heap allocation)
 
@@ -243,9 +247,9 @@ fallback that first republishes the enclosing frame's params/upvalues as globals
 The compile-once split point is code vs. data:
 
 - **Code fallbacks** → `kaappi_eval_cached` (compile the form once; #1494).
-- **Quoted heap constants** → plain `kaappi_eval` still, because caching the
-  *compiled form* would only avoid the re-parse, not the per-execution
-  re-consing; building the constant once is the distinct #1495 optimization.
+- **Quoted heap constants** → `kaappi_quote_cached`, which caches the *built
+  value* rather than a compiled form (#1495). See
+  [Cached quoted constants](#cached-quoted-constants).
 
 Two safety properties:
 
@@ -260,6 +264,51 @@ Two safety properties:
   be cross-heap hazards; child threads always take the plain, uncached path.
   Non-cacheable sources (a special top-level form, multiple data) also fall back
   to a plain `eval`.
+
+## Cached quoted constants
+
+A quoted heap constant — a pair, vector, or other literal with no immediate
+representation — is serialized to a `(quote …)` source string (see
+[Heap-Allocated Constants](#heap-allocated-constants)). Plain `kaappi_eval`
+rebuilds that constant on **every** execution, which is both a hot-path cliff
+and a correctness divergence: the interpreter compiles a `quote` to a single
+constant-pool entry (`compileQuote` in `src/compiler_passthrough.zig`), so every
+evaluation of one literal returns the **same** object — `(eq? (f) (f))` is `#t`
+when `f` returns a quoted literal — whereas a fresh rebuild is `eq?` to nothing.
+
+`kaappi_quote_cached` (`src/runtime_exports.zig`) closes both gaps. The emitter
+(`emitQuotedEvalExpr` in `src/llvm_emit.zig`) allocates one global slot per
+quoted-literal call site:
+
+```llvm
+@.quote_cache.0 = internal global i64 0
+...
+  %t0 = call i64 @kaappi_quote_cached(ptr %vm, ptr @.str.1, i64 15, ptr @.quote_cache.0)
+```
+
+The first execution builds the constant, permanently GC-roots it (via
+`extra_roots`, exactly as the eval cache roots its `Function`), and stores it in
+the slot; every later execution returns the cached object directly. This is the
+**data** analogue of `kaappi_eval_cached`: that caches a compiled `Function`,
+this caches the built value itself.
+
+Two properties fall out of the per-call-site slot, both matching the interpreter:
+
+- **`eq?` identity across evaluations.** One literal at one call site returns the
+  same object every time. Before #1495 the native backend rebuilt it per
+  execution, so `(eq? (f) (f))` was `#f` natively but `#t` in the interpreter.
+- **Distinct literals stay distinct.** Two textually separate occurrences of the
+  same datum get **separate** slots, so they are not `eq?` to each other — the
+  interpreter likewise gives them separate constant-pool entries.
+
+The **threads** carve-out mirrors the eval cache: only the main runtime thread
+touches a slot (the check precedes both the read and the write). A spawned
+SRFI-18 thread has its own VM and GC, so caching a child-heap constant (freed at
+thread-join) or returning a main-heap one under a child VM would be cross-heap
+hazards; child threads build the constant fresh on every execution — exactly the
+pre-caching behavior. The build-once guarantee (and the `eq?` identity that
+follows from it) therefore holds on the main thread, where all AOT-compiled
+top-level code runs.
 
 ## Lambda Strategy
 
