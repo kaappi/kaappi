@@ -73,7 +73,7 @@ const kaappi_bash =
     \\    fi
     \\
     \\    if [[ "$cur" == -* ]]; then
-    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --timings --timings=text --timings=json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
     \\    fi
     \\
@@ -107,6 +107,7 @@ const kaappi_zsh =
     \\        '--gc-stats[Print GC statistics on exit]'
     \\        '--profile[Enable profiling]'
     \\        '--profile-json[Write profile JSON to file]:file:_files'
+    \\        '--timings=[Per-stage pipeline timings + cache HIT/MISS]:format:(text json)'
     \\        '--coverage[Report library procedure coverage]'
     \\        '--coverage-xml[Write Cobertura XML coverage to file]:file:_files'
     \\        '--timeout[Execution timeout in milliseconds]:ms:'
@@ -140,6 +141,7 @@ const kaappi_fish =
     \\complete -c kaappi -l gc-stats -d 'Print GC statistics on exit'
     \\complete -c kaappi -l profile -d 'Enable profiling'
     \\complete -c kaappi -l profile-json -r -F -d 'Write profile JSON to file'
+    \\complete -c kaappi -l timings -x -a 'text json' -d 'Per-stage pipeline timings + cache HIT/MISS'
     \\complete -c kaappi -l coverage -d 'Report library procedure coverage'
     \\complete -c kaappi -l coverage-xml -r -F -d 'Write Cobertura XML coverage to file'
     \\complete -c kaappi -l timeout -r -x -d 'Execution timeout in milliseconds'

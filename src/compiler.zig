@@ -8,6 +8,7 @@ const passthrough = @import("compiler_passthrough.zig");
 const macro = @import("compiler_macro.zig");
 const ir_mod = @import("ir.zig");
 const compiler_ir = @import("compiler_ir.zig");
+const timings = @import("timings.zig");
 const globals_mod = @import("globals.zig");
 const printer = @import("printer.zig");
 const Value = types.Value;
@@ -483,7 +484,15 @@ pub const Compiler = struct {
         const root = try ir_mod.lowerAndOptimize(&ir, expr_root, &self.macros, is_tail);
 
         const dst = try self.allocReg();
-        try compiler_ir.compileFromNode(self, root, dst, is_tail);
+        // `--timings` (kaappi#1515): bytecode emission is the outermost `emit`
+        // scope. Passthrough macro uses re-enter the compiler from inside here;
+        // their nested expand/lower/optimize/emit are attributed correctly by
+        // the self-time stack. `defer` fires even on a `try` error path.
+        {
+            timings.begin(.emit);
+            defer timings.end();
+            try compiler_ir.compileFromNode(self, root, dst, is_tail);
+        }
         try self.emitOp(.@"return");
         try self.emitU16(dst);
 
@@ -517,7 +526,11 @@ pub const Compiler = struct {
             const root = try ir_mod.lowerAndOptimize(&ir, expr, &self.macros, false);
 
             dst = try self.allocReg();
-            try compiler_ir.compileFromNode(self, root, dst, false);
+            {
+                timings.begin(.emit); // see compile(): outermost emit scope (kaappi#1515)
+                defer timings.end();
+                try compiler_ir.compileFromNode(self, root, dst, false);
+            }
             if (i < exprs.len - 1) {
                 self.freeReg();
             }

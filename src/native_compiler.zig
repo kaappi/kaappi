@@ -10,6 +10,7 @@ const reporting = @import("reporting.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const diagnostics = @import("diagnostics.zig");
 const crash = @import("crash.zig");
+const timings = @import("timings.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -63,7 +64,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         writeStderr(s);
         return err;
     }) {
-        const expr = r.readDatum() catch |err| {
+        timings.begin(.read); // kaappi#1515
+        const read_result = r.readDatum();
+        timings.end();
+        const expr = read_result catch |err| {
             const lc = r.getLineCol();
             const code = diagnostics.readErrorCode(err);
             var cbuf: [diagnostics.Code.render_width]u8 = undefined;
@@ -121,7 +125,9 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     // sent to the interpreter (which expands it) instead of being mis-compiled
     // as a call to a same-named global (#1496).
     emitter.macros = &vm.macros;
+    timings.begin(.llvm_emit); // kaappi#1515: IR → LLVM IR text codegen
     emitter.emitProgram(ir_nodes.items) catch |err| {
+        timings.end();
         const code = diagnostics.Code.internal_error;
         var cbuf: [diagnostics.Code.render_width]u8 = undefined;
         var errbuf: [256]u8 = undefined;
@@ -129,6 +135,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         writeStderr(s);
         return err;
     };
+    timings.end(); // llvm_emit
 
     const out_path = output_path orelse blk: {
         if (std.mem.endsWith(u8, path, ".scm")) {
@@ -183,6 +190,7 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
         }
         break :blk path;
     };
+    timings.setOutput(out_path); // kaappi#1515
 
     const lib_dir = findLibDir(allocator) orelse {
         writeStderr("Cannot find libkaappi_rt.a. Build it with: zig build lib\n");
@@ -193,13 +201,19 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
     defer allocator.free(lib_flag);
 
     var found_compiler = false;
-    const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
-    for (compilers) |cc| {
-        const cc_path = findInPath(allocator, cc) orelse continue;
-        defer allocator.free(cc_path);
-        found_compiler = true;
-        if (tryLink(allocator, cc_path, ll_path, out_path, lib_flag, std.mem.eql(u8, cc, "zig"))) {
-            return;
+    {
+        // kaappi#1515: external C-compiler link step. `defer` fires on the
+        // success `return` inside the loop too, so the stage is always recorded.
+        timings.begin(.link);
+        defer timings.end();
+        const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
+        for (compilers) |cc| {
+            const cc_path = findInPath(allocator, cc) orelse continue;
+            defer allocator.free(cc_path);
+            found_compiler = true;
+            if (tryLink(allocator, cc_path, ll_path, out_path, lib_flag, std.mem.eql(u8, cc, "zig"))) {
+                return;
+            }
         }
     }
 

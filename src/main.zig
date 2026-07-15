@@ -50,6 +50,7 @@ pub const features = @import("features.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const doctor = @import("doctor.zig");
 pub const cache = @import("cache.zig");
+pub const timings = @import("timings.zig");
 pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const config = @import("config.zig");
@@ -261,6 +262,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     // Apply parsed options to VM/GC
     if (opts.no_ir_opt) ir_mod.optimize_enabled = false;
+    // `--timings` (kaappi#1515): arm per-stage timing on this (main) thread
+    // before any pipeline work runs. A no-op elsewhere unless armed here.
+    if (opts.timings_enabled) timings.enable(if (opts.timings_json) .json else .text);
     if (opts.timeout_ms) |ms| {
         const clockNs = @import("vm_calls.zig").clockNs;
         vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
@@ -469,6 +473,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     if (opts.native_compile_mode) {
         if (opts.file_path) |fp| {
+            defer timings.report(.native); // kaappi#1515 (no-op unless --timings)
             try native_compiler.compileNative(vm, fp, opts.compile_output);
         } else {
             usageError("Usage: kaappi compile <file.scm> [-o output]\n");
@@ -517,6 +522,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             // the auto-run cache, which lives in ~/.kaappi/cache keyed by a
             // hash of the source path (kaappi#1516). So `--no-ir-opt --compile`
             // can't poison a plain run's cache, and needs no output guard.
+            defer timings.report(.compile); // kaappi#1515 (no-op unless --timings)
             try compileFile(vm, fp, opts.compile_output);
         } else {
             usageError("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
@@ -534,6 +540,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 return;
             }
         }
+        defer timings.report(.run); // kaappi#1515 (no-op unless --timings)
         try runFile(vm, fp);
     } else {
         if (is_wasm) {
@@ -580,8 +587,21 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const sbc_path = if (vm.sandbox_mode or !ir_mod.optimize_enabled) null else cache.pathForSource(allocator, path);
     defer if (sbc_path) |p| allocator.free(p);
 
+    // `--timings` (kaappi#1515): record why caching was skipped entirely, so the
+    // report never leaves the cache line blank. HIT/MISS are recorded below.
+    if (sbc_path == null) {
+        if (vm.sandbox_mode) {
+            timings.cacheOff("sandbox");
+        } else if (!ir_mod.optimize_enabled) {
+            timings.cacheOff("--no-ir-opt");
+        } else {
+            timings.cacheOff("no home dir");
+        }
+    }
+
     if (sbc_path) |sp| {
         if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded| {
+            timings.cacheHit(sp);
             defer allocator.free(loaded.funcs);
 
             var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
@@ -610,7 +630,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                         var expr = pr.readDatum() catch break;
                         vm.gc.pushRoot(&expr);
                         defer vm.gc.popRoot();
-                        if (vm.handleTopLevelForm(expr)) |top_result| {
+                        timings.begin(.execute); // preamble replay re-runs imports (kaappi#1515)
+                        const top = vm.handleTopLevelForm(expr);
+                        timings.end();
+                        if (top) |top_result| {
                             _ = top_result catch {};
                         }
                     }
@@ -629,7 +652,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
                 vm.gc.pushRoot(&func_val);
-                const result = vm.execute(func) catch |err| {
+                timings.begin(.execute);
+                const exec_result = vm.execute(func);
+                timings.end();
+                const result = exec_result catch |err| {
                     vm.gc.popRoot();
                     script_had_error = true;
                     const loc = toplevel_driver.vmErrorLocation(vm, path, 0);
@@ -646,7 +672,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
     }
 
-    // No cache — compile from source
+    // No cache — compile from source. A non-null sbc_path here means the cache
+    // was consulted and missed (kaappi#1515); the write below marks it written.
+    if (sbc_path) |sp| timings.cacheMiss(sp);
+
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
     var has_imports = false;
@@ -663,7 +692,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     }) {
         crash.noteStage(.reading);
         const datum_lc = r.getLineCol();
-        var expr = r.readDatum() catch |err| {
+        timings.begin(.read);
+        const read_result = r.readDatum();
+        timings.end();
+        var expr = read_result catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
             script_had_error = true;
@@ -675,7 +707,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         // A top-level import/define-library/include runs library code here.
         crash.noteStage(.executing);
-        if (vm.handleTopLevelForm(expr)) |top_result| {
+        timings.begin(.execute);
+        const maybe_top = vm.handleTopLevelForm(expr);
+        timings.end();
+        if (maybe_top) |top_result| {
             has_imports = true;
             const result = top_result catch |err| {
                 script_had_error = true;
@@ -700,7 +735,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         vm.gc.pushRoot(&func_val);
 
         crash.noteStage(.executing);
-        const result = vm.execute(func) catch |err| {
+        timings.begin(.execute);
+        const exec_result = vm.execute(func);
+        timings.end();
+        const result = exec_result catch |err| {
             vm.gc.popRoot();
             script_had_error = true;
             const loc = toplevel_driver.vmErrorLocation(vm, path, datum_lc.line);
@@ -720,8 +758,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     if (!has_imports and compiled_funcs.items.len > 0) {
         if (sbc_path) |sp| {
             cache.ensureDir();
-            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sp) catch {};
+            if (bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sp)) |_| {
+                timings.cacheWrote(); // kaappi#1515: the miss's bytecode is now cached
+            } else |_| {}
         }
+    } else if (has_imports and sbc_path != null) {
+        // A miss was recorded, but imported programs are never cached — say so.
+        timings.cacheReason("imports");
     }
 }
 
@@ -925,7 +968,10 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         return;
     }) {
         const datum_lc = r.getLineCol();
-        var expr = r.readDatum() catch |err| {
+        timings.begin(.read); // kaappi#1515
+        const read_result = r.readDatum();
+        timings.end();
+        var expr = read_result catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
             script_had_error = true;
@@ -970,6 +1016,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                 return;
             };
         defer allocator.free(sbc_path);
+        timings.setOutput(sbc_path); // kaappi#1515: the named .sbc artifact
 
         const has_bundle = collect_files.count() > 0 or preamble.items.len > 0;
         if (has_bundle) {
@@ -1055,4 +1102,6 @@ test {
     _ = fmt;
     _ = @import("fmt_print.zig");
     _ = crash;
+    _ = cache;
+    _ = timings;
 }
