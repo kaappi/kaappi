@@ -44,7 +44,11 @@ wrong-type-literal on direct built-in calls (errors); honors
 `--lib-path`) aggregating from the runner's own counters; `--changed`
 /`--list-affected` (with `--since <rev>`) select only suites whose R7RS import
 closure changed, falling back to a loud full run when the graph can't be trusted
-— see `docs/dev/test-runner.md`. Version is defined as `pub const version`
+— see `docs/dev/test-runner.md`. `kaappi ast|expand|ir <file>` are read-only
+pipeline-stage dumps: `ast` prints post-read datums (`read`+`write`), `expand`
+prints the program after full macro expansion (round-trips), `ir` prints the IR
+tree (`--no-opt` = before the optimization passes); none execute program code —
+see `docs/dev/observing-the-pipeline.md`. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),

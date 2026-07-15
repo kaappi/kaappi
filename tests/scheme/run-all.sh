@@ -156,6 +156,7 @@ run_suite "Audit tests" tests/scheme/audit/*.scm
 run_shell_suite "Error tests" tests/scheme/errors
 run_shell_suite "Compile tests" tests/scheme/compile
 run_shell_suite "Test runner" tests/scheme/test-runner
+run_shell_suite "Pipeline dumps" tests/scheme/pipeline
 
 echo "=== R7RS test suite ==="
 set +e

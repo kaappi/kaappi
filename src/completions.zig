@@ -19,12 +19,13 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
-    \\    local has_compile=false has_explain=false has_test=false has_check=false
+    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false
     \\    for word in "${COMP_WORDS[@]}"; do
     \\        [[ "$word" == "compile" ]] && has_compile=true
     \\        [[ "$word" == "explain" ]] && has_explain=true
     \\        [[ "$word" == "test" ]] && has_test=true
     \\        [[ "$word" == "check" ]] && has_check=true
+    \\        [[ "$word" == "ir" ]] && has_ir=true
     \\    done
     \\
     \\    if $has_explain; then
@@ -42,6 +43,11 @@ const kaappi_bash =
     \\        return
     \\    fi
     \\
+    \\    if $has_ir; then
+    \\        COMPREPLY=($(compgen -W "--no-opt" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        return
+    \\    fi
+    \\
     \\    if [[ "$cur" == -* ]]; then
     \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
@@ -50,7 +56,7 @@ const kaappi_bash =
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile check explain test" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile check explain test ast expand ir" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -81,12 +87,13 @@ const kaappi_zsh =
     \\        '--coverage-xml[Write Cobertura XML coverage to file]:file:_files'
     \\        '--timeout[Execution timeout in milliseconds]:ms:'
     \\        '--max-memory[Maximum heap memory in bytes]:bytes:'
+    \\        '--no-opt[(ir) Show the IR before the optimization passes]'
     \\        '--completions[Output shell completion script]:shell:(bash zsh fish)'
     \\    )
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile check explain test)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile check explain test ast expand ir)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -113,11 +120,15 @@ const kaappi_fish =
     \\complete -c kaappi -l timeout -r -x -d 'Execution timeout in milliseconds'
     \\complete -c kaappi -l max-memory -r -x -d 'Maximum heap memory in bytes'
     \\complete -c kaappi -l deny-warnings -d '(check) Treat lint warnings as errors'
+    \\complete -c kaappi -l no-opt -d '(ir) Show the IR before the optimization passes'
     \\complete -c kaappi -l completions -r -x -a 'bash zsh fish' -d 'Output shell completion script'
     \\complete -c kaappi -a compile -d 'Compile to native binary via LLVM'
     \\complete -c kaappi -a check -d 'Compile-only static analysis (no execution)'
     \\complete -c kaappi -a explain -d 'Explain a diagnostic code (KP####)'
     \\complete -c kaappi -a test -d 'Run SRFI-64 test suites (--json, --seed)'
+    \\complete -c kaappi -a ast -d 'Print post-read datums (read + write)'
+    \\complete -c kaappi -a expand -d 'Print the program after full macro expansion'
+    \\complete -c kaappi -a ir -d 'Print the IR tree (--no-opt for pre-optimization)'
     \\
 ;
 

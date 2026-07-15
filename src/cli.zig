@@ -36,6 +36,7 @@ const FlagId = enum {
     timeout,
     max_memory,
     deny_warnings,
+    no_opt,
 };
 
 const FlagDesc = struct {
@@ -65,6 +66,7 @@ const flags = [_]FlagDesc{
     .{ .long = "--timeout", .short = null, .takes_value = true, .id = .timeout, .value_name = "milliseconds" },
     .{ .long = "--max-memory", .short = null, .takes_value = true, .id = .max_memory, .value_name = "bytes" },
     .{ .long = "--deny-warnings", .short = null, .takes_value = false, .id = .deny_warnings, .value_name = "" },
+    .{ .long = "--no-opt", .short = null, .takes_value = false, .id = .no_opt, .value_name = "" },
 };
 
 fn lookupFlag(arg: []const u8) ?FlagDesc {
@@ -92,6 +94,12 @@ pub const Options = struct {
     disassemble_mode: bool = false,
     check_mode: bool = false,
     deny_warnings: bool = false,
+
+    // Pipeline-stage dumps (kaappi#1512): `kaappi ast|expand|ir <file>`.
+    ast_mode: bool = false,
+    expand_mode: bool = false,
+    ir_mode: bool = false,
+    ir_no_opt: bool = false,
 
     compile_output: ?[]const u8 = null,
 
@@ -135,7 +143,9 @@ pub fn preScanSandbox(args: std.process.Args) bool {
         if (std.mem.eql(u8, arg, "--sandbox")) return true;
         if (lookupFlag(arg)) |f| {
             if (f.takes_value) _ = iter.skip();
-        } else if (std.mem.eql(u8, arg, "compile") or std.mem.eql(u8, arg, "check")) {
+        } else if (std.mem.eql(u8, arg, "compile") or std.mem.eql(u8, arg, "check") or
+            std.mem.eql(u8, arg, "ast") or std.mem.eql(u8, arg, "expand") or std.mem.eql(u8, arg, "ir"))
+        {
             // bare subcommand — keep scanning
         } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
             // `--diagnostics=…` carries its value inline — keep scanning.
@@ -159,6 +169,21 @@ pub fn parse(args: std.process.Args) Options {
 
         if (std.mem.eql(u8, arg, "check")) {
             opts.check_mode = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "ast")) {
+            opts.ast_mode = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "expand")) {
+            opts.expand_mode = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "ir")) {
+            opts.ir_mode = true;
             continue;
         }
 
@@ -220,6 +245,7 @@ pub fn parse(args: std.process.Args) Options {
                 .timeout => opts.timeout_ms = parsePositiveU64(value.?, "--timeout"),
                 .max_memory => opts.max_memory = parsePositiveUsize(value.?, "--max-memory"),
                 .deny_warnings => opts.deny_warnings = true,
+                .no_opt => opts.ir_no_opt = true,
             }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("unknown option: ");
@@ -244,6 +270,12 @@ pub fn parse(args: std.process.Args) Options {
                 if (opts.compile_output == null) opts.compile_output = iter.next();
                 continue;
             }
+            // Accept `kaappi ir <file> --no-opt` (flag after the file), the
+            // natural spelling, in addition to `kaappi ir --no-opt <file>`.
+            if (opts.ir_mode and std.mem.eql(u8, extra, "--no-opt")) {
+                opts.ir_no_opt = true;
+                continue;
+            }
             if (opts.script_arg_count < 64) {
                 opts.script_arg_buf[opts.script_arg_count] = extra;
                 opts.script_arg_count += 1;
@@ -263,6 +295,7 @@ pub fn printUsage() void {
             "       kaappi check <file.scm>\n" ++
             "       kaappi explain <code>\n" ++
             "       kaappi test [paths...]\n" ++
+            "       kaappi ast|expand|ir <file.scm>\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
@@ -272,6 +305,10 @@ pub fn printUsage() void {
             "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
             "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
             "                     --changed/--list-affected [--since <rev>]\n" ++
+            "  ast <file>         Print post-read datums (read + write)\n" ++
+            "  expand <file>      Print the program after full macro expansion\n" ++
+            "  ir <file> [--no-opt]  Print the IR tree; --no-opt shows it before the\n" ++
+            "                     optimization passes (default: after)\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++
