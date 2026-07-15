@@ -389,9 +389,10 @@ test "send: build failure leaves the queue and reservation untouched (send fails
 }
 
 test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1472)" {
-    // Only meaningful in the gate-campaign build (-Dchannel-instrument=true);
-    // the default/shipped build compiles the elision branch out, so this is a
-    // trivial pass there. Run with -Dchannel-instrument=true to exercise it.
+    // The lever is only selectable in the gate-campaign build
+    // (-Dchannel-instrument=true); the shipped build has C always on (covered by
+    // the default-build test below), so this lever-sweep test is a trivial pass
+    // there. Run with -Dchannel-instrument=true to exercise it.
     if (comptime !instrument.enabled) return;
     const baseline = shared_object.liveCount();
     defer instrument.setLever(.none); // process-global; restore for other tests
@@ -425,6 +426,47 @@ test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1
     _ = try shared_channel.receive(sc, &dest_gc, null);
 
     sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "lever C shipped default: immediates skip the envelope heap, pointers keep it (kaappi#1472)" {
+    // Mirror of the lever-sweep test above, for the shipped/default build: with
+    // no -Dchannel-instrument, lever C is unconditionally on. An instrument
+    // build defaults to lever `none` (the pre-C baseline), where immediates
+    // would take the heap path, so restrict this to the non-instrument build.
+    if (comptime instrument.enabled) return;
+    const baseline = shared_object.liveCount();
+
+    const sc = try shared_channel.SharedChannel.create();
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+
+    // Every immediate encoding is self-contained, so each skips the private
+    // heap (gc == null) and still round-trips through the destination gc.
+    const immediates = [_]types.Value{
+        types.makeFixnum(42),
+        types.TRUE,
+        types.makeChar('λ'),
+        types.NIL,
+        types.makeFlonum(3.14), // direct f64 bit pattern -- a non-pointer
+    };
+    for (immediates) |imm| {
+        _ = try shared_channel.send(sc, imm, null);
+        try std.testing.expect(sc.queue_head.?.gc == null);
+        const r = try shared_channel.receive(sc, &dest_gc, null);
+        try std.testing.expectEqual(imm, r.value);
+    }
+
+    // A pointer payload still gets its own deep-copied heap (gc != null).
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    const pair = try src_gc.allocPair(types.makeFixnum(1), types.NIL);
+    _ = try shared_channel.send(sc, pair, null);
+    try std.testing.expect(sc.queue_head.?.gc != null);
+    _ = try shared_channel.receive(sc, &dest_gc, null);
+
+    sc.release();
+    // No envelope heap leaks (an immediate envelope owns no GC to destroy).
     try std.testing.expectEqual(baseline, shared_object.liveCount());
 }
 
