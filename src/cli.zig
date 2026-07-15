@@ -37,6 +37,7 @@ const FlagId = enum {
     max_memory,
     deny_warnings,
     no_opt,
+    check,
 };
 
 const FlagDesc = struct {
@@ -67,6 +68,7 @@ const flags = [_]FlagDesc{
     .{ .long = "--max-memory", .short = null, .takes_value = true, .id = .max_memory, .value_name = "bytes" },
     .{ .long = "--deny-warnings", .short = null, .takes_value = false, .id = .deny_warnings, .value_name = "" },
     .{ .long = "--no-opt", .short = null, .takes_value = false, .id = .no_opt, .value_name = "" },
+    .{ .long = "--check", .short = null, .takes_value = false, .id = .check, .value_name = "" },
 };
 
 fn lookupFlag(arg: []const u8) ?FlagDesc {
@@ -100,6 +102,10 @@ pub const Options = struct {
     expand_mode: bool = false,
     ir_mode: bool = false,
     ir_no_opt: bool = false,
+
+    // Canonical formatter (kaappi#1518): `kaappi fmt [--check] files...`.
+    fmt_mode: bool = false,
+    fmt_check: bool = false,
 
     compile_output: ?[]const u8 = null,
 
@@ -144,7 +150,8 @@ pub fn preScanSandbox(args: std.process.Args) bool {
         if (lookupFlag(arg)) |f| {
             if (f.takes_value) _ = iter.skip();
         } else if (std.mem.eql(u8, arg, "compile") or std.mem.eql(u8, arg, "check") or
-            std.mem.eql(u8, arg, "ast") or std.mem.eql(u8, arg, "expand") or std.mem.eql(u8, arg, "ir"))
+            std.mem.eql(u8, arg, "ast") or std.mem.eql(u8, arg, "expand") or
+            std.mem.eql(u8, arg, "ir") or std.mem.eql(u8, arg, "fmt"))
         {
             // bare subcommand — keep scanning
         } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
@@ -184,6 +191,11 @@ pub fn parse(args: std.process.Args) Options {
 
         if (std.mem.eql(u8, arg, "ir")) {
             opts.ir_mode = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "fmt")) {
+            opts.fmt_mode = true;
             continue;
         }
 
@@ -246,6 +258,7 @@ pub fn parse(args: std.process.Args) Options {
                 .max_memory => opts.max_memory = parsePositiveUsize(value.?, "--max-memory"),
                 .deny_warnings => opts.deny_warnings = true,
                 .no_opt => opts.ir_no_opt = true,
+                .check => opts.fmt_check = true,
             }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("unknown option: ");
@@ -298,6 +311,7 @@ pub fn printUsage() void {
             "       kaappi test [paths...]\n" ++
             "       kaappi ast|expand|ir <file.scm>\n" ++
             "       kaappi doctor [--json]\n" ++
+            "       kaappi fmt [--check] [files...]\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
@@ -315,6 +329,9 @@ pub fn printUsage() void {
             "                     optimization passes (default: after)\n" ++
             "  doctor [--json]    Check the installation and environment; PASS/WARN/FAIL\n" ++
             "                     per check with a fix for each failure\n" ++
+            "  fmt [files...]     Canonically format Scheme in place; --check reports\n" ++
+            "                     paths needing formatting (exit 1) without writing.\n" ++
+            "                     With no files, formats stdin to stdout\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++
