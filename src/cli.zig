@@ -35,6 +35,7 @@ const FlagId = enum {
     coverage_xml,
     timeout,
     max_memory,
+    deny_warnings,
 };
 
 const FlagDesc = struct {
@@ -63,6 +64,7 @@ const flags = [_]FlagDesc{
     .{ .long = "--coverage-xml", .short = null, .takes_value = true, .id = .coverage_xml, .value_name = "file path" },
     .{ .long = "--timeout", .short = null, .takes_value = true, .id = .timeout, .value_name = "milliseconds" },
     .{ .long = "--max-memory", .short = null, .takes_value = true, .id = .max_memory, .value_name = "bytes" },
+    .{ .long = "--deny-warnings", .short = null, .takes_value = false, .id = .deny_warnings, .value_name = "" },
 };
 
 fn lookupFlag(arg: []const u8) ?FlagDesc {
@@ -88,6 +90,8 @@ pub const Options = struct {
     native_compile_mode: bool = false,
     emit_llvm_mode: bool = false,
     disassemble_mode: bool = false,
+    check_mode: bool = false,
+    deny_warnings: bool = false,
 
     compile_output: ?[]const u8 = null,
 
@@ -131,7 +135,7 @@ pub fn preScanSandbox(args: std.process.Args) bool {
         if (std.mem.eql(u8, arg, "--sandbox")) return true;
         if (lookupFlag(arg)) |f| {
             if (f.takes_value) _ = iter.skip();
-        } else if (std.mem.eql(u8, arg, "compile")) {
+        } else if (std.mem.eql(u8, arg, "compile") or std.mem.eql(u8, arg, "check")) {
             // bare subcommand — keep scanning
         } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
             // `--diagnostics=…` carries its value inline — keep scanning.
@@ -150,6 +154,11 @@ pub fn parse(args: std.process.Args) Options {
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "compile")) {
             opts.native_compile_mode = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "check")) {
+            opts.check_mode = true;
             continue;
         }
 
@@ -210,6 +219,7 @@ pub fn parse(args: std.process.Args) Options {
                 },
                 .timeout => opts.timeout_ms = parsePositiveU64(value.?, "--timeout"),
                 .max_memory => opts.max_memory = parsePositiveUsize(value.?, "--max-memory"),
+                .deny_warnings => opts.deny_warnings = true,
             }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("unknown option: ");
@@ -250,11 +260,15 @@ pub fn printUsage() void {
             "\n" ++
             "Usage: kaappi [options] [file] [script-args...]\n" ++
             "       kaappi compile <file.scm> [-o output]\n" ++
+            "       kaappi check <file.scm>\n" ++
             "       kaappi explain <code>\n" ++
             "       kaappi test [paths...]\n" ++
             "\n" ++
             "Commands:\n" ++
             "  compile <file>     Compile to native binary via LLVM\n" ++
+            "  check <file>       Compile-only static analysis (no execution); reports\n" ++
+            "                     read/compile errors and KP4xxx lint findings.\n" ++
+            "                     Honors --diagnostics=json; --deny-warnings\n" ++
             "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
             "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
             "                     --changed/--list-affected [--since <rev>]\n" ++
@@ -268,6 +282,7 @@ pub fn printUsage() void {
             "  -o <file>          Output path\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
             "  --diagnostics=<fmt> Diagnostic output format: text (default) or json\n" ++
+            "  --deny-warnings    (check) Treat lint warnings as errors for the exit code\n" ++
             "  --no-ir-opt        Disable IR optimization passes (skips .sbc cache)\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++

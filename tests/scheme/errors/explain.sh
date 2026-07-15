@@ -17,7 +17,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 KAAPPI="$KAAPPI" python3 - <<'PY'
-import json, os, re, subprocess, sys
+import json, os, re, subprocess, sys, tempfile
 
 KAAPPI = os.environ["KAAPPI"]
 CODE_RE = re.compile(r'"code":"(KP\d{4})"')
@@ -47,6 +47,20 @@ def emitted_code(src, timeout_ms=None):
     p = subprocess.run(args, input=src, capture_output=True, text=True, timeout=30)
     m = CODE_RE.search(p.stderr) or CODE_RE.search(p.stdout)
     return m.group(1) if m else None
+
+def emitted_check_code(src):
+    """Static-analysis (KP4xxx) examples surface only under `kaappi check`, which
+    reads a file rather than stdin — run it there and return the first KP code."""
+    with tempfile.NamedTemporaryFile("w", suffix=".scm", delete=False) as f:
+        f.write(src)
+        path = f.name
+    try:
+        p = subprocess.run([KAAPPI, "check", "--diagnostics=json", path],
+                           capture_output=True, text=True, timeout=30)
+        m = CODE_RE.search(p.stdout) or CODE_RE.search(p.stderr)
+        return m.group(1) if m else None
+    finally:
+        os.unlink(path)
 
 # --- Text surface ---------------------------------------------------------
 
@@ -109,7 +123,10 @@ for e in entries:
     code, ex = e["code"], e["example"]
     if code in ILLUSTRATIVE:
         continue
-    got = emitted_code(ex, timeout_ms=300 if code == "KP3009" else None)
+    if code.startswith("KP4"):
+        got = emitted_check_code(ex)
+    else:
+        got = emitted_code(ex, timeout_ms=300 if code == "KP3009" else None)
     if got != code:
         inconsistent.append((code, got, ex.splitlines()[0]))
 check(not inconsistent, "every runnable example triggers its documented code",

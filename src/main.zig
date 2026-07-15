@@ -47,6 +47,7 @@ pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
 pub const explain = @import("explain.zig");
 pub const test_runner = @import("test_runner.zig");
+pub const check = @import("check.zig");
 pub const config = @import("config.zig");
 
 pub const version = @import("build_options").version;
@@ -439,6 +440,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             usageError("Usage: kaappi compile <file.scm> [-o output]\n");
         }
         return;
+    }
+
+    if (opts.check_mode) {
+        const fp = opts.file_path orelse usageError("Usage: kaappi check <file.scm>\n");
+        std.process.exit(check.run(vm, fp, .{
+            .json = opts.diagnostics_format == .json,
+            .deny_warnings = opts.deny_warnings,
+        }));
     }
 
     if (opts.disassemble_mode) {
@@ -1028,6 +1037,9 @@ test {
     _ = cli;
     _ = explain;
     _ = test_runner;
+    _ = check;
+    _ = @import("check_lint.zig");
+    _ = @import("tests_check.zig");
     _ = @import("test_selection.zig");
     _ = config;
 }

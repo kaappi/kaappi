@@ -31,9 +31,15 @@ also skips the `.sbc` cache — useful for miscompilation triage and
 `--disassemble` comparisons), `--sandbox`, `--gc-stats`,
 `--profile`, `--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
 `Diagnostic` objects on stderr — see `docs/dev/diagnostics-json.md`),
+`--deny-warnings` (`check`-only: promote lint warnings to errors),
 `--completions <shell>`.
 Subcommands: `kaappi compile <file> [-o output]` compiles to a native binary
-via LLVM; `kaappi explain <code>` prints a diagnostic's reference entry;
+via LLVM; `kaappi check <file>` runs compile-only static analysis (reads,
+expands, compiles, executes nothing) reporting read/compile errors plus the
+`KP4xxx` lint findings — unknown top-level variable (warning), and arity or
+wrong-type-literal on direct built-in calls (errors); honors
+`--diagnostics=json` and `--deny-warnings` — see `docs/dev/check.md`;
+`kaappi explain <code>` prints a diagnostic's reference entry;
 `kaappi test [paths...]` runs SRFI-64 suites (`--json`, `--seed <n>`,
 `--lib-path`) aggregating from the runner's own counters; `--changed`
 /`--list-affected` (with `--since <rev>`) select only suites whose R7RS import

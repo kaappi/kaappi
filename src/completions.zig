@@ -19,11 +19,12 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
-    \\    local has_compile=false has_explain=false has_test=false
+    \\    local has_compile=false has_explain=false has_test=false has_check=false
     \\    for word in "${COMP_WORDS[@]}"; do
     \\        [[ "$word" == "compile" ]] && has_compile=true
     \\        [[ "$word" == "explain" ]] && has_explain=true
     \\        [[ "$word" == "test" ]] && has_test=true
+    \\        [[ "$word" == "check" ]] && has_check=true
     \\    done
     \\
     \\    if $has_explain; then
@@ -36,15 +37,20 @@ const kaappi_bash =
     \\        return
     \\    fi
     \\
+    \\    if $has_check; then
+    \\        COMPREPLY=($(compgen -W "--diagnostics=text --diagnostics=json --deny-warnings --lib-path" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        return
+    \\    fi
+    \\
     \\    if [[ "$cur" == -* ]]; then
-    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
     \\    fi
     \\
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile explain test" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile check explain test" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -66,6 +72,7 @@ const kaappi_zsh =
     \\        '-o[Output path]:file:_files'
     \\        '--disassemble[Disassemble bytecode]'
     \\        '--diagnostics=[Diagnostic output format]:format:(text json)'
+    \\        '--deny-warnings[(check) Treat lint warnings as errors]'
     \\        '--sandbox[Restrict filesystem and process access]'
     \\        '--gc-stats[Print GC statistics on exit]'
     \\        '--profile[Enable profiling]'
@@ -79,7 +86,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile explain test)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile check explain test)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -105,8 +112,10 @@ const kaappi_fish =
     \\complete -c kaappi -l coverage-xml -r -F -d 'Write Cobertura XML coverage to file'
     \\complete -c kaappi -l timeout -r -x -d 'Execution timeout in milliseconds'
     \\complete -c kaappi -l max-memory -r -x -d 'Maximum heap memory in bytes'
+    \\complete -c kaappi -l deny-warnings -d '(check) Treat lint warnings as errors'
     \\complete -c kaappi -l completions -r -x -a 'bash zsh fish' -d 'Output shell completion script'
     \\complete -c kaappi -a compile -d 'Compile to native binary via LLVM'
+    \\complete -c kaappi -a check -d 'Compile-only static analysis (no execution)'
     \\complete -c kaappi -a explain -d 'Explain a diagnostic code (KP####)'
     \\complete -c kaappi -a test -d 'Run SRFI-64 test suites (--json, --seed)'
     \\
