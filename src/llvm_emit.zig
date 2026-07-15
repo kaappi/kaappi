@@ -129,11 +129,13 @@ pub const LLVMEmitter = struct {
     // pointer, restoring the interpreter's by-location semantics. Checked
     // before params/upvalues in name resolution.
     boxes: ?std.StringHashMap([]const u8) = null,
-    // Number of box-slot roots pushed at the current frame's entry that must be
-    // popped before the frame's `ret` (see emitLambdaFunction / the closure
-    // tier). Boxed frames disable tail-call emission so there is exactly one
-    // `ret` at which to pop.
-    frame_box_roots: usize = 0,
+    // Number of GC roots pushed at the current frame's entry that must be popped
+    // before every `ret` the frame emits: the boxed-param box slots (#1497) and,
+    // for a variadic frame, the rest-list slot (#1498). Boxed frames disable
+    // tail-call emission, so their only `ret` is the trailing one; a variadic
+    // self-tail loop keeps tail calls, so emitCallNode/emitDirectCall also pop
+    // these before a tail-call `ret` (a no-op when the count is zero).
+    frame_entry_roots: usize = 0,
 
     pub const SavedScope = struct {
         buf: std.ArrayList(u8),
@@ -148,7 +150,7 @@ pub const LLVMEmitter = struct {
         rest_param_name: ?[]const u8,
         locals: ?std.StringHashMap([]const u8),
         boxes: ?std.StringHashMap([]const u8),
-        frame_box_roots: usize,
+        frame_entry_roots: usize,
     };
 
     pub fn saveScope(self: *LLVMEmitter) SavedScope {
@@ -165,7 +167,7 @@ pub const LLVMEmitter = struct {
             .rest_param_name = self.rest_param_name,
             .locals = self.locals,
             .boxes = self.boxes,
-            .frame_box_roots = self.frame_box_roots,
+            .frame_entry_roots = self.frame_entry_roots,
         };
     }
 
@@ -182,7 +184,7 @@ pub const LLVMEmitter = struct {
         self.rest_param_name = s.rest_param_name;
         self.locals = s.locals;
         self.boxes = s.boxes;
-        self.frame_box_roots = s.frame_box_roots;
+        self.frame_entry_roots = s.frame_entry_roots;
     }
 
     pub fn init(backing: std.mem.Allocator) LLVMEmitter {
@@ -428,8 +430,14 @@ pub const LLVMEmitter = struct {
                     if (self.body_label) |body_lbl| {
                         if (std.mem.eql(u8, op_name, fn_name)) {
                             if (self.native_fns.get(fn_name)) |self_fn| {
-                                if (call.args.len == self_fn.arity) {
-                                    return self.emitSelfTailCall(call.args, body_lbl);
+                                // A variadic self-call needs at least the fixed
+                                // params; the extras rebuild the rest list.
+                                const arity_ok = if (self_fn.is_variadic)
+                                    call.args.len >= self_fn.arity
+                                else
+                                    call.args.len == self_fn.arity;
+                                if (arity_ok) {
+                                    return self.emitSelfTailCall(call.args, self_fn.arity, self_fn.is_variadic, body_lbl);
                                 }
                             }
                         }
@@ -497,6 +505,10 @@ pub const LLVMEmitter = struct {
         }
 
         if (is_tail) {
+            // Balance the frame-entry GC roots (variadic rest list, boxed
+            // params) before returning through this tail call (#1498). A no-op
+            // when the frame pushed none.
+            try self.emitPopRoots(self.frame_entry_roots);
             try self.print("  ret i64 {s}\n", .{result});
             try self.emitOrphanAfterTail();
         }
@@ -504,7 +516,7 @@ pub const LLVMEmitter = struct {
         return result;
     }
 
-    fn emitSelfTailCall(self: *LLVMEmitter, args: []const *ir.Node, body_lbl: []const u8) EmitError![]const u8 {
+    fn emitSelfTailCall(self: *LLVMEmitter, args: []const *ir.Node, arity: u8, is_variadic: bool, body_lbl: []const u8) EmitError![]const u8 {
         const arg_tmps = self.allocator().alloc([]const u8, args.len) catch return error.OutOfMemory;
         var root_count: usize = 0;
         for (args, 0..) |arg, i| {
@@ -514,12 +526,44 @@ pub const LLVMEmitter = struct {
                 root_count += 1;
             }
         }
+
+        // A variadic self-call rebuilds the rest list from the args past the
+        // fixed arity, cons'ing them onto NIL in reverse so element order is
+        // preserved. This runs BEFORE the roots are popped: kaappi_cons
+        // allocates, and the fixed-param temps (rooted above) must survive it.
+        // kaappi_cons roots its own two arguments, so each element and the
+        // growing accumulator are safe across their cons; nothing allocates
+        // between the last cons and the store below.
+        var rest_tmp: []const u8 = "";
+        if (is_variadic) {
+            rest_tmp = try self.emitImm(@bitCast(types.NIL));
+            var i = args.len;
+            while (i > arity) {
+                i -= 1;
+                const new_pair = try self.freshTemp();
+                try self.print("  {s} = call i64 @kaappi_cons(i64 {s}, i64 {s})\n", .{ new_pair, arg_tmps[i], rest_tmp });
+                rest_tmp = new_pair;
+            }
+        }
+
         try self.emitPopRoots(root_count);
 
-        for (0..args.len) |i| {
+        // Overwrite only the fixed parameter slots in %args. A variadic frame
+        // was entered with nargs >= arity, so %args has room for `arity` slots;
+        // the extra args live in the rebuilt rest list and are never stored back
+        // into %args (which may be smaller than this call's argument count).
+        const fixed: usize = if (is_variadic) arity else args.len;
+        for (0..fixed) |i| {
             const gep = try self.freshTemp();
             try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, i });
             try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
+        }
+        if (is_variadic) {
+            // Overwrite the frame's rest slot (already a frame GC root from
+            // emitRestListBuilder) in place; the loop body re-reads it.
+            if (self.rest_param_alloca) |alloca| {
+                try self.print("  store i64 {s}, ptr {s}\n", .{ rest_tmp, alloca });
+            }
         }
 
         try self.print("  br label %{s}\n", .{body_lbl});
@@ -607,7 +651,7 @@ pub const LLVMEmitter = struct {
                 }
             }
             for (var_names[0..name_count]) |v| {
-                if (!lambda.bodyHasCapturingLambda(body_list, (&v)[0..1])) continue;
+                if (!lambda.bodyHasCapturingLambda(self, body_list, (&v)[0..1])) continue;
                 if (!lambda.sexprBodySetsName(body_list, v)) {
                     return self.emitLetFallback(args, sequential);
                 }
@@ -1387,6 +1431,10 @@ pub const LLVMEmitter = struct {
         }
 
         if (is_tail) {
+            // Balance the frame-entry GC roots (variadic rest list, boxed
+            // params) before returning through this tail call (#1498). A no-op
+            // when the frame pushed none.
+            try self.emitPopRoots(self.frame_entry_roots);
             try self.print("  ret i64 {s}\n", .{result});
             try self.emitOrphanAfterTail();
         }
