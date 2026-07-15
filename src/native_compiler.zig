@@ -9,6 +9,7 @@ const file_utils = @import("file_utils.zig");
 const reporting = @import("reporting.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const diagnostics = @import("diagnostics.zig");
+const crash = @import("crash.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -26,6 +27,8 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     const saved_lib_dir = vm.current_lib_dir;
     vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
     defer vm.current_lib_dir = saved_lib_dir;
+
+    crash.note(.compiling, path); // native backend: read → lower → emit LLVM IR
 
     var r = reader_mod.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();

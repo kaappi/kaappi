@@ -247,7 +247,8 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc cache format) |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
-| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
+| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version`, `pub const panic` |
+| `crash.zig` | Custom panic handler (`PanicHandler(name)`) + pipeline breadcrumb (`noteStage`/`noteFile`); prints version/target/build-mode + stage + report URL before the trace. See `docs/dev/crash-reporting.md` |
 | `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |

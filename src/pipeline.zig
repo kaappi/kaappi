@@ -34,6 +34,7 @@ const ir_mod = @import("ir.zig");
 const reporting = @import("reporting.zig");
 const file_utils = @import("file_utils.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
+const crash = @import("crash.zig");
 
 const VM = vm_mod.VM;
 const Value = types.Value;
@@ -54,6 +55,8 @@ pub fn runAst(vm: *VM, path: []const u8) u8 {
     const allocator = vm.gc.allocator;
     const source = readSource(allocator, path) orelse return 1;
     defer allocator.free(source);
+
+    crash.note(.reading, path); // pure read + write
 
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
@@ -81,13 +84,17 @@ pub fn runExpand(vm: *VM, path: []const u8) u8 {
     vm.current_lib_dir = dirOf(path);
     defer vm.current_lib_dir = saved_lib_dir;
 
+    crash.noteFile(path);
+
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
     while (r.hasMore() catch |err| return reportRead(&r, path, err)) {
+        crash.noteStage(.reading);
         var expr = r.readDatum() catch |err| return reportRead(&r, path, err);
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
+        crash.noteStage(.expanding);
         expandTopLevel(vm, expr, path);
     }
     return 0;
@@ -451,14 +458,18 @@ pub fn runIr(vm: *VM, path: []const u8, no_opt: bool) u8 {
     ir_mod.optimize_enabled = !no_opt;
     defer ir_mod.optimize_enabled = saved_opt;
 
+    crash.noteFile(path);
+
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
     var exit: u8 = 0;
     while (r.hasMore() catch |err| return reportRead(&r, path, err)) {
+        crash.noteStage(.reading);
         var expr = r.readDatum() catch |err| return reportRead(&r, path, err);
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
+        crash.noteStage(.compiling); // lowering to IR
         irTopLevel(vm, expr, path, &exit);
     }
     return exit;

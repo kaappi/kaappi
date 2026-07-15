@@ -4,6 +4,14 @@ const builtin = @import("builtin");
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
 const version = @import("build_options").version;
 
+const crash = @import("crash.zig");
+
+/// Custom panic handler (kaappi#1514): the package manager gets the same
+/// identity/version/report banner as `kaappi`. thottam runs no Scheme pipeline,
+/// so the breadcrumb stays idle and the `while:` line is omitted — the banner
+/// still names the build and where to report.
+pub const panic = crash.PanicHandler("thottam");
+
 const semver = @import("thottam_semver.zig");
 const proc = @import("thottam_proc.zig");
 const state = @import("thottam_state.zig");
