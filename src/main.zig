@@ -46,6 +46,7 @@ pub const diagnostics = @import("diagnostics.zig");
 pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
 pub const explain = @import("explain.zig");
+pub const test_runner = @import("test_runner.zig");
 pub const config = @import("config.zig");
 
 pub const version = @import("build_options").version;
@@ -168,6 +169,13 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // of that exists and exit. (Skipped on WASM, whose entry just runs a file.)
     if (comptime !is_wasm) {
         if (explain.maybeRun(allocator, init.args)) |exit_code| {
+            std.process.exit(exit_code);
+        }
+        // `kaappi test` is an orchestrator over worker subprocesses; like
+        // explain it needs no VM of its own, so dispatch it before any setup.
+        // (The worker children are ordinary `kaappi <file>` runs; they are
+        // recognized later by KAAPPI_TEST_EMIT in the file-run path.)
+        if (test_runner.maybeRun(allocator, init.args)) |exit_code| {
             std.process.exit(exit_code);
         }
     }
@@ -465,6 +473,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             usageError("Usage: kaappi --emit-llvm <file.scm> [-o output.ll]\n");
         }
     } else if (opts.file_path) |fp| {
+        if (comptime !is_wasm) {
+            if (test_runner.workerEmitPath()) |emit_path| {
+                try runWorkerFile(vm, fp, emit_path);
+                return;
+            }
+        }
         try runFile(vm, fp);
     } else {
         if (is_wasm) {
@@ -701,6 +715,38 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
         }
     }
+}
+
+/// `kaappi test` worker path: install the collecting SRFI-64 runner, run the
+/// file, then emit its one JSON result object. `suppress_exit` lets a file's
+/// `(exit 1)` epilogue be recorded instead of terminating the worker before it
+/// reports. The worker always exits 0 — the orchestrator reads pass/fail from
+/// the emitted JSON, not from this process's status (a missing/empty result is
+/// what signals a crash).
+fn runWorkerFile(vm: *vm_mod.VM, fp: []const u8, emit_path: []const u8) !void {
+    vm.suppress_exit = true;
+    test_runner.installCollector(vm) catch {
+        test_runner.emitResult(vm, emit_path, fp, true, "test collector setup failed", 0);
+        script_had_error = false;
+        return;
+    };
+
+    const start_ns = @import("vm_calls.zig").clockNs();
+    script_had_error = false;
+    runFile(vm, fp) catch {
+        script_had_error = true;
+    };
+    const duration_ms = @as(f64, @floatFromInt(@import("vm_calls.zig").clockNs() -| start_ns)) / 1_000_000.0;
+
+    // A file-level error is an *uncaught* read/compile/runtime error at top
+    // level — SRFI-64 catches test failures internally, so those never set
+    // this. A test file's `(exit 1)` failure epilogue is deliberately NOT an
+    // error: it is redundant with the fail counts we already collected.
+    const errored = script_had_error;
+    test_runner.emitResult(vm, emit_path, fp, errored, null, duration_ms);
+    // The result is emitted; don't let the file's error propagate to a nonzero
+    // worker exit — the orchestrator uses the JSON.
+    script_had_error = false;
 }
 
 fn runStdin(vm: *vm_mod.VM) !void {
@@ -978,5 +1024,6 @@ test {
     _ = repl_mod;
     _ = cli;
     _ = explain;
+    _ = test_runner;
     _ = config;
 }

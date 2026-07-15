@@ -65,45 +65,49 @@ fn siblingLibDir(exe_path: []const u8, buf: []u8) ?[]const u8 {
 /// Returns null if the platform has no self-exe-path lookup, the
 /// executable isn't nested at least two directories deep, or the resulting
 /// path doesn't fit `buf`. Does not check whether the directory exists.
-pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {
-    var path_buf: [1024]u8 = undefined;
-    const exe_path: []const u8 = blk: {
-        if (comptime @import("builtin").os.tag == .linux) {
-            // /proc/self/exe is a kernel-resolved canonical path already —
-            // no realpath needed. Reject a result that fills the whole
-            // buffer: readlink doesn't NUL-terminate, and an exact-length
-            // return means the real target may have been truncated.
-            const n: isize = std.posix.system.readlink(
-                "/proc/self/exe",
-                &path_buf,
-                path_buf.len,
-            );
-            if (n > 0 and @as(usize, @intCast(n)) < path_buf.len) break :blk path_buf[0..@intCast(n)];
-        }
+/// Resolves the running executable's own absolute path into `buf`, returning
+/// the slice (or null if the platform has no self-exe lookup or the path
+/// doesn't fit). On Linux this reads `/proc/self/exe`; on macOS it resolves
+/// `_NSGetExecutablePath` through `realpath` so a symlinked launch (e.g. a
+/// Homebrew Cellar symlink) yields the real binary. Used both to derive the
+/// sibling `lib/` dir and, by the `kaappi test` orchestrator, to re-spawn the
+/// same binary as a worker regardless of how it was invoked.
+pub fn getExePath(buf: []u8) ?[]const u8 {
+    if (comptime @import("builtin").os.tag == .linux) {
+        // /proc/self/exe is a kernel-resolved canonical path already —
+        // no realpath needed. Reject a result that fills the whole
+        // buffer: readlink doesn't NUL-terminate, and an exact-length
+        // return means the real target may have been truncated.
+        const n: isize = std.posix.system.readlink("/proc/self/exe", buf.ptr, buf.len);
+        if (n > 0 and @as(usize, @intCast(n)) < buf.len) return buf[0..@intCast(n)];
+        return null;
+    }
 
-        if (comptime @import("builtin").os.tag == .macos) {
-            var size: u32 = path_buf.len;
-            const rc = std.c._NSGetExecutablePath(&path_buf, &size);
-            if (rc == 0) {
-                const len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
-                // _NSGetExecutablePath may return a symlinked or relative
-                // path (e.g. a Homebrew Cellar symlink), which would derive
-                // ../lib from the wrong tree — resolve it to the real path
-                // first. Fall back to the raw path if realpath fails or the
-                // buffer wasn't NUL-terminated within bounds.
-                if (len < path_buf.len) {
-                    var resolved_buf: [std.posix.PATH_MAX]u8 = undefined;
-                    if (std.c.realpath(path_buf[0..len :0], &resolved_buf)) |resolved| {
-                        const rlen = std.mem.indexOfScalar(u8, resolved[0..resolved_buf.len], 0) orelse resolved_buf.len;
-                        break :blk resolved[0..rlen];
-                    }
-                }
-                break :blk path_buf[0..len];
+    if (comptime @import("builtin").os.tag == .macos) {
+        var size: u32 = @intCast(buf.len);
+        const rc = std.c._NSGetExecutablePath(buf.ptr, &size);
+        if (rc != 0) return null;
+        const len = std.mem.indexOfScalar(u8, buf[0..buf.len], 0) orelse return null;
+        // _NSGetExecutablePath may return a symlinked or relative path, which
+        // would derive ../lib from the wrong tree — resolve it to the real path
+        // first. Fall back to the raw path if realpath fails.
+        var resolved_buf: [std.posix.PATH_MAX]u8 = undefined;
+        if (std.c.realpath(buf[0..len :0], &resolved_buf)) |resolved| {
+            const rlen = std.mem.indexOfScalar(u8, resolved[0..resolved_buf.len], 0) orelse resolved_buf.len;
+            if (rlen <= buf.len) {
+                @memcpy(buf[0..rlen], resolved[0..rlen]);
+                return buf[0..rlen];
             }
         }
+        return buf[0..len];
+    }
 
-        break :blk "";
-    };
+    return null;
+}
+
+pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {
+    var path_buf: [1024]u8 = undefined;
+    const exe_path: []const u8 = getExePath(&path_buf) orelse "";
     return siblingLibDir(exe_path, buf);
 }
 

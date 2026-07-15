@@ -1,6 +1,13 @@
 #!/bin/bash
 # Run all Kaappi Scheme test suites.
 # Usage: bash tests/scheme/run-all.sh
+#
+# This is the legacy runner: it spawns `kaappi <file>` per suite and scrapes the
+# printed pass/fail counts. The first-class runner is `kaappi test` (kaappi#1509,
+# see docs/dev/test-runner.md), which aggregates results from the SRFI-64 runner
+# itself and offers `--json`/`--seed`. This script is kept for its broader reach
+# — it also drives the chibi-test R7RS suite and the shell-based error/compile
+# suites, which are outside `kaappi test`'s SRFI-64 scope.
 
 set -euo pipefail
 
@@ -148,6 +155,7 @@ run_suite "FFI tests" tests/scheme/ffi/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 run_shell_suite "Error tests" tests/scheme/errors
 run_shell_suite "Compile tests" tests/scheme/compile
+run_shell_suite "Test runner" tests/scheme/test-runner
 
 echo "=== R7RS test suite ==="
 set +e
