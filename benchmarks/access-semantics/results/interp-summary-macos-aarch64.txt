@@ -1,0 +1,12 @@
+# interpreter-tier control (memo §9.4), machine=macos-aarch64
+## instruction-level: aligned scalar access is the same instruction
+prim_ref  plain:     ldrb w0, [x0, x1]
+prim_ref  unordered: ldrb w0, [x0, x1]   (byte-identical)
+prim_set  plain:     strb w3, [x0, x1]
+prim_set  unordered: strb w3, [x0, x1]   (byte-identical)
+## dispatch-model (bare indirect call + access), plain vs unordered:
+see results/interp-dispatch.csv  (delta ref -0.16%, set -0.14%, ~0.81 ns/call)
+## real kaappi VM primitive throughput (ReleaseSafe):
+bytevector-u8-ref  ns/call: 107.55
+bytevector-u8-set! ns/call: 106.86
+calls-per-measurement: 20000000

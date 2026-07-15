@@ -1,0 +1,5 @@
+op,encoding,ns_per_call_mean,ci95_lo,ci95_hi,delta_vs_plain_pct
+ref,plain,0.814175,0.811298,0.817751,0.000
+ref,unordered,0.812888,0.811017,0.815866,-0.158
+set,plain,0.814278,0.811307,0.818218,0.000
+set,unordered,0.813159,0.810887,0.816434,-0.138
