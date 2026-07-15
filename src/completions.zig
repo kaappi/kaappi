@@ -19,13 +19,14 @@ const kaappi_bash =
     \\            return ;;
     \\    esac
     \\
-    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false
+    \\    local has_compile=false has_explain=false has_test=false has_check=false has_ir=false has_doctor=false
     \\    for word in "${COMP_WORDS[@]}"; do
     \\        [[ "$word" == "compile" ]] && has_compile=true
     \\        [[ "$word" == "explain" ]] && has_explain=true
     \\        [[ "$word" == "test" ]] && has_test=true
     \\        [[ "$word" == "check" ]] && has_check=true
     \\        [[ "$word" == "ir" ]] && has_ir=true
+    \\        [[ "$word" == "doctor" ]] && has_doctor=true
     \\    done
     \\
     \\    if $has_explain; then
@@ -48,6 +49,11 @@ const kaappi_bash =
     \\        return
     \\    fi
     \\
+    \\    if $has_doctor; then
+    \\        COMPREPLY=($(compgen -W "--json --lib-path" -- "$cur"))
+    \\        return
+    \\    fi
+    \\
     \\    if [[ "$cur" == -* ]]; then
     \\        COMPREPLY=($(compgen -W "-h --help --version --lib-path --compile --emit-llvm -o --disassemble --diagnostics=text --diagnostics=json --deny-warnings --sandbox --gc-stats --profile --profile-json --coverage --coverage-xml --timeout --max-memory --completions" -- "$cur"))
     \\        return
@@ -56,7 +62,7 @@ const kaappi_bash =
     \\    if $has_compile; then
     \\        COMPREPLY=($(compgen -f -X '!*.scm' -- "$cur") $(compgen -W "-o" -- "$cur"))
     \\    else
-    \\        COMPREPLY=($(compgen -W "compile check explain test ast expand ir" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
+    \\        COMPREPLY=($(compgen -W "compile check explain test ast expand ir doctor" -- "$cur") $(compgen -f -X '!*.scm' -- "$cur"))
     \\    fi
     \\}
     \\complete -o filenames -F _kaappi kaappi
@@ -93,7 +99,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_alternative "commands:command:(compile check explain test ast expand ir)" "files:file:_files -g \"*.scm\""' \
+    \\        '1:command or file:_alternative "commands:command:(compile check explain test ast expand ir doctor)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
@@ -129,6 +135,7 @@ const kaappi_fish =
     \\complete -c kaappi -a ast -d 'Print post-read datums (read + write)'
     \\complete -c kaappi -a expand -d 'Print the program after full macro expansion'
     \\complete -c kaappi -a ir -d 'Print the IR tree (--no-opt for pre-optimization)'
+    \\complete -c kaappi -a doctor -d 'Check the installation and environment (--json)'
     \\
 ;
 

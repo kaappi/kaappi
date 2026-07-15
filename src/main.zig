@@ -47,6 +47,7 @@ pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
 pub const cli = @import("cli.zig");
 pub const explain = @import("explain.zig");
 pub const test_runner = @import("test_runner.zig");
+pub const doctor = @import("doctor.zig");
 pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const config = @import("config.zig");
@@ -178,6 +179,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         // (The worker children are ordinary `kaappi <file>` runs; they are
         // recognized later by KAAPPI_TEST_EMIT in the file-run path.)
         if (test_runner.maybeRun(allocator, init.args)) |exit_code| {
+            std.process.exit(exit_code);
+        }
+        // `kaappi doctor` inspects the environment (paths, PATH, native
+        // toolchain, FFI libraries) and runs no user code, so it likewise
+        // dispatches before any VM/GC/library setup exists.
+        if (doctor.maybeRun(allocator, init.args)) |exit_code| {
             std.process.exit(exit_code);
         }
     }
@@ -1053,6 +1060,7 @@ test {
     _ = cli;
     _ = explain;
     _ = test_runner;
+    _ = doctor;
     _ = check;
     _ = @import("check_lint.zig");
     _ = @import("tests_check.zig");
