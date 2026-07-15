@@ -11,7 +11,11 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 8;
+// v9 (kaappi#1506): line-table entries carry a column alongside the line so
+// runtime errors can report `file:line:col`. A version mismatch makes
+// `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
+// silently recompiled — no stale-cache hazard.
+const VERSION: u16 = 9;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -616,12 +620,13 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
             try writeConstant(w, allocator, constant, all_funcs, 0);
         }
 
-        // Debug info: source_line and line_table (added in v7)
+        // Debug info: source_line and line_table (added in v7; col added in v9)
         try w.writeU32(allocator, func.source_line);
         try w.writeU32(allocator, @intCast(func.line_table.items.len));
         for (func.line_table.items) |entry| {
             try w.writeU16(allocator, entry.offset);
             try w.writeU32(allocator, entry.line);
+            try w.writeU32(allocator, entry.col);
         }
     }
 
@@ -790,14 +795,15 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
             func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
         }
 
-        // Debug info: source_line and line_table (added in v7)
+        // Debug info: source_line and line_table (added in v7; col added in v9)
         func.source_line = r.readU32() catch return null;
         const line_count = r.readU32() catch return null;
         if (line_count > MAX_CODE_BYTES) return null;
         for (0..line_count) |_| {
             const offset = r.readU16() catch return null;
             const line = r.readU32() catch return null;
-            func.line_table.append(allocator, .{ .offset = offset, .line = line }) catch return BytecodeError.OutOfMemory;
+            const col = r.readU32() catch return null;
+            func.line_table.append(allocator, .{ .offset = offset, .line = line, .col = col }) catch return BytecodeError.OutOfMemory;
         }
     }
 
@@ -1328,8 +1334,8 @@ test "bytecode round-trip: line table and source_line preserved" {
     func.arity = 1;
     func.locals_count = 2;
     func.source_line = 5;
-    func.line_table.append(allocator, .{ .offset = 0, .line = 5 }) catch unreachable;
-    func.line_table.append(allocator, .{ .offset = 5, .line = 7 }) catch unreachable;
+    func.line_table.append(allocator, .{ .offset = 0, .line = 5, .col = 3 }) catch unreachable;
+    func.line_table.append(allocator, .{ .offset = 5, .line = 7, .col = 9 }) catch unreachable;
 
     var funcs_arr = [_]*Function{func};
     const hash: u64 = 11111;
@@ -1349,9 +1355,14 @@ test "bytecode round-trip: line table and source_line preserved" {
     try std.testing.expectEqual(@as(usize, 2), lf.line_table.items.len);
     try std.testing.expectEqual(@as(u16, 0), lf.line_table.items[0].offset);
     try std.testing.expectEqual(@as(u32, 5), lf.line_table.items[0].line);
+    try std.testing.expectEqual(@as(u32, 3), lf.line_table.items[0].col);
     try std.testing.expectEqual(@as(u16, 5), lf.line_table.items[1].offset);
     try std.testing.expectEqual(@as(u32, 7), lf.line_table.items[1].line);
+    try std.testing.expectEqual(@as(u32, 9), lf.line_table.items[1].col);
     try std.testing.expectEqual(@as(u32, 7), lf.lineForOffset(6));
+    const loc = lf.locForOffset(6);
+    try std.testing.expectEqual(@as(u32, 7), loc.line);
+    try std.testing.expectEqual(@as(u32, 9), loc.col);
 }
 
 test "bytecode validation rejects invalid opcode" {

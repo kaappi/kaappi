@@ -171,7 +171,11 @@ comptime {
 
 pub const Annotations = struct {
     is_tail: bool = false,
-    source_line: u32 = 0,
+    /// Source span of the form this node was lowered from, if it was a datum the
+    /// reader could key (a pair/vector). `span.line == 0` means unknown. The
+    /// compiler emits `span.line`/`span.col` into the bytecode line table so
+    /// runtime errors can report `file:line:col` (kaappi#1506).
+    span: types.Span = .{},
 };
 
 pub const Node = struct {
@@ -495,10 +499,21 @@ pub fn lowerWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
     }
 
     if (types.isPair(expr)) {
-        const node = try lowerFormWithMacros(ir, expr, macros);
+        const node = lowerFormWithMacros(ir, expr, macros) catch |err| {
+            // Record the failing form's span for the compile-error reporter.
+            // Lowering is post-order, so the innermost pair fails first on the
+            // way out; `noteCompileErrorSpan` keeps that first (deepest) span
+            // and later frames don't overwrite it (kaappi#1506).
+            if (ir.compiler) |c| {
+                if (c.gc.source_spans.get(expr)) |sp| {
+                    compiler_mod.noteCompileErrorSpan(sp);
+                }
+            }
+            return err;
+        };
         if (ir.compiler) |c| {
-            if (c.gc.source_lines.get(expr)) |line| {
-                node.ann.source_line = line;
+            if (c.gc.source_spans.get(expr)) |sp| {
+                node.ann.span = sp;
             }
         }
         return node;

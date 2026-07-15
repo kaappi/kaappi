@@ -112,6 +112,41 @@ single_diag("compile stage", "(if)", "KP2")
 # Runtime stage (KP3xxx): car on a non-pair.
 single_diag("runtime stage", "(car 5)", "KP3", "car")
 
+# --- Full source spans on compile diagnostics (kaappi#1506) ---------------
+# A compile error carries a real range (start..end), not just a point: the
+# '(if)' form spans 4 characters, so the range is [0:0, 0:4) in LSP 0-based
+# coordinates.
+d = single_diag("compile stage span", "(if)", "KP2")
+if d is not None:
+    r = d["range"]
+    check(r["start"] == {"line": 0, "character": 0},
+          "compile error range starts at the form", r["start"])
+    check(r["end"] == {"line": 0, "character": 4},
+          "compile error range ends past the form (has an end position)", r["end"])
+
+# The range tracks columns: indenting the form shifts start and end together.
+d = single_diag("indented compile span", "   (if)", "KP2")
+if d is not None:
+    r = d["range"]
+    check(r["start"] == {"line": 0, "character": 3},
+          "indented compile error range start tracks the column", r["start"])
+    check(r["end"] == {"line": 0, "character": 7},
+          "indented compile error range end tracks the column", r["end"])
+
+# A compile error nested inside a top-level form points at the inner form:
+# '(if)' begins at column 13 (0-based 12) of '(define (f) (if))'.
+d = single_diag("nested compile span", "(define (f) (if))", "KP2")
+if d is not None:
+    check(d["range"]["start"] == {"line": 0, "character": 12},
+          "nested compile error range points at the inner form",
+          d["range"]["start"])
+
+# A reader error carries a start column (the offending position, not column 0).
+d = single_diag("reader span", "(define x #\\bogus)", "KP1")
+if d is not None:
+    check(d["range"]["start"]["line"] == 0 and d["range"]["start"]["character"] > 0,
+          "reader error range carries a column", d["range"]["start"])
+
 # --- Suggestions map to data.suggestions ----------------------------------
 
 d = single_diag("undefined variable",

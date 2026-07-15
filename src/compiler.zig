@@ -20,6 +20,36 @@ pub fn getSyntaxErrorDetail() []const u8 {
     return syntax_error_detail[0..syntax_error_detail_len];
 }
 
+// Span of the form a compile error was raised for, so the reporter can render
+// `file:line:col` and a full range instead of just the top-level datum line
+// (kaappi#1506). Set by `noteCompileErrorSpan` from IR lowering's error path;
+// like `syntax_error_detail`, it is a threadlocal channel out of the compiler,
+// cleared at each compile entry and after the reporter consumes it.
+pub threadlocal var compile_error_span: types.Span = .{};
+pub threadlocal var compile_error_span_set: bool = false;
+
+/// Record the failing form's span, keeping the first (deepest) one recorded for
+/// this compile. A no-op once a span is set — see the caller in `ir.lowerExpr`.
+pub fn noteCompileErrorSpan(sp: types.Span) void {
+    if (compile_error_span_set) return;
+    if (!sp.known()) return;
+    compile_error_span = sp;
+    compile_error_span_set = true;
+}
+
+/// The recorded compile-error span, or null if none was captured (the reporter
+/// then falls back to the top-level datum position).
+pub fn getCompileErrorSpan() ?types.Span {
+    return if (compile_error_span_set) compile_error_span else null;
+}
+
+/// Clear the channel. Called at each compile entry (before a fresh attempt) and
+/// after the reporter consumes the span, so a stale span never leaks forward.
+pub fn resetCompileErrorSpan() void {
+    compile_error_span_set = false;
+    compile_error_span = .{};
+}
+
 pub const CompileError = error{
     OutOfMemory,
     InvalidSyntax,
@@ -91,6 +121,7 @@ pub const Compiler = struct {
     body_macros: std.ArrayList(BodyMacro) = .empty,
     body_macro_depth: u16 = 0,
     current_line: u32 = 0,
+    current_col: u32 = 0,
     macro_expansion_depth: u16 = 0,
     macro_expansion_steps: u32 = 0,
     // Set by expandAndCompileMacroUse when a macro expansion is a fixed
@@ -609,12 +640,14 @@ pub const Compiler = struct {
         }
 
         if (types.isPair(expr)) {
-            if (self.gc.source_lines.get(expr)) |line| {
-                if (line != self.current_line and line > 0) {
-                    self.current_line = line;
+            if (self.gc.source_spans.get(expr)) |sp| {
+                if (sp.line > 0 and (sp.line != self.current_line or sp.col != self.current_col)) {
+                    self.current_line = sp.line;
+                    self.current_col = sp.col;
                     try self.func.line_table.append(self.gc.allocator, .{
                         .offset = @intCast(self.func.code.items.len),
-                        .line = line,
+                        .line = sp.line,
+                        .col = sp.col,
                     });
                 }
             }
@@ -922,6 +955,7 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
     syntax_error_detail_len = 0;
+    resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     var ok = false;
@@ -941,6 +975,7 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
 
 pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8, is_tail: bool) CompileError!*types.Function {
     syntax_error_detail_len = 0;
+    resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = vm_globals;
@@ -967,6 +1002,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
 
 pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value, is_tail: bool) CompileError!*types.Function {
     syntax_error_detail_len = 0;
+    resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = env;

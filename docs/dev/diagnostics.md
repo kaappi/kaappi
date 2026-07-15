@@ -71,18 +71,44 @@ touching the enum.
 ## The output format
 
 The stage word is kept for the human reader; the bracketed code is inserted
-before the colon:
+before the colon. Every stage reports `file:line:col`, the column pointing at
+the offending form's opening paren ([full source spans](#source-spans), #1506):
 
 ```
 <stdin>:1:12: read error[KP1002]: unexpected character
-<stdin>:1: compile error[KP2001]: invalid syntax
-<stdin>:1: syntax-error[KP2002]: bad usage 1
-err.scm:2: error[KP3001]: undefined variable 'countr'. Did you mean 'count'?
+<stdin>:1:1: compile error[KP2001]: invalid syntax
+<stdin>:1:1: syntax-error[KP2002]: bad usage 1
+err.scm:2:1: error[KP3001]: undefined variable 'countr'. Did you mean 'count'?
 ```
 
 All reporting flows through `src/toplevel_driver.zig` (`reportReadError`,
 `reportCompileError`, `reportRuntimeError`), which the REPL, file runner, and
 stdin runner share. The bundled-binary and `include` paths use the same registry.
+
+## Source spans
+
+The reader records a `(line, col, end_line, end_col)` span for every datum it
+can key on heap identity — pairs and vectors — in `gc.source_spans`
+(`src/reader.zig`, `recordSpan`). Atoms (symbols, numbers, characters) share
+representations and are not keyed, so diagnostics resolve to the enclosing
+*form*, not a bare token.
+
+The span flows two ways:
+
+- **Compile diagnostics** read it directly. IR lowering copies each form's span
+  onto its node (`Annotations.span`); when a form fails to compile, the
+  innermost failing form's span is stashed in a threadlocal channel
+  (`compiler.noteCompileErrorSpan`) that `reportCompileError` renders as a
+  `file:line:col` and, in JSON, a full start/end range.
+- **Runtime diagnostics** read it through the bytecode. The compiler emits the
+  start `(line, col)` into each function's line table (`types.LineEntry`); on an
+  error, `VM.captureErrorLocation` maps the failing instruction offset back to
+  a position via `Function.locForOffset`. Only the start is carried in bytecode
+  debug info — end positions stay a reader/compile-time concern.
+
+Because the line table gained a column, the `.sbc` cache format is at **v9**; a
+version mismatch makes the loader ignore and recompile a stale cache
+(`src/bytecode_file.zig`).
 
 ## How a diagnostic gets its code
 

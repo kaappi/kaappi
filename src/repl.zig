@@ -1325,6 +1325,9 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         toplevel_driver.reportReadError("<repl>", lc.line, lc.col, err);
         break :blk false;
     }) {
+        // Datum start position, for a compile error's fallback column when no
+        // precise span was recorded (kaappi#1506).
+        const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError("<repl>", lc.line, lc.col, err);
@@ -1370,9 +1373,8 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<repl>", false) catch |err| {
-            const lc = r.getLineCol();
-            toplevel_driver.reportCompileError("<repl>", lc.line, err);
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<repl>", false) catch |err| {
+            toplevel_driver.reportCompileError("<repl>", datum_lc.line, datum_lc.col, err);
             break;
         };
 

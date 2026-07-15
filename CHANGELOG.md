@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Full source spans in diagnostics** — the reader now records a `(line, col, end_line, end_col)` span for every datum, threaded through IR into the bytecode line table. Compile and runtime errors report `file:line:col` (previously `file:line` only), the column pointing at the offending form — including nested forms, so `(define (f) (if))` flags the inner `(if)` at its own column. Under `--diagnostics=json`, reader/compile diagnostics carry a full start/end range; runtime diagnostics carry the start column. The `.sbc` bytecode cache format is bumped to v9; stale caches invalidate and recompile cleanly (#1506)
 - **`error-object-code` accessor** — the new `(kaappi diagnostics)` library exports `(error-object-code e)`, which returns the stable `KP` diagnostic code (an interned symbol like `KP3001`, `eq?`-dispatchable) for a runtime error the implementation raised, and `#f` for a plain `(error …)` or any non-error value. Guarded by the `kaappi-diagnostics` `cond-expand` feature. The R7RS error-object surface (`error-object?`, `error-object-message`, `error-object-irritants`) is unchanged (KEP-0005 §4, #1508)
 
 ### Changed

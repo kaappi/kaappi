@@ -126,7 +126,7 @@ pub const GC = struct {
     memory_limit: ?usize = null,
     profile_alloc_target: ?*u64 = null,
     root_marker: ?*const fn (*GC) void = null,
-    source_lines: std.AutoHashMap(Value, u32) = undefined,
+    source_spans: std.AutoHashMap(Value, types.Span) = undefined,
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
     mark_worklist: std.ArrayList(Value) = .empty,
@@ -143,7 +143,7 @@ pub const GC = struct {
                 @panic("GC: cannot allocate root buffer"),
             .extra_roots = .empty,
             .remembered_set = .empty,
-            .source_lines = std.AutoHashMap(Value, u32).init(allocator),
+            .source_spans = std.AutoHashMap(Value, types.Span).init(allocator),
             .id = nextGcId(),
         };
     }
@@ -158,7 +158,7 @@ pub const GC = struct {
                 @panic("GC: cannot allocate root buffer"),
             .extra_roots = .empty,
             .remembered_set = .empty,
-            .source_lines = std.AutoHashMap(Value, u32).init(allocator),
+            .source_spans = std.AutoHashMap(Value, types.Span).init(allocator),
             .gc_threshold = GC_THRESHOLD,
             .id = nextGcId(),
             .shared_owner_id = parent.id,
@@ -188,7 +188,7 @@ pub const GC = struct {
         self.extra_roots.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
         self.mark_worklist.deinit(self.allocator);
-        self.source_lines.deinit();
+        self.source_spans.deinit();
     }
 
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {

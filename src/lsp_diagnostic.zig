@@ -12,6 +12,7 @@
 //! criterion asks for — the LSP must not grow a second one to drift against.
 
 const std = @import("std");
+const types = @import("types.zig");
 const diagnostics = @import("diagnostics.zig");
 
 /// A zero-based text position, as LSP defines it (both fields zero-based).
@@ -94,14 +95,32 @@ pub const Diagnostic = struct {
 
 /// Build a zero-width range at a position the reader reports as 1-based
 /// `(line, col)`, converting to LSP's zero-based coordinates. A zero (unknown)
-/// component maps to zero. Ranges stay points until span tracking lands
-/// (kaappi#1506); this is the honest "position known today".
+/// component maps to zero. Used where only a start position is known (runtime
+/// errors carry a start column but no end — kaappi#1506).
 pub fn pointRange(line_1based: u32, col_1based: u32) Range {
     const p: Position = .{
         .line = if (line_1based > 0) line_1based - 1 else 0,
         .character = if (col_1based > 0) col_1based - 1 else 0,
     };
     return .{ .start = p, .end = p };
+}
+
+/// Build a range from a reader/compiler `Span` (1-based, half-open at the end),
+/// converting to LSP's zero-based coordinates. When the span has no end
+/// (`end_line == 0`), the range collapses to a point at the start — same as
+/// `pointRange`. This is the full-span form the diagnostics contract asks for
+/// on reader/compile diagnostics (kaappi#1506).
+pub fn spanRange(span: types.Span) Range {
+    const start: Position = .{
+        .line = if (span.line > 0) span.line - 1 else 0,
+        .character = if (span.col > 0) span.col - 1 else 0,
+    };
+    if (span.end_line == 0) return .{ .start = start, .end = start };
+    const end: Position = .{
+        .line = span.end_line - 1,
+        .character = if (span.end_col > 0) span.end_col - 1 else 0,
+    };
+    return .{ .start = start, .end = end };
 }
 
 /// Write `s` as a JSON string literal (surrounding quotes included), escaping
@@ -184,6 +203,28 @@ test "pointRange: 1-based reader coordinates become 0-based, unknown clamps to 0
     const unknown = pointRange(0, 0);
     try testing.expectEqual(@as(u32, 0), unknown.start.line);
     try testing.expectEqual(@as(u32, 0), unknown.start.character);
+}
+
+test "spanRange: a full span becomes a start/end range in 0-based coords" {
+    const r = spanRange(.{ .line = 1, .col = 1, .end_line = 1, .end_col = 5 });
+    try testing.expectEqual(@as(u32, 0), r.start.line);
+    try testing.expectEqual(@as(u32, 0), r.start.character);
+    try testing.expectEqual(@as(u32, 0), r.end.line);
+    try testing.expectEqual(@as(u32, 4), r.end.character);
+}
+
+test "spanRange: a span with no end collapses to a point at the start" {
+    const r = spanRange(.{ .line = 3, .col = 6 });
+    try testing.expectEqual(@as(u32, 2), r.start.line);
+    try testing.expectEqual(@as(u32, 5), r.start.character);
+    try testing.expectEqual(r.start, r.end);
+}
+
+test "spanRange: a multi-line span keeps distinct end line" {
+    const r = spanRange(.{ .line = 1, .col = 1, .end_line = 2, .end_col = 5 });
+    try testing.expectEqual(@as(u32, 0), r.start.line);
+    try testing.expectEqual(@as(u32, 1), r.end.line);
+    try testing.expectEqual(@as(u32, 4), r.end.character);
 }
 
 test "severityOf: registry severities map onto LSP scale" {

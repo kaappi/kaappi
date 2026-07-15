@@ -91,6 +91,45 @@ pub const Reader = struct {
         return .{ .line = line, .col = col };
     }
 
+    /// Record the source span of a just-read datum in the GC's span side-table,
+    /// keyed on the datum's heap pointer. Only heap objects with stable identity
+    /// (pairs, vectors) can be keyed — interned symbols and immediate atoms
+    /// share representations and cannot. `start_pos` is the byte offset of the
+    /// datum's first character (captured before reading); `self.pos` is one past
+    /// its last character. A single scan from source start to `self.pos` yields
+    /// both endpoints in 1-based `(line, col)` (kaappi#1506).
+    pub fn recordSpan(self: *Reader, val: Value, start_pos: usize) void {
+        if (!types.isPair(val) and !types.isVector(val)) return;
+        const end_pos = self.pos;
+        var line: u32 = 1;
+        var col: u32 = 1;
+        var start_line: u32 = 1;
+        var start_col: u32 = 1;
+        var i: usize = 0;
+        while (i < end_pos and i < self.source.len) : (i += 1) {
+            if (i == start_pos) {
+                start_line = line;
+                start_col = col;
+            }
+            if (self.source[i] == '\n') {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        if (start_pos >= end_pos) {
+            start_line = line;
+            start_col = col;
+        }
+        self.gc.source_spans.put(val, .{
+            .line = start_line,
+            .col = start_col,
+            .end_line = line,
+            .end_col = col,
+        }) catch {};
+    }
+
     pub fn deinit(self: *Reader) void {
         self.token_buf.deinit(self.gc.allocator);
     }
