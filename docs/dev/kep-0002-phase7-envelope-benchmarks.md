@@ -21,6 +21,7 @@ x86_64 publish-half open (see [Status](#status--what-remains)).
 ```
 zig build bench-channel                        # ReleaseSafe: the shipped default
 zig build bench-channel -Doptimize=ReleaseFast # faster build, for contrast
+zig build bench-channel -Dchannel-arena=true   # section 3 exercises the lever-B arena prototype
 ```
 
 The harness prints its build mode in the header. **The P3 decision reads
@@ -132,7 +133,7 @@ elision stays lever-selectable so the gate's `none` lever keeps forcing
 the pre-C baseline; the default-build regression test is in
 `tests_shared_channel.zig` ("lever C shipped default").
 
-### (B) reusable arena — **ship candidate under ReleaseSafe, pending the second clause**
+### (B) reusable arena — **both clauses now met by the prototype (ship candidate)**
 
 > (B) replaces (A) only if it wins ≥ 30% on the small-message workloads
 > **and** survives the gc-stress/leak suite with no new lifetime rules
@@ -154,17 +155,57 @@ checks make A's per-message GC-struct + root-buffer alloc/free costlier
 in absolute terms, so B's amortization recovers a larger share.
 
 Because the shipped binary is ReleaseSafe, **the operative reading is
-that B meets the performance bar.** But the *second clause is
-unproven*: the ≥30% result only licenses B if a real arena in
-`shared_channel.zig` survives gc-stress + the leak suite **without
-leaking any new lifetime rule outside that file**. That is an
-implementation-and-verification task, not something this micro-benchmark
-settles. The benchmark's arena is deliberately exercised only on
-symbol-free graphs (a symbol-bearing arena needs the symbol table
-preserved across resets — see `freeArena`'s comment); a shipped arena
-must handle symbol-bearing messages too. **Recommendation: treat B as a
-ship candidate; gate it on a `shared_channel.zig` arena prototype that
-passes gc-stress/leak with the lifetime rule contained.**
+that B meets the performance bar** in the micro-benchmark.
+
+#### The `shared_channel.zig` prototype (`-Dchannel-arena`, kaappi#1472)
+
+The second clause — *a real arena in `shared_channel.zig` survives
+gc-stress + the leak suite with no new lifetime rule leaking outside that
+file* — has now been built and tested behind the `-Dchannel-arena` build
+flag (off in the shipped default, which stays lever A). Findings:
+
+- **The literal "one arena per channel" does not survive contact with the
+  real queue.** `shared_channel` builds each envelope *outside* the lock,
+  in a private single-threaded heap, and holds arbitrarily many envelopes
+  queued from arbitrarily many producer threads (the KEP-0002 §1
+  lock-free-heap invariant). A single shared arena would force concurrent
+  `deepCopy`s to serialize (a per-arena lock, breaking build-outside-lock)
+  and could not free a FIFO-received message without disturbing the others
+  still queued in it. The bench's single `freeArena`-per-message works only
+  because it is strictly 1:1 with no queue.
+- **The contained analog is a single-slot recycled-GC cache.** Each channel
+  keeps at most one reset, buffer-warm GC (`SharedChannel.cached_gc`, a
+  lock-free atomic slot): `receive` resets a drained envelope's GC
+  (`resetForReuse`) and parks it; the next `send` of a pointer payload takes
+  it and builds into it, skipping the GC-struct + ~8 KiB root-buffer
+  allocation. A cache miss (concurrent/bursty traffic) degrades gracefully
+  to a fresh lever-A heap; memory stays bounded at one buffer per channel.
+- **The symbol-table reset is the real subtlety the bench flagged.**
+  `deepCopy` interns a message's symbols into the arena's own `symbols`
+  table, and `gc_collect.freeObject` frees each Symbol's `name` — which is
+  the very slice used as that symbol's map key. So `resetForReuse` frees the
+  objects **and** `clearRetainingCapacity`s the table (discarding the now
+  dangling entries without double-freeing the keys). This is the one new
+  lifetime rule, and it stays inside `shared_channel.zig`.
+- **Verification.** Unit suite green with `-Dchannel-arena=true`; **gc-stress
+  + arena = 77/77** (collection on every allocation, Debug-poison on freed
+  objects — the leak/UAF gate); a white-box reuse+symbol regression test
+  (`tests_shared_channel.zig`, "lever B arena"); all 39 cross-thread channel
+  /fiber/parallel Scheme smoke tests on the arena binary; a 500-message
+  symbol-heavy cross-thread round-trip. Every change is contained in
+  `shared_channel.zig` (plus the build flag and the test).
+- **Real-path performance** (bench section 3, the *real*
+  `shared_channel.send`/`receive` 1:1 loop, ReleaseSafe, arena off → on):
+  small pair 485 → 178 ns (**63%**), 1 KiB string 565 → 277 ns (**51%**) —
+  both clear ≥ 30% in the real path, not just the isolated builder. Fixnum
+  is unchanged (lever C already elides immediates, so there is no heap to
+  reuse). This is the ping-pong best case; concurrent multi-producer traffic
+  misses the single slot more often and trends toward lever A.
+
+**Verdict: both P3 clauses hold.** B is a validated ship candidate. Promoting
+the arena from the `-Dchannel-arena` flag to the shipped default (as lever C
+was promoted) is the remaining decision — a pure win for the ping-pong /
+reply-channel pattern, graceful-degrading and bounded elsewhere.
 
 ### (D) refcounted side-heap — **measured only**
 
@@ -207,17 +248,21 @@ Done in this pass:
   in the shipped build; still lever-selectable under `-Dchannel-instrument`
   so the gate's `none` baseline is preserved. Default-build regression test
   added ("lever C shipped default" in `tests_shared_channel.zig`).
+- **Lever B prototype landed and both P3 clauses met** — the reusable
+  per-channel arena, as a bounded single-slot recycled-GC cache behind
+  `-Dchannel-arena` (off in the shipped default). gc-stress + arena 77/77;
+  real-path small-message wins 51–63%; symbol-table reset contained in
+  `shared_channel.zig`. See the (B) section above. Remaining: the ship
+  decision (promote the flag to default, as C was).
 
 Still open for Phase 7 / #1472:
 
 1. **Second reference machine** — re-run on Linux x86_64 (≥ 8 physical
    cores) and confirm the C and B verdicts agree. Only then is the P3
    decision two-machine-solid.
-2. **Lever-B ship gate** — prototype the reusable arena inside
-   `shared_channel.zig` and run it under `-Dgc-stress=true` + the leak
-   suite, checking the lifetime rule stays contained. This is the P3 (B)
-   second clause; without it the ≥30% result is necessary but not
-   sufficient.
+2. **Lever-B ship decision** — the second clause is now met (prototype
+   above); promoting the `-Dchannel-arena` cache to the shipped default is
+   a follow-up ship call, mirroring lever C's promotion.
 3. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
    parent-side copy-overhead-share instrumentation, the Kalibera–Jones
    statistics driver, the CSV + classification worksheet, and lever D

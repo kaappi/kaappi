@@ -5,6 +5,7 @@ const shared_channel = @import("shared_channel.zig");
 const shared_object = @import("shared_object.zig");
 const instrument = @import("channel_instrument.zig");
 const reactor_mod = @import("reactor.zig");
+const build_options = @import("build_options");
 const th = @import("testing_helpers.zig");
 
 // KEP-0002 Phase 1 (#1466). Everything here follows tests_deepcopy.zig's
@@ -511,6 +512,69 @@ test "instrument lever D: a large bytevector crosses by shared buffer, then copi
     // The SharedBuffer was freed when unshare dropped the last reference (the
     // envelope's own reference went at receive-time env.deinit); the channel is
     // freed by release. Both were shared_object.liveCount() entries.
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+fn expectSymbolNamed(v: types.Value, name: []const u8) !void {
+    try std.testing.expect(types.isPointer(v));
+    const o = types.toObject(v);
+    try std.testing.expectEqual(types.ObjectTag.symbol, o.tag);
+    try std.testing.expectEqualStrings(name, o.as(types.Symbol).name);
+}
+
+test "lever B arena: a receive parks its GC, the next send reuses it, symbol-bearing messages survive the reset (kaappi#1472)" {
+    // The reusable per-channel arena only exists in the lever-B prototype build
+    // (-Dchannel-arena=true); the shipped default frees each envelope heap, so
+    // there is nothing to observe. White-box: read the cache slot and the
+    // queued envelope's GC directly. The load-bearing correctness claim is the
+    // SYMBOL case -- resetForReuse must clear the arena's symbol table, since
+    // freeObject frees each Symbol's name (its own map key). A stale entry
+    // would make the second message's re-interned symbol alias freed memory.
+    if (comptime !build_options.channel_arena) return;
+    const baseline = shared_object.liveCount();
+
+    const sc = try shared_channel.SharedChannel.create();
+    var src_gc = memory.GC.init(std.testing.allocator);
+    defer src_gc.deinit();
+    var dest_gc = memory.GC.init(std.testing.allocator);
+    defer dest_gc.deinit();
+
+    // Message 1: (foo . 1) -- a pair whose car is an interned symbol, so the
+    // envelope build populates the arena's symbol table.
+    const msg1 = try src_gc.allocPair(try src_gc.allocSymbol("foo"), types.makeFixnum(1));
+    _ = try shared_channel.send(sc, msg1, null);
+    // No recycle has happened yet, so the cache is still empty.
+    try std.testing.expect(sc.cached_gc.load(.acquire) == null);
+    const g1 = sc.queue_head.?.gc.?; // the envelope's freshly-allocated arena GC
+
+    const r1 = try shared_channel.receive(sc, &dest_gc, null);
+    try expectSymbolNamed(types.car(r1.value), "foo");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.cdr(r1.value)));
+    // receive reset g1 and parked it in the cache for reuse.
+    try std.testing.expect(sc.cached_gc.load(.acquire) == g1);
+
+    // Message 2: (bar . 2) -- a DIFFERENT symbol. The send must take g1 back
+    // out of the cache and build into it; if the reset left "foo" dangling in
+    // the table, interning "bar" (or re-reading the copied-out value) would
+    // touch freed memory (a poison trip under Debug/gc-stress).
+    const msg2 = try src_gc.allocPair(try src_gc.allocSymbol("bar"), types.makeFixnum(2));
+    _ = try shared_channel.send(sc, msg2, null);
+    try std.testing.expect(sc.queue_head.?.gc.? == g1); // REUSE: same arena GC
+    try std.testing.expect(sc.cached_gc.load(.acquire) == null); // taken by the send
+
+    const r2 = try shared_channel.receive(sc, &dest_gc, null);
+    try expectSymbolNamed(types.car(r2.value), "bar");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.cdr(r2.value)));
+
+    // Re-send "foo" through the reused arena: the earlier "foo" entry must be
+    // gone, so this interns a fresh live symbol rather than aliasing the first.
+    const msg3 = try src_gc.allocPair(try src_gc.allocSymbol("foo"), types.makeFixnum(3));
+    _ = try shared_channel.send(sc, msg3, null);
+    const r3 = try shared_channel.receive(sc, &dest_gc, null);
+    try expectSymbolNamed(types.car(r3.value), "foo");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.cdr(r3.value)));
+
+    sc.release(); // destroyHook drains the cached GC
     try std.testing.expectEqual(baseline, shared_object.liveCount());
 }
 
