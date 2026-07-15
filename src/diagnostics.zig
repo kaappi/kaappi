@@ -96,6 +96,11 @@ pub const Code = enum(u16) {
     stack_overflow = 3008,
     execution_timeout = 3009,
 
+    // -- KP4xxx — Static analysis (`kaappi check` lint, kaappi#1511) ---------
+    unknown_toplevel_variable = 4001,
+    primitive_arity_mismatch = 4002,
+    primitive_type_mismatch = 4003,
+
     // -- KP9xxx — Internal / resource exhaustion ----------------------------
     uncategorized = 9000,
     internal_error = 9001,
@@ -454,6 +459,52 @@ pub const table = [_]Diagnostic{
         ,
         // Surfaces only under a time budget: kaappi --timeout 500 prog.scm
         .example = "(let loop () (loop))   ; run with --timeout 500",
+    },
+
+    // -- KP4xxx — Static analysis (`kaappi check` lint, kaappi#1511) ---------
+    .{
+        .code = .unknown_toplevel_variable,
+        .name = "unknown-toplevel-variable",
+        .template = "unknown variable at top level",
+        .explanation =
+        \\`kaappi check` found a free reference to a top-level variable that is
+        \\neither a built-in, an imported binding, nor defined anywhere in the
+        \\file. This is a WARNING, never an error: R7RS permits top-level forward
+        \\references (a variable may be defined by a later top-level `define`, or
+        \\a mutual recursion), so rejecting the program would deviate from the
+        \\standard. Check for a typo, a missing `import`, or a missing `define`.
+        ,
+        .example = "(display undefined-name)",
+        .severity = .warning,
+    },
+    .{
+        .code = .primitive_arity_mismatch,
+        .name = "primitive-arity-mismatch",
+        .template = "wrong number of arguments to a built-in procedure",
+        .explanation =
+        \\`kaappi check` found a direct call to a known built-in procedure with a
+        \\number of arguments the procedure cannot accept. The argument count is a
+        \\static fact for every built-in, so this call is guaranteed to raise an
+        \\arity error (KP3003) at run time. Only direct, unshadowed calls to
+        \\built-ins are checked — a call through a variable, or to a name you have
+        \\redefined, is left alone.
+        ,
+        .example = "(car 1 2)",
+    },
+    .{
+        .code = .primitive_type_mismatch,
+        .name = "primitive-type-mismatch",
+        .template = "wrong type of literal argument to a built-in procedure",
+        .explanation =
+        \\`kaappi check` found a literal argument whose type a known built-in
+        \\cannot accept in that position — for example a number where a pair is
+        \\required (`(car 5)`) or a string where a vector is required
+        \\(`(vector-ref "s" 0)`). Only self-evaluating and quoted literals are
+        \\checked: there is no type inference and no way to annotate types, so a
+        \\value computed at run time is never flagged. Such a call is guaranteed
+        \\to raise a type error (KP3002) at run time.
+        ,
+        .example = "(car 5)",
     },
 
     // -- KP9xxx — Internal / resource exhaustion ----------------------------

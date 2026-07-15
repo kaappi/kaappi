@@ -275,7 +275,7 @@ pub const IR = struct {
         };
     }
 
-    fn isRedefined(self: *const IR, name: []const u8) bool {
+    pub fn isRedefined(self: *const IR, name: []const u8) bool {
         // A lexical binding (lambda parameter or enclosing local) shadowing the
         // primitive makes any fold that assumes the built-in's semantics wrong.
         // The globals map never sees these, so consult the compiler's scope.
@@ -600,6 +600,10 @@ pub fn lowerAndOptimize(
 ) CompileError!*Node {
     var node = try lowerWithMacros(ir_instance, expr, macros);
     markTailPositions(node, is_tail);
+    // Lint hook for `kaappi check` (kaappi#1511). Inert (one null test) outside a
+    // check run. Walked before the optimization passes so constant folding can't
+    // hide a call the lint would flag.
+    @import("check_lint.zig").maybeWalk(ir_instance, node);
     if (!optimize_enabled) return node;
     node = foldConstants(ir_instance, node);
     node = eliminateDeadBranches(ir_instance, node);

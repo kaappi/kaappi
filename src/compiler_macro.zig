@@ -4,6 +4,7 @@ const compiler_mod = @import("compiler.zig");
 const expander = @import("expander.zig");
 const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
+const check_lint = @import("check_lint.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -239,6 +240,12 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     const saved_suppress = self.suppress_macro_name;
     if (is_fixed_point) self.suppress_macro_name = name;
     defer self.suppress_macro_name = saved_suppress;
+
+    // `kaappi check`: a macro expansion is not the user's direct source, so
+    // suppress lint over everything compiled from it (kaappi#1511). Only calls
+    // the user wrote outside any macro use are "direct calls to a built-in".
+    check_lint.enterMacroExpansion();
+    defer check_lint.exitMacroExpansion();
 
     const result_err = self.compileExpr(expanded_root, dst, is_tail);
     if (saved_peer) |sp| {
