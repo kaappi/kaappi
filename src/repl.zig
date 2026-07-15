@@ -9,6 +9,7 @@ const vm_library = @import("vm_library.zig");
 const reporting = @import("reporting.zig");
 const expander = @import("expander.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
+const crash = @import("crash.zig");
 const ln = if (is_wasm) struct {} else @import("linenoise.zig");
 
 const config_mod = @import("config.zig");
@@ -1317,6 +1318,11 @@ test "highlightCallback — +inf.0 gets number color" {
 }
 
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
+    // Crash breadcrumb (kaappi#1514); reset on return so a crash at the idle
+    // prompt is not mislabeled as this input's last stage.
+    crash.note(.reading, "<repl>");
+    defer crash.reset();
+
     var r = reader.Reader.initWithName(vm.gc, input, "<repl>");
     defer r.deinit();
 
@@ -1325,6 +1331,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         toplevel_driver.reportReadError("<repl>", lc.line, lc.col, err);
         break :blk false;
     }) {
+        crash.noteStage(.reading);
         // Datum start position, for a compile error's fallback column when no
         // precise span was recorded (kaappi#1506).
         const datum_lc = r.getLineCol();
@@ -1337,6 +1344,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
+        crash.noteStage(.executing);
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
                 toplevel_driver.reportRuntimeError(vm, err, null);
@@ -1373,6 +1381,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             continue;
         }
 
+        crash.noteStage(.compiling);
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<repl>", false) catch |err| {
             toplevel_driver.reportCompileError("<repl>", datum_lc.line, datum_lc.col, err);
             break;
@@ -1381,6 +1390,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
 
+        crash.noteStage(.executing);
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             toplevel_driver.reportRuntimeError(vm, err, null);

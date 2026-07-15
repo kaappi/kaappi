@@ -53,8 +53,14 @@ pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const config = @import("config.zig");
 pub const fmt = @import("fmt.zig");
+pub const crash = @import("crash.zig");
 
 pub const version = @import("build_options").version;
+
+/// Custom panic handler (kaappi#1514): prints version/target/build-mode, the
+/// pipeline breadcrumb, and a report URL before the standard message + trace.
+/// Picked up by the Zig compiler as the root `panic` namespace.
+pub const panic = crash.PanicHandler("kaappi");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -173,6 +179,10 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // registry — no VM, GC, or library setup needed — so handle it before any
     // of that exists and exit. (Skipped on WASM, whose entry just runs a file.)
     if (comptime !is_wasm) {
+        // Internal, undocumented hook (kaappi#1514): `--panic-test` deliberately
+        // panics so CI can verify the crash banner on a real build. Dispatched
+        // first, before any setup, and never returns when the flag is present.
+        crash.maybePanicTest(init.args);
         if (explain.maybeRun(allocator, init.args)) |exit_code| {
             std.process.exit(exit_code);
         }
@@ -296,6 +306,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             vm.bundled_files = &bundled_files_map;
         }
         defer vm.bundled_files = null;
+
+        // Everything from here runs the bundled program (kaappi#1514 breadcrumb).
+        crash.note(.executing, "<bundled program>");
 
         // Replay preamble (import, include, define-library forms)
         if (loaded.preamble) |preamble| {
@@ -611,6 +624,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
     defer vm.current_lib_dir = saved_lib_dir;
 
+    // Crash breadcrumb (kaappi#1514): name the file once; stages update per-form.
+    crash.noteFile(path);
+
     const source = readFileContents(allocator, path) catch {
         script_had_error = true;
         return;
@@ -671,6 +687,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             }
 
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
+            crash.noteStage(.executing);
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
                 vm.gc.pushRoot(&func_val);
@@ -699,12 +716,14 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
+    crash.noteStage(.reading);
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         toplevel_driver.reportReadError(path, lc.line, lc.col, err);
         script_had_error = true;
         return;
     }) {
+        crash.noteStage(.reading);
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
@@ -716,6 +735,8 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
+        // A top-level import/define-library/include runs library code here.
+        crash.noteStage(.executing);
         if (vm.handleTopLevelForm(expr)) |top_result| {
             has_imports = true;
             const result = top_result catch |err| {
@@ -727,6 +748,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
+        crash.noteStage(.compiling);
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
             script_had_error = true;
@@ -739,6 +761,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
 
+        crash.noteStage(.executing);
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             script_had_error = true;
@@ -803,6 +826,8 @@ fn runStdin(vm: *vm_mod.VM) !void {
     };
     defer allocator.free(source);
 
+    crash.note(.reading, "<stdin>");
+
     var r = reader.Reader.initWithName(vm.gc, source, "<stdin>");
     defer r.deinit();
 
@@ -812,6 +837,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         script_had_error = true;
         return;
     }) {
+        crash.noteStage(.reading);
         // Capture the datum's start position before reading it, so a compile
         // error with no recorded span still falls back to the form's start
         // column (not the post-datum position) — kaappi#1506.
@@ -826,6 +852,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
+        crash.noteStage(.executing);
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
                 script_had_error = true;
@@ -836,6 +863,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
             continue;
         }
 
+        crash.noteStage(.compiling);
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<stdin>", false) catch |err| {
             toplevel_driver.reportCompileError("<stdin>", datum_lc.line, datum_lc.col, err);
             script_had_error = true;
@@ -845,6 +873,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
 
+        crash.noteStage(.executing);
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             script_had_error = true;
@@ -1084,4 +1113,5 @@ test {
     _ = config;
     _ = fmt;
     _ = @import("fmt_print.zig");
+    _ = crash;
 }
