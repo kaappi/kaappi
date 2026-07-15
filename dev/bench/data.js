@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784075733615,
+  "lastUpdate": 1784080189468,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d7eaaf6f4eda89f7a9d05ab16885d17946cc1089",
-          "message": "Fix SRFI-143 fxcopy-bit to accept boolean bit argument (#1323) (#1351)\n\nfxcopy-bit used (= bit 0) which rejected booleans with a type error.\nThe SRFI-143 spec says bitwise ops match SRFI-151, where copy-bit takes\na boolean. Use (if bit ...) instead, mirroring the SRFI-151 fix in #1316.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T11:27:47+05:30",
-          "tree_id": "ed65d8fed2ccd1e82d57a36a59a4eadab7e52f67",
-          "url": "https://github.com/kaappi/kaappi/commit/d7eaaf6f4eda89f7a9d05ab16885d17946cc1089"
-        },
-        "date": 1783579476913,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.065119,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.6979,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.039756,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407508,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013855,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.225974,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.51243,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06816,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.649293,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.980631,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.308792,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.123852,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.289353,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.895397,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046244,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045503,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e93ee1258175a41c9feb3498540b3128891ff19",
+          "message": "Ship envelope elision lever C (immediate fast path) as the default (#1472) (#1550)\n\nThe KEP-0002 Phase 7 P3 micro-benchmark decided lever C — immediate\nmessages skip the per-message envelope heap — ships: it clears the\npre-registered \"immediates >= 2x lever A on fixnums\" bar by an order of\nmagnitude (measured 28x ReleaseFast / 108x ReleaseSafe), and the KEP-0002\nUQ-1 amendment recorded C as ship. Until now the fast path only ran under\n-Dchannel-instrument as the gate lever `c`; production sends still built a\nfull private mini-heap for every fixnum/boolean/char/flonum/nil message.\n\nMake the immediate elision unconditional in the shipped build. It is\nprovably transparent: deepCopy of a non-pointer returns it unchanged\n(gc_deep_copy.zig, `if (!isPointer) return src`), so the full path only\never built an empty heap and stored the same value back — the fast path\ncarries that value inline and skips the GC struct + ~8 KiB root buffer.\nreceive() and deinit() already handle the null-heap envelope.\n\nKeep it lever-selectable under -Dchannel-instrument so the frozen gate\nprotocol's `none` baseline still forces the pre-C full-envelope path and\nstays reproducible; only the shipped (non-instrument) build changes.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T06:47:02+05:30",
+          "tree_id": "b25ef5b763afeba13bcea3b35c4a03240225d63c",
+          "url": "https://github.com/kaappi/kaappi/commit/5e93ee1258175a41c9feb3498540b3128891ff19"
+        },
+        "date": 1784080187745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.37258,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.752535,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.936722,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.487064,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006776,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054918,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511675,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070385,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.517933,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.955933,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.629986,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.442505,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.979883,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.760123,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045277,
             "unit": "seconds"
           }
         ]
