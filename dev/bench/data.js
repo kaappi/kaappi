@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784090286781,
+  "lastUpdate": 1784090470379,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0e11c9b962454992f1fb6e500feadf7bec110cc5",
-          "message": "Skip stress tests in Debug CI builds (#1365)\n\n* Skip stress tests in Debug CI builds (#1364)\n\nDebug builds are ~500x slower for allocation-heavy workloads, causing\nthree stress/benchmark files to exceed run-all.sh's 60s per-file timeout.\nAdd KAAPPI_SKIP env var support to skip named files, and KAAPPI_TIMEOUT\nto override the default timeout. CI sets KAAPPI_SKIP for the Debug matrix\nentry to skip callcc-bench.scm, r7rs-tail-procedures-gaps.scm, and\nr7rs-thin-forms-gaps.scm. These files still run in all Release builds.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Rename env vars to KAAPPI_TEST_SKIP and KAAPPI_TEST_TIMEOUT\n\nThese are test-runner-specific, so the KAAPPI_TEST_ prefix is clearer.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback\n\n- Set matched=1 for skipped files to avoid false \"(no tests matched)\"\n- Compute KAAPPI_TEST_SKIP inline instead of via matrix field to keep\n  the GitHub job name clean\n- Document KAAPPI_TEST_SKIP and KAAPPI_TEST_TIMEOUT in tests/scheme/CLAUDE.md\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T08:28:17Z",
-          "tree_id": "beb2149fae709648805b0b10fe3a63266f45dd08",
-          "url": "https://github.com/kaappi/kaappi/commit/0e11c9b962454992f1fb6e500feadf7bec110cc5"
-        },
-        "date": 1783587287776,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332639,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.76801,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.988455,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.395257,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012948,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.204046,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504437,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069118,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.649345,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.947478,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.165431,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.001799,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.438081,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.714194,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043823,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042947,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2de085ae05b10e1a6b7adc004f8c96ab0d49bd7",
+          "message": "Build quoted heap constants once via a per-site cache (#1495) (#1556)\n\nQuoted pairs/vectors were emitted as (quote …) strings run through\nkaappi_eval on every execution, re-parsing and re-consing the literal\neach time. This was both a hot-path cliff and a correctness divergence:\nthe interpreter compiles a quote to a single constant-pool entry, so\nevery evaluation of one literal returns the same object, whereas the\nnative backend rebuilt a fresh copy — (eq? (f) (f)) was #f natively but\n#t in the interpreter.\n\nkaappi_quote_cached builds each quoted heap constant once, permanently\nroots it, and memoizes it in a per-call-site global slot; later\nexecutions return the cached object. This is the data analogue of the\n#1494 eval cache (which caches a compiled Function). Per-site slots\nreproduce the interpreter's identity in both directions: one literal\nread twice is eq?, two textually distinct literals are not.\n\nChild SRFI-18 threads build the constant fresh each execution\n(cross-heap safety), the same carve-out as #1494.\n\nCloses #1495.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T09:39:20+05:30",
+          "tree_id": "cbb7d14193f6cbbfd17ef17e4dcd0a83f820f823",
+          "url": "https://github.com/kaappi/kaappi/commit/c2de085ae05b10e1a6b7adc004f8c96ab0d49bd7"
+        },
+        "date": 1784090469520,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.102104,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.994623,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.936493,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.438595,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053029,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511107,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068243,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.264237,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.994195,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.540385,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.48131,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.751443,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.85062,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046932,
             "unit": "seconds"
           }
         ]
