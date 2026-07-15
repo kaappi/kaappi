@@ -54,6 +54,15 @@ jobs:
             timeout: 30
           - os: ubuntu-latest
             optimize: ReleaseFast
+          # macOS runners are ~1.5x slower than the Linux ones: unit tests
+          # (~6 min) plus the Scheme suites (~11 min) alone run ~17 min and
+          # drift over the default 20-min cap, so the job is cancelled mid-run.
+          # 30 min (matching the Debug and riscv64 jobs) covers the observed
+          # worst case. Merges timeout into the macos-latest/ReleaseSafe
+          # combination rather than adding a new job.
+          - os: macos-latest
+            optimize: ReleaseSafe
+            timeout: 30
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
