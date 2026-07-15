@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784058916284,
+  "lastUpdate": 1784075733615,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cc5ff20178228b4fd458818ae02c78c11ddaae3b",
-          "message": "Add SRFI-174 timespec-hash, timespec->inexact, inexact->timespec (#1235) (#1352)\n\nThe library was missing three of the nine procedures defined by the spec.\nUses floor (not truncate) for inexact->timespec so nanoseconds stays\nnon-negative, consistent with the POSIX convention and existing comparisons.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T11:28:21+05:30",
-          "tree_id": "2a70a2390a400d6048a087669ffe98d09f4c8fd3",
-          "url": "https://github.com/kaappi/kaappi/commit/cc5ff20178228b4fd458818ae02c78c11ddaae3b"
-        },
-        "date": 1783579429394,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.323152,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.868227,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.964982,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.395056,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012531,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203637,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.496114,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068756,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.63632,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.937918,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.157106,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.991583,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.402897,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.683711,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04358,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.051373,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d6b99e80c15f81a2bd861d0c5226bdddbdc1eb7",
+          "message": "KEP-0002 Phase 7 gate: macOS dataset + filled worksheet (#1472, #1474) (#1549)\n\nThe macOS aarch64 reference machine of the KEP-0003 acceptance-gate\ncampaign, collected at commit b6d349c0 (K-J floor 20x10, w=8, both levers,\n920 launches, 0 failures -- the #1489 fix held at scale):\n\n- benchmarks/gate/results/gate-macos-aarch64.csv: the §6 dataset (+ metadata).\n- benchmarks/gate/classify.py: applies the §5 rules mechanically to the\n  CSV(s) -- the \"reading, not an argument\" -- emitting the share tables and\n  per/combined-machine outcomes.\n- benchmarks/gate/run-gate.py: --serial-invocations/--serial-iterations so the\n  non-gating speedup baselines run at reduced counts.\n- docs/dev/kep-0003-acceptance-gate-worksheet.md: filled with the macOS tables,\n  rule evaluations, and outcome.\n\nmacOS reads 4 Between (stays gated): Rule 1 (Racket) fails -- only IP-MAP\nclears the 25% CI-lower bound (at 64 MiB); IP-BAND and IP-MATMUL are\ncompute-bound -- and Rule 2/3 (Erlang/Absent) fail because IP-MAP, FO-TREE,\nFO-SLICE are far above 10%. Lever D barely moves the shares: the high-share\nworkloads are byte-opaque flonum vectors / trees a bytevector side-heap can't\nshare -- the pre-KEP-0003 walk tax.\n\nBecause macOS is Between, the combined two-machine outcome is Between\nregardless of Linux (agreement or disagreement both resolve to Between per\n§5). The Linux x86_64 half is still worth collecting for a published\ntwo-machine dataset (it was not driveable from the collecting session -- no\ndroplet shell); run the same run-gate.py command on an x86_64 >=8-core box at\nb6d349c0 and feed its CSV to classify.py alongside this one.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T05:43:58+05:30",
+          "tree_id": "a3050a1c8bbd269afda1a0e6ca9ed4be60f07a91",
+          "url": "https://github.com/kaappi/kaappi/commit/5d6b99e80c15f81a2bd861d0c5226bdddbdc1eb7"
+        },
+        "date": 1784075732060,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.451313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.245255,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.914158,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.471152,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006425,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054065,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504156,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070031,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.386996,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.00325,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596768,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434625,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.886565,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715828,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045503,
             "unit": "seconds"
           }
         ]
