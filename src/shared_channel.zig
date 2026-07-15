@@ -37,11 +37,13 @@ const releaseNotifier = reactor_mod.releaseNotifier;
 /// fills it once, the receiver's deepCopy drains it once, then it is
 /// destroyed wholesale.
 pub const Envelope = struct {
-    /// null only for a lever-C/C+D immediate envelope (KEP-0002 Phase 7,
-    /// kaappi#1472): a fixnum/boolean/char/flonum/nil payload is self-contained,
-    /// so no private heap is built and `value` holds the immediate directly.
-    /// Always non-null in the shipped default (lever `none`), where every
-    /// message gets its own heap exactly as originally specified.
+    /// null for an immediate envelope (lever C, KEP-0002 Phase 7, kaappi#1472):
+    /// a fixnum/boolean/char/flonum/nil payload is self-contained, so no private
+    /// heap is built and `value` holds the immediate directly. This is the
+    /// shipped default. Non-null for a pointer payload (which needs its own
+    /// deep-copied heap), and for every payload -- immediates included -- under
+    /// the gate's `none` lever (-Dchannel-instrument), which forces the pre-C
+    /// full-envelope baseline so the frozen protocol stays reproducible.
     gc: ?*memory.GC,
     value: Value = types.VOID,
     next: ?*Envelope = null,
@@ -66,11 +68,25 @@ pub const Envelope = struct {
     /// revisit only alongside a genuinely process-global (not per-thread
     /// chained) symbol table.
     pub fn create(payload: Value) !*Envelope {
-        // Lever C / C+D (kaappi#1472): a non-pointer immediate is self-contained
-        // -- deepCopy returns it unchanged -- so skip the per-message heap (and
-        // its GC struct + ~8 KiB root buffer) entirely. Comptime-pruned to the
-        // shipped path below whenever the instrument build flag is off.
-        if (instrument.immediatesElided() and !types.isPointer(payload)) {
+        // Lever C (kaappi#1472) -- shipped as the default. A non-pointer
+        // immediate (fixnum/boolean/char/flonum/nil) is self-contained:
+        // deepCopy returns it unchanged (gc_deep_copy.zig, `if (!isPointer)
+        // return src`), so the full path below would only build an empty private
+        // heap and store the same value back. Skip that heap (its GC struct +
+        // ~8 KiB root buffer) and carry the immediate inline instead. The P3
+        // micro-benchmark measured 28-108x on fixnum messages and the KEP-0002
+        // UQ-1 amendment recorded C as ship (immediates >= 2x lever A).
+        //
+        // Always on in the shipped default (the `else true` arm below compiles
+        // to an unconditional fast path referencing no instrument state). Under
+        // -Dchannel-instrument the gate keeps it lever-selectable: the frozen
+        // protocol's pre-C baseline (`none`) forces the full-envelope path even
+        // for immediates so it stays reproducible; `c`/`cd` enable elision.
+        const elide_immediates = if (comptime instrument.enabled)
+            instrument.immediatesElided()
+        else
+            true;
+        if (elide_immediates and !types.isPointer(payload)) {
             const env = try std.heap.c_allocator.create(Envelope);
             env.* = .{ .gc = null, .value = payload };
             return env;

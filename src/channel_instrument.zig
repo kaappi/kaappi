@@ -107,7 +107,10 @@ pub fn reset() void {
 // (no ordering is piggybacked on it).
 // --------------------------------------------------------------------------
 pub const Lever = enum(u8) {
-    /// Per-message envelopes exactly as `shared_channel.zig` ships.
+    /// The pre-C baseline: every message gets its own private heap, immediates
+    /// included. This was the shipped behavior before lever C shipped as the
+    /// default (kaappi#1472); the gate keeps it selectable so the frozen
+    /// protocol's baseline (lever A) stays reproducible under this build flag.
     none = 0,
     /// `none` + immediates (fixnums/booleans/chars/flonums/nil) skip the
     /// envelope heap entirely.

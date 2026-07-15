@@ -12,7 +12,9 @@ The other Phase 7 half — the `parallel-map` scaling curve that feeds the
 KEP-0003 acceptance gate ([kaappi#1474](https://github.com/kaappi/kaappi/issues/1474)),
 under the full Kalibera–Jones statistics of
 [keps `research/benchmarks/README.md`](https://github.com/kaappi/keps/blob/main/research/benchmarks/README.md)
-— is separate and still to do (see [Status](#status--what-remains)).
+— is separate; its harness, lever D, and the macOS aarch64 frozen run have
+landed (classified **Between**, KEP-0003 stays gated), with only the Linux
+x86_64 publish-half open (see [Status](#status--what-remains)).
 
 ## Running it
 
@@ -120,9 +122,15 @@ block mechanically.
 Fixnum A/C = **107.9×** (ReleaseSafe), **27.8×** (ReleaseFast). Both
 build modes clear 2× by more than an order of magnitude, and C erases
 the two fixed allocations. This is the near-certain outcome P3
-predicted. **Recommend shipping C** — a `!isPointer(payload)` fast path
-in `shared_channel.send`/`receive` that carries the raw value instead of
-building an envelope.
+predicted. **Shipped as the default** — `Envelope.create` in
+`shared_channel.zig` now carries a `!isPointer(payload)` immediate inline
+(no private heap) unconditionally in the shipped build. `deepCopy` of a
+non-pointer returns it unchanged, so the fast path is provably identical
+to the full envelope path for immediates (the full path would only build
+an empty heap and store the same value). Under `-Dchannel-instrument` the
+elision stays lever-selectable so the gate's `none` lever keeps forcing
+the pre-C baseline; the default-build regression test is in
+`tests_shared_channel.zig` ("lever C shipped default").
 
 ### (B) reusable arena — **ship candidate under ReleaseSafe, pending the second clause**
 
@@ -194,6 +202,11 @@ Done in this pass:
   into the full A/B/C/D matrix, with a counting allocator and the
   mechanical P3 decision printer. Unit suite green; the file is a
   standalone bench executable, outside the `test` graph.
+- **Lever C shipped as the default** — `Envelope.create` carries a
+  `!isPointer(payload)` immediate inline (no private heap) unconditionally
+  in the shipped build; still lever-selectable under `-Dchannel-instrument`
+  so the gate's `none` baseline is preserved. Default-build regression test
+  added ("lever C shipped default" in `tests_shared_channel.zig`).
 
 Still open for Phase 7 / #1472:
 
@@ -205,26 +218,19 @@ Still open for Phase 7 / #1472:
    suite, checking the lifetime rule stays contained. This is the P3 (B)
    second clause; without it the ≥30% result is necessary but not
    sufficient.
-3. **Lever-C ship** — the immediate fast path now exists in the real
-   `send`/`receive` (behind `-Dchannel-instrument`, as the gate lever
-   `c`; see the gate campaign below). Promoting it to the shipped default
-   (lever-invariant, no flag) with a regression test is the remaining
-   step.
-4. **KEP-0002 UQ 1 amendment** — record the A/B/C/D outcome (ship C; B
-   pending clause 2; D deferred) into KEP-0002, per #1472's acceptance.
-   Best done after (1).
-5. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
+3. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
    parent-side copy-overhead-share instrumentation, the Kalibera–Jones
    statistics driver, the CSV + classification worksheet, and lever D
    wired behind a flag in the real path. The larger, separate half of
-   #1472 that feeds #1474. **Harness landed** in `benchmarks/gate/` (see
-   `benchmarks/gate/README.md`): the six workloads + controls, the real-
-   path `share` counters (`src/channel_instrument.zig` →
-   `src/shared_channel.zig`), levers `none`/`c`/`cd`, and the K–J driver
-   emitting the §6 CSV, all locally piloted on macOS aarch64. **Lever D**
-   (refcounted immutable side-heap for large bytevectors,
-   `src/shared_buffer.zig`, zero-copy receive + copy-on-write) is wired
-   into the real deepCopy path behind `-Dchannel-instrument`, so the gate's
-   `C+D` cells are now runnable. Still open there: the frozen two-machine
-   §4 collection and the worksheet fill-in — ideally after kaappi#1489
-   (the intermittent pool hang) is fixed.
+   #1472 that feeds #1474. **Landed and largely done**: the harness in
+   `benchmarks/gate/` (six workloads + controls, the real-path `share`
+   counters `src/channel_instrument.zig` → `src/shared_channel.zig`, levers
+   `none`/`c`/`cd`, the K–J driver emitting the §6 CSV), **lever D**
+   (`src/shared_buffer.zig`, zero-copy receive + copy-on-write behind
+   `-Dchannel-instrument`), the kaappi#1489 pool-hang fix, and the **macOS
+   aarch64 frozen run** (920 launches, 0 failures) → classified **Between**,
+   so KEP-0003 stays gated (worksheet
+   `docs/dev/kep-0003-acceptance-gate-worksheet.md`, dataset in
+   `benchmarks/gate/results/`). The only open piece is the Linux x86_64 run
+   (item 1); per §5 it cannot change the combined outcome (macOS=Between ⇒
+   combined=Between), so it is a publish-completeness follow-up.
