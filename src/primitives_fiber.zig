@@ -238,6 +238,7 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         me.status = .waiting;
         me.waiting_on = ch_val;
         vm.gc.writeBarrier(&me.header, ch_val);
+        ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a freed slot / close
         me.deadline_ns = d;
         try ctx.reactor.addTimer(d, me);
     }
@@ -767,6 +768,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         me.status = .waiting;
         me.waiting_on = ch_val;
         vm.gc.writeBarrier(&me.header, ch_val);
+        ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a channel send / close
         me.deadline_ns = d;
         try ctx.reactor.addTimer(d, me);
     }
@@ -818,6 +820,9 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
         me.status = .waiting;
         me.waiting_on = wait_on;
         vm.gc.writeBarrier(&me.header, wait_on);
+        // Index this park so fiber completion (wakeWaiters) or a channel
+        // send/close (wakeChannelWaiters) finds it in O(1) (#1530).
+        if (vm.scheduler) |sched| sched.enrollWaiter(me);
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
     }
