@@ -374,11 +374,17 @@ pub fn clearDir(allocator: std.mem.Allocator, dir: []const u8) ClearResult {
         const full = std.fmt.allocPrintSentinel(allocator, "{s}/{s}", .{ dir, name }, 0) catch continue;
         defer allocator.free(full);
         // Size before unlink, so the reported total reflects what was freed.
-        var st: std.c.Stat = undefined;
-        const have_size = std.c.fstatat(std.posix.AT.FDCWD, full, &st, 0) == 0;
+        // Read the length rather than stat: this Zig's `std.c` stat family isn't
+        // callable on Linux (glibc's `__xstat` indirection leaves `std.c.fstatat`
+        // typed `void`), so reading small cache files through the same portable
+        // path `renderStatus` uses avoids per-OS stat code.
+        const size: u64 = if (file_utils.readWholeFile(allocator, full, MAX_CACHE_FILE_BYTES)) |d| blk: {
+            defer allocator.free(d);
+            break :blk d.len;
+        } else |_| 0;
         if (std.c.unlink(full) != 0) continue;
         res.removed += 1;
-        if (have_size) res.bytes += @intCast(st.size);
+        res.bytes += size;
     }
 
     return res;
