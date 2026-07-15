@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784090470379,
+  "lastUpdate": 1784102099204,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "727f916d5139537dfe8c7d4f00af7a89b734fb26",
-          "message": "Fix SRFI-133 vector-skip/vector-skip-right multi-vector form (#1171) (#1359)\n\nBoth procedures were registered with exact arity 2, rejecting the\nmulti-vector form specified by SRFI-133. Change to variadic arity and\nimplement the multi-vector loop pattern (matching vector-index and\nvector-index-right).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T14:54:06+05:30",
-          "tree_id": "29d798fca7b9bd6c6713509efe22add5f86221a0",
-          "url": "https://github.com/kaappi/kaappi/commit/727f916d5139537dfe8c7d4f00af7a89b734fb26"
-        },
-        "date": 1783590572443,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.353974,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.387366,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.984675,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.420165,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01259,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.203867,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505349,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06918,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.8198,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.948949,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.184067,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.018921,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.428529,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.726348,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044605,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046932,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a369b4829afb664127d1d40510624c847236ebe",
+          "message": "Lower cond/case/do natively in the LLVM backend (#1564)\n\ncond, case, and do desugar into machinery the emitter already lowers well —\nif-style block/phi chains and a self-branching loop — yet they were routed\nthrough kaappi_eval like any other unlowerable form. That made a plain\n`(define (f n) (cond ...))` serialize the whole function to the interpreter, a\nneedless per-call cliff.\n\nEmit them natively when every sub-form is emittable in the current lexical\nscope, gated by exprNativeEmittable. A form that reaches an unlowerable\nsub-form (a macro use, a passthrough special form, a nested eval-fallback\nform, a lambda, or a => clause) still falls back — at top level as a\nwhole-form eval (correct in the global environment), and inside a native\nlet/lambda body by signalling the enclosing form to abandon native\ncompilation as a unit, so a lexical scope is never split across the\nnative/interpreted boundary (the #827 discipline).\n\nBecause these forms are no longer eval-fallback forms, the closure tiers'\nfree-variable analysis must scope their clauses, or a capture hidden in one\ndegrades to a global lookup; walkSexpr/nodeHasFreeVars/collectNodeFreeVars now\ndescend into cond/case/do with correct binder scoping. The emitter also\nconsults the VM macro table so a macro use inside these forms reaches the\ninterpreter that can expand it.\n\nRejecting lambdas inside do sidesteps its fresh-binding-per-iteration\nsemantics: with no closure able to capture a loop variable, in-place mutable\nallocas are observably equivalent.\n\nVerified: full unit suite, e2e parity (incl. new cond/case/do programs), the\n1857-case Scheme suite, and 110 randomised interp-vs-native programs all pass;\ntail-recursive cond keeps its self-tail-call loop.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T12:59:02+05:30",
+          "tree_id": "79bcb18ccef5b6009de8bce2c6377ea7a366a648",
+          "url": "https://github.com/kaappi/kaappi/commit/8a369b4829afb664127d1d40510624c847236ebe"
+        },
+        "date": 1784102097796,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.48313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.440743,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.49062,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.484527,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004896,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03202,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.279334,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041158,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.059399,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.067303,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.936405,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304754,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.053978,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.765834,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.027789,
             "unit": "seconds"
           }
         ]
