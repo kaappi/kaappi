@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const timings = @import("timings.zig");
 const Value = types.Value;
 const GC = memory.GC;
 
@@ -139,6 +140,11 @@ pub const UseSiteBindingCheck = struct {
 };
 
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
+    // `--timings` (kaappi#1515): the sole macro-expansion chokepoint, so timing
+    // it here covers every caller (compiler, pipeline dump, REPL). Expansion runs
+    // during emission; the self-time stack keeps it disjoint from the emit stage.
+    timings.begin(.expand);
+    defer timings.end();
     const transformer = types.toObject(transformer_val).as(types.Transformer);
     const saved_ellipsis = active_custom_ellipsis;
     active_custom_ellipsis = transformer.custom_ellipsis;

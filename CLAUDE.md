@@ -32,7 +32,11 @@ triage and `--disassemble` comparisons; note the cache key now folds in the
 git build id, so a rebuilt binary never serves the old binary's bytecode —
 the old "delete the cache before testing compiler changes" footgun is fixed,
 see `docs/dev/cache.md`), `--sandbox`, `--gc-stats`,
-`--profile`, `--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
+`--profile`, `--timings[=text|json]` (per-stage pipeline wall time —
+read/expand/lower/optimize/emit/execute, plus native `llvm-emit`/`link` — and
+cache HIT/MISS + path, all on stderr; text or JSON; disjoint self-timed stages,
+zero overhead when absent — see `docs/dev/timings.md`),
+`--coverage`, `--diagnostics=<text|json>` (JSON Lines of LSP
 `Diagnostic` objects on stderr — see `docs/dev/diagnostics-json.md`),
 `--deny-warnings` (`check`-only: promote lint warnings to errors),
 `--completions <shell>`.

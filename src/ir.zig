@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
+const timings = @import("timings.zig");
 
 const Value = types.Value;
 const OpCode = types.OpCode;
@@ -612,13 +613,24 @@ pub fn lowerAndOptimize(
     macros: ?*std.StringHashMap(Value),
     is_tail: bool,
 ) CompileError!*Node {
-    var node = try lowerWithMacros(ir_instance, expr, macros);
+    // `--timings` (kaappi#1515): lowering (AST→IR, with macro uses deferred to
+    // passthrough nodes) and analysis are one self-timed stage; the five
+    // optimization passes are another. Nested lowering triggered later by macro
+    // expansion during emission is credited correctly by the self-time stack.
+    timings.begin(.lower);
+    var node = lowerWithMacros(ir_instance, expr, macros) catch |err| {
+        timings.end();
+        return err;
+    };
     markTailPositions(node, is_tail);
+    timings.end();
     // Lint hook for `kaappi check` (kaappi#1511). Inert (one null test) outside a
     // check run. Walked before the optimization passes so constant folding can't
     // hide a call the lint would flag.
     @import("check_lint.zig").maybeWalk(ir_instance, node);
     if (!optimize_enabled) return node;
+    timings.begin(.optimize);
+    defer timings.end();
     node = foldConstants(ir_instance, node);
     node = eliminateDeadBranches(ir_instance, node);
     node = simplifyBooleans(ir_instance, node);

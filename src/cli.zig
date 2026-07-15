@@ -15,6 +15,11 @@ const writeStderr = reporting.writeStderr;
 // agree on the spelling.
 const diagnostics_prefix = "--diagnostics=";
 
+// `--timings[=fmt]` accepts a bare form (`--timings`, text) and the GNU `=`
+// value form (`--timings=json`), so — like `--diagnostics=` — it is matched
+// outside the value-flag table. Same spelling shared by parse + sandbox pre-scan.
+const timings_prefix = "--timings=";
+
 // ── Flag table ─────────────────────────────────────────────────────────
 
 const FlagId = enum {
@@ -115,6 +120,12 @@ pub const Options = struct {
     coverage_mode: bool = false,
     coverage_xml_path: ?[]const u8 = null,
 
+    // Per-stage pipeline timings + cache HIT/MISS (kaappi#1515). `--timings`
+    // (text) or `--timings=json`; parsed like `--diagnostics=` (GNU `=` syntax)
+    // but with a bare form too.
+    timings_enabled: bool = false,
+    timings_json: bool = false,
+
     timeout_ms: ?u64 = null,
     max_memory: ?usize = null,
 
@@ -156,6 +167,8 @@ pub fn preScanSandbox(args: std.process.Args) bool {
             // bare subcommand — keep scanning
         } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
             // `--diagnostics=…` carries its value inline — keep scanning.
+        } else if (std.mem.eql(u8, arg, "--timings") or std.mem.startsWith(u8, arg, timings_prefix)) {
+            // `--timings` / `--timings=…` — no separate value arg, keep scanning.
         } else {
             break;
         }
@@ -201,6 +214,16 @@ pub fn parse(args: std.process.Args) Options {
 
         if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
             opts.diagnostics_format = parseDiagnosticsFormat(arg[diagnostics_prefix.len..]);
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--timings")) {
+            opts.timings_enabled = true;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, timings_prefix)) {
+            opts.timings_enabled = true;
+            opts.timings_json = parseTimingsFormat(arg[timings_prefix.len..]);
             continue;
         }
 
@@ -351,6 +374,8 @@ pub fn printUsage() void {
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
             "  --profile-json <f> Write profile JSON to file\n" ++
+            "  --timings[=fmt]    Report per-stage pipeline timings + cache HIT/MISS\n" ++
+            "                     on stderr; fmt is text (default) or json\n" ++
             "  --coverage         Report library procedure coverage\n" ++
             "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
             "  --timeout <ms>     Execution timeout in milliseconds\n" ++
@@ -386,6 +411,16 @@ fn parseDiagnosticsFormat(value: []const u8) DiagnosticsFormat {
     if (std.mem.eql(u8, value, "text")) return .text;
     if (std.mem.eql(u8, value, "json")) return .json;
     writeStderr("--diagnostics: unknown format '");
+    writeStderr(value);
+    writeStderr("' (expected 'text' or 'json')\n");
+    std.process.exit(USAGE_ERROR_EXIT);
+}
+
+/// Returns true for `json`, false for `text`; exits on anything else.
+fn parseTimingsFormat(value: []const u8) bool {
+    if (std.mem.eql(u8, value, "text")) return false;
+    if (std.mem.eql(u8, value, "json")) return true;
+    writeStderr("--timings: unknown format '");
     writeStderr(value);
     writeStderr("' (expected 'text' or 'json')\n");
     std.process.exit(USAGE_ERROR_EXIT);
@@ -560,6 +595,46 @@ test "parse: max-memory" {
     const argv = [_][*:0]const u8{ "kaappi", "--max-memory", "1000000", "test.scm" };
     const opts = parse(testArgs(&argv));
     try std.testing.expectEqual(@as(usize, 1000000), opts.max_memory.?);
+}
+
+test "parse: bare --timings enables text timings" {
+    const argv = [_][*:0]const u8{ "kaappi", "--timings", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.timings_enabled);
+    try std.testing.expect(!opts.timings_json);
+    try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
+}
+
+test "parse: --timings=json enables json timings" {
+    const argv = [_][*:0]const u8{ "kaappi", "--timings=json", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.timings_enabled);
+    try std.testing.expect(opts.timings_json);
+}
+
+test "parse: --timings=text is the explicit text default" {
+    const argv = [_][*:0]const u8{ "kaappi", "--timings=text", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.timings_enabled);
+    try std.testing.expect(!opts.timings_json);
+}
+
+test "parse: no --timings leaves it disabled" {
+    const argv = [_][*:0]const u8{ "kaappi", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(!opts.timings_enabled);
+}
+
+test "parse: --timings after filename is a script arg, not a flag" {
+    const argv = [_][*:0]const u8{ "kaappi", "test.scm", "--timings" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(!opts.timings_enabled);
+    try std.testing.expectEqualStrings("--timings", opts.scriptArgs()[1]);
+}
+
+test "preScanSandbox: --timings before --sandbox still detected" {
+    const argv = [_][*:0]const u8{ "kaappi", "--timings=json", "--sandbox", "test.scm" };
+    try std.testing.expect(preScanSandbox(testArgs(&argv)));
 }
 
 test "parse: no args → REPL (no file)" {

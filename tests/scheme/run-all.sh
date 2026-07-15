@@ -167,6 +167,7 @@ run_shell_suite "Pipeline dumps" tests/scheme/pipeline
 run_shell_suite "Doctor" tests/scheme/doctor
 run_shell_suite "Formatter" tests/scheme/fmt
 run_shell_suite "Cache" tests/scheme/cache
+run_shell_suite "Timings" tests/scheme/timings
 
 echo "=== R7RS test suite ==="
 set +e
