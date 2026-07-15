@@ -133,7 +133,7 @@ elision stays lever-selectable so the gate's `none` lever keeps forcing
 the pre-C baseline; the default-build regression test is in
 `tests_shared_channel.zig` ("lever C shipped default").
 
-### (B) reusable arena — **both clauses now met by the prototype (ship candidate)**
+### (B) reusable arena — **promoted to the shipped default (kaappi#1472)**
 
 > (B) replaces (A) only if it wins ≥ 30% on the small-message workloads
 > **and** survives the gc-stress/leak suite with no new lifetime rules
@@ -157,12 +157,21 @@ in absolute terms, so B's amortization recovers a larger share.
 Because the shipped binary is ReleaseSafe, **the operative reading is
 that B meets the performance bar** in the micro-benchmark.
 
-#### The `shared_channel.zig` prototype (`-Dchannel-arena`, kaappi#1472)
+**Shipped: promoted to default (kaappi#1472).** Both clauses hold, so
+`-Dchannel-arena` now defaults on. `-Dchannel-arena=false` restores lever A,
+and the gate instrument build (`-Dchannel-instrument`) forces lever A so the
+frozen `none`/`c`/`cd` sweep keeps its pristine pre-elision baseline (the arena
+recycles allocations, which is not a measured copy lever). The KEP-0003 gate
+came back `Between` (kaappi#1474) — copying is real but not the dominant
+bottleneck in the registered workloads — so the arena's small-pointer-message
+latency win is the practical payoff here.
+
+#### The `shared_channel.zig` arena (`-Dchannel-arena`, shipped default, kaappi#1472)
 
 The second clause — *a real arena in `shared_channel.zig` survives
 gc-stress + the leak suite with no new lifetime rule leaking outside that
-file* — has now been built and tested behind the `-Dchannel-arena` build
-flag (off in the shipped default, which stays lever A). Findings:
+file* — is met by the arena now compiled in by default (`-Dchannel-arena`
+defaults on; `-Dchannel-arena=false` restores lever A). Findings:
 
 - **The literal "one arena per channel" does not survive contact with the
   real queue.** `shared_channel` builds each envelope *outside* the lock,
