@@ -48,6 +48,7 @@ pub const cli = @import("cli.zig");
 pub const explain = @import("explain.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const check = @import("check.zig");
+pub const pipeline = @import("pipeline.zig");
 pub const config = @import("config.zig");
 
 pub const version = @import("build_options").version;
@@ -448,6 +449,21 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             .json = opts.diagnostics_format == .json,
             .deny_warnings = opts.deny_warnings,
         }));
+    }
+
+    // Pipeline-stage dumps (kaappi#1512): read-only introspection into the
+    // reader / expander / IR stages between source and bytecode.
+    if (opts.ast_mode) {
+        const fp = opts.file_path orelse usageError("Usage: kaappi ast <file.scm>\n");
+        std.process.exit(pipeline.runAst(vm, fp));
+    }
+    if (opts.expand_mode) {
+        const fp = opts.file_path orelse usageError("Usage: kaappi expand <file.scm>\n");
+        std.process.exit(pipeline.runExpand(vm, fp));
+    }
+    if (opts.ir_mode) {
+        const fp = opts.file_path orelse usageError("Usage: kaappi ir <file.scm> [--no-opt]\n");
+        std.process.exit(pipeline.runIr(vm, fp, opts.ir_no_opt));
     }
 
     if (opts.disassemble_mode) {
@@ -1041,5 +1057,7 @@ test {
     _ = @import("check_lint.zig");
     _ = @import("tests_check.zig");
     _ = @import("test_selection.zig");
+    _ = pipeline;
+    _ = @import("tests_pipeline.zig");
     _ = config;
 }

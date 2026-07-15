@@ -21,6 +21,7 @@ investigation produced analysis worth keeping.
 | [vision.md](vision.md) | Why Kaappi exists, what it values, how those values guide decisions |
 | [architecture.md](architecture.md) | Major subsystems: pipeline, value representation, VM, GC, file organization |
 | [ir.md](ir.md) | Compiler IR: 33 node types, analysis passes, optimization passes |
+| [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |
