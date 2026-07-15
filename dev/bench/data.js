@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784117781660,
+  "lastUpdate": 1784120219857,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9d8a6a4b99e450fb934f50200086043113e9e63d",
-          "message": "Fix SRFI-144 flmax/flmin to be variadic per spec (#1217) (#1358)\n\n* Fix SRFI-144 flmax/flmin to be variadic per spec (#1217)\n\nflmax and flmin were defined as exactly 2-argument functions, but\nSRFI-144 specifies them as variadic: (flmax x ...) and (flmin x ...).\nWith zero arguments they return -inf.0 and +inf.0 respectively.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Handle NaN as missing data per C99 fmax/fmin semantics\n\nSRFI-144 specifies flmax/flmin as C99 fmax/fmin, where NaN arguments\nare treated as missing data and the numeric value wins. Seed best from\nthe first argument (preserving all-NaN → NaN) and skip NaN via explicit\nchecks so the result is order-independent.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-09T09:41:50Z",
-          "tree_id": "7afff42f751c8b8b66810ff44c51936e4a67cc29",
-          "url": "https://github.com/kaappi/kaappi/commit/9d8a6a4b99e450fb934f50200086043113e9e63d"
-        },
-        "date": 1783592746567,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.072632,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.715068,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.033465,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.436562,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013792,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.226057,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512297,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067952,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.616688,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.97948,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.349031,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.113935,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.261805,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.851302,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046718,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042603,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9bb1b63fefab216265286c17e4765d379d527f46",
+          "message": "Add `kaappi features` capability-discovery subcommand (#1517) (#1570)\n\n`kaappi features [--json]` answers an agent's first question -- \"what am I\nworking with?\" -- at the CLI boundary, the way KEP-0004 already answers it\ninside Scheme via cond-expand. It reports version + git build id, target\ntriple, build mode, the compiled-in subsystems, built-in vs portable SRFIs,\ninitial VM/GC limits, and whether --sandbox is available. JSON is the primary\ninterface; a human-readable table is the secondary.\n\nThe point is that this output can never drift from the rest of the toolchain,\nbecause every field is derived, never re-typed:\n\n- features = types.platform_features, the exact table cond-expand and R7RS\n  (features) resolve against (a unit test asserts equality; features.sh proves\n  the CLI output equals the runtime (features) procedure).\n- built-in SRFIs come from the library registry -- the srfi_* tags of\n  primitives.Lib plus the new library.extra_std_libraries (which also de-dups\n  the srfi.9 / scheme.case-lambda registration shared by both registrars).\n- portable SRFIs are generated at build time by scanning lib/srfi/*.sld, so a\n  new .sld updates the output automatically.\n- build id is a best-effort git short hash (+ -dirty), \"unknown\" on failure.\n\nDispatched before VM setup (like explain/test), native-only. Wires the new\nsubcommand into --help, the bash/zsh/fish completions, README, and CLAUDE.md;\ndocuments it in docs/dev/features.md.\n\nPart of the machine-legibility epic #1503.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-15T12:24:22Z",
+          "tree_id": "c5994c3a0a0a11d07cb95157f4571138bd51a637",
+          "url": "https://github.com/kaappi/kaappi/commit/9bb1b63fefab216265286c17e4765d379d527f46"
+        },
+        "date": 1784120217819,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.314863,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.844526,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.893171,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.426566,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006425,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053468,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507451,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068782,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.456172,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.959031,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.580156,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.428406,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.810959,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.703531,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043951,
             "unit": "seconds"
           }
         ]
