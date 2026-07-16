@@ -116,6 +116,13 @@ pub const Fiber = struct {
     owned_mutexes: std.ArrayList(Value) = .empty,
 };
 
+// Fiber is exempt from types.zig's heap-type layout guard: its auto layout
+// already places `header` at a nonzero offset, which is safe here — and
+// only here — because every Fiber-to-Value conversion in the codebase
+// spells `makePointer(@ptrCast(&fiber.header))` (never the struct pointer),
+// matching Object.as()'s @fieldParentPtr. Keep that discipline for any new
+// conversion site.
+
 pub const FiberScheduler = struct {
     /// Growable — no fiber-count ceiling (KEP-0001 Phase 2). Slots are
     /// reused before growing (see addFiber), so long-running spawn/join

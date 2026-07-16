@@ -12,19 +12,14 @@ const memory = @import("memory.zig");
 const fiber_mod = @import("fiber.zig");
 const reactor_mod = @import("reactor.zig");
 
-fn makePipe() [2]std.c.fd_t {
-    var fds: [2]std.c.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) unreachable;
-    return fds;
-}
+// Cross-platform pair (pipe on POSIX, loopback socket pair on Windows —
+// where fd readiness is socket-only, #1608).
+const makePipe = th.makeFdPair;
+const closeFd = th.closeFd;
 
-fn closeFd(fd: std.c.fd_t) void {
-    _ = platform.close(fd);
-}
-
-fn writeByte(fd: std.c.fd_t, byte: u8) void {
+fn writeByte(fd: platform.fd_t, byte: u8) void {
     const buf = [1]u8{byte};
-    const n = platform.write(fd, &buf, 1);
+    const n = th.fdWrite(fd, &buf);
     std.testing.expectEqual(@as(isize, 1), n) catch unreachable;
 }
 

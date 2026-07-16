@@ -168,13 +168,37 @@ fn isBufferedFdPort(port: *types.Port) bool {
 /// registers with the reactor, and I/O degrades to single-fiber blocking
 /// exactly where the host can't support better.
 ///
-/// Windows is a permanent probe-fail: CRT fds have no O_NONBLOCK, so
-/// ports always stay blocking — same degradation as a WASI host without
-/// fd_fdstat_set_flags, and the reactor there is timer/notify-only by
-/// construction (reactor.zig's WindowsEventBackend).
+/// On Windows the probe is isSocketFd (#1608 stage 1): a port whose CRT
+/// fd wraps a SOCKET is marked `sock_state.is_socket` — unconditionally,
+/// on first touch — routing its I/O through sockRecv/sockSend (portFdRead/
+/// portFdWrite); once a scheduler exists it additionally flips
+/// non-blocking via FIONBIO, so would-block surfaces as the EAGAIN the
+/// shared paths expect and the WSAEventSelect reactor backend supplies
+/// the wakeup. Pipe and file fds have no would-block mode at the CRT
+/// layer, so those ports stay blocking — for them the degradation is the
+/// same shape as a WASI host without fd_fdstat_set_flags. The probe
+/// result is remembered per port (sock_state.probe_done) so file ports
+/// don't pay a getsockopt per read.
 pub fn maybeSetNonblocking(port: *types.Port) void {
-    if (comptime platform.is_windows) return;
     if (port.nonblocking or port.is_string_port or port.fd <= 2) return;
+    if (comptime platform.is_windows) {
+        // The socket probe is NOT scheduler-gated, unlike the flip below:
+        // sockets are OVERLAPPED handles by default on Windows, which CRT
+        // _read/_write (plain ReadFile/WriteFile) cannot operate on at
+        // all — so a socket port must route through recv/send (portFdRead/
+        // portFdWrite) from its very first touch, scheduler or not. A
+        // still-blocking socket keeps blocking recv/send semantics, so
+        // sequential programs behave exactly like POSIX blocking reads.
+        if (!port.sock_state.probe_done) {
+            port.sock_state.probe_done = true;
+            if (platform.isSocketFd(port.fd)) port.sock_state.is_socket = true;
+        }
+        if (!port.sock_state.is_socket) return; // pipes/files: no would-block mode
+        const wvm = vm_mod.vm_instance orelse return;
+        if (wvm.scheduler == null) return;
+        if (platform.setSockNonblockingFd(port.fd)) port.nonblocking = true;
+        return;
+    }
     const vm = vm_mod.vm_instance orelse return;
     if (vm.scheduler == null) return;
     if (comptime is_wasm) {
@@ -191,6 +215,25 @@ pub fn maybeSetNonblocking(port: *types.Port) void {
     const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
     if (std.c.fcntl(port.fd, std.posix.F.SETFL, flags | nonblock) < 0) return;
     port.nonblocking = true;
+}
+
+/// The port's fd byte source: read(2) everywhere except a Windows socket
+/// port, which must recv() on the underlying SOCKET — CRT _read cannot
+/// operate on (overlapped) SOCKET handles at all (platform.zig's
+/// Windows-sockets section). Same return/errno contract as platform.read.
+fn portFdRead(port: *types.Port, buf: [*]u8, len: usize) isize {
+    if (comptime platform.is_windows) {
+        if (port.sock_state.is_socket) return platform.sockRecv(port.fd, buf, len);
+    }
+    return platform.read(port.fd, buf, len);
+}
+
+/// The port's fd byte sink; portFdRead's write-side twin.
+fn portFdWrite(port: *types.Port, buf: [*]const u8, len: usize) isize {
+    if (comptime platform.is_windows) {
+        if (port.sock_state.is_socket) return platform.sockSend(port.fd, buf, len);
+    }
+    return platform.write(port.fd, buf, len);
 }
 
 /// Suspends the current fiber until the port's fd is ready for `interest`,
@@ -282,7 +325,7 @@ fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
         // buffer (or a concurrent close-port drains it for us).
         const buf = port.write_buf orelse break;
         maybeSetNonblocking(port);
-        const rc = platform.write(port.fd, buf.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+        const rc = portFdWrite(port, buf.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
         if (rc < 0) {
             const e = platform.errno(rc);
             if (e == .INTR) continue;
@@ -342,8 +385,12 @@ pub fn flushAllOpenPorts(gc: *memory.GC) void {
             const port = o.as(types.Port);
             if (!port.is_open or port.is_string_port or port.fd <= 2) continue;
             const wb = port.write_buf orelse continue;
+            // Ensure the Windows socket probe ran: a below-high-water
+            // append never drains, so this may be the port's first fd
+            // touch, and CRT _write cannot operate on a SOCKET handle.
+            maybeSetNonblocking(port);
             while (port.write_buf_start < port.write_buf_len) {
-                const rc = platform.write(port.fd, wb.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+                const rc = portFdWrite(port, wb.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
                 if (rc < 0 and platform.errno(rc) == .INTR) continue;
                 if (rc <= 0) break;
                 port.write_buf_start += @as(usize, @intCast(rc));
@@ -677,7 +724,7 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     maybeSetNonblocking(port);
     var chunk: [read_chunk_size]u8 = undefined;
     while (true) {
-        const raw = platform.read(port.fd, &chunk, chunk.len);
+        const raw = portFdRead(port, &chunk, chunk.len);
         if (raw < 0) {
             const e = platform.errno(raw);
             if (e == .INTR) continue;
@@ -1023,7 +1070,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             }
         }
 
-        const raw_n = platform.read(port.fd, &tmp, tmp.len);
+        const raw_n = portFdRead(port, &tmp, tmp.len);
         if (raw_n < 0) {
             const e = platform.errno(raw_n);
             if (e == .INTR) continue;

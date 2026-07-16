@@ -346,7 +346,14 @@ re-export, IR tests, and tail position handling.
 ## How to add a new heap type
 
 1. Add tag to `ObjectTag` enum in `src/types.zig` (slots 35+ available, enum is u6 with 64 slots).
-2. Add the struct with `header: Object` as first field.
+2. Add the struct with `header: Object` as first field, and add it to the
+   heap-type layout guard (comptime block at the bottom of `types.zig`).
+   Declaring `header` first does NOT guarantee it lands at byte offset 0 —
+   Zig may reorder auto-struct fields, and most `makePointer` sites cast
+   the struct pointer, so a displaced header silently corrupts every Value
+   of that type. The guard turns that into a compile error; if it fires
+   (also when merely adding fields to an existing heap type), rearrange or
+   repack the new fields until the offset is 0 again (see `Port.sock_state`).
 3. Add `allocXxx` in `src/memory.zig`.
 4. Handle in `markValue` (trace contained Values) and `freeObject` (free owned memory).
 5. Add display in `src/printer.zig`.
@@ -482,7 +489,8 @@ The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 ## Fiber I/O reactor (KEP-0001)
 
 Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig`:
-kqueue/epoll/WASI-`poll_oneoff` backends + a userspace timer heap), created
+kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` backends + a
+userspace timer heap), created
 lazily with the scheduler by `fiber.ensureScheduler`. Port reads/writes that
 would block (`EAGAIN`) suspend the calling fiber instead of the thread
 (`fiber.waitForFd`): a fiber dispatched directly by a scheduler loop parks
@@ -497,6 +505,11 @@ flip is the host-capability probe: `fd_fdstat_set_flags(NONBLOCK)` failing
 registers an fd and the reactor degrades to CLOCK-only `poll_oneoff` waits —
 timers and `thread-sleep!` (the one SRFI-18 primitive registered on WASM,
 as a global; the `(srfi 18)` library itself stays native-only) always work.
+On Windows the probe is `isSocketFd` (#1608): socket-backed ports (CRT fds
+wrapping a SOCKET via `_open_osfhandle`) flip via `FIONBIO` and read/write
+through `platform.sockRecv/sockSend`, with WSAEventSelect readiness in the
+reactor; pipe/file ports stay blocking (no would-block mode at the CRT
+layer — IOCP rework is #1608 stage 2).
 Ports on fd > 2 buffer writes in `port.write_buf` until
 `flush-output-port`, `close-port`, a read on the same port, or the 8 KiB
 high-water mark; `close-port` flushes, wakes fibers parked on the fd

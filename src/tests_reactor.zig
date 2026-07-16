@@ -5,22 +5,21 @@
 // reactor stores and returns the pointers without touching execution state,
 // but register()'s Debug-build staleness assertion reads the status of
 // every already-listed waiter (Phase 3).
+//
+// The fds come from testing_helpers' cross-platform pairs: pipes and
+// AF_UNIX socketpairs on POSIX, loopback TCP pairs on Windows — where fd
+// readiness is socket-only (#1608), so this suite doubles as the
+// WSAEventSelect backend's coverage there.
 const std = @import("std");
 const platform = @import("platform.zig");
+const th = @import("testing_helpers.zig");
 const reactor_mod = @import("reactor.zig");
 const fiber_mod = @import("fiber.zig");
 const Reactor = reactor_mod.Reactor;
 const Fiber = fiber_mod.Fiber;
 
-fn makePipe() [2]std.c.fd_t {
-    var fds: [2]std.c.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) unreachable;
-    return fds;
-}
-
-fn closeFd(fd: std.c.fd_t) void {
-    _ = platform.close(fd);
-}
+const makePipe = th.makeFdPair;
+const closeFd = th.closeFd;
 
 fn newReady() std.ArrayList(*Fiber) {
     return .empty;
@@ -29,9 +28,9 @@ fn newReady() std.ArrayList(*Fiber) {
 /// Writes one byte and asserts it actually landed, so a short write or
 /// failure fails loudly at the syscall instead of surfacing later as an
 /// unrelated assertion mismatch or poll() timeout.
-fn writeByte(fd: std.c.fd_t, byte: u8) void {
+fn writeByte(fd: platform.fd_t, byte: u8) void {
     const buf = [1]u8{byte};
-    const n = platform.write(fd, &buf, 1);
+    const n = th.fdWrite(fd, &buf);
     std.testing.expectEqual(@as(isize, 1), n) catch unreachable;
 }
 
@@ -274,7 +273,12 @@ test "a recycled fd number registers cleanly over a stale Reg left by a close wi
     // still succeed: epoll's CTL_MOD hits ENOENT on the untracked fd and
     // must self-heal by retrying as CTL_ADD. kqueue is immune (EV_ADD
     // recreates), so this is a Linux regression guard that also passes
-    // on macOS.
+    // on macOS. Skipped on Windows: the forced-number recycling below
+    // needs dup2, and CRT _dup2 over a socket-backed fd duplicates the
+    // handle without WSA bookkeeping (WSADuplicateSocket territory) — the
+    // recycle scenario itself is covered there by arm()'s re-deriving the
+    // SOCKET from the fd on every call.
+    if (comptime platform.is_windows) return error.SkipZigTest;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -346,12 +350,7 @@ test "two fds: only the one that becomes ready wakes its fiber" {
     try std.testing.expectEqual(&fiber_b, ready.items[0]);
 }
 
-fn makeSocketPair() [2]std.c.fd_t {
-    var fds: [2]std.c.fd_t = undefined;
-    const rc = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &fds);
-    if (rc != 0) unreachable;
-    return fds;
-}
+const makeSocketPair = th.makeBidiFdPair;
 
 test "one fd with both read and write interest: a fired direction re-arms the other" {
     // Regression guard for the epoll-specific bug this design is most at
@@ -419,31 +418,77 @@ test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
     try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }
 
-fn setNonblocking(fd: std.c.fd_t) void {
-    const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
-    std.testing.expect(flags >= 0) catch unreachable;
-    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
-    std.testing.expect(std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) >= 0) catch unreachable;
+test "data already buffered when the read interest is registered still wakes" {
+    // The condition predates the arm. kqueue/epoll report a pre-existing
+    // condition on a fresh ONESHOT registration natively; the Windows
+    // backend must catch it via arm()'s post-WSAEventSelect readiness
+    // probe, because (re)issuing WSAEventSelect clears the socket's
+    // pending network-event records (#1608).
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pipe = makePipe();
+    defer closeFd(pipe[0]);
+    defer closeFd(pipe[1]);
+
+    writeByte(pipe[1], 'x'); // readable *before* register
+
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pipe[0], .read, &fiber_a);
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(5_000_000_000, &ready);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }
+
+test "a peer closed before the read interest is registered still wakes" {
+    // Same pre-arm race as above but for the hangup edge: FD_CLOSE is
+    // edge-recorded on Windows, so a peer that closed before the arm
+    // would never re-fire — only arm()'s probe can observe it. On
+    // kqueue/epoll a fresh registration reports EOF/HUP directly.
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pair = makeSocketPair();
+    defer closeFd(pair[0]);
+
+    closeFd(pair[1]); // peer gone *before* register
+
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pair[0], .read, &fiber_a);
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(5_000_000_000, &ready);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_a, ready.items[0]);
+}
+
+const setNonblocking = th.setFdNonblocking;
 
 /// Shrinks the kernel send buffer so `fillSendBuffer` reaches EAGAIN after
 /// a few KB instead of needing megabytes of writes.
-fn setSmallSndbuf(fd: std.c.fd_t) void {
-    const size: c_int = 2048;
-    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, std.mem.asBytes(&size)) catch unreachable;
+fn setSmallSndbuf(fd: platform.fd_t) void {
+    th.setSockBufSize(fd, .snd, 2048);
 }
 
 /// Writes to `fd` (already non-blocking) until the send buffer is full and
 /// a write returns EAGAIN, proving the fd is not writable. Bounded so a
 /// platform that doesn't honor the shrunk SO_SNDBUF fails loudly instead of
 /// spinning forever.
-fn fillSendBuffer(fd: std.c.fd_t) void {
+fn fillSendBuffer(fd: platform.fd_t) void {
     var buf: [4096]u8 = [_]u8{0} ** 4096;
     var iterations: usize = 0;
     while (iterations < 4096) : (iterations += 1) {
-        const n = platform.write(fd, &buf, buf.len);
+        const n = th.fdWrite(fd, &buf);
         if (n < 0) {
-            std.testing.expectEqual(std.posix.E.AGAIN, platform.errno(n)) catch unreachable;
+            std.testing.expectEqual(platform.E.AGAIN, platform.errno(n)) catch unreachable;
             return;
         }
     }
@@ -452,12 +497,12 @@ fn fillSendBuffer(fd: std.c.fd_t) void {
 
 /// Reads `fd` (already non-blocking) to EAGAIN, discarding everything —
 /// frees up the peer's send buffer.
-fn drainSocket(fd: std.c.fd_t) void {
+fn drainSocket(fd: platform.fd_t) void {
     var buf: [4096]u8 = undefined;
     while (true) {
-        const n = platform.read(fd, &buf, buf.len);
+        const n = th.fdRead(fd, &buf);
         if (n < 0) {
-            std.testing.expectEqual(std.posix.E.AGAIN, platform.errno(n)) catch unreachable;
+            std.testing.expectEqual(platform.E.AGAIN, platform.errno(n)) catch unreachable;
             return;
         }
         if (n == 0) return;
@@ -560,8 +605,7 @@ test "notify() from another OS thread interrupts a blocking poll()" {
     const Ctx = struct {
         notifier: *reactor_mod.ThreadNotifier,
         fn run(self: @This()) void {
-            var ts: std.c.timespec = .{ .sec = 0, .nsec = 20_000_000 };
-            _ = std.c.nanosleep(&ts, &ts);
+            platform.sleepNs(20_000_000);
             self.notifier.notify();
         }
     };

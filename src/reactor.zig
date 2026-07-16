@@ -5,7 +5,8 @@
 //! bounded by the nearest timer deadline, and reports every fiber that
 //! became runnable (fd readiness or timer expiry). Wired into the
 //! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). Backends:
-//! kqueue (macOS/BSD), epoll (Linux), poll_oneoff (WASI, Phase 4). See
+//! kqueue (macOS/BSD), epoll (Linux), poll_oneoff (WASI, Phase 4),
+//! WSAEventSelect (Windows, sockets only — #1608). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -890,30 +891,78 @@ const WasiPollBackend = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Windows event backend
+// Windows event backend (#1608 stage 1: socket readiness)
 //
-// Windows has no fd-readiness support here by construction: CRT fds have
-// no O_NONBLOCK, so maybeSetNonblocking (primitives_io.zig) is a comptime
-// no-op, no read/write ever EAGAINs, and register() is never reached —
-// the same shape as a WASI host whose NONBLOCK probe fails, except made
-// permanent. What remains is exactly what the reactor still owes the
-// scheduler on such a platform: bounded timer waits (thread-sleep!, timed
-// channel/mutex waits) and the KEP-0002 cross-thread notify. One
-// auto-reset Win32 event serves both — WaitForSingleObject bounded by the
-// nearest deadline, SetEvent as the notify ring.
+// Fd readiness on Windows is socket-only. Win32 has no unified readiness
+// API for arbitrary handles — pipes and files have no would-block mode at
+// the CRT layer, so their ports never flip non-blocking, never EAGAIN,
+// and never reach register() (single-fiber blocking I/O, the WASI
+// probe-fail shape). Sockets do: maybeSetNonblocking's isSocketFd probe
+// flips them via FIONBIO, their reads/writes EAGAIN through
+// sockRecv/sockSend, and this backend supplies the wakeup.
+//
+// The wakeup is WSAEventSelect wired into the pre-existing event wait:
+// every armed socket posts its network-event records to one shared
+// manual-reset event (`sock_event`), and wait() blocks on exactly two
+// handles — the auto-reset notify event (KEP-0002 cross-thread ring,
+// unchanged) and `sock_event` — bounded by the nearest timer deadline.
+// After any wakeup a sweep WSAEnumNetworkEvents-es every armed socket and
+// maps the records onto ReadyEvents (FD_READ/FD_ACCEPT → readable,
+// FD_WRITE/FD_CONNECT → writable, FD_CLOSE → both, the epoll HUP
+// policy). Sharing one event avoids the 64-handle
+// WaitForMultipleObjects ceiling outright; the O(armed) sweep mirrors
+// WasiPollBackend's per-wait rebuild.
+//
+// FD_WRITE and FD_CLOSE are edge-recorded, and (re)issuing WSAEventSelect
+// clears the socket's pending records — so a condition that became true
+// before arm() would be missed entirely (the classic WSAEventSelect
+// races: send hit WSAEWOULDBLOCK, the peer drained the buffer, *then* the
+// fiber parked). arm() therefore takes a 0-timeout select() snapshot
+// right after arming and stashes it as pre-ready state that the next
+// wait() reports without blocking.
 // ---------------------------------------------------------------------------
 
 const WindowsEventBackend = struct {
-    /// Shared with the ThreadNotifier (same handle), so — like kqueue's
-    /// `kq` — exactly one place may close it: releaseNotifier's zero
-    /// transition. deinit here is a no-op.
+    /// Notify event (auto-reset). Shared with the ThreadNotifier (same
+    /// handle), so — like kqueue's `kq` — exactly one place may close it:
+    /// releaseNotifier's zero transition, never deinit here.
     event: platform.win.HANDLE,
+    /// The single event every armed socket's WSAEventSelect signals
+    /// (manual-reset; wait() resets it before each sweep). Owned by this
+    /// backend, closed in deinit.
+    sock_event: platform.win.HANDLE,
+    allocator: std.mem.Allocator,
+    /// fd → armed socket state; the userspace registry the sweep walks
+    /// (kernel knotes' stand-in, like WasiPollBackend.interests).
+    sockets: std.AutoHashMap(i32, SockReg),
+    ready: std.ArrayList(ReadyEvent) = .empty,
+    /// Sweep scratch: fds whose socket died under the registration.
+    dead: std.ArrayList(i32) = .empty,
+    /// Whether any armed socket carries an unreported pre-ready snapshot;
+    /// makes the next wait() a 0-timeout collect instead of a block.
+    any_pre_ready: bool = false,
 
-    /// The allocator is part of the uniform backend init signature
-    /// (WasiPollBackend needs it); this backend owns no allocations.
-    fn init(_: std.mem.Allocator) !WindowsEventBackend {
+    const SockReg = struct {
+        sock: platform.win.SOCKET,
+        /// arm()'s select() snapshot: ready-at-arm-time conditions whose
+        /// event records were clobbered by WSAEventSelect itself (see the
+        /// header comment). Consumed by the next wait() sweep.
+        pre_read: bool = false,
+        pre_write: bool = false,
+    };
+
+    fn init(allocator: std.mem.Allocator) !WindowsEventBackend {
         const ev = platform.win.CreateEventW(null, 0, 0, null) orelse return error.Unexpected;
-        return .{ .event = ev };
+        const sock_ev = platform.win.CreateEventW(null, 1, 0, null) orelse {
+            _ = platform.win.CloseHandle(ev);
+            return error.Unexpected;
+        };
+        return .{
+            .event = ev,
+            .sock_event = sock_ev,
+            .allocator = allocator,
+            .sockets = std.AutoHashMap(i32, SockReg).init(allocator),
+        };
     }
 
     fn notifierBackend(self: *const WindowsEventBackend) NotifierBackend {
@@ -921,30 +970,117 @@ const WindowsEventBackend = struct {
     }
 
     fn deinit(self: *WindowsEventBackend) void {
-        _ = self;
+        _ = platform.win.CloseHandle(self.sock_event);
+        self.sockets.deinit();
+        self.ready.deinit(self.allocator);
+        self.dead.deinit(self.allocator);
     }
 
-    /// Unreachable by construction (see the header comment): ports never
-    /// go non-blocking on Windows, so nothing ever registers an fd. A
-    /// clean error rather than `unreachable` so a future caller bug
-    /// surfaces as a failed wait-registration, not UB.
-    fn arm(_: *WindowsEventBackend, _: i32, _: bool, _: bool, _: bool) !void {
-        return error.Unexpected;
+    /// Arms readiness interest for the socket behind `fd`. Both reactor
+    /// call sites pass the fd's complete desired state, and WSAEventSelect
+    /// replaces the previous mask wholesale — epoll's CTL_MOD shape, so
+    /// `first_time` is irrelevant. The SOCKET is re-derived from the fd on
+    /// every arm, which also self-heals fd-number recycling over a stale
+    /// registration (the epoll ENOENT-retry concern). Fails cleanly on a
+    /// non-socket fd (WSAEventSelect: WSAENOTSOCK) — waitForFd turns that
+    /// into a diagnosable registration error; port-layer callers never get
+    /// here for non-sockets because only sockets ever EAGAIN.
+    fn arm(self: *WindowsEventBackend, fd: i32, wants_read: bool, wants_write: bool, _: bool) !void {
+        platform.ensureWinsock();
+        const sock = platform.sockFromFd(fd) orelse return error.Unexpected;
+
+        // Reserve the map slot before touching the kernel so an OOM can't
+        // leave an armed mask with no registry entry behind it.
+        const gop = try self.sockets.getOrPut(fd);
+        errdefer if (!gop.found_existing) {
+            _ = self.sockets.remove(fd);
+        };
+
+        var mask: c_long = 0;
+        if (wants_read) mask |= platform.win.FD_READ | platform.win.FD_ACCEPT | platform.win.FD_CLOSE;
+        if (wants_write) mask |= platform.win.FD_WRITE | platform.win.FD_CONNECT | platform.win.FD_CLOSE;
+        if (platform.win.WSAEventSelect(sock, self.sock_event, mask) != 0) return error.Unexpected;
+
+        // The post-arm race probe (see the header comment). Runs after
+        // WSAEventSelect so nothing can become ready between probe and
+        // arm unobserved: a condition arising after the arm is recorded
+        // by the mask, one already true before it is caught here.
+        const pre = platform.sockPollReady(sock, wants_read, wants_write);
+        gop.value_ptr.* = .{ .sock = sock, .pre_read = pre.readable, .pre_write = pre.writable };
+        if (pre.readable or pre.writable) self.any_pre_ready = true;
     }
 
-    fn disarmAll(_: *WindowsEventBackend, _: i32) void {}
+    fn disarmAll(self: *WindowsEventBackend, fd: i32) void {
+        if (self.sockets.fetchRemove(fd)) |kv| {
+            // Best-effort cancel; errors (the socket may already be gone)
+            // are irrelevant since the registry entry is dropped either way.
+            _ = platform.win.WSAEventSelect(kv.value.sock, null, 0);
+        }
+    }
 
     fn wait(self: *WindowsEventBackend, timeout_ns: ?u64) ![]const ReadyEvent {
-        const ms: u32 = if (timeout_ns) |ns| blk: {
+        var ms: u32 = if (timeout_ns) |ns| blk: {
             // Ceil so a timer may fire slightly late but never early
             // (resolved KEP-0001 question 2, epoll's msFromNs discipline).
             const ceil_ms = (ns +| 999_999) / 1_000_000;
             break :blk @intCast(@min(ceil_ms, platform.win.INFINITE - 1));
         } else platform.win.INFINITE;
-        _ = platform.win.WaitForSingleObject(self.event, ms);
+        // Unreported pre-ready state turns the block into a collect pass.
+        if (self.any_pre_ready) ms = 0;
+
+        var handles = [2]platform.win.HANDLE{ self.event, self.sock_event };
+        _ = platform.win.WaitForMultipleObjects(handles.len, &handles, 0, ms);
+
+        // Reset before sweeping, unconditionally: readiness detection
+        // below comes from per-socket records and pre-ready flags, never
+        // from the event's own state, so records posted after this reset
+        // simply re-signal for the next wait — nothing is lost, and a
+        // signaled event with no matching registration can't busy-loop
+        // the scheduler.
+        _ = platform.win.ResetEvent(self.sock_event);
+
+        // Reserved up front so the sweep below can't fail after
+        // WSAEnumNetworkEvents has already consumed a socket's records —
+        // the same consumed-but-undelivered invariant Reactor.poll and
+        // WasiPollBackend guard with their own ensure-capacity calls.
+        self.ready.clearRetainingCapacity();
+        self.dead.clearRetainingCapacity();
+        try self.ready.ensureTotalCapacity(self.allocator, self.sockets.count());
+        try self.dead.ensureTotalCapacity(self.allocator, self.sockets.count());
+        self.any_pre_ready = false;
+
+        var it = self.sockets.iterator();
+        while (it.next()) |entry| {
+            const fd = entry.key_ptr.*;
+            const reg = entry.value_ptr;
+            var readable = reg.pre_read;
+            var writable = reg.pre_write;
+            reg.pre_read = false;
+            reg.pre_write = false;
+
+            var ne: platform.win.WSANetworkEvents = undefined;
+            if (platform.win.WSAEnumNetworkEvents(reg.sock, null, &ne) != 0) {
+                // The socket died under the registration (a GC-freed port
+                // closes its fd without unregister). Report both
+                // directions broken once — a parked waiter's retry then
+                // surfaces the real error — and drop the entry so a dead
+                // socket can't re-fire on every subsequent wait.
+                readable = true;
+                writable = true;
+                self.dead.appendAssumeCapacity(fd);
+            } else {
+                const ev = ne.network_events;
+                const broken = (ev & platform.win.FD_CLOSE) != 0;
+                if (broken or (ev & (platform.win.FD_READ | platform.win.FD_ACCEPT)) != 0) readable = true;
+                if (broken or (ev & (platform.win.FD_WRITE | platform.win.FD_CONNECT)) != 0) writable = true;
+            }
+            if (readable or writable) {
+                self.ready.appendAssumeCapacity(.{ .fd = fd, .readable = readable, .writable = writable });
+            }
+        }
+        for (self.dead.items) |fd| _ = self.sockets.remove(fd);
         // Timer expiry is decided by the reactor against clockNs()
         // (popExpiredTimers); a notify set wake_pending before SetEvent.
-        // There are never fd events to report.
-        return &[_]ReadyEvent{};
+        return self.ready.items;
     }
 };

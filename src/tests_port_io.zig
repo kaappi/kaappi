@@ -1,10 +1,14 @@
 // KEP-0001 Phase 3: non-blocking port reads/writes through the reactor.
 // Complements tests_reactor.zig (Phase 1, reactor in isolation) and
 // tests_scheduler.zig (Phase 2, scheduler/reactor plumbing). These tests
-// exercise the port layer end-to-end over real pipes: fibers parking on
+// exercise the port layer end-to-end over real fds: fibers parking on
 // EAGAIN and resuming losslessly, the main fiber driving the scheduler
 // while it waits, write buffering with real flush, and the close-port
-// wake discipline.
+// wake discipline. The fds are testing_helpers' cross-platform pairs —
+// pipes/socketpairs on POSIX, loopback socket pairs on Windows, where
+// this suite is the end-to-end coverage of the socket-only readiness
+// bridge (#1608: isSocketFd probe → FIONBIO → sockRecv/sockSend EAGAIN →
+// WSAEventSelect wakeup).
 const std = @import("std");
 const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
@@ -13,22 +17,13 @@ const memory = @import("memory.zig");
 const fiber_mod = @import("fiber.zig");
 const primitives_io = @import("primitives_io.zig");
 
-fn makePipe() [2]std.c.fd_t {
-    var fds: [2]std.c.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) unreachable;
-    return fds;
-}
-
-fn setNonblockingFd(fd: std.c.fd_t) void {
-    const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
-    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
-    _ = std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock);
-}
+const makePipe = th.makeFdPair;
+const setNonblockingFd = th.setFdNonblocking;
 
 /// Wraps `fd` in a port and binds it to `name` as a global. The port owns
 /// the fd from here on: the GC's freeObject (or an explicit close-port)
 /// closes it, so tests must not close it again themselves.
-fn definePortGlobal(vm: *th.VM, name: []const u8, fd: std.c.fd_t, is_input: bool, is_output: bool) !*types.Port {
+fn definePortGlobal(vm: *th.VM, name: []const u8, fd: platform.fd_t, is_input: bool, is_output: bool) !*types.Port {
     const port_val = try vm.gc.allocPort(fd, is_input, is_output, name, false);
     try vm.defineGlobal(name, port_val);
     return types.toObject(port_val).as(types.Port);
@@ -209,19 +204,19 @@ test "port write buffer holds bytes until flush; close-port flushes the remainde
     const pipe = makePipe();
     setNonblockingFd(pipe[0]); // test-side reads must not block on an empty pipe
     _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
-    defer _ = platform.close(pipe[0]); // read end stays Zig-owned
+    defer platform.close(pipe[0]); // read end stays Zig-owned
 
     _ = try vm.eval("(write-char #\\z wp)");
     var buf: [8]u8 = undefined;
-    // Buffered: nothing reaches the pipe before the flush.
-    try std.testing.expect(platform.read(pipe[0], &buf, buf.len) < 0);
+    // Buffered: nothing reaches the peer before the flush.
+    try std.testing.expect(th.fdRead(pipe[0], &buf) < 0);
     _ = try vm.eval("(flush-output-port wp)");
-    try std.testing.expectEqual(@as(isize, 1), platform.read(pipe[0], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), th.fdReadRetry(pipe[0], &buf));
     try std.testing.expectEqual(@as(u8, 'z'), buf[0]);
 
     _ = try vm.eval("(write-char #\\q wp)");
     _ = try vm.eval("(close-port wp)");
-    try std.testing.expectEqual(@as(isize, 1), platform.read(pipe[0], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), th.fdReadRetry(pipe[0], &buf));
     try std.testing.expectEqual(@as(u8, 'q'), buf[0]);
 }
 
@@ -231,24 +226,23 @@ test "a read on the same port flushes its pending writes first" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    // One bidirectional port over a socketpair: the request must reach the
+    // One bidirectional port over a socket pair: the request must reach the
     // peer before the port waits for the response, or request/response
     // protocols over one port would deadlock on the unflushed request.
-    var fds: [2]std.c.fd_t = undefined;
-    try std.testing.expectEqual(@as(c_int, 0), std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &fds));
+    const fds = th.makeBidiFdPair();
     _ = try definePortGlobal(vm, "sp", fds[0], true, true);
-    defer _ = platform.close(fds[1]); // peer end stays Zig-owned
+    defer platform.close(fds[1]); // peer end stays Zig-owned
 
     // Stage the peer's response up front so the read completes immediately
     // once the flush-before-read has happened.
-    _ = platform.write(fds[1], "y", 1);
+    _ = th.fdWrite(fds[1], "y");
 
     _ = try vm.eval("(write-char #\\x sp)"); // buffered request
     const r = try vm.eval("(read-char sp)");
     try std.testing.expectEqual(types.makeChar('y'), r);
 
     var buf: [8]u8 = undefined;
-    try std.testing.expectEqual(@as(isize, 1), platform.read(fds[1], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), th.fdRead(fds[1], &buf));
     try std.testing.expectEqual(@as(u8, 'x'), buf[0]);
 }
 
@@ -258,18 +252,16 @@ test "(read) must not lose read_buf when its write drain parks" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    // Bidirectional port over a socketpair with tiny kernel buffers so a
+    // Bidirectional port over a socket pair with tiny kernel buffers so a
     // buffered-write drain hits EAGAIN.
-    var fds: [2]std.c.fd_t = undefined;
-    try std.testing.expectEqual(@as(c_int, 0), std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &fds));
-    const small: c_int = 4096;
-    try std.posix.setsockopt(fds[0], std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, &std.mem.toBytes(small));
-    try std.posix.setsockopt(fds[1], std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, &std.mem.toBytes(small));
+    const fds = th.makeBidiFdPair();
+    th.setSockBufSize(fds[0], .snd, 4096);
+    th.setSockBufSize(fds[1], .rcv, 4096);
     _ = try definePortGlobal(vm, "sp", fds[0], true, true);
     _ = try definePortGlobal(vm, "peer", fds[1], true, true);
 
     // The first (read sp) consumes (a) and stashes " (b)" into port.read_buf.
-    _ = platform.write(fds[1], "(a) (b)", 7);
+    _ = th.fdWrite(fds[1], "(a) (b)");
     const first = try vm.eval("(equal? (read sp) '(a))");
     try std.testing.expectEqual(types.TRUE, first);
 
@@ -304,12 +296,12 @@ test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
 
     const pipe = makePipe();
     _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = platform.close(pipe[1]);
+    defer platform.close(pipe[1]);
 
     // (read) slurps a 4 KiB chunk, consumes "(a)", and stashes " 7" in
     // port.read_buf. The old binary-side byte reader had its own copy that
     // skipped read_buf entirely, silently losing these bytes.
-    _ = platform.write(pipe[1], "(a) 7", 5);
+    _ = th.fdWrite(pipe[1], "(a) 7");
     const datum_ok = try vm.eval("(equal? (read rp) '(a))");
     try std.testing.expectEqual(types.TRUE, datum_ok);
     const b = try vm.eval("(read-u8 rp)");
@@ -318,7 +310,7 @@ test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
     try std.testing.expectEqual(types.makeFixnum('7'), b2);
 }
 
-test "lazy O_NONBLOCK: set only for fd > 2 and only once a scheduler exists" {
+test "lazy non-blocking flip: only for fd > 2 and only once a scheduler exists" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -326,11 +318,11 @@ test "lazy O_NONBLOCK: set only for fd > 2 and only once a scheduler exists" {
 
     const pipe = makePipe();
     const rport = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = platform.close(pipe[1]);
+    defer platform.close(pipe[1]);
 
     // Sequential program: reads never flip the fd, so blocking semantics
     // and the syscall profile are untouched.
-    _ = platform.write(pipe[1], "a", 1);
+    _ = th.fdWrite(pipe[1], "a");
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(!rport.nonblocking);
 
@@ -340,8 +332,10 @@ test "lazy O_NONBLOCK: set only for fd > 2 and only once a scheduler exists" {
     primitives_io.maybeSetNonblocking(stdin_port);
     try std.testing.expect(!stdin_port.nonblocking);
 
-    // A real-fd port does flip on its next use now that fibers exist.
-    _ = platform.write(pipe[1], "b", 1);
+    // A real-fd port does flip on its next use now that fibers exist —
+    // O_NONBLOCK on POSIX; on Windows this is the isSocketFd probe + the
+    // FIONBIO flip on the pair's socket (#1608).
+    _ = th.fdWrite(pipe[1], "b");
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(rport.nonblocking);
 }
@@ -369,7 +363,7 @@ test "file I/O with fibers active stays correct (files never EAGAIN)" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    defer _ = std.posix.system.unlink("/tmp/kaappi-port-io-test.txt");
+    defer _ = platform.unlink("/tmp/kaappi-port-io-test.txt");
     const r = try vm.eval(
         \\(begin
         \\  (import (kaappi fibers))
@@ -444,14 +438,14 @@ test "readOneByte batches an available burst into read_buf, not one syscall per 
 
     const pipe = makePipe();
     const rport = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = platform.close(pipe[1]);
+    defer platform.close(pipe[1]);
 
     // Stage a burst, then read a single byte. Batching pulls the whole burst
     // in one read(2) and parks the tail in read_buf; without it every byte
     // would cost its own read(2) and read_buf would stay empty -- this is the
     // one assertion that fails on the pre-#1460 single-byte reader.
     const burst = "ABCDEFGHIJ";
-    try std.testing.expectEqual(@as(isize, burst.len), platform.write(pipe[1], burst, burst.len));
+    try std.testing.expectEqual(@as(isize, burst.len), th.fdWrite(pipe[1], burst));
     const first = try vm.eval("(read-u8 rp)");
     try std.testing.expectEqual(types.makeFixnum('A'), first);
     try std.testing.expectEqual(@as(usize, burst.len - 1), rport.read_buf_len);
@@ -468,7 +462,7 @@ test "read-bytevector over a large file preserves byte order across batched chun
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-large.bin");
+    defer _ = platform.unlink("/tmp/kaappi-readbv-large.bin");
     // 10000 bytes spans the 4096-byte read chunk twice. A deterministic,
     // position-dependent pattern makes any dropped, duplicated, or reordered
     // byte across a chunk boundary fail the equal? against the in-memory
@@ -497,7 +491,7 @@ test "read-bytevector composes read_buf left by a prior (read) with fresh fd rea
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-afterread.txt");
+    defer _ = platform.unlink("/tmp/kaappi-readbv-afterread.txt");
     // (read) slurps a chunk, parses (a b c), and stashes that chunk's tail in
     // read_buf; the 6000 trailing 'z' bytes overflow one chunk, so
     // read-bytevector must drain the stash and then batch more from the fd,
@@ -527,7 +521,7 @@ test "read-bytevector after peek-char includes the peeked byte in order" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    defer _ = std.posix.system.unlink("/tmp/kaappi-readbv-afterpeek.txt");
+    defer _ = platform.unlink("/tmp/kaappi-readbv-afterpeek.txt");
     // peek-char pulls a batched chunk: byte 0 goes back into peek_byte, the
     // rest stays in read_buf. read-bytevector must then deliver the peeked
     // byte first, the read_buf tail next, and the fd last -- all in order.

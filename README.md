@@ -92,11 +92,13 @@ powers the [playground](https://kaappi-lang.org/playground/).
 The Windows port (`zig build -Dtarget=aarch64-windows`) covers the full
 interpreter — REPL (plain line editing, no history/completion), fibers,
 channels, OS threads, FFI (`LoadLibrary`), and the `kaappi test` runner.
-Platform differences: ports never switch to non-blocking I/O (fiber I/O
-degrades to blocking reads, timers still work), and the POSIX-only slice
-of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a
-catchable file error. `cond-expand` distinguishes the platforms: Windows
-builds expose the `windows` feature identifier instead of `posix`.
+Platform differences: fd readiness is socket-only — socket-backed ports
+get reactor-driven non-blocking fiber I/O (WSAEventSelect), while pipe
+and file ports keep blocking reads (timers and cross-thread wakeups
+always work) — and the POSIX-only slice of SRFI-170 (uid/gid, symlinks,
+chmod/umask, user/group info) raises a catchable file error.
+`cond-expand` distinguishes the platforms: Windows builds expose the
+`windows` feature identifier instead of `posix`.
 
 ## A taste of Kaappi
 
