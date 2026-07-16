@@ -180,14 +180,96 @@ fn enqueueChannel(gc: *memory.GC, ch: *types.Channel, ch_val: Value, payload: Va
     }
 }
 
+/// KEP-0002 §6 (amended, #1601/#1602): the send-admission bound for a local
+/// channel — its capacity, or, for a rendezvous channel (capacity 0), the
+/// current receiver demand. Callers pass the already-unwrapped capacity;
+/// unbounded channels never reach an admission check.
+fn localSendBound(ch: *types.Channel, cap: u32) u32 {
+    return if (cap == 0) ch.rv_demand else cap;
+}
+
+/// §4 receive step 7a (#1601): commit the current fiber as a receiver on a
+/// local rendezvous channel. Exactly once per logical wait — the Fiber
+/// field makes the increment idempotent across yield_retry re-execution of
+/// the whole primitive — and new demand is a send-side event: wake parked
+/// senders exactly like a freed slot would (model finding 4: without this
+/// wake, senders parked against bound 0 before any receiver committed are
+/// never woken). Allocates nothing.
+fn acquireRvToken(vm: *vm_mod.VM, ch: *types.Channel, ch_val: Value, me: *fiber_mod.Fiber) void {
+    if (me.rv_demand_on == ch_val) return;
+    ch.rv_demand += 1;
+    me.rv_demand_on = ch_val;
+    vm.gc.writeBarrier(&me.header, ch_val);
+    if (vm.scheduler) |sched| sched.wakeChannelWaiters(ch_val);
+}
+
+/// Terminal-exit half of step 7a: release the token if this wait holds one.
+/// Every exit of a rendezvous receive — value, eof, timeout, deadlock raise
+/// — must come through here; only the blockOrDeadlock park (yield_retry)
+/// deliberately keeps the token, because the retry re-enters the primitive
+/// and acquireRvToken's idempotence check picks it back up.
+fn releaseRvToken(ch: *types.Channel, ch_val: Value, me: *fiber_mod.Fiber) void {
+    if (me.rv_demand_on != ch_val) return;
+    ch.rv_demand -= 1;
+    me.rv_demand_on = types.VOID;
+}
+
+/// releaseRvToken for paths that may run before any scheduler exists (the
+/// fast-path dequeue, the closed short-circuit): a token can only be held
+/// by a fiber, so no scheduler means no token — a cheap no-op.
+fn releaseRvTokenCurrent(vm: *vm_mod.VM, ch: *types.Channel, ch_val: Value) void {
+    const sched = vm.scheduler orelse return;
+    const me = sched.fibers.items[sched.current_idx] orelse return;
+    releaseRvToken(ch, ch_val, me);
+}
+
+/// Shared-representation twin of acquireRvToken (#1603): commit the current
+/// fiber as a receiver on a promoted rendezvous channel. The token field is
+/// the same one the local path uses — a token acquired at a pre-promotion
+/// local park still names this channel's stub, so the idempotence check
+/// holds seamlessly across promotion (promoteChannel copied the count).
+/// commitRvDemand does the lock + send_waiters ring internally.
+fn acquireSharedRvToken(vm: *vm_mod.VM, sc: *shared_channel.SharedChannel, ch_val: Value, me: *fiber_mod.Fiber) void {
+    if (me.rv_demand_on == ch_val) return;
+    me.rv_demand_on = ch_val;
+    vm.gc.writeBarrier(&me.header, ch_val);
+    shared_channel.commitRvDemand(sc);
+}
+
+/// Terminal-exit half on the shared representation.
+fn releaseSharedRvToken(sc: *shared_channel.SharedChannel, ch_val: Value, me: *fiber_mod.Fiber) void {
+    if (me.rv_demand_on != ch_val) return;
+    me.rv_demand_on = types.VOID;
+    shared_channel.withdrawRvDemand(sc);
+}
+
+/// Terminal-exit cleanup for a rendezvous flat park's preserved deadline
+/// (#1602): a dispatched fiber's timed wait keeps `me.deadline_ns` (and
+/// possibly a live reactor timer) across yield_retry re-executions — see
+/// channelSendShared's discriminator comment for why the absolute deadline
+/// must survive the retry. Any exit that ends the logical wait (an admitted
+/// send, a delivered value, eof) must clear both, or the stale timer fires
+/// into whatever wait this fiber enters next. No-op without a scheduler.
+fn clearRvWaitDeadline(vm: *vm_mod.VM) void {
+    const sched = vm.scheduler orelse return;
+    const me = sched.fibers.items[sched.current_idx] orelse return;
+    if (me.deadline_ns != null) {
+        if (vm.reactor) |r| r.removeTimer(me);
+        me.deadline_ns = null;
+    }
+    me.timed_out = false;
+}
+
 /// A fiber parked waiting for room on a *local* bounded channel (KEP-0002
 /// §6). Mirrors ChannelWait's shape exactly; isDone is satisfied by either
-/// a freed slot or the channel becoming closed (channel-close! wakes both
-/// waiter roles via the same wakeChannelWaiters call).
+/// a freed slot (for a rendezvous channel: unmatched receiver demand) or
+/// the channel becoming closed (channel-close! wakes both waiter roles via
+/// the same wakeChannelWaiters call).
 const ChannelSendWait = struct {
     ch: *types.Channel,
     pub fn isDone(self: ChannelSendWait) bool {
-        return self.ch.closed or self.ch.capacity == null or self.ch.queue_len < self.ch.capacity.?;
+        const cap = self.ch.capacity orelse return true;
+        return self.ch.closed or self.ch.queue_len < localSendBound(self.ch, cap);
     }
 };
 
@@ -207,22 +289,71 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         try enqueueChannel(gc, ch, ch_val, payload);
         return types.VOID;
     };
-    if (ch.queue_len < cap) {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    // §6 (amended, #1602): capacity 0 is a rendezvous channel — the bound is
+    // the committed receiver demand, so a send is admitted exactly when a
+    // receiver is parked waiting (and completes the handoff through the
+    // queue; the receiver's own exit collects it). Admission before the
+    // timeout redispatch check below: per the amendment, a timeout applies
+    // to waiting, never to an already-satisfiable operation, so a flat-park
+    // retry whose demand arrived together with (or before) its timer sends.
+    if (ch.queue_len < localSendBound(ch, cap)) {
+        // A rendezvous flat-park retry may still carry its preserved
+        // deadline/armed timer — the wait is over, clear them.
+        if (cap == 0) clearRvWaitDeadline(vm);
         try enqueueChannel(gc, ch, ch_val, payload);
         return types.VOID;
     }
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     // See channelReceiveFn's matching check: a timeout resolves this wait
     // via the reactor timer alone, so "no fibers exist" is only a genuine
     // deadlock when there is also no deadline to bound the wait.
     if (vm.scheduler == null and deadline_ns == null) {
-        return raiseFiberError("channel-send: deadlock — channel is full and no fibers are running");
+        return raiseFiberError(if (cap == 0)
+            "channel-send: deadlock — rendezvous channel has no receiver and no fibers are running"
+        else
+            "channel-send: deadlock — channel is full and no fibers are running");
     }
 
     const ctx = try fiber_mod.ensureScheduler(vm);
     const my_idx = ctx.sched.current_idx;
     const me = ctx.sched.fibers.items[my_idx].?;
+
+    // Rendezvous + dispatched fiber: ALWAYS park via the flat yield_retry
+    // unwind, never the in-call drive below (#1602). Rendezvous is the one
+    // capacity where a parked sender and a parked receiver can exist
+    // simultaneously, and an in-call park makes this fiber a frozen
+    // *ancestor* whenever its drive transitively dispatches the fiber that
+    // eventually commits the matching demand: the waker can't dispatch a
+    // `driving` ancestor (#1487), the ancestor's own loop is buried under
+    // the waker's live frames, and a main-fiber counterparty at the top of
+    // that stack raises a spurious deadlock with a viable, satisfied sender
+    // frozen beneath it. The flat park keeps every rendezvous waiter
+    // dispatchable. Mirrors channelSendShared's is_dispatched branch,
+    // including the preserved-deadline discriminator: the retry re-executes
+    // this whole function, so the timer is armed once (me.deadline_ns null)
+    // and re-attached from the preserved absolute deadline on every
+    // re-park (a wake can race the timer pop, which wakeReadyFiber drops
+    // for non-waiting fibers — re-arming from the preserved value keeps the
+    // timeout live without ever extending it).
+    if (cap == 0 and my_idx != 0 and vm.dispatched_from_scheduler) {
+        if (me.deadline_ns != null and me.timed_out) {
+            me.timed_out = false;
+            me.deadline_ns = null;
+            return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID);
+        }
+        me.status = .waiting;
+        me.waiting_on = ch_val;
+        vm.gc.writeBarrier(&me.header, ch_val);
+        ctx.sched.enrollWaiter(me);
+        if (me.deadline_ns orelse deadline_ns) |d| {
+            ctx.reactor.removeTimer(me);
+            me.deadline_ns = d;
+            try ctx.reactor.addTimer(d, me);
+        }
+        vm.yield_retry = true;
+        return PrimitiveError.Yielded;
+    }
 
     // A local channel wait always resolves within this one call:
     // runSchedulerStep drives siblings and, if nothing else is runnable,
@@ -253,11 +384,14 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
     }
 
     if (ch.closed) return raiseFiberError("channel-send: send on closed channel");
-    if (ch.queue_len < cap) {
+    if (ch.queue_len < localSendBound(ch, cap)) {
         try enqueueChannel(gc, ch, ch_val, payload);
         return types.VOID;
     }
-    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, "channel-send: deadlock — channel is full and no fibers can receive");
+    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, if (cap == 0)
+        "channel-send: deadlock — rendezvous channel has no receiver and all fibers are blocked"
+    else
+        "channel-send: deadlock — channel is full and no fibers can receive");
 }
 
 const ChannelWait = struct {
@@ -350,9 +484,20 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
     const is_dispatched = my_idx != 0 and vm.dispatched_from_scheduler;
 
     if (me.deadline_ns != null and me.timed_out) {
+        // §6 delivery-wins (#1601): a timeout applies to waiting, never to
+        // an already-satisfiable operation — decide through one actual
+        // send(). Admission open (a receiver committed demand, or a slot
+        // freed, in the same instant the timer popped) completes the send;
+        // closed raises; only a genuine would_park honors the timer.
         me.timed_out = false;
         me.deadline_ns = null;
-        return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID);
+        const o = shared_channel.send(sc, payload, notifier) catch |err|
+            return translateSharedChannelError(err, "channel-send");
+        switch (o) {
+            .sent => return types.VOID,
+            .closed => return raiseFiberError("channel-send: send on closed channel"),
+            .would_park => return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID),
+        }
     }
 
     while (true) {
@@ -560,22 +705,98 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
     const me = ctx.sched.fibers.items[my_idx].?;
     const notifier = ctx.reactor.notifyHandle();
     const is_dispatched = my_idx != 0 and vm.dispatched_from_scheduler;
+    // capacity is set once at promotion and never mutated, so the unlocked
+    // read is safe; 0 = rendezvous (§6 as amended, #1603).
+    const rendezvous = (sc.capacity orelse 1) == 0;
 
-    if (me.deadline_ns != null and me.timed_out) {
-        me.timed_out = false;
-        me.deadline_ns = null;
-        return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
-    }
-
-    while (true) {
-        const outcome = shared_channel.receive(sc, gc, notifier) catch |err|
+    outer: while (true) {
+        if (me.deadline_ns != null and me.timed_out) {
+            // §6 delivery-wins (#1601): decide the timeout through one
+            // actual receive() — a handoff that committed before the
+            // deadline was processed is returned, never discarded; the
+            // timeout applies to waiting only. On a rendezvous channel one
+            // more case defers the decision: the §6 reservation-drain rule
+            // — an admitted send mid-copy against this receiver's demand
+            // (reserved > 0, queue empty) must land or abort before the
+            // receiver may leave, or the sender would report success into
+            // nowhere. Both resolutions ring recv_waiters (the push always
+            // did; the abort now does on a rendezvous channel — see
+            // shared_channel.send's failure path), so the drain is a park,
+            // not a spin: the dispatched flat park keeps timed_out set so
+            // the rung redispatch re-enters this branch, and the main
+            // fiber's in-place park restores it before looping back here.
+            const o = shared_channel.receive(sc, gc, notifier) catch |err| {
+                me.timed_out = false;
+                me.deadline_ns = null;
+                releaseSharedRvToken(sc, ch_val, me);
+                return translateSharedChannelError(err, "channel-receive");
+            };
+            switch (o) {
+                .value => |v| {
+                    me.timed_out = false;
+                    me.deadline_ns = null;
+                    releaseSharedRvToken(sc, ch_val, me);
+                    return v;
+                },
+                .eof => {
+                    me.timed_out = false;
+                    me.deadline_ns = null;
+                    releaseSharedRvToken(sc, ch_val, me);
+                    return types.EOF;
+                },
+                .would_park => {},
+            }
+            if (!rendezvous or shared_channel.reservedCount(sc) == 0) {
+                me.timed_out = false;
+                me.deadline_ns = null;
+                releaseSharedRvToken(sc, ch_val, me);
+                return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
+            }
+            if (is_dispatched) {
+                me.status = .waiting;
+                me.waiting_on = ch_val;
+                vm.gc.writeBarrier(&me.header, ch_val);
+                ctx.sched.enrollSharedWaiter(me) catch |err| {
+                    me.status = .running;
+                    me.waiting_on = types.VOID;
+                    return err;
+                };
+                vm.yield_retry = true;
+                return PrimitiveError.Yielded;
+            }
+            // Main fiber drains in place: park (timed_out cleared so the
+            // drives inside runSchedulerStep work), restore decision mode,
+            // and re-decide at the top.
+            me.timed_out = false;
+            me.status = .waiting;
+            me.waiting_on = ch_val;
+            vm.gc.writeBarrier(&me.header, ch_val);
+            ctx.sched.enrollSharedWaiter(me) catch |err| {
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                return err;
+            };
+            _ = fiber_mod.runSchedulerStep(SharedChannelWait, .{ .me = me }, ctx.vm, ctx.sched, me) catch |err| {
+                ctx.sched.removeSharedWaiter(me);
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                return err;
+            };
+            ctx.sched.removeSharedWaiter(me);
+            me.timed_out = true;
+            continue :outer;
+        }
+        const outcome = shared_channel.receive(sc, gc, notifier) catch |err| {
+            releaseSharedRvToken(sc, ch_val, me);
             return translateSharedChannelError(err, "channel-receive");
+        };
         switch (outcome) {
             .value => |v| {
                 if (me.deadline_ns != null) {
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
+                releaseSharedRvToken(sc, ch_val, me);
                 return v;
             },
             .eof => {
@@ -583,6 +804,7 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
+                releaseSharedRvToken(sc, ch_val, me);
                 return types.EOF;
             },
             .would_park => {},
@@ -623,14 +845,17 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // whenever it returns .would_park, so the park below is always armed;
         // if the drive instead produced a value (or EOF), it is returned here
         // and the fiber never parks.
-        const redo = shared_channel.receive(sc, gc, notifier) catch |err|
+        const redo = shared_channel.receive(sc, gc, notifier) catch |err| {
+            releaseSharedRvToken(sc, ch_val, me);
             return translateSharedChannelError(err, "channel-receive");
+        };
         switch (redo) {
             .value => |v| {
                 if (me.deadline_ns != null) {
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
+                releaseSharedRvToken(sc, ch_val, me);
                 return v;
             },
             .eof => {
@@ -638,10 +863,20 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
+                releaseSharedRvToken(sc, ch_val, me);
                 return types.EOF;
             },
             .would_park => {},
         }
+
+        // §4 receive step 7a (#1601/#1603): the park decision is the
+        // commitment point — commit the demand (and ring send_waiters,
+        // inside commitRvDemand) before either park below, so a remote
+        // sender's admission check sees it. Idempotent per logical wait via
+        // the fiber token field, which also survives promotion: a token
+        // acquired at a pre-promotion local park names this same stub, and
+        // promoteChannel seeded rv_demand with it.
+        if (rendezvous) acquireSharedRvToken(vm, sc, ch_val, me);
 
         if (is_dispatched) {
             me.status = .waiting;
@@ -660,8 +895,10 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             return PrimitiveError.Yielded;
         }
 
-        if (!sharedWakeupPossible(sc) and deadline_ns == null)
+        if (!sharedWakeupPossible(sc) and deadline_ns == null) {
+            releaseSharedRvToken(sc, ch_val, me);
             return raiseFiberError("channel-receive: deadlock — channel is empty and no other thread can send");
+        }
 
         me.status = .waiting;
         me.waiting_on = ch_val;
@@ -687,13 +924,11 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         };
         ctx.sched.removeSharedWaiter(me);
 
-        if (me.timed_out) {
-            me.timed_out = false;
-            me.deadline_ns = null;
-            return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
-        }
-        // Loop back to 1: re-registers if still empty, picks up a value if
-        // one arrived while parked.
+        // A fired timer routes through the decision head at the top of the
+        // loop (delivery-wins + the rendezvous reservation-drain rule) —
+        // me.timed_out stays set so the head recognizes it.
+        // Otherwise: loop back to 1 — re-registers if still empty, picks up
+        // a value if one arrived while parked.
     }
 }
 
@@ -718,21 +953,45 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+
     if (ch.shared) |raw| {
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
+        // A token acquired at a pre-promotion local park stays valid across
+        // this dispatch (#1603): promoteChannel seeded sc.rv_demand with it,
+        // the fiber field still names this same stub, and the shared path's
+        // idempotent acquire/release keeps the accounting exact.
         return channelReceiveShared(sc, gc, args[0], deadline_ns, has_timeout_val, timeout_val);
     }
 
     if (ch.head != types.NIL and types.isPair(ch.head)) {
+        // A woken retry re-entering with a demand token finds its value
+        // here: terminal exit, release (a fresh receive holds none — no-op).
+        // §6 delivery-wins: this check runs before the timeout-redispatch
+        // discriminator below, so a value that arrived together with the
+        // timer pop is returned, never discarded; the preserved deadline is
+        // cleared with the wait.
+        if (ch.capacity) |c| {
+            if (c == 0) {
+                releaseRvTokenCurrent(vm, ch, args[0]);
+                clearRvWaitDeadline(vm);
+            }
+        }
         return dequeueChannel(ch, args[0]);
     }
 
     // Closed and drained is permanently terminal on the local
     // representation (no more sends can land once closed): short-circuit
     // before ever touching the scheduler.
-    if (ch.closed) return types.EOF;
-
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    if (ch.closed) {
+        if (ch.capacity) |c| {
+            if (c == 0) {
+                releaseRvTokenCurrent(vm, ch, args[0]);
+                clearRvWaitDeadline(vm);
+            }
+        }
+        return types.EOF;
+    }
     // No timeout means a timer can never resolve this wait, so "no fibers
     // exist" really is unrecoverable; with a timeout, ensureScheduler below
     // lazily creates a scheduler+reactor and the wait resolves via the
@@ -750,6 +1009,47 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     const ctx = try fiber_mod.ensureScheduler(vm);
     const my_idx = ctx.sched.current_idx;
     const me = ctx.sched.fibers.items[my_idx].?;
+
+    // §4 receive step 7a (#1601): the park decision is the rendezvous
+    // commitment point — acquire the demand token before anything can run,
+    // so a parked sender's retry (woken inside acquireRvToken) and every
+    // sender a drive dispatches see this receiver's demand. Idempotent: a
+    // yield_retry re-execution already holds the token.
+    if (ch.capacity) |c| {
+        if (c == 0) {
+            // Post-timeout redispatch of a flat-parked wait (below): the
+            // head fast-path above already gave delivery priority, so a
+            // fired timer here really is a timeout — release and exit.
+            if (me.deadline_ns != null and me.timed_out) {
+                me.timed_out = false;
+                me.deadline_ns = null;
+                releaseRvToken(ch, ch_val, me);
+                return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
+            }
+            acquireRvToken(vm, ch, ch_val, me);
+            // Dispatched fiber: ALWAYS the flat yield_retry park, never the
+            // in-call drive below — see channelSendLocal's matching branch
+            // for why an in-call rendezvous park makes this fiber a frozen
+            // ancestor and deadlocks a stacked counterparty (#1602). The
+            // token is deliberately retained across the park; the retry's
+            // acquireRvToken is idempotent. Timer handling mirrors the send
+            // side: armed from the preserved absolute deadline on every
+            // re-park, never extended.
+            if (my_idx != 0 and vm.dispatched_from_scheduler) {
+                me.status = .waiting;
+                me.waiting_on = ch_val;
+                vm.gc.writeBarrier(&me.header, ch_val);
+                ctx.sched.enrollWaiter(me);
+                if (me.deadline_ns orelse deadline_ns) |d| {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = d;
+                    try ctx.reactor.addTimer(d, me);
+                }
+                vm.yield_retry = true;
+                return PrimitiveError.Yielded;
+            }
+        }
+    }
 
     // A local channel wait always resolves within this one call -- see
     // channelSendLocal's doc comment for why no redispatch guard is needed.
@@ -777,13 +1077,33 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         ctx.reactor.removeTimer(me);
         me.deadline_ns = null;
     }
+    // §6 delivery-wins (#1601): a value already in the queue outranks a
+    // fired timer — the timeout applies to waiting, never to an already-
+    // satisfiable receive. On a rendezvous channel the sender has already
+    // returned believing the handoff committed; honoring the timer here
+    // would silently discard a delivered value. Clear the stale flag so a
+    // later wait can't inherit it.
+    if (ch.head != types.NIL) {
+        me.timed_out = false;
+        releaseRvToken(ch, ch_val, me);
+        return dequeueChannel(ch, ch_val);
+    }
     if (me.timed_out) {
         me.timed_out = false;
+        releaseRvToken(ch, ch_val, me);
         return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
     }
-
-    if (ch.head != types.NIL) return dequeueChannel(ch, ch_val);
-    if (ch.closed) return types.EOF;
+    if (ch.closed) {
+        releaseRvToken(ch, ch_val, me);
+        return types.EOF;
+    }
+    // A rendezvous receive only reaches this point on the main fiber or
+    // under re-entrant native frames — a dispatched one flat-parked above,
+    // token retained, and its retry re-enters the whole primitive. For
+    // exactly these callers blockOrDeadlock raises, which is a terminal
+    // exit: release the token first. (A dispatched non-rendezvous fiber
+    // parking here holds no token, so the release is a no-op for it.)
+    releaseRvToken(ch, ch_val, me);
     return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, "channel-receive: deadlock — channel is empty and all fibers are blocked");
 }
 

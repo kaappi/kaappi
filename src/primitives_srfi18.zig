@@ -645,7 +645,15 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     // and unwinds (threadEntryFn's self-abandon) — its owned-mutexes list is
     // maintained on *its* thread, so the parent must not touch it from here
     // (#1458).
-    if (fiber.os_thread == null) fiber_mod.abandonFiberMutexes(fiber, ctx.sched);
+    if (fiber.os_thread == null) {
+        fiber_mod.abandonFiberMutexes(fiber, ctx.sched);
+        // Same ownership reasoning for a held rendezvous demand token
+        // (KEP-0002 §6 amended, #1602): this path flips the victim's status
+        // directly, bypassing retireSlot, and the victim never runs again
+        // to release it itself. An OS thread's fiber lives in the child's
+        // heap — its own unwind releases the token there.
+        fiber_mod.releaseFiberRendezvousToken(fiber);
+    }
 
     const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
     if (status != .completed and status != .errored) {

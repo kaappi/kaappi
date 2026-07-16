@@ -243,9 +243,19 @@ pub const SharedChannel = struct {
     /// call in progress.
     reserved: u32 = 0,
     /// null = unbounded (KEP-0002 §6, `make-channel`'s optional capacity
-    /// argument). Set once, by promoteChannel, from the local
-    /// representation's own `capacity` field -- never mutated after.
+    /// argument). 0 = rendezvous (§6 as amended, kaappi#1601/#1603): the
+    /// admission bound is `rv_demand` instead. Set once, by promoteChannel,
+    /// from the local representation's own `capacity` field -- never
+    /// mutated after (which is what makes unlocked reads of it safe).
     capacity: ?u32 = null,
+    /// Rendezvous demand (capacity == 0 only; §4 receive step 7a as
+    /// amended): the number of receivers currently committed to this
+    /// channel. Guarded by `lock`. Seeded by promoteChannel from the local
+    /// rv_demand (a token acquired at a pre-promotion local park stays
+    /// counted); grown by commitRvDemand, shrunk by withdrawRvDemand --
+    /// both driven by the per-fiber token field, so the count is exactly
+    /// the outstanding tokens.
+    rv_demand: u32 = 0,
     /// KEP-0002 §6, `channel-close!`. Set once (true), by promoteChannel
     /// (carried over from an already-closed local channel) or by close().
     closed: bool = false,
@@ -316,7 +326,8 @@ pub const SharedChannel = struct {
         defer unlockChannel(self);
         if (self.closed) return true;
         const cap = self.capacity orelse return true;
-        return self.queue_len + self.reserved < cap;
+        const bound = if (cap == 0) self.rv_demand else cap;
+        return self.queue_len + self.reserved < bound;
     }
 
     /// KEP-0002 §6's `channel-closed?`, lock-protected like peekReady --
@@ -477,9 +488,14 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     // KEP-0002 §6: carried over from the local representation before
     // publishing -- safe either way, since nothing can observe `sc` until
     // `ch.shared` is set below. `sc.queue_len` needs no equivalent copy: the
-    // drain loop below derives it correctly via pushBack.
+    // drain loop below derives it correctly via pushBack. rv_demand carries
+    // the tokens of receivers parked locally before promotion (§6 as
+    // amended, kaappi#1603): their per-fiber token fields still name this
+    // channel, so their post-migration retries release against this
+    // counter -- the copy is what keeps that accounting exact.
     sc.capacity = ch.capacity;
     sc.closed = ch.closed;
+    sc.rv_demand = ch.rv_demand;
     // Publish before draining (§2 step 2): a queued local message may
     // contain this very channel (e.g. (channel-send ch (list ch))). With
     // `shared` already set, the drain's own Envelope.create -> deepCopy
@@ -564,6 +580,42 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     return sc;
 }
 
+/// §4 receive step 7a (KEP-0002 as amended, kaappi#1601/#1603), shared
+/// representation: commit a receiver — grow the demand and ring
+/// send_waiters exactly like a freed slot would (model finding 4: without
+/// this ring, senders parked against bound 0 before any receiver committed
+/// are never woken). Snapshot under the lock, rung after release, like
+/// every other ring. Called once per logical wait (the caller's per-fiber
+/// token field provides the idempotence).
+pub fn commitRvDemand(sc: *SharedChannel) void {
+    lockChannel(sc);
+    sc.rv_demand += 1;
+    var snap: std.ArrayList(*ThreadNotifier) = .empty;
+    defer snap.deinit(std.heap.c_allocator);
+    sc.snapshotAndClearSendWaiters(&snap);
+    unlockChannel(sc);
+    ring(snap.items);
+}
+
+/// Terminal-exit half of step 7a on the shared representation: a receiver's
+/// wait ended (value, eof, timeout, error, death) — withdraw its demand.
+pub fn withdrawRvDemand(sc: *SharedChannel) void {
+    lockChannel(sc);
+    sc.rv_demand -= 1;
+    unlockChannel(sc);
+}
+
+/// Lock-protected read of the in-flight reservation count, for the §6
+/// reservation-drain rule: a timed-out rendezvous receiver that observes
+/// reserved > 0 with an empty queue keeps waiting (the push — or the
+/// abort's ring, see send's failure path — redecides it) instead of
+/// stranding a send already past its point of no return.
+pub fn reservedCount(sc: *SharedChannel) u32 {
+    lockChannel(sc);
+    defer unlockChannel(sc);
+    return sc.reserved;
+}
+
 pub const SendOutcome = union(enum) {
     sent,
     would_park,
@@ -582,7 +634,11 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
         return .closed;
     }
     if (sc.capacity) |cap| {
-        if (sc.queue_len + sc.reserved >= cap) {
+        // §4 step 3 as amended (kaappi#1601): the admission bound is the
+        // capacity, or -- rendezvous (capacity 0) -- the committed receiver
+        // demand, so a send is admitted exactly when a receiver is waiting.
+        const bound = if (cap == 0) sc.rv_demand else cap;
+        if (sc.queue_len + sc.reserved >= bound) {
             if (notifier) |n| sc.registerSendWaiter(n);
             unlockChannel(sc);
             return .would_park;
@@ -615,10 +671,14 @@ pub fn send(sc: *SharedChannel, payload: Value, notifier: ?*ThreadNotifier) !Sen
         var snap: std.ArrayList(*ThreadNotifier) = .empty;
         defer snap.deinit(std.heap.c_allocator);
         sc.snapshotAndClearSendWaiters(&snap);
-        // A receiver may be parked waiting out this very reservation
-        // (receive step 6's reserved==0 eof guard) if the channel closed
-        // while this send was in flight.
-        if (sc.closed) sc.snapshotAndClearRecvWaiters(&snap);
+        // A receiver may be parked waiting out this very reservation: when
+        // the channel closed while this send was in flight (receive step
+        // 6's reserved==0 eof guard), and -- rendezvous, §6 as amended --
+        // always: a timed-out rendezvous receiver draining a reservation
+        // (the §6 reservation-drain rule) must be rung by the abort as
+        // well as the push, or its wait would outlive the timeout it was
+        // given.
+        if (sc.closed or (sc.capacity orelse 1) == 0) sc.snapshotAndClearRecvWaiters(&snap);
         unlockChannel(sc);
         ring(snap.items);
         // Nothing was enqueued ("send fails ⇒ nothing sent"); Envelope

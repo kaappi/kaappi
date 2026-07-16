@@ -1569,3 +1569,114 @@ test "KEP-0002 Phase 3 (#1468): main thread receives values sent concurrently by
     try std.testing.expectEqual(baseline, shared_object.liveCount());
     try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
 }
+
+// Rendezvous on the shared representation (KEP-0002 §6 as amended;
+// #1600/#1601/#1603): capacity 0 admits a send exactly when a receiver has
+// committed demand.
+
+test "shared rendezvous: raw protocol admits only against committed demand" {
+    const baseline = shared_object.liveCount();
+    const sc = try shared_channel.SharedChannel.create();
+    sc.capacity = 0;
+
+    // no demand: would_park, nothing enqueued
+    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(1), null));
+
+    // one committed receiver: exactly one send admitted
+    shared_channel.commitRvDemand(sc);
+    try std.testing.expectEqual(shared_channel.SendOutcome.sent, try shared_channel.send(sc, types.makeFixnum(2), null));
+    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(3), null));
+
+    // the committed receiver collects the handoff and withdraws
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const got = try shared_channel.receive(sc, &gc, null);
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(got.value));
+    shared_channel.withdrawRvDemand(sc);
+
+    // demand gone again: back to would_park
+    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(4), null));
+
+    sc.release();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
+test "shared rendezvous: promotion seeds rv_demand from the local counter" {
+    // A receiver parked on the local representation before promotion holds
+    // a demand token counted in ch.rv_demand; promoteChannel must carry it
+    // so a remote sender's admission sees the migrated receiver (§2 step 4
+    // + §6 as amended).
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define ch (make-channel 0))");
+    const ch_val = try ctx.vm.eval("ch");
+    const ch = types.toObject(ch_val).as(types.Channel);
+
+    // Park a fiber receiver locally: it commits a demand token.
+    _ = try ctx.vm.eval("(define r (spawn (lambda () (channel-receive ch))))");
+    _ = try ctx.vm.eval("(yield)");
+    try std.testing.expectEqual(@as(u32, 1), ch.rv_demand);
+
+    const sc = try shared_channel.promoteChannel(&ctx.gc, ch);
+    try std.testing.expectEqual(@as(u32, 1), sc.rv_demand);
+
+    // A raw remote-style send is admitted against the migrated demand and
+    // the parked receiver collects it through the normal primitive path.
+    try std.testing.expectEqual(shared_channel.SendOutcome.sent, try shared_channel.send(sc, types.makeFixnum(9), null));
+    const joined = try ctx.vm.eval("(fiber-join r)");
+    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(joined));
+    try std.testing.expectEqual(@as(u32, 0), sc.rv_demand);
+}
+
+test "shared rendezvous: timed-out receive withdraws demand on the promoted channel" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define ch (make-channel 0))");
+    const ch_val = try ctx.vm.eval("ch");
+    const ch = types.toObject(ch_val).as(types.Channel);
+    const sc = try shared_channel.promoteChannel(&ctx.gc, ch);
+
+    const result = try ctx.vm.eval("(channel-receive ch 0.02 'rto)");
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("rto", s);
+    try std.testing.expectEqual(@as(u32, 0), sc.rv_demand);
+
+    // and the send side still refuses admission afterwards
+    const sres = try ctx.vm.eval("(channel-send ch 'v 0.02 'sto)");
+    const s2 = try printer.valueToString(std.testing.allocator, sres, .write);
+    defer std.testing.allocator.free(s2);
+    try std.testing.expectEqualStrings("sto", s2);
+    try std.testing.expectEqual(@as(u32, 0), sc.queue_len);
+}
+
+test "shared rendezvous: cross-thread handoff both directions" {
+    // The #1600 scenario on real OS threads, channel captured by the thunk
+    // (the KEP-0002 §2 legal sharing path — a top-level global would fail
+    // the foreign-owner check instead of promoting).
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const got = try ctx.vm.eval(
+        \\(let* ((ch (make-channel 0))
+        \\       (t (thread-start! (make-thread (lambda () (channel-send ch 41))))))
+        \\  (let ((v (+ 1 (channel-receive ch))))
+        \\    (thread-join! t) ; join releases the child VM/GC (child_resources)
+        \\    v))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(got));
+
+    const got2 = try ctx.vm.eval(
+        \\(let* ((ch (make-channel 0))
+        \\       (t (thread-start! (make-thread (lambda () (channel-receive ch))))))
+        \\  (channel-send ch 7)
+        \\  (thread-join! t))
+    );
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(got2));
+}

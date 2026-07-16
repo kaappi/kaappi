@@ -722,9 +722,17 @@ pub const Channel = struct {
     /// instead of walking the head/tail pair list. Unused once `shared` is
     /// set (the SharedChannel tracks its own queue_len).
     queue_len: u32 = 0,
-    /// null = unbounded (today's semantics). Local-representation only;
-    /// carried into the SharedChannel by promoteChannel on promotion.
+    /// null = unbounded (today's semantics). 0 = rendezvous (KEP-0002 §6
+    /// as amended, kaappi#1601): send admission is bounded by `rv_demand`
+    /// instead of a static capacity. Local-representation only; carried
+    /// into the SharedChannel by promoteChannel on promotion.
     capacity: ?u32 = null,
+    /// Rendezvous demand (capacity == 0 only): the number of receivers
+    /// currently committed to this channel — each parked receive holds one
+    /// demand token (Fiber.rv_demand_on), acquired at its park decision and
+    /// released on every terminal exit. The send-admission bound for a
+    /// rendezvous channel. Meaningless (always 0) for capacity != 0.
+    rv_demand: u32 = 0,
     /// KEP-0002 §6: end-of-stream. Local-representation only; carried into
     /// the SharedChannel by promoteChannel on promotion.
     closed: bool = false,

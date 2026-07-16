@@ -52,12 +52,13 @@
     (channel-close! ch)
     (fiber-join f))) ; drives the scheduler until f completes -- no hang
 
-;; --- close wakes a parked sender on a full bounded channel too ---
+;; --- close wakes a parked sender too (capacity 0 = rendezvous: with no
+;; receiver committed the sender parks, exactly like a full bounded queue) ---
 (test-assert "channel-close! wakes a fiber parked on channel-send (raises, not hangs)"
   (let* ((ch (make-channel 0))
          (f (spawn (lambda ()
                      (guard (e (#t 'raised)) (channel-send ch 1) 'not-raised)))))
-    (yield) ; let the sender run and park (capacity 0: always full)
+    (yield) ; let the sender run and park (no receiver committed)
     (channel-close! ch)
     (eq? 'raised (fiber-join f))))
 
