@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784197171188,
+  "lastUpdate": 1784197430735,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ae8cb244ec9bd074c03b284c770cce7e093c3fa1",
-          "message": "Make advisory yield a no-op under re-entrant native frames (#1184) (#1384)\n\nWith another fiber schedulable, (yield) sets vm.yielded and the dispatch\nloop raises VMError.Yielded, expecting it to unwind to a scheduler loop\n(runWithScheduler / runSchedulerUntil). But when the yield executes under\na re-entrant native frame — most commonly the thunk of guard, which\ndesugars to with-exception-handler and re-enters via callThunk /\ncallReentrant — the native's generic error conversion intercepts the\nin-flight signal and surfaces it as a contentless \"error\" exception.\n\nThe audit file hit exactly this: the spawn-limit test leaves the\nscheduler full of never-dispatched fibers, so a later (yield) inside the\ntest macro's guard armed the signal and the test recorded a bogus caught\nerror. A fiber can never be resumed across a returned native call anyway\n(the same invariant as the native-frame continuation limit), so the only\nsound behavior for an advisory yield in that context is a no-op: arm\nvm.yielded only when native_reentry_depth is 0. Apply the same guard to\nSRFI-18 thread-yield!, which had the identical defect.\n\nRe-enables the FAIL-marked assertion in primitives_fiber-audit.scm and\nadds a smoke regression test plus a unit test.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T01:43:50Z",
-          "tree_id": "f905537fb8c915cc95a5fd2e3c59e49f0db49af9",
-          "url": "https://github.com/kaappi/kaappi/commit/ae8cb244ec9bd074c03b284c770cce7e093c3fa1"
-        },
-        "date": 1783649544369,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.358907,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.108754,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.028469,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.449801,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013123,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338144,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.530921,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069998,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.608457,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.992383,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.744285,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.047495,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.610993,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702614,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043859,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045084,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb4723a3d37c1a93324672883164e848e61f4ed1",
+          "message": "Split free-variable/capture analysis out of llvm_emit_lambda.zig (#1591) (#1592)\n\nllvm_emit_lambda.zig was ~1590 lines, over the 1500-line file-size policy.\nMove the free-variable walking + capture-analysis section into a new focused\nmodule, llvm_emit_freevars.zig, keeping the closure/lambda emission tiers in\nplace. Pure code motion, no behavior change — same discipline as the #1583\nsplit.\n\nThe seam is clean: the analysis functions never call back into emission code;\nthey only walk ir/types data and use three public emitter predicates\n(allocator, isNameShadowed, isKnownOrReservedGlobal). Four functions become\npub (sexprContainsDefine, analyzeBoxedParams, hasFreeVars, collectFreeVars) so\nthe lambda and let emitters can call them across the module boundary; the\nother analysis entry points were already pub. The two emission helpers that\nsat inside the analysis region (freeVarsAnyBoxed, emitBoxedParamSlots) stay in\nllvm_emit_lambda.zig.\n\nllvm_emit_lambda.zig: 1589 -> 835 lines; new llvm_emit_freevars.zig: 781.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T09:51:38Z",
+          "tree_id": "0dc28dc20b4c2008583e097abf8374ff2848f1b9",
+          "url": "https://github.com/kaappi/kaappi/commit/fb4723a3d37c1a93324672883164e848e61f4ed1"
+        },
+        "date": 1784197429046,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.519759,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.709202,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.83929,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.96156,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006624,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.050377,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.455556,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.065537,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.418855,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.707279,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.454554,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.397595,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.929573,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.906138,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041973,
             "unit": "seconds"
           }
         ]
