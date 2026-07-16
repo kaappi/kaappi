@@ -442,8 +442,14 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
         if (argv.len > argv_slices_buf.len) return null;
         argv_slices_buf[0] = exe;
         for (argv[1..], 1..) |arg, i| argv_slices_buf[i] = arg;
-        const res = platform.winSpawnCaptureMerged(arena, argv_slices_buf[0..argv.len], null) catch return null;
-        return .{ .stdout = res.output, .ok = res.exit_code == 0 };
+        // stdout only — the POSIX arm routes stderr to /dev/null because
+        // this output is machine-parsed (git -z path lists); a warning on
+        // stderr must never leak into the path stream.
+        const stdout = platform.winSpawnCapture(arena, argv_slices_buf[0..argv.len], null) catch |err| switch (err) {
+            error.CommandFailed => return .{ .stdout = arena.alloc(u8, 0) catch return null, .ok = false },
+            else => return null,
+        };
+        return .{ .stdout = stdout, .ok = true };
     }
 
     var pipe: [2]c_int = undefined;

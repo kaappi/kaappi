@@ -91,12 +91,14 @@ Scheme tests that exercise POSIX-only functionality gate themselves:
 
 ## Testing on a Windows machine
 
-There is no Windows CI runner yet; the port is verified against a real
-Windows 11 ARM64 machine (e.g. a UTM VM with ssh). The unit-test binary
-compiles with the same target flag and runs on the box:
+CI has a compile-only `windows-cross` job (ci.yml) that keeps the target
+building, but GitHub has no ARM64 Windows runners, so nothing executes
+there; runtime behavior is verified against a real Windows 11 ARM64
+machine (e.g. a UTM VM with ssh). The unit-test binary compiles with the
+same target flag and runs on the box:
 
 ```bash
-zig build test -Dtarget=aarch64-windows       # compiles; "unable to spawn" is expected
+zig build test -Dtarget=aarch64-windows       # compiles; foreign run steps skip cleanly
 scp .zig-cache/o/*/unit-tests.exe win11:...   # run it there
 ```
 
@@ -132,6 +134,11 @@ smoke-test a release manually per the github-release skill's Step 10.
 
 * Fiber I/O suspension needs a real Windows readiness backend (IOCP or
   overlapped I/O) to lift the blocking-port degradation.
+* The reactor's timer/notify paths have no Windows unit coverage: the
+  suites that exercise them directly sit in the excluded fd-readiness
+  files. Splitting the portable timer/notify tests out so they run on
+  Windows is tracked with the readiness-backend work; runtime coverage
+  today comes via the SRFI-18/fiber suites and the VM verification.
 * thottam package installation (replace the POSIX userland calls with
   shim-based recursive copy/remove/walk; git is already spawned via
   CreateProcessW and works when Git for Windows is on PATH).

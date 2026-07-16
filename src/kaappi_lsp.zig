@@ -174,11 +174,28 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
     return body;
 }
 
+/// Writes the whole slice, retrying short writes and EINTR: a partial
+/// LSP header or payload desynchronizes the JSON-RPC framing for every
+/// later message, so give up on the frame only on a hard write error.
+fn writeAll(fd: platform.fd_t, bytes: []const u8) bool {
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const n = platform.write(fd, bytes.ptr + offset, bytes.len - offset);
+        if (n < 0) {
+            if (platform.errno(n) == .INTR) continue;
+            return false;
+        }
+        if (n == 0) return false;
+        offset += @intCast(n);
+    }
+    return true;
+}
+
 fn writeMessage(allocator: std.mem.Allocator, json: []const u8) void {
     var header: [64]u8 = undefined;
     const h = std.fmt.bufPrint(&header, "Content-Length: {d}\r\n\r\n", .{json.len}) catch return;
-    _ = platform.write(1, h.ptr, h.len);
-    _ = platform.write(1, json.ptr, json.len);
+    if (!writeAll(1, h)) return;
+    _ = writeAll(1, json);
     _ = allocator;
 }
 

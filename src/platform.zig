@@ -126,6 +126,8 @@ pub const win = if (is_windows) struct {
     pub extern "kernel32" fn GetProcAddress(mod: HANDLE, name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
     pub extern "kernel32" fn FreeLibrary(mod: HANDLE) callconv(.winapi) c_int;
     pub extern "kernel32" fn GetLastError() callconv(.winapi) u32;
+    pub extern "kernel32" fn MoveFileExW(old: [*:0]const u16, new: [*:0]const u16, flags: u32) callconv(.winapi) c_int;
+    pub const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     pub extern "kernel32" fn FindFirstFileW(path: [*:0]const u16, data: *Win32FindDataW) callconv(.winapi) HANDLE;
     pub extern "kernel32" fn FindNextFileW(h: HANDLE, data: *Win32FindDataW) callconv(.winapi) c_int;
     pub extern "kernel32" fn FindClose(h: HANDLE) callconv(.winapi) c_int;
@@ -346,12 +348,14 @@ pub fn rename(old: [:0]const u8, new: [:0]const u8) c_int {
         var wbuf_new: WPathBuf = undefined;
         const wold = widen(&wbuf_old, old) orelse return -1;
         const wnew = widen(&wbuf_new, new) orelse return -1;
-        // POSIX rename replaces an existing target atomically; _wrename
-        // fails with EEXIST instead. Match POSIX by removing a stale
-        // target first (best effort — the subsequent rename reports any
-        // real failure).
-        _ = win._wunlink(wnew.ptr);
-        return win._wrename(wold.ptr, wnew.ptr);
+        // POSIX rename replaces an existing target and never destroys it
+        // on failure. _wrename fails with EEXIST on an existing target,
+        // and unlinking the target first would delete it even when the
+        // rename then fails (worst case rename(x, x), which POSIX defines
+        // as a successful no-op but unlink-first would turn into data
+        // loss). MoveFileExW with REPLACE_EXISTING has the POSIX shape:
+        // the destination is only replaced when the whole move succeeds.
+        return if (win.MoveFileExW(wold.ptr, wnew.ptr, win.MOVEFILE_REPLACE_EXISTING) != 0) 0 else -1;
     }
     return @intCast(std.posix.system.rename(old, new));
 }
@@ -482,8 +486,11 @@ pub fn realPath(path: [:0]const u8, buf: []u8) ?[]const u8 {
         var wout: WPathBuf = undefined;
         if (win._wfullpath(&wout, wpath.ptr, wpath_max) == null) return null;
         const wlen = std.mem.indexOfScalar(u16, &wout, 0) orelse return null;
+        // wtf16LeToWtf8 assumes the destination fits (it does not bounds
+        // check); each u16 code unit expands to at most 3 WTF-8 bytes, so
+        // preflight on that worst case.
+        if (wlen * 3 > buf.len) return null;
         const n = std.unicode.wtf16LeToWtf8(buf, wout[0..wlen]);
-        if (n > buf.len) return null;
         const out = buf[0..n];
         for (out) |*ch| {
             if (ch.* == '\\') ch.* = '/';
@@ -704,6 +711,11 @@ pub const EnvIter = struct {
                 while (block[end] != 0) end += 1;
                 if (end == start) return null; // double NUL: done
                 st.offset = end + 1;
+                // Preflight: wtf16LeToWtf8 does not bounds check (<= 3
+                // bytes per u16 code unit); a pathologically long entry
+                // (vars can reach 32 KiB) is skipped rather than
+                // overflowing the fixed decode buffer.
+                if ((end - start) * 3 > st.buf.len) continue;
                 const n = std.unicode.wtf16LeToWtf8(&st.buf, block[start..end]);
                 const entry = st.buf[0..n];
                 // The block's first entries can be drive-letter cruft
@@ -740,8 +752,10 @@ pub fn getCwd(buf: []u8) ?[]const u8 {
         var wbuf: WPathBuf = undefined;
         if (win._wgetcwd(&wbuf, wpath_max) == null) return null;
         const wlen = std.mem.indexOfScalar(u16, &wbuf, 0) orelse return null;
+        // Preflight: wtf16LeToWtf8 does not bounds check (<= 3 bytes per
+        // u16 code unit).
+        if (wlen * 3 > buf.len) return null;
         const n = std.unicode.wtf16LeToWtf8(buf, wbuf[0..wlen]);
-        if (n > buf.len) return null;
         const out = buf[0..n];
         for (out) |*ch| {
             if (ch.* == '\\') ch.* = '/';
@@ -750,6 +764,25 @@ pub fn getCwd(buf: []u8) ?[]const u8 {
     }
     const result = std.c.getcwd(buf.ptr, buf.len) orelse return null;
     return std.mem.sliceTo(@as([*:0]const u8, @ptrCast(result)), 0);
+}
+
+/// The platform scratch directory: $TMPDIR / /tmp on POSIX, $TEMP (with
+/// $TMP and a fixed last resort) on Windows — which has no TMPDIR.
+pub fn tempDir() []const u8 {
+    if (comptime is_windows) {
+        inline for (.{ "TEMP", "TMP" }) |name| {
+            if (getenv(name)) |t| {
+                const s = std.mem.sliceTo(t, 0);
+                if (s.len > 0) return s;
+            }
+        }
+        return "C:/Windows/Temp";
+    }
+    if (getenv("TMPDIR")) |t| {
+        const s = std.mem.sliceTo(t, 0);
+        if (s.len > 0) return s;
+    }
+    return "/tmp";
 }
 
 /// The platform temp-file *prefix* (directory + name stem) used by
@@ -869,8 +902,10 @@ pub fn getExePathWindows(buf: []u8) ?[]const u8 {
     var wbuf: [wpath_max]u16 = undefined;
     const wlen = win.GetModuleFileNameW(null, &wbuf, wpath_max);
     if (wlen == 0 or wlen >= wpath_max) return null;
+    // Preflight: wtf16LeToWtf8 does not bounds check (<= 3 bytes per u16
+    // code unit), and callers pass buffers as small as 1024 bytes.
+    if (wlen * 3 > buf.len) return null;
     const n = std.unicode.wtf16LeToWtf8(buf, wbuf[0..wlen]);
-    if (n > buf.len) return null;
     const path = buf[0..n];
     for (path) |*ch| {
         if (ch.* == '\\') ch.* = '/';
@@ -1018,13 +1053,20 @@ pub fn winSpawnPassthrough(allocator: std.mem.Allocator, argv: []const []const u
     return winSpawnInner(allocator, argv, cwd, null, false);
 }
 
+const WinCapture = struct {
+    list: *std.ArrayList(u8),
+    /// Bytes kept; the read loop drains the pipe past this so the child
+    /// never stalls on a full pipe.
+    cap: usize = std.math.maxInt(usize),
+};
+
 /// Runs argv with stdout captured into the returned buffer (caller
 /// frees); stderr is discarded. error.CommandFailed on nonzero exit.
 pub fn winSpawnCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) SpawnError![]u8 {
     if (comptime !is_windows) unreachable;
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    const code = try winSpawnInner(allocator, argv, cwd, &out, false);
+    const code = try winSpawnInner(allocator, argv, cwd, .{ .list = &out }, false);
     if (code != 0) return error.CommandFailed;
     return out.toOwnedSlice(allocator);
 }
@@ -1033,16 +1075,18 @@ pub const WinSpawnResult = struct { output: []u8, exit_code: u8 };
 
 /// Runs argv capturing combined stdout+stderr (the fork/dup2-both shape
 /// test_runner's worker spawn uses); never errors on a nonzero exit —
-/// the caller inspects the code.
-pub fn winSpawnCaptureMerged(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) SpawnError!WinSpawnResult {
+/// the caller inspects the code. Output is capped at `cap` bytes (the
+/// pipe keeps draining past it, so the child never blocks on a full
+/// pipe), mirroring the POSIX call sites' in-loop caps.
+pub fn winSpawnCaptureMerged(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, cap: usize) SpawnError!WinSpawnResult {
     if (comptime !is_windows) unreachable;
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    const code = try winSpawnInner(allocator, argv, cwd, &out, true);
+    const code = try winSpawnInner(allocator, argv, cwd, .{ .list = &out, .cap = cap }, true);
     return .{ .output = try out.toOwnedSlice(allocator), .exit_code = code };
 }
 
-fn winSpawnInner(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, capture: ?*std.ArrayList(u8), merge_stderr: bool) SpawnError!u8 {
+fn winSpawnInner(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, capture: ?WinCapture, merge_stderr: bool) SpawnError!u8 {
     if (comptime !is_windows) unreachable;
     const cmdline = buildCommandLineW(allocator, argv) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -1101,14 +1145,36 @@ fn winSpawnInner(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[
         return error.SpawnFailed;
     }
 
-    if (capture) |out| {
+    if (capture) |cap| {
         var tmp: [4096]u8 = undefined;
+        var read_err: ?SpawnError = null;
         while (true) {
             const n = win._read(read_fd, &tmp, tmp.len);
             if (n <= 0) break;
-            out.appendSlice(allocator, tmp[0..@intCast(n)]) catch break;
+            const got: usize = @intCast(n);
+            if (cap.list.items.len < cap.cap) {
+                const room = cap.cap - cap.list.items.len;
+                cap.list.appendSlice(allocator, tmp[0..@min(got, room)]) catch {
+                    // Keep draining so the child can exit, but report the
+                    // failure instead of returning truncated output as
+                    // success.
+                    read_err = error.OutOfMemory;
+                    break;
+                };
+            }
+        }
+        if (read_err != null) {
+            // Drain the remainder without buffering, then reap the child
+            // before propagating.
+            while (win._read(read_fd, &tmp, tmp.len) > 0) {}
         }
         _ = win._close(read_fd);
+        if (read_err) |e| {
+            _ = win.WaitForSingleObject(pi.process, win.INFINITE);
+            _ = win.CloseHandle(pi.thread);
+            _ = win.CloseHandle(pi.process);
+            return e;
+        }
     }
 
     _ = win.WaitForSingleObject(pi.process, win.INFINITE);
@@ -1123,6 +1189,57 @@ fn winSpawnInner(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[
 // tests (run on the host platform; the Windows arms are exercised by the
 // cross-compiled unit-test binary on a Windows machine)
 // ---------------------------------------------------------------------------
+
+fn expectQuoted(expected: []const u8, arg: []const u8) !void {
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(std.testing.allocator);
+    try appendQuotedArg(&list, std.testing.allocator, arg);
+    try std.testing.expectEqualStrings(expected, list.items);
+}
+
+// CommandLineToArgvW-inverse quoting: these are the canonical cases from
+// the Windows command-line parsing rules; the child's CRT must parse each
+// quoted form back to the original argument.
+test "appendQuotedArg: plain arg unquoted" {
+    try expectQuoted("abc", "abc");
+}
+
+test "appendQuotedArg: spaces force quotes" {
+    try expectQuoted("\"two words\"", "two words");
+}
+
+test "appendQuotedArg: empty arg becomes empty quotes" {
+    try expectQuoted("\"\"", "");
+}
+
+test "appendQuotedArg: embedded quote gets a backslash" {
+    try expectQuoted("\"say \\\" it\"", "say \" it");
+}
+
+test "appendQuotedArg: backslashes before a quote double" {
+    // arg: a\"b  →  "a\\\"b" (the two backslashes encode one literal \,
+    // the third escapes the quote)
+    try expectQuoted("\"a\\\\\\\"b\"", "a\\\"b");
+}
+
+test "appendQuotedArg: trailing backslashes double before the closing quote" {
+    // arg: dir\ with a space → "dir \\" so the closing quote isn't eaten
+    try expectQuoted("\"dir \\\\\"", "dir \\");
+}
+
+test "appendQuotedArg: backslashes not before a quote stay literal" {
+    // Windows paths with spaces: no doubling mid-string
+    try expectQuoted("\"C:\\Program Files\\kaappi\"", "C:\\Program Files\\kaappi");
+}
+
+test "buildCommandLineW joins and round-trips through WTF-16" {
+    const argv = [_][]const u8{ "git", "-C", "C:\\repo dir", "checkout", "v1.0.0", "--" };
+    const wline = try buildCommandLineW(std.testing.allocator, &argv);
+    defer std.testing.allocator.free(wline);
+    var narrow: [256]u8 = undefined;
+    const n = std.unicode.wtf16LeToWtf8(&narrow, wline);
+    try std.testing.expectEqualStrings("git -C \"C:\\repo dir\" checkout v1.0.0 --", narrow[0..n]);
+}
 
 test "monotonicNs advances" {
     const a = monotonicNs();

@@ -489,7 +489,7 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
     const a = r.allocator();
 
-    const tmp = if (platform.getenv("TMPDIR")) |t| std.mem.sliceTo(t, 0) else "/tmp";
+    const tmp = platform.tempDir();
 
     // Work inside a private 0700 directory with a random name (mkdtemp-style).
     // `mkdir` refuses to reuse an existing name, so a hostile pre-planted
@@ -670,7 +670,8 @@ fn randomHex() [16]u8 {
 fn isNativeLibrary(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".dylib") or
         std.mem.endsWith(u8, name, ".so") or
-        std.mem.indexOf(u8, name, ".so.") != null;
+        std.mem.indexOf(u8, name, ".so.") != null or
+        std.mem.endsWith(u8, name, ".dll");
 }
 
 fn boolStr(b: bool) []const u8 {

@@ -1,4 +1,4 @@
-(import (scheme base) (scheme write) (srfi 170))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 170))
 
 ;; set-file-mode/umask are POSIX-only — skip there.
 (cond-expand

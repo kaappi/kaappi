@@ -490,18 +490,13 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
     try argv.append(allocator, file);
 
     if (comptime platform.is_windows) {
-        const res = platform.winSpawnCaptureMerged(allocator, argv.items, null) catch return error.ForkFailed;
-        // Cap after the fact (the POSIX path caps during the read loop);
-        // a runaway worker is bounded either way before parsing.
-        const cap: usize = 1024 * 1024;
-        if (res.output.len > cap) {
-            const trimmed = allocator.dupe(u8, res.output[0..cap]) catch {
-                allocator.free(res.output);
-                return error.OutOfMemory;
-            };
-            allocator.free(res.output);
-            return .{ .output = trimmed, .exit_code = res.exit_code, .signaled = false };
-        }
+        // Same 1 MiB in-loop cap as the POSIX read loop below: the pipe
+        // keeps draining past it, so a runaway worker can neither exhaust
+        // memory here nor block on a full pipe.
+        const res = platform.winSpawnCaptureMerged(allocator, argv.items, null, 1024 * 1024) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.ForkFailed,
+        };
         return .{ .output = res.output, .exit_code = res.exit_code, .signaled = false };
     }
 
