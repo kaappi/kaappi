@@ -150,7 +150,11 @@ encoded crash input for the fuzz job, `seed-<N>.scm` divergences for the
 diff jobs); failed jobs without their marker — toolchain flakes, build or
 unit-test failures, job-level timeouts (a possible hang) — are collected
 under a single shared issue titled `Fuzz CI: infrastructure or build
-failure` instead. While an issue stays open, repeat failures append
+failure` instead. Because `upload-artifact` archives multi-file artifacts
+into a wrapper zip that `download-artifact` hands back un-extracted, the
+report job unwraps any `*.zip` under `artifacts/` before marker detection
+— skipping that step misclassifies every real finding as an
+infrastructure failure (#1429, #1584). While an issue stays open, repeat failures append
 comments to it instead of opening duplicates. Issues are never
 auto-closed: seed bases rotate nightly, so a later green run does not
 mean a finding is fixed — close the issue once the input is minimised
