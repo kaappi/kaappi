@@ -88,9 +88,33 @@ pub fn printGcStats(gc: *memory.GC) void {
     if (col > 0) writeStderr("\n");
 }
 
+/// Iterates every heap object: the young list, then the old list. Profile
+/// counters live on Function/NativeFn heap objects, and minor GC promotes
+/// long-lived objects onto `gc.old_objects` — a young-list-only walk
+/// silently drops exactly the oldest (hottest) functions from the report.
+pub const AllObjectsIter = struct {
+    lists: [2]?*types.Object,
+    idx: usize = 0,
+
+    pub fn next(self: *AllObjectsIter) ?*types.Object {
+        while (self.idx < self.lists.len) {
+            if (self.lists[self.idx]) |o| {
+                self.lists[self.idx] = o.next;
+                return o;
+            }
+            self.idx += 1;
+        }
+        return null;
+    }
+};
+
+pub fn allObjects(gc: *memory.GC) AllObjectsIter {
+    return .{ .lists = .{ gc.objects, gc.old_objects } };
+}
+
 pub fn resetProfileCounters(gc: *memory.GC) void {
-    var obj = gc.objects;
-    while (obj) |o| {
+    var it = allObjects(gc);
+    while (it.next()) |o| {
         if (o.tag == .function) {
             const func = o.as(types.Function);
             func.profile_instrs = 0;
@@ -104,7 +128,6 @@ pub fn resetProfileCounters(gc: *memory.GC) void {
             native.profile_time_ns = 0;
             native.profile_alloc_bytes = 0;
         }
-        obj = o.next;
     }
 }
 
@@ -141,8 +164,8 @@ pub fn printProfileReport(gc: *memory.GC) void {
     var total_instrs: u64 = 0;
     var total_calls: u64 = 0;
 
-    var obj = gc.objects;
-    while (obj) |o| {
+    var it = allObjects(gc);
+    while (it.next()) |o| {
         if (o.tag == .function) {
             const func = o.as(types.Function);
             if (func.profile_instrs > 0 or func.profile_calls > 0) {
@@ -181,7 +204,6 @@ pub fn printProfileReport(gc: *memory.GC) void {
                 }
             }
         }
-        obj = o.next;
     }
 
     if (count == 0) return;
@@ -603,8 +625,8 @@ pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
 
     writeToFd(fd, "[");
     var first = true;
-    var obj = gc.objects;
-    while (obj) |o| {
+    var it = allObjects(gc);
+    while (it.next()) |o| {
         if (o.tag == .function) {
             const func = o.as(types.Function);
             if (func.profile_calls > 0) {
@@ -641,7 +663,6 @@ pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
                 writeToFd(fd, s);
             }
         }
-        obj = o.next;
     }
     writeToFd(fd, "]\n");
 }
