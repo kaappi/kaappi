@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784175538917,
+  "lastUpdate": 1784176043667,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "091ddbf9d4c4ec91bf4b6427da87c95f5c2ee6a2",
-          "message": "Polish the bootstrapped map/for-each/dynamic-wind/force family (#1375) (#1378)\n\n* Polish the bootstrapped map/for-each/dynamic-wind/force family (#1375)\n\nFollow-up to the #1374 trampoline rewrite, addressing all seven review\npolish items:\n\nWrap each vm_bootstrap.zig definition in a let that captures its\ndependencies as closure upvalues at install time. This restores the\nredefinition immunity the native implementations had (a top-level\n(define reverse ...) no longer changes map's behavior) and lets\ninstall() remove the eight %-helpers (%push-wind, %pop-wind,\n%promise-*) from vm.globals entirely — misusing them could corrupt\nthe wind stack or promise state, and they are now unreachable without\nany change to the global-visibility model.\n\nGive the lambdas explicit minimum arities ((proc list1 . lists)) so\nzero-sequence misuse reports \"'map': expected at least 2 arguments,\ngot 1\" instead of leaking internals (\"type error in 'cdr'...\"), and\ntype-check the procedure argument up front so (map 5 ...) names map.\ndynamic-wind validates all three arguments before running before, so\nside effects no longer leak on bad-argument calls and the error names\ndynamic-wind rather than %push-wind.\n\nRetire the eight dead native implementations (~460 lines). Their spec\nentries remain for arity metadata and library exports but now point at\nprimitives.bootstrapStub(), which raises a descriptive error — a future\nmissing install() fails loudly instead of silently reverting to\ndivergent native behavior. install() likewise reports which definition\nfailed to eval instead of aborting startup with a bare exit code.\n\nRe-add the README fibers limitation narrowed to the still-native\ndrivers (SRFI-1 folds, sort, hash-table-walk, ...), verified by repro:\na fiber blocking in a fold callback still deadlocks where map parks.\nRestore the benchmark alert threshold to 120% (list microbenchmark\nmeasures +4.7% vs main, well inside the threshold).\n\nVerifying this change surfaced two pre-existing #1374 regressions,\nfiled separately: native-backend calls to the bootstrapped procedures\n(#1376) and dynamic-wind inside SRFI-18 threads (#1377).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make string-map/string-for-each linear via char-list traversal\n\nDriving the loops with (string-ref s i) is O(n^2): strings are UTF-8\nand codepoint indexing rescans from byte 0 on every call. The retired\nnative implementations had the same index-driven cost, so this predates\nthe trampoline — but the fix belongs with it. Convert each string to a\nchar list once (one O(n) pass) and walk pairs, the same shape the\nlist-based map/for-each already use: 50k ASCII chars drop from 2.04s\nto 0.006s, and doubling the input now doubles the time instead of\nquadrupling it.\n\nThe smoke test gains 300k-char calls that finish instantly when linear\nand trip the suite's per-file timeout if quadratic behavior returns.\n\nAddresses the CodeRabbit review finding on PR #1378.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T05:49:35+05:30",
-          "tree_id": "4af720ab8e6f0c66c5d49c1001d0340ae8ad4264",
-          "url": "https://github.com/kaappi/kaappi/commit/091ddbf9d4c4ec91bf4b6427da87c95f5c2ee6a2"
-        },
-        "date": 1783644487375,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.420027,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.113523,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.023561,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.588176,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013292,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338742,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.526457,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069956,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.580227,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.067714,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.75386,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.038128,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.569762,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.742816,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045078,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044442,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62f781aacb2643578889c6d7278b95d470a6a920",
+          "message": "Update gate/P3 benchmark docs to reflect completed Linux run + #1474 closure (#1581)\n\ndocs/dev/kep-0002-phase7-envelope-benchmarks.md, benchmarks/gate/README.md,\nand the kep-0003 worksheet still described the gate campaign's Linux x86_64\nrun as open/deferred and lever B's shipped-default decision as pending --\nboth landed since (PR #1560, PR #1580). Also corrects a stale conflation:\nthe P3 micro-benchmark's own Linux re-run (bench_channel.zig, still open)\nis a different, unrelated task from the gate campaign's Linux run (done),\nwhich a \"the only open piece is the Linux x86_64 run (item 1)\" sentence\nhad blurred together.\n\nUpdates the worksheet's \"#1474 stays open\" language to note the actual\ndisposition: closed by explicit maintainer decision on 2026-07-16, which\nwas a deliberate deviation from the frozen protocol's own default action\nfor a \"Between\" outcome -- documented so a future reader doesn't mistake\nit for a protocol violation. The revisit trigger is unaffected either way.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T09:25:16+05:30",
+          "tree_id": "3c1a1a4c9041c4b79179593cbea7714dd92e48a1",
+          "url": "https://github.com/kaappi/kaappi/commit/62f781aacb2643578889c6d7278b95d470a6a920"
+        },
+        "date": 1784176041431,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.390809,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.2556,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.910288,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.48286,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006445,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05395,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508684,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069865,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.389118,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.976361,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574402,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435528,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.836413,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.584741,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044021,
             "unit": "seconds"
           }
         ]
