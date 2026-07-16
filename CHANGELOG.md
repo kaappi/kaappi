@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- macOS release binaries can now `ffi-open` user-compiled libraries: the hardened-runtime signing entitlements add `com.apple.security.cs.disable-library-validation`, without which dlopen refused every locally-built `.dylib` (kaappi-net, kaappi-pg, kaappi-sqlite, kaappi-crypto) on release binaries while source builds worked (#1587)
+
 ## [0.15.0] - 2026-07-16
 
 ### Added
