@@ -21,8 +21,9 @@ const std = @import("std");
 const ir = @import("ir.zig");
 const types = @import("types.zig");
 
-const LLVMEmitter = @import("llvm_emit.zig").LLVMEmitter;
-const EmitError = @import("llvm_emit.zig").EmitError;
+const llvm_emit = @import("llvm_emit.zig");
+const LLVMEmitter = llvm_emit.LLVMEmitter;
+const EmitError = llvm_emit.EmitError;
 
 const Value = types.Value;
 
@@ -260,12 +261,12 @@ pub fn emitDo(self: *LLVMEmitter, args: Value, is_tail: bool) EmitError![]const 
     self.locals = if (saved_locals) |existing|
         existing.clone() catch return error.OutOfMemory
     else
-        std.StringHashMap([]const u8).init(self.allocator());
+        std.StringHashMap(llvm_emit.LocalBinding).init(self.allocator());
     defer {
         self.locals.?.deinit();
         self.locals = saved_locals;
     }
-    for (0..n) |i| self.locals.?.put(var_names[i], allocas[i]) catch return error.OutOfMemory;
+    for (0..n) |i| self.locals.?.put(var_names[i], .{ .slot = allocas[i] }) catch return error.OutOfMemory;
 
     const header = try self.freshLabel("do_header_");
     const body_lbl = try self.freshLabel("do_body_");

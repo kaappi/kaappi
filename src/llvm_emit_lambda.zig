@@ -161,16 +161,33 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     const outer_params = self.params orelse return null;
     const outer_upvalues = self.upvalues;
+    const outer_locals = self.locals;
     const outer_boxes = self.boxes;
-    // Classify each capture: a variable the enclosing frame boxed is captured
-    // as the box POINTER (fv_boxed), so a set! from any sibling closure over
+    // Classify each capture, resolving in emitGlobalRef's lexical order so the
+    // closure captures the same binding the enclosing body reads (#1584). A
+    // binding the enclosing frame boxed is captured as the box POINTER (its
+    // slot recorded in fv_box_slot), so a set! from any sibling closure over
     // the same binding is visible here; everything else is captured by value.
-    const fv_boxed = self.allocator().alloc(bool, free_vars.items.len) catch return null;
-    @memset(fv_boxed, false);
+    const fv_box_slot = self.allocator().alloc(?[]const u8, free_vars.items.len) catch return null;
+    @memset(fv_box_slot, null);
     for (free_vars.items, 0..) |fv, i| {
+        // Innermost first: a let-local/do-var of the enclosing scope. A boxed
+        // one is captured through its box; a plain one has no capturable slot
+        // (its stack alloca dies with the scope), so reject — the interpreter
+        // handles that shape.
+        if (outer_locals) |loc| {
+            if (loc.get(fv)) |b| {
+                if (b.boxed) {
+                    fv_box_slot[i] = b.slot;
+                    continue;
+                }
+                return null;
+            }
+        }
+        // Frame-level boxed params / mirrored boxed captures (#1497).
         if (outer_boxes) |ob| {
-            if (ob.contains(fv)) {
-                fv_boxed[i] = true;
+            if (ob.get(fv)) |slot| {
+                fv_box_slot[i] = slot;
                 continue;
             }
         }
@@ -181,9 +198,11 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         // By-value captures are copied out of the enclosing frame at
         // closure-creation time: params from its %args, and — when this lambda
         // sits inside another native closure — chained captures from that
-        // closure's own %upvalues array (#1410). A name bound by an enclosing
-        // let-local or rest parameter has no capturable slot; reject those.
-        if (localsOrRestShadows(self, fv)) return null;
+        // closure's own %upvalues array (#1410). The rest parameter has no
+        // capturable slot; reject it.
+        if (self.rest_param_name) |rp| {
+            if (std.mem.eql(u8, fv, rp)) return null;
+        }
         if (outer_params.contains(fv)) continue;
         if (outer_upvalues) |uv| {
             if (uv.contains(fv)) continue;
@@ -232,7 +251,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
         // Boxed captures and own boxed params get a fresh box map for this
         // frame; reads/writes go through kaappi_box_ref / kaappi_box_set.
-        self.boxes = if (own_boxed.any or freeVarsAnyBoxed(fv_boxed))
+        self.boxes = if (own_boxed.any or freeVarsAnyBoxed(fv_box_slot))
             std.StringHashMap([]const u8).init(self.backing_alloc)
         else
             null;
@@ -251,7 +270,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         // through the box. No GC root needed — the box stays reachable via the
         // live closure's upvalue array for the whole call.
         for (free_vars.items, 0..) |fv, i| {
-            if (!fv_boxed[i]) continue;
+            if (fv_box_slot[i] == null) continue;
             const box_alloca = self.freshTemp() catch return null;
             self.print("  {s} = alloca i64, align 8\n", .{box_alloca}) catch return null;
             const gep = self.freshTemp() catch return null;
@@ -285,10 +304,10 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     for (free_vars.items, 0..) |fv, i| {
         const val = blk: {
             // A boxed capture is stored as its box POINTER, loaded from the
-            // enclosing frame's box slot; the box's contents (the live value)
-            // are shared, so a set! from any closure over it is visible (#1497).
-            if (fv_boxed[i]) {
-                const box_alloca = outer_boxes.?.get(fv).?;
+            // enclosing binding's slot (a boxed let-local's alloca or a boxed
+            // param's frame slot); the box's contents (the live value) are
+            // shared, so a set! from any closure over it is visible (#1497).
+            if (fv_box_slot[i]) |box_alloca| {
                 const v = self.freshTemp() catch return null;
                 self.print("  {s} = load i64, ptr {s}\n", .{ v, box_alloca }) catch return null;
                 break :blk v;
@@ -890,23 +909,11 @@ fn sexprReferencesNames(expr: Value, target_names: []const []const u8, excluded_
 // of the same name exists — `car` inside (lambda (car) ...) is the parameter,
 // not the primitive. The shadow check must run before isKnownGlobal.
 
-// Enclosing bindings that outrank the params array in emitGlobalRef's
-// resolution order and cannot be copied out of %args into an upvalue buffer.
-fn localsOrRestShadows(self: *LLVMEmitter, name: []const u8) bool {
-    if (self.locals) |loc| {
-        if (loc.get(name) != null) return true;
-    }
-    if (self.rest_param_name) |rp| {
-        if (std.mem.eql(u8, name, rp)) return true;
-    }
-    return false;
-}
-
-// True if any of the parallel fv_boxed flags is set — i.e. this closure
+// True if any of the parallel fv_box_slot entries is set — i.e. this closure
 // captures at least one boxed variable and therefore needs a box map.
-fn freeVarsAnyBoxed(fv_boxed: []const bool) bool {
-    for (fv_boxed) |b| {
-        if (b) return true;
+fn freeVarsAnyBoxed(fv_box_slot: []const ?[]const u8) bool {
+    for (fv_box_slot) |s| {
+        if (s != null) return true;
     }
     return false;
 }

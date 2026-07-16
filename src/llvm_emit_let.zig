@@ -74,7 +74,7 @@ fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError!
 // (an `if`, say) may have split that block into terminated predecessors and a
 // fresh successor, all now truncated away, leaving the checkpoint block live
 // again for the fallback to emit into.
-fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap([]const u8), checkpoint: Checkpoint) EmitError![]const u8 {
+fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap(llvm_emit.LocalBinding), checkpoint: Checkpoint) EmitError![]const u8 {
     self.buf.shrinkRetainingCapacity(checkpoint.buf_len);
     self.current_block = checkpoint.block;
     self.body_scope_roots = checkpoint.body_scope_roots;
@@ -149,26 +149,15 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
     // stranded past an in-body tail-call ret.
     const body_tail = is_tail and !any_boxed;
 
-    // Box map scope for this let, extending any enclosing frame's boxes.
-    const saved_boxes = self.boxes;
-    var owns_boxes = false;
-    defer if (owns_boxes) {
-        if (self.boxes) |*b| b.deinit();
-        self.boxes = saved_boxes;
-    };
-    if (any_boxed) {
-        self.boxes = if (saved_boxes) |existing|
-            existing.clone() catch return error.OutOfMemory
-        else
-            std.StringHashMap([]const u8).init(self.allocator());
-        owns_boxes = true;
-    }
-
+    // Boxed let-locals are `locals` entries with `.boxed = true`, NOT
+    // additions to the frame-level `self.boxes` map: box-ness is an attribute
+    // of the individual binding, so an inner plain binding shadows an outer
+    // boxed one (and vice versa) through the ordinary locals clone (#1584).
     const saved_locals = self.locals;
     self.locals = if (saved_locals) |existing|
         existing.clone() catch return error.OutOfMemory
     else
-        std.StringHashMap([]const u8).init(self.allocator());
+        std.StringHashMap(llvm_emit.LocalBinding).init(self.allocator());
 
     var binding_root_count: usize = 0;
 
@@ -217,11 +206,10 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         }
 
         for (0..count) |i| {
-            if (nameInList(box_names[0..box_count], var_names[i])) {
-                self.boxes.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
-            } else {
-                self.locals.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
-            }
+            self.locals.?.put(var_names[i], .{
+                .slot = binding_allocas[i],
+                .boxed = nameInList(box_names[0..box_count], var_names[i]),
+            }) catch return error.OutOfMemory;
         }
         binding_root_count = count;
     } else {
@@ -244,15 +232,18 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
             try self.print("  {s} = alloca i64, align 8\n", .{alloca});
             // Box a captured+mutated let*-local; later inits in this same
             // let* then read it through the box (#1497).
-            if (nameInList(box_names[0..box_count], types.symbolName(var_sym))) {
+            const is_boxed = nameInList(box_names[0..box_count], types.symbolName(var_sym));
+            if (is_boxed) {
                 const box = try self.freshTemp();
                 try self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, val });
                 try self.print("  store i64 {s}, ptr {s}\n", .{ box, alloca });
-                self.boxes.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
             } else {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
-                self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
             }
+            self.locals.?.put(types.symbolName(var_sym), .{
+                .slot = alloca,
+                .boxed = is_boxed,
+            }) catch return error.OutOfMemory;
             try self.emitRootPushAlloca(alloca);
             binding_root_count += 1;
             blist = types.cdr(blist);
