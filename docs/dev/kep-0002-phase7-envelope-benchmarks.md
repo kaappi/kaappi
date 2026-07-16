@@ -257,34 +257,38 @@ Done in this pass:
   in the shipped build; still lever-selectable under `-Dchannel-instrument`
   so the gate's `none` baseline is preserved. Default-build regression test
   added ("lever C shipped default" in `tests_shared_channel.zig`).
-- **Lever B prototype landed and both P3 clauses met** — the reusable
-  per-channel arena, as a bounded single-slot recycled-GC cache behind
-  `-Dchannel-arena` (off in the shipped default). gc-stress + arena 77/77;
-  real-path small-message wins 51–63%; symbol-table reset contained in
-  `shared_channel.zig`. See the (B) section above. Remaining: the ship
-  decision (promote the flag to default, as C was).
+- **Lever B prototype landed, both P3 clauses met, and shipped as the
+  default** — the reusable per-channel arena, as a bounded single-slot
+  recycled-GC cache. `-Dchannel-arena` now defaults to `true` (pass
+  `-Dchannel-arena=false` to restore lever A); forced off under
+  `-Dchannel-instrument` so the frozen gate baseline stays lever A.
+  gc-stress + arena 77/77; real-path small-message wins 51–63%;
+  symbol-table reset contained in `shared_channel.zig`. See the (B) section
+  above.
 
 Still open for Phase 7 / #1472:
 
-1. **Second reference machine** — re-run on Linux x86_64 (≥ 8 physical
-   cores) and confirm the C and B verdicts agree. Only then is the P3
-   decision two-machine-solid.
-2. **Lever-B ship decision** — the second clause is now met (prototype
-   above); promoting the `-Dchannel-arena` cache to the shipped default is
-   a follow-up ship call, mirroring lever C's promotion.
-3. **The gate campaign** — the `parallel-map` IP-*/FO-* workloads, the
-   parent-side copy-overhead-share instrumentation, the Kalibera–Jones
-   statistics driver, the CSV + classification worksheet, and lever D
-   wired behind a flag in the real path. The larger, separate half of
-   #1472 that feeds #1474. **Landed and largely done**: the harness in
-   `benchmarks/gate/` (six workloads + controls, the real-path `share`
-   counters `src/channel_instrument.zig` → `src/shared_channel.zig`, levers
-   `none`/`c`/`cd`, the K–J driver emitting the §6 CSV), **lever D**
-   (`src/shared_buffer.zig`, zero-copy receive + copy-on-write behind
-   `-Dchannel-instrument`), the kaappi#1489 pool-hang fix, and the **macOS
-   aarch64 frozen run** (920 launches, 0 failures) → classified **Between**,
-   so KEP-0003 stays gated (worksheet
-   `docs/dev/kep-0003-acceptance-gate-worksheet.md`, dataset in
-   `benchmarks/gate/results/`). The only open piece is the Linux x86_64 run
-   (item 1); per §5 it cannot change the combined outcome (macOS=Between ⇒
-   combined=Between), so it is a publish-completeness follow-up.
+1. **Second reference machine for the P3 micro-benchmark** — re-run
+   `bench_channel.zig` itself on Linux x86_64 (≥ 8 physical cores) and
+   confirm the C and B verdicts agree there too. Only then is the P3
+   ship decision two-machine-solid. (Distinct from the gate campaign's
+   Linux run below, which is a different benchmark and is done.)
+
+The gate campaign (the `parallel-map` IP-*/FO-* workloads, the parent-side
+copy-overhead-share instrumentation, the Kalibera–Jones statistics driver,
+the CSV + classification worksheet, and lever D wired behind a flag in the
+real path — the larger, separate half of #1472 that fed #1474) is
+**complete on both reference machines**: the harness in `benchmarks/gate/`
+(six workloads + controls, the real-path `share` counters
+`src/channel_instrument.zig` → `src/shared_channel.zig`, levers
+`none`/`c`/`cd`, the K–J driver emitting the §6 CSV), lever D
+(`src/shared_buffer.zig`, zero-copy receive + copy-on-write behind
+`-Dchannel-instrument`), the kaappi#1489 pool-hang fix, the **macOS aarch64
+frozen run** (920 launches, 0 failures), and the **Linux x86_64 frozen run**
+(commit `807fd64a`, ~1000 launches, 0 failures) all landed. Both machines
+independently classified **Between** — agreement, not just the cross-machine
+rule's fallback — so KEP-0003 stays gated (worksheet
+`docs/dev/kep-0003-acceptance-gate-worksheet.md`, datasets in
+`benchmarks/gate/results/`). Issue #1474 is closed (maintainer decision,
+2026-07-16); the revisit trigger (real `kaappi-examples` traces with an
+`IP-*`-shaped hot loop) is documented in the worksheet.
