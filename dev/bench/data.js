@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784187637221,
+  "lastUpdate": 1784197171188,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2a5206f1466fd44ee935d79cf1f368e590520736",
-          "message": "Validate UTF-8 in utf8->string (#1178) (#1383)\n\nutf8->string copied bytes into a string unchecked, so invalid UTF-8\n(bad lead bytes like #xFF, overlong encodings, surrogates, truncated\nsequences) produced a corrupt string: write and string-length worked,\nbut string-ref on the same string raised \"expected valid UTF-8 string\".\nStrings are codepoint-indexed and assume valid UTF-8, so R7RS 6.9's\n\"it is an error\" case must be rejected at construction, where the\ncaller can guard it.\n\nValidation covers the selected start/end byte range only: invalid\nbytes outside the range are fine, and a range that splits a multi-byte\ncharacter raises.\n\nRe-enables the ;; FAIL: #1178 assertions in the bytevector audit and\nadds range-variant coverage.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T01:32:44Z",
-          "tree_id": "54f6c03f246990812024540811b1ebd801f821bf",
-          "url": "https://github.com/kaappi/kaappi/commit/2a5206f1466fd44ee935d79cf1f368e590520736"
-        },
-        "date": 1783649370037,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.264765,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.735845,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.033958,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.524406,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.015367,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.380857,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.515037,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068818,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.682558,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.003737,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.950278,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.163945,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.456741,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.856504,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044681,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043956,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b27e7c785f50c2297a7fa9708ea98fd3c2b05c6",
+          "message": "Split bytecode_file.zig along the serialize/deserialize seam (#1593)\n\nbytecode_file.zig had grown to 1594 lines, past the 1500-line policy.\nA serialization module has a natural architectural seam — the write half\nand the read half share only a format contract — so split there rather\nthan by function count.\n\n- bytecode_file.zig (684): hub owning the shared format contract (magic,\n  version, constant tags, size limits), BytecodeError, and the cache-key\n  hashing both halves agree on; re-exports the read/write API so external\n  callers still see a single `bytecode_file` module. Round-trip tests\n  stay here since they exercise both halves.\n- bytecode_file_write.zig (389): serializer (Writer, writeConstant,\n  function collection, writeFileWithTopLevel/writeFileWithBundle).\n- bytecode_file_read.zig (594): deserializer (Reader, readConstant,\n  bytecode validation, deserializeFromBuffer, readHeaderInfo,\n  DeserializeResult/HeaderInfo).\n\nPublic API is unchanged: every externally-used symbol is re-exported\nfrom the hub, so main.zig, cache.zig, kaappi_lsp.zig, and the tests_*\nfiles keep resolving through bytecode_file.X with no edits. The read and\nwrite halves import the shared contract via `const bf = @import(...)`,\nthe same mutual-import pattern the VM and compiler splits use.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T09:47:48Z",
+          "tree_id": "72d990cd603eeb6dbee79caa7d0a8b2f05c2ccdf",
+          "url": "https://github.com/kaappi/kaappi/commit/7b27e7c785f50c2297a7fa9708ea98fd3c2b05c6"
+        },
+        "date": 1784197170287,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332687,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.510782,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.012222,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.602714,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006473,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.056071,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514655,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069432,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.463425,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986161,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592271,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.443611,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.810779,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.83329,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045084,
             "unit": "seconds"
           }
         ]
