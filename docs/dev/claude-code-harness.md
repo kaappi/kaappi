@@ -127,6 +127,7 @@ These exact patterns are in the `allow` array:
 | `Bash(podman *)` | Container operations |
 | `Bash(gh release *)` | GitHub releases |
 | `Bash(gh pr *)` | GitHub pull requests |
+| `Read(~/.ssh/**)` | ssh config/host lookup for remote test machines (e.g. the win11 VM) |
 
 ### Deny (blocked)
 
@@ -136,7 +137,6 @@ These exact patterns are in the `allow` array:
 | `Bash(sudo *)` | No privilege escalation |
 | `Bash(git push*--force*)` | Remote history protection |
 | `Read(.env*)` | Secrets protection |
-| `Read(~/.ssh/**)` | SSH key protection |
 | `Write(.git/**)` | Repository integrity |
 
 ### Ask (empty)
