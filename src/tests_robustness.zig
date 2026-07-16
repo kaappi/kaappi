@@ -613,3 +613,80 @@ test "vm: instruction_limit does not trip a short program" {
     const result = try vm.eval("(let loop ((n 0) (acc 0)) (if (= n 100) acc (loop (+ n 1) (+ acc n))))");
     try std.testing.expectEqual(@as(i64, 4950), types.toFixnum(result));
 }
+
+// ---------------------------------------------------------------------------
+// Profile reporting vs. generational GC
+// ---------------------------------------------------------------------------
+// Functions that survive two minor collections are promoted from gc.objects
+// to gc.old_objects (sweepYoung). The profile walkers must traverse both
+// lists, or every long-lived (i.e. hottest) function silently vanishes from
+// the report — a long-running program printed no profile at all.
+
+const reporting = @import("reporting.zig");
+const file_utils = @import("file_utils.zig");
+
+fn findFunctionOnList(head: ?*types.Object, name: []const u8) ?*types.Function {
+    var obj = head;
+    while (obj) |o| {
+        if (o.tag == .function) {
+            const func = o.as(types.Function);
+            if (func.name) |n| {
+                if (std.mem.eql(u8, n, name)) return func;
+            }
+        }
+        obj = o.next;
+    }
+    return null;
+}
+
+/// Promote long-lived objects: full collections (every 8th cycle) don't
+/// promote, so 4 collects guarantee at least 3 minor ones — two survivals
+/// is the promotion threshold.
+fn forcePromotion(gc: *memory.GC) void {
+    var i: usize = 0;
+    while (i < 4) : (i += 1) gc.collect();
+}
+
+test "profile: resetProfileCounters reaches functions promoted to the old generation" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    ctx.vm.profile_mode = true;
+    _ = try ctx.vm.eval("(define (profile-oldgen-fn x) (+ x 1))");
+    _ = try ctx.vm.eval("(profile-oldgen-fn 41)");
+
+    forcePromotion(&ctx.gc);
+
+    // Setup validity: the function must really be on the old list with live
+    // counters, or this test cannot distinguish a young-list-only walk.
+    const func = findFunctionOnList(ctx.gc.old_objects, "profile-oldgen-fn") orelse
+        return error.TestSetupFunctionNotPromoted;
+    try std.testing.expect(func.profile_calls > 0);
+
+    reporting.resetProfileCounters(&ctx.gc);
+    try std.testing.expectEqual(@as(u64, 0), func.profile_calls);
+}
+
+test "profile: JSON report includes functions promoted to the old generation" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    ctx.vm.profile_mode = true;
+    _ = try ctx.vm.eval("(define (profile-oldgen-json-fn x) (* x 2))");
+    _ = try ctx.vm.eval("(profile-oldgen-json-fn 21)");
+
+    forcePromotion(&ctx.gc);
+
+    if (findFunctionOnList(ctx.gc.old_objects, "profile-oldgen-json-fn") == null)
+        return error.TestSetupFunctionNotPromoted;
+
+    const path = "/tmp/kaappi-test-profile-oldgen.json";
+    reporting.writeProfileJson(&ctx.gc, path);
+    defer _ = std.posix.system.unlink(path);
+
+    const contents = try file_utils.readWholeFile(std.testing.allocator, path, 1 << 20);
+    defer std.testing.allocator.free(contents);
+    try std.testing.expect(std.mem.indexOf(u8, contents, "profile-oldgen-json-fn") != null);
+}
