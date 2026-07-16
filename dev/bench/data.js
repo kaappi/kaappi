@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784176829302,
+  "lastUpdate": 1784182931432,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "547f7cab4f69854ddc6088a006a6f838edb43c16",
-          "message": "Fix spurious wind unwind on return into native-callback frames (#1377) (#1380)\n\nSince #1374, dynamic-wind is a Scheme closure whose bytecode manages\nthe wind stack via %push-wind/%pop-wind. When a callback is invoked\nfrom native code through callWithArgs — an SRFI-18 thread thunk, a\nmember/sort predicate — its frame is pushed with returns_to_native\nset, and a tail call to dynamic-wind reuses that frame. The Return\nopcode's caller-wind cleanup then mistook the frame's own live wind\nrecord (pushed after frame entry, so above saved_wind_count) for an\norphaned native wind: as soon as the wound thunk returned, it ran the\nafter-thunk and popped the record, so dynamic-wind's closing\n%pop-wind underflowed. In a thread that surfaced as \"uncaught\nexception in thread\"; the same failure was reproducible without\nthreads from any callWithArgs-driven predicate.\n\nDelete the cleanup. A callee's return never exits the caller's\ndynamic extent, so unwinding the caller's winds at that point is\nnever correct. The cleanup existed for winds pushed by the pre-#1374\nnative dynamic-wind, which could be orphaned when a continuation\nrestore discarded the native's Zig frame; since #1374 every wind is\npushed and popped by bytecode, and unbalanced frames are still\nunwound at the frame's own return, the scope-root return, and the\ncallReentrant/execute error paths.\n\nCI missed this because no test exercised dynamic-wind inside\nmake-thread, and the existing callback tests either called\ndynamic-wind in non-tail position (own frame, returns_to_native\nfalse) or ended their thunks in native calls, which return through\nthe tail-call native fast path and never execute a Return opcode.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T05:50:17+05:30",
-          "tree_id": "29d8ac2328427cd2bf1cdca4bd304fef44bbf88e",
-          "url": "https://github.com/kaappi/kaappi/commit/547f7cab4f69854ddc6088a006a6f838edb43c16"
-        },
-        "date": 1783644647215,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.584114,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.230091,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.036535,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.53708,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01376,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.319761,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.480229,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06654,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.320268,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.909211,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.230125,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.966101,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.269604,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.98044,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040799,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043639,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2da66933fcb823194f88b908e8c2117bf17e58e6",
+          "message": "LLVM backend: split llvm_emit.zig into inline + let sub-modules (#1583)\n\nllvm_emit.zig had grown to 1841 lines, past the 1500-line file-size\npolicy. Extract two self-contained subsystems along natural seams,\nfollowing the existing llvm_emit_<theme>.zig convention (forms, lambda,\ntailcall):\n\n- llvm_emit_inline.zig — inline fixnum fast-path emission (#1493) for\n  + - * < = null?, plus its private nanbox/ArithOp/CompareKind helpers\n  and nodeMayAllocate. These helper types were used only by this cluster.\n- llvm_emit_let.zig — native let / let* emission (emitLet and its\n  fallback/abandon paths) plus the nameInList helper.\n\nBoth use the direct-call dispatch pattern (like llvm_emit_forms.zig), so\nllvm_emit.zig only gains two imports and four call-site rewrites — no\ndelegation wrappers. Every moved function's remaining dependencies are\nstable LLVMEmitter methods or already-pub lambda.* helpers, so this is a\npure code move: no behavior change. llvm_emit.zig is now 1378 lines.\n\nVerified: zig build + full unit suite (tests_native/tests_ir) green,\nzig fmt clean, and a native-compiled program exercising every moved path\nproduces output identical to the interpreter.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T11:21:18+05:30",
+          "tree_id": "a72e4bc972af70cafdfa2883e1c8825dd60b298c",
+          "url": "https://github.com/kaappi/kaappi/commit/2da66933fcb823194f88b908e8c2117bf17e58e6"
+        },
+        "date": 1784182930042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.041254,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.506978,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.927081,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.442391,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006782,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052834,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510296,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068208,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.220989,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.982038,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514444,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.473119,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731683,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.851319,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044577,
             "unit": "seconds"
           }
         ]
