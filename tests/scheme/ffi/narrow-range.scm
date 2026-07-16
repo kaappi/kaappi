@@ -6,7 +6,9 @@
 
 (test-begin "narrow-range")
 
-(define libm (ffi-open "libm"))
+;; libm on POSIX; on Windows the CRT (ucrtbase.dll) hosts abs — there is
+;; no libm.dll.
+(define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
 (define libc (ffi-open #f))
 
 ;; ---- uint8 [0, 255] ----
@@ -55,7 +57,13 @@
 (test-error "char reject: 300" (abs-char 300))
 
 ;; ---- uint32 [0, 4294967295] ----
-(define c-htonl (ffi-fn libc "htonl" '(uint32) 'uint32))
+;; Any uint32 -> uint32 function does here: htonl from the process's libc
+;; on POSIX; on Windows htonl lives in ws2_32.dll (not loaded), so use the
+;; CRT's byte-swap equivalent.
+(define c-htonl
+  (cond-expand
+    (windows (ffi-fn libc "_byteswap_ulong" '(uint32) 'uint32))
+    (else (ffi-fn libc "htonl" '(uint32) 'uint32))))
 (test-assert "uint32 valid: 0" (number? (c-htonl 0)))
 (test-assert "uint32 valid: 2^31" (number? (c-htonl 2147483648)))
 (test-assert "uint32 valid: 2^32-1" (number? (c-htonl 4294967295)))
