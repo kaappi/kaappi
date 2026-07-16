@@ -220,6 +220,19 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             while (pit.next()) |v| {
                 if (isYoungPointer(gc, v.*)) return true;
             }
+            // Keeps this arm in lockstep with markFiberState (the
+            // waiting_on/rv_demand_on pairing convention). For fibers the
+            // whole remembered-set path is belt-and-braces, not
+            // load-bearing: every scheduler-resident fiber is marked as an
+            // unconditional root each collection (markVMRoots ->
+            // FiberScheduler.markRoots), minor collections included, so
+            // markFiberState re-traces owned_mutexes every cycle whether or
+            // not this prune keeps the fiber. Checked here anyway so the
+            // safety of pruning never silently starts depending on that
+            // root-marking invariant.
+            for (fiber.owned_mutexes.items) |m_val| {
+                if (isYoungPointer(gc, m_val)) return true;
+            }
         },
         .channel => {
             const ch = obj.as(types.Channel);
