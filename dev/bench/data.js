@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784176043667,
+  "lastUpdate": 1784176829302,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a4e2779f432c027081b8aab038254de90b1e8b55",
-          "message": "Fix native backend calls to bootstrapped procedures (#1376) (#1379)\n\nSince #1374 rewrote map/for-each/dynamic-wind/force as Scheme closures\ninstalled at VM init, natively compiled programs reach them as bytecode\nthrough kaappi_call_scheme — and the bytecode then has to invoke the\nnatively compiled callback, a NativeClosure, from inside the dispatch\nloop. Every dispatch site (callValue, callThunk, callHandler, and the\ntail_call/tail_apply/tail_call_global/tail_call_cc opcodes) only knew\nClosure/NativeFn/Continuation/FfiFunction/Parameter, so the first\ncallback invocation died with NotAProcedure (\"runtime error in call\").\nPre-#1374 this never mattered: NativeClosures were only ever called by\nthe Zig primitives via callWithArgs, the one place that handled them.\n\nAdd a native_closure arm to each of those sites, routed through a new\nvm_calls.callNativeClosure helper. The helper copies the arguments into\na stack buffer before the call: emitted native functions read their\nparameters lazily from the args pointer, and re-entering the VM can\ngrow (realloc) vm.registers, so a pointer into the register file could\ndangle. The originals stay reachable through the caller's storage, so\nthe copies need no GC roots (verified with KAAPPI_GC_THRESHOLD=1).\n\nAlso report vm.last_error_detail plus the Zig error name in the\nkaappi_call_scheme / callPrimitive / kaappi_eval exit paths, instead of\na bare \"runtime error in call\" — uncaught Scheme exceptions are\nformatted via noteUncaughtException first, so e.g. (error \"boom\" 1)\ninside a callback now prints \"runtime error in call: boom 1\n(ExceptionRaised)\".\n\nRegression tests: unit tests drive a hand-built NativeClosure through\neach dispatch path (call, tail_call, tail_apply, tail_call_global,\ncall/cc receiver, with-exception-handler thunk/handler, dynamic-wind\nthunks, upvalues, catchable arity errors), and\ntests/scheme/compile/native-bootstrap-callbacks-1376.sh compiles and\nruns the whole bootstrapped family natively, including the error-detail\noutput.\n\nFixes #1376.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T05:49:56+05:30",
-          "tree_id": "87ce17e8fe19d2f891307efe4e5c199201d99549",
-          "url": "https://github.com/kaappi/kaappi/commit/a4e2779f432c027081b8aab038254de90b1e8b55"
-        },
-        "date": 1783644574626,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.008924,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.625093,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.988717,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.641203,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012987,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338582,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510757,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069739,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.533028,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.283344,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.750137,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.038819,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.57487,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.693962,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04551,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044021,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff49cc654681966ec7cc9b6ddbc706bc34b554f0",
+          "message": "Add /do-gate-benchmark skill for KEP dual-machine benchmark campaigns (#1582)\n\nCodifies the operational procedure for running the KEP-0002 Phase 7\ngate-campaign benchmark (benchmarks/gate/) on a Linux x86_64 reference\nmachine via DigitalOcean droplet -- generalized from collecting kaappi#1474's\nLinux dataset (PR #1580) so a future KEP acceptance gate, or a KEP-0003\nrevisit-trigger rerun, doesn't have to rediscover the same lessons:\n\n- This account's dedicated CPU-Optimized droplet line is tier-restricted\n  above 4 vCPUs even though larger sizes show as available; go straight\n  for the Premium \"Basic\" tier instead of wasting a create/delete cycle.\n- Verify actual core topology with lscpu rather than trusting vCPU count.\n- Three bash-guard string-match footguns hit repeatedly during provisioning\n  (sudo, pkill -f self-matching, rm -rf on non-root paths) and their\n  workarounds.\n- Always run a direct single-iteration timing probe of the heaviest\n  workload before committing to a multi-hour statistical run -- a driver-\n  level pilot alone hides the real bottleneck, and the same benchmark can\n  run 5-6x slower per-thread on a cloud x86 vCPU than the Apple Silicon\n  reference for some interpreted kernels.\n- How to split a run around a per-machine workload cap (mirroring the\n  protocol's existing IP-MATMUL precedent) and merge the resulting CSVs.\n\nAlso adds the skill to CLAUDE.md's skills table and a matching section in\ndocs/dev/claude-code-harness.md, per that file's own \"when changing the\nharness, update both\" instruction.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T09:33:39+05:30",
+          "tree_id": "84ae4afe633f4564ad84595b4efc235f6a70aa6d",
+          "url": "https://github.com/kaappi/kaappi/commit/ff49cc654681966ec7cc9b6ddbc706bc34b554f0"
+        },
+        "date": 1784176827761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.430377,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.879369,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.894087,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.496636,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006441,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053833,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507405,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070071,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.400467,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.972533,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.565384,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.427432,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.830795,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.574775,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043639,
             "unit": "seconds"
           }
         ]
