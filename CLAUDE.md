@@ -554,7 +554,7 @@ pre-commit hook in `.githooks/pre-commit`.
 
 - **allow**: `zig build/fmt/run`, `bash tests/scheme/*`, safe git ops, `find/grep/ls`
 - **ask**: `git push`, `podman`, `gh release/pr`
-- **deny**: `rm -rf /`, `sudo`, `git push --force`, `.env` reads, `.ssh` reads, `.git` writes
+- **deny**: `rm -rf /`, `sudo`, `git push --force`, `.env` reads, `.git` writes
 
 ### Path-scoped rules (`.claude/rules/`)
 
