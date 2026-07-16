@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
 const bytecode_file = @import("bytecode_file.zig");
@@ -268,18 +269,16 @@ fn evalNormalized(input: []const u8, optimize: bool, gpa: std.mem.Allocator) Nor
     // Redirect fd 1 to /dev/null for the duration: generated programs can
     // call (display ...), and the test binary's stdout is the build-runner
     // IPC pipe — a stray write there deadlocks the run.
-    const c = std.posix.system;
-    const saved_stdout = c.dup(1);
+    const saved_stdout = platform.dup(1);
     if (saved_stdout < 0) return .harness_unavailable;
-    defer _ = c.close(saved_stdout);
-    const devnull = c.open("/dev/null", .{ .ACCMODE = .WRONLY });
-    if (devnull < 0) return .harness_unavailable;
-    if (c.dup2(devnull, 1) < 0) {
-        _ = c.close(devnull);
+    defer _ = platform.close(saved_stdout);
+    const devnull = platform.openNullSink() catch return .harness_unavailable;
+    if (platform.dup2(devnull, 1) < 0) {
+        _ = platform.close(devnull);
         return .harness_unavailable;
     }
-    _ = c.close(devnull);
-    defer _ = c.dup2(saved_stdout, 1);
+    _ = platform.close(devnull);
+    defer _ = platform.dup2(saved_stdout, 1);
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

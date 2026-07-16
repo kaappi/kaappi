@@ -39,6 +39,7 @@
 //! never dangle at panic time.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
@@ -108,9 +109,9 @@ pub fn reset() void {
 fn writeStderr(bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
-        const rc = std.posix.system.write(2, bytes.ptr + total, bytes.len - total);
+        const rc = platform.write(2, bytes.ptr + total, bytes.len - total);
         if (rc < 0) {
-            if (std.posix.errno(rc) == .INTR) continue;
+            if (platform.errno(rc) == .INTR) continue;
             return;
         }
         if (rc == 0) return;
@@ -170,7 +171,7 @@ pub fn PanicHandler(comptime binary_name: []const u8) type {
 /// normal dispatch.
 pub fn maybePanicTest(args: std.process.Args) void {
     const flag = "--panic-test";
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     _ = it.skip(); // argv[0]
     while (it.next()) |arg| {
         if (!std.mem.startsWith(u8, arg, flag)) continue;

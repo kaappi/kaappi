@@ -1,0 +1,128 @@
+# Windows port (aarch64)
+
+Kaappi builds and runs on Windows 11 ARM64. The port keeps the runtime's
+integer-fd POSIX-shaped I/O layer intact by mapping it onto the C
+runtime's low-level io functions, and concentrates every syscall-level
+platform difference in one file.
+
+```bash
+zig build -Dtarget=aarch64-windows        # kaappi.exe, thottam.exe, kaappi-lsp.exe
+zig build test -Dtarget=aarch64-windows   # compiles unit-tests.exe (run it on Windows)
+```
+
+Builds use Zig's bundled mingw-w64, so no Windows SDK or MSVC install is
+needed on the build machine.
+
+## Architecture: src/platform.zig
+
+The runtime is written against integer file descriptors with POSIX
+`read`/`write`/`open`/`close` semantics. `src/platform.zig` is the single
+shim behind that surface:
+
+* **POSIX targets** forward to `std.posix` / `std.c` — the exact calls the
+  code made before the port; zero behavior change.
+* **Windows** maps the same calls onto the CRT's low-level io layer
+  (`_open`/`_read`/`_write`/`_close`: integer fds with 0/1/2 preopened),
+  with wide-char path entry points (`_wopen`, `_wstat64`, …) so UTF-8
+  paths survive regardless of the ANSI code page, plus a handful of Win32
+  calls for what the CRT lacks: `QueryPerformanceCounter` (monotonic
+  clock), console UTF-8 + VT mode, `GetModuleFileNameW` (self-exe path),
+  `CreateProcessW` (process spawning with correct argument quoting),
+  `LoadLibraryW`/`GetProcAddress` (FFI), `FindFirstFileW` (directory
+  iteration), and an auto-reset event for the reactor.
+
+Files are always opened `O_BINARY` — the CRT's default text mode would
+rewrite `\n`/`\r\n` and treat `^Z` as EOF, which R7RS ports must never
+see. Paths are normalized to `/` at the boundaries that produce them
+(argv script path, `GetModuleFileNameW`, `getcwd`, `_wfullpath`): Win32
+accepts forward slashes everywhere the runtime passes paths, and every
+internal path split/join is written for `/`.
+
+## Deliberate degradations
+
+Both mirror the WASI port's established shape:
+
+* **No non-blocking ports.** CRT fds have no `O_NONBLOCK`, so
+  `maybeSetNonblocking` (primitives_io.zig) is a comptime no-op — the
+  permanent analogue of the WASI probe-fail path. No read ever EAGAINs,
+  nothing registers an fd with the reactor, and fiber I/O degrades to
+  single-fiber blocking exactly as on a WASI host without
+  `fd_fdstat_set_flags`.
+* **Timer/notify-only reactor.** `WindowsEventBackend` (reactor.zig) is
+  one auto-reset Win32 event: `WaitForSingleObject` bounded by the
+  nearest timer deadline serves `thread-sleep!` and timed channel/mutex
+  waits, and `SetEvent` is the KEP-0002 cross-thread notify ring. The
+  fd-`arm` path returns an error — unreachable by construction since no
+  port ever goes non-blocking. Timer granularity is the OS scheduler's
+  (~15 ms), coarser than kqueue/epoll.
+
+Fibers, channels (including capacity-0 rendezvous), SRFI-18 OS threads,
+and cross-thread SharedChannel promotion all work on top of this.
+
+* **POSIX-only SRFI-170 raises.** uid/gid, `user-info`/`group-info`,
+  symlinks, hard links, FIFOs, `set-file-mode`, `umask`, `nice`,
+  `truncate-file`, and `set-file-times` raise a catchable file error
+  ("… not supported on Windows") — the names stay bound so portable code
+  can probe with `guard`. `file-info` works; inode, blksize, and blocks
+  report 0 (Windows has no such concepts at the CRT layer).
+* **`long` FFI type is 32-bit** on Windows (LLP64), faithfully matching
+  C. `normalizeType` (ffi.zig) routes it through the 32-bit `.int`
+  marshaling class there; `int64`/`uint64`/`size_t` use the 64-bit
+  carrier (`i64`) everywhere.
+* **thottam** builds and runs (`list`, `verify`, `--help`); `install`/
+  `remove`/`update` print a clear unsupported error — the install
+  pipeline shells out to POSIX userland (`cp -R`, `find`, `sh -c`) that
+  needs reimplementing on the shim first.
+* **REPL** uses a plain prompt + line reader (linenoise is termios-only):
+  the full REPL loop — debug commands, multi-line input, themes — works,
+  without history/completion/editing.
+
+## cond-expand / (features)
+
+Windows builds expose the `windows` feature identifier and omit `posix`
+(exactly one OS-class identifier per build — `types.platform_features`).
+Scheme tests that exercise POSIX-only functionality gate themselves:
+
+```scheme
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+```
+
+## Testing on a Windows machine
+
+There is no Windows CI runner yet; the port is verified against a real
+Windows 11 ARM64 machine (e.g. a UTM VM with ssh). The unit-test binary
+compiles with the same target flag and runs on the box:
+
+```bash
+zig build test -Dtarget=aarch64-windows       # compiles; "unable to spawn" is expected
+scp .zig-cache/o/*/unit-tests.exe win11:...   # run it there
+```
+
+Two environment notes for the suite:
+
+* Create `C:\tmp` first — the Scheme/Zig tests write scratch files under
+  `/tmp/...`, which Windows resolves to `\tmp` on the current drive.
+* Run from a writable directory; a few tests create files in the CWD.
+
+Verified on Windows 11 ARM64 (build 26100): full unit suite (1037 pass,
+14 skipped — the skips are POSIX-permission/FIFO/uid tests), the complete
+R7RS suite, and every `tests/scheme/{smoke,compliance,continuations,
+hygiene,srfi,audit}` file. The fd-readiness unit suites
+(`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`) are
+excluded on Windows by `vm_tests.zig` — they test POSIX pipe readiness
+that cannot exist under the no-non-blocking design.
+
+## Known gaps / follow-ups
+
+* Fiber I/O suspension needs a real Windows readiness backend (IOCP or
+  overlapped I/O) to lift the blocking-port degradation.
+* thottam package installation (replace the POSIX userland calls with
+  shim-based recursive copy/remove/walk; git is already spawned via
+  CreateProcessW and works when Git for Windows is on PATH).
+* `kaappi compile` links with `zig cc` when Zig is installed on the box;
+  untested beyond the doctor's smoke-link probe.
+* Console reads are byte-oriented ANSI/UTF-8; typing non-ASCII at the
+  plain REPL depends on the console's UTF-8 code page (set at startup).
+* Long paths (> 260 chars) need the system long-path opt-in.

@@ -6,6 +6,7 @@
 // but register()'s Debug-build staleness assertion reads the status of
 // every already-listed waiter (Phase 3).
 const std = @import("std");
+const platform = @import("platform.zig");
 const reactor_mod = @import("reactor.zig");
 const fiber_mod = @import("fiber.zig");
 const Reactor = reactor_mod.Reactor;
@@ -18,7 +19,7 @@ fn makePipe() [2]std.c.fd_t {
 }
 
 fn closeFd(fd: std.c.fd_t) void {
-    _ = std.posix.system.close(fd);
+    _ = platform.close(fd);
 }
 
 fn newReady() std.ArrayList(*Fiber) {
@@ -30,7 +31,7 @@ fn newReady() std.ArrayList(*Fiber) {
 /// unrelated assertion mismatch or poll() timeout.
 fn writeByte(fd: std.c.fd_t, byte: u8) void {
     const buf = [1]u8{byte};
-    const n = std.posix.system.write(fd, &buf, 1);
+    const n = platform.write(fd, &buf, 1);
     std.testing.expectEqual(@as(isize, 1), n) catch unreachable;
 }
 
@@ -440,9 +441,9 @@ fn fillSendBuffer(fd: std.c.fd_t) void {
     var buf: [4096]u8 = [_]u8{0} ** 4096;
     var iterations: usize = 0;
     while (iterations < 4096) : (iterations += 1) {
-        const n = std.posix.system.write(fd, &buf, buf.len);
+        const n = platform.write(fd, &buf, buf.len);
         if (n < 0) {
-            std.testing.expectEqual(std.posix.E.AGAIN, std.posix.errno(n)) catch unreachable;
+            std.testing.expectEqual(std.posix.E.AGAIN, platform.errno(n)) catch unreachable;
             return;
         }
     }
@@ -454,9 +455,9 @@ fn fillSendBuffer(fd: std.c.fd_t) void {
 fn drainSocket(fd: std.c.fd_t) void {
     var buf: [4096]u8 = undefined;
     while (true) {
-        const n = std.posix.system.read(fd, &buf, buf.len);
+        const n = platform.read(fd, &buf, buf.len);
         if (n < 0) {
-            std.testing.expectEqual(std.posix.E.AGAIN, std.posix.errno(n)) catch unreachable;
+            std.testing.expectEqual(std.posix.E.AGAIN, platform.errno(n)) catch unreachable;
             return;
         }
         if (n == 0) return;

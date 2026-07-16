@@ -1,5 +1,10 @@
 (import (scheme base) (scheme write) (srfi 170))
 
+;; Windows reports no block geometry (documented degradation) — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (define pass 0)
 (define fail 0)
 

@@ -5,6 +5,7 @@
 // parkOnReactor's ready-list handling against a real fd, and the
 // live-window bound on per-fiber save/restore storage.
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -18,12 +19,12 @@ fn makePipe() [2]std.c.fd_t {
 }
 
 fn closeFd(fd: std.c.fd_t) void {
-    _ = std.posix.system.close(fd);
+    _ = platform.close(fd);
 }
 
 fn writeByte(fd: std.c.fd_t, byte: u8) void {
     const buf = [1]u8{byte};
-    const n = std.posix.system.write(fd, &buf, 1);
+    const n = platform.write(fd, &buf, 1);
     std.testing.expectEqual(@as(isize, 1), n) catch unreachable;
 }
 

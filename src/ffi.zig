@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const VM = @import("vm.zig").VM;
@@ -95,13 +96,13 @@ fn toUnsignedArgOpt(v: Value) ?u64 {
     return @intCast(fixnum);
 }
 
-fn toLongArg(v: Value, declared: FfiType) error{TypeError}!c_long {
+fn toLongArg(v: Value, declared: FfiType) error{TypeError}!i64 {
     if (declared == .uint64 or declared == .size_type) {
         const unsigned = toUnsignedArgOpt(v) orelse return error.TypeError;
-        const narrowed = std.math.cast(c_ulong, unsigned) orelse return error.TypeError;
+        const narrowed = std.math.cast(u64, unsigned) orelse return error.TypeError;
         return @bitCast(narrowed);
     }
-    return toCheckedInt(c_long, v);
+    return toCheckedInt(i64, v);
 }
 
 /// C-truthiness of a value bound to a `bool` FFI parameter. `validateArg`
@@ -130,13 +131,13 @@ fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
 const MAX_FIXNUM: i64 = 0x7FFF_FFFF_FFFF; // 2^47 - 1
 const MIN_FIXNUM: i64 = -0x8000_0000_0000; // -2^47
 
-fn marshalLongReturn(result: c_long, gc: *memory.GC) !Value {
+fn marshalLongReturn(result: i64, gc: *memory.GC) !Value {
     if (result >= MIN_FIXNUM and result <= MAX_FIXNUM)
         return types.makeFixnum(@intCast(result));
     return gc.allocBignumFromI64(result) catch return error.OutOfMemory;
 }
 
-fn marshalLongOrUlong(result: c_long, orig_type: FfiType, gc: *memory.GC) !Value {
+fn marshalLongOrUlong(result: i64, orig_type: FfiType, gc: *memory.GC) !Value {
     if (orig_type == .uint32 or orig_type == .uint64 or orig_type == .size_type) {
         const unsigned: u64 = @bitCast(@as(i64, result));
         if (orig_type == .uint32) {
@@ -157,7 +158,7 @@ fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Valu
         return types.makeFlonum(result);
     } else if (T == c_int) {
         return types.makeFixnum(@intCast(result));
-    } else if (T == c_long) {
+    } else if (T == i64) {
         return marshalLongOrUlong(result, rt, gc);
     } else if (T == void) {
         return types.VOID;
@@ -212,6 +213,12 @@ fn normalizeType(t: FfiType) FfiType {
     return switch (t) {
         .int8, .int16, .int32, .char_type, .bool_type, .uint8, .uint16 => .int,
         .int64, .uint32, .uint64, .size_type => .long,
+        // LLP64 (Windows): C `long` is 32-bit — route it through the .int
+        // (c_int) class so arguments are range-checked to 32 bits and a
+        // returned value reads the correct register half. Everywhere else
+        // C long is 64-bit and stays in the .long class, whose carrier
+        // type is i64 (== c_long on LP64).
+        .long => if (platform.is_windows) .int else .long,
         else => t,
     };
 }
@@ -335,7 +342,7 @@ const canonical_types = [_]FfiType{ .int, .long, .double, .float, .string, .poin
 fn CParamType(comptime t: FfiType) type {
     return switch (t) {
         .int => c_int,
-        .long => c_long,
+        .long => i64,
         .double => f64,
         .float => f32,
         .string => [*:0]const u8,
@@ -347,7 +354,7 @@ fn CParamType(comptime t: FfiType) type {
 fn CReturnType(comptime t: FfiType) type {
     return switch (t) {
         .int => c_int,
-        .long => c_long,
+        .long => i64,
         .double => f64,
         .float => f32,
         .string => ?[*:0]const u8,
@@ -514,13 +521,13 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     var bufs: [4][4096]u8 = undefined;
 
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {
-        const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
+        const f: *const fn (?*anyopaque, i64, i64, ?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
         f(try marshalArg(.pointer, args[0], &bufs[0], ffi_fn.param_types[0]), try marshalArg(.long, args[1], &bufs[1], ffi_fn.param_types[1]), try marshalArg(.long, args[2], &bufs[2], ffi_fn.param_types[2]), try marshalArg(.pointer, args[3], &bufs[3], ffi_fn.param_types[3]));
         return types.VOID;
     }
 
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .int) {
-        const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const f: *const fn (?*anyopaque, i64, i64, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try marshalArg(.pointer, args[0], &bufs[0], ffi_fn.param_types[0]), try marshalArg(.long, args[1], &bufs[1], ffi_fn.param_types[1]), try marshalArg(.long, args[2], &bufs[2], ffi_fn.param_types[2]), try marshalArg(.pointer, args[3], &bufs[3], ffi_fn.param_types[3]));
         return marshalRetValue(.int, result, ffi_fn.return_type, gc);
     }
@@ -532,13 +539,13 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     }
 
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .long and rt == .pointer) {
-        const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
+        const f: *const fn (?*anyopaque, ?*anyopaque, i64, i64) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try marshalArg(.pointer, args[0], &bufs[0], ffi_fn.param_types[0]), try marshalArg(.pointer, args[1], &bufs[1], ffi_fn.param_types[1]), try marshalArg(.long, args[2], &bufs[2], ffi_fn.param_types[2]), try marshalArg(.long, args[3], &bufs[3], ffi_fn.param_types[3]));
         return marshalRetValue(.pointer, result, ffi_fn.return_type, gc);
     }
 
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .long and rt == .int) {
-        const f: *const fn (?*anyopaque, c_long, c_long, c_long) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const f: *const fn (?*anyopaque, i64, i64, i64) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try marshalArg(.pointer, args[0], &bufs[0], ffi_fn.param_types[0]), try marshalArg(.long, args[1], &bufs[1], ffi_fn.param_types[1]), try marshalArg(.long, args[2], &bufs[2], ffi_fn.param_types[2]), try marshalArg(.long, args[3], &bufs[3], ffi_fn.param_types[3]));
         return marshalRetValue(.int, result, ffi_fn.return_type, gc);
     }
@@ -603,7 +610,7 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     }
 
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .int and p4 == .pointer and rt == .int) {
-        const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const f: *const fn (?*anyopaque, ?*anyopaque, i64, c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try marshalArg(.pointer, args[0], &bufs[0], ffi_fn.param_types[0]), try marshalArg(.pointer, args[1], &bufs[1], ffi_fn.param_types[1]), try marshalArg(.long, args[2], &bufs[2], ffi_fn.param_types[2]), try marshalArg(.int, args[3], &bufs[3], ffi_fn.param_types[3]), try marshalArg(.pointer, args[4], &bufs[4], ffi_fn.param_types[4]));
         return marshalRetValue(.int, result, ffi_fn.return_type, gc);
     }
@@ -714,7 +721,7 @@ test "marshalLongReturn: large positive 64-bit value" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const large: c_long = std.math.maxInt(i64);
+    const large: i64 = std.math.maxInt(i64);
     const val = try marshalLongReturn(large, &gc);
     try std.testing.expect(types.isBignum(val));
     const bn = types.toBignum(val);
@@ -726,7 +733,7 @@ test "marshalLongReturn: large negative 64-bit value" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const large: c_long = std.math.minInt(i64);
+    const large: i64 = std.math.minInt(i64);
     const val = try marshalLongReturn(large, &gc);
     try std.testing.expect(types.isBignum(val));
     const bn = types.toBignum(val);
@@ -965,8 +972,8 @@ test "toUnsignedArgOpt: rejects negative and multi-limb bignums" {
 
 test "toLongArg: signed types use signed path" {
     const v = types.makeFixnum(42);
-    try std.testing.expectEqual(@as(c_long, 42), try toLongArg(v, .long));
-    try std.testing.expectEqual(@as(c_long, 42), try toLongArg(v, .int64));
+    try std.testing.expectEqual(@as(i64, 42), try toLongArg(v, .long));
+    try std.testing.expectEqual(@as(i64, 42), try toLongArg(v, .int64));
 }
 
 test "toLongArg: uint64 accepts values >= 2^63" {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
@@ -36,9 +37,7 @@ const build_options = @import("build_options");
 const GC_THRESHOLD: usize = build_options.gc_initial_threshold;
 
 fn clockNs() u64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+    return platform.monotonicNs();
 }
 
 pub fn collect(gc: *GC) void {
@@ -951,13 +950,13 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 if (port.write_buf) |wb| {
                     var start = port.write_buf_start;
                     while (start < port.write_buf_len) {
-                        const rc = std.posix.system.write(port.fd, wb.ptr + start, port.write_buf_len - start);
-                        if (rc < 0 and std.posix.errno(rc) == .INTR) continue;
+                        const rc = platform.write(port.fd, wb.ptr + start, port.write_buf_len - start);
+                        if (rc < 0 and platform.errno(rc) == .INTR) continue;
                         if (rc <= 0) break;
                         start += @as(usize, @intCast(rc));
                     }
                 }
-                _ = std.posix.system.close(port.fd);
+                _ = platform.close(port.fd);
             }
             if (port.write_buf) |wb| {
                 gc.allocator.free(wb);
@@ -1052,7 +1051,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         .directory_object => {
             const d = obj.as(types.DirectoryObject);
             if (d.dir) |dir| {
-                _ = std.c.closedir(@ptrCast(@alignCast(dir)));
+                platform.dirIterDestroy(@ptrCast(@alignCast(dir)));
                 d.dir = null;
             }
             poisonAndDestroy(gc, types.DirectoryObject, d);

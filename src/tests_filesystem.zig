@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -27,7 +28,12 @@ test "file-info:inode returns positive fixnum" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    try std.testing.expectEqual(types.TRUE, try vm.eval("(> (file-info:inode (file-info \".\" #t)) 0)"));
+    // Windows has no inode concept; _wstat64 reports 0 (documented degradation).
+    const inode_expr = if (comptime platform.is_windows)
+        "(>= (file-info:inode (file-info \".\" #t)) 0)"
+    else
+        "(> (file-info:inode (file-info \".\" #t)) 0)";
+    try std.testing.expectEqual(types.TRUE, try vm.eval(inode_expr));
 }
 
 test "file-info:nlinks returns positive fixnum" {
@@ -74,7 +80,12 @@ test "file-info:blksize and :blocks" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    try std.testing.expectEqual(types.TRUE, try vm.eval("(> (file-info:blksize (file-info \".\" #t)) 0)"));
+    // Windows reports no block geometry (documented degradation: 0).
+    const blksize_expr = if (comptime platform.is_windows)
+        "(>= (file-info:blksize (file-info \".\" #t)) 0)"
+    else
+        "(> (file-info:blksize (file-info \".\" #t)) 0)";
+    try std.testing.expectEqual(types.TRUE, try vm.eval(blksize_expr));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(>= (file-info:blocks (file-info \".\" #t)) 0)"));
 }
 
@@ -93,7 +104,7 @@ test "file-info predicates on directory" {
 }
 
 test "file-info on regular file" {
-    _ = std.posix.openat(std.posix.AT.FDCWD, "build.zig", .{}, 0) catch return error.SkipZigTest;
+    if (!platform.pathExists("build.zig")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -124,6 +135,7 @@ test "current-directory returns non-empty string" {
 }
 
 test "umask returns non-negative integer" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -133,6 +145,7 @@ test "umask returns non-negative integer" {
 }
 
 test "user-uid and user-gid return fixnums" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -143,6 +156,7 @@ test "user-uid and user-gid return fixnums" {
 }
 
 test "user-effective-uid and user-effective-gid" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -153,6 +167,7 @@ test "user-effective-uid and user-effective-gid" {
 }
 
 test "user-supplementary-gids returns list" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -172,6 +187,7 @@ test "real-path resolves current directory" {
 }
 
 test "user-info for current user" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -186,6 +202,7 @@ test "user-info for current user" {
 }
 
 test "user-info by name" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -208,6 +225,7 @@ test "user-info? predicate" {
 }
 
 test "group-info for current group" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -252,7 +270,7 @@ test "open-directory read-directory close-directory cycle" {
 }
 
 test "terminal? on file port returns #f" {
-    _ = std.posix.openat(std.posix.AT.FDCWD, "build.zig", .{}, 0) catch return error.SkipZigTest;
+    if (!platform.pathExists("build.zig")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -343,6 +361,7 @@ test "rename-file works" {
 }
 
 test "set-file-mode changes permissions" {
+    if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

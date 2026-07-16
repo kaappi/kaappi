@@ -6,10 +6,11 @@
 //! releases.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const fuzz_gen = @import("fuzz_gen.zig");
 
 fn fail(msg: []const u8) noreturn {
-    _ = std.posix.system.write(2, msg.ptr, msg.len);
+    _ = platform.write(2, msg.ptr, msg.len);
     std.process.exit(2);
 }
 
@@ -59,9 +60,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // program would be diffed as if it were the real seed.
     var off: usize = 0;
     while (off < src.len) {
-        const rc = std.posix.system.write(1, src.ptr + off, src.len - off);
+        const rc = platform.write(1, src.ptr + off, src.len - off);
         if (rc < 0) {
-            if (std.posix.errno(rc) == .INTR) continue;
+            if (platform.errno(rc) == .INTR) continue;
             std.process.exit(1);
         }
         if (rc == 0) std.process.exit(1);

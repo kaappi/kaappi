@@ -1,6 +1,11 @@
 ;; Regression test for #1163: owner/unchanged and group/unchanged constants
 (import (scheme base) (scheme write) (scheme process-context) (srfi 64) (srfi 170))
 
+;; set-file-owner is POSIX-only — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (test-begin "srfi-170-chown-constants")
 
 ;; Constants must be exported and equal to -1 (POSIX "unchanged" sentinel)

@@ -26,6 +26,7 @@
 //! (WASM's entry point just runs a file).
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const types = @import("types.zig");
@@ -57,7 +58,7 @@ const max_builtin_srfis = 32;
 /// the process exit code; otherwise return null so normal CLI dispatch
 /// proceeds.
 pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     _ = it.skip(); // argv[0]
     const first = it.next() orelse return null;
     if (!std.mem.eql(u8, first, "features")) return null;

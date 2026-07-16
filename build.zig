@@ -82,12 +82,15 @@ pub fn build(b: *std.Build) void {
     const null_embed = wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
     const is_wasm_target = target.result.os.tag == .wasi;
+    // linenoise is POSIX-only (termios); the Windows REPL uses a plain
+    // stdin line loop instead (repl.zig).
+    const use_linenoise = !is_wasm_target and target.result.os.tag != .windows;
 
     // Main module (embedded_bytecode added below based on bundle mode)
     const main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = optimize,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .strip = strip,
         .single_threaded = if (is_wasm_target) true else null,
     });
@@ -113,7 +116,7 @@ pub fn build(b: *std.Build) void {
         const compiler_mod = kaappiModule(b, options_mod, .{
             .target = target,
             .optimize = optimize,
-            .linenoise = !is_wasm_target,
+            .linenoise = use_linenoise,
             .embed = compiler_null_embed,
         });
 
@@ -181,7 +184,7 @@ pub fn build(b: *std.Build) void {
         .root = "src/runtime_exports.zig",
         .target = target,
         .optimize = optimize,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .embed = null_embed,
     });
     const lib = b.addLibrary(.{
@@ -413,7 +416,7 @@ pub fn build(b: *std.Build) void {
     const cov_main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = .Debug,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .embed = null_embed,
     });
     const cov_exe = b.addExecutable(.{

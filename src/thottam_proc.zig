@@ -1,6 +1,18 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 
 pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) ![]u8 {
+    if (comptime platform.is_windows) {
+        const raw = platform.winSpawnCapture(allocator, argv, cwd) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.CommandFailed => return error.CommandFailed,
+            else => return error.ForkFailed,
+        };
+        defer allocator.free(raw);
+        const trimmed = std.mem.trim(u8, raw, "\n\r");
+        return allocator.dupe(u8, trimmed) catch return error.OutOfMemory;
+    }
+
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
     @memset(argv_z, null);
     defer {
@@ -78,6 +90,13 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
 }
 
 pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) !u8 {
+    if (comptime platform.is_windows) {
+        return platform.winSpawnPassthrough(allocator, argv, cwd) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.ForkFailed,
+        };
+    }
+
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
     @memset(argv_z, null);
     defer {
@@ -125,7 +144,8 @@ pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cw
 pub fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
-    argv.append(allocator, "/usr/bin/git") catch return error.OutOfMemory;
+    // Windows: no fixed install path; CreateProcessW searches PATH.
+    argv.append(allocator, if (platform.is_windows) "git" else "/usr/bin/git") catch return error.OutOfMemory;
     for (args) |a| {
         argv.append(allocator, a) catch return error.OutOfMemory;
     }
@@ -136,7 +156,7 @@ pub fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
 pub fn runGitCapture(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
-    argv.append(allocator, "/usr/bin/git") catch return error.OutOfMemory;
+    argv.append(allocator, if (platform.is_windows) "git" else "/usr/bin/git") catch return error.OutOfMemory;
     for (args) |a| {
         argv.append(allocator, a) catch return error.OutOfMemory;
     }

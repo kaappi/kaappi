@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
@@ -166,7 +167,13 @@ fn isBufferedFdPort(port: *types.Port) bool {
 /// keeps the port on a blocking fd, so no read ever EAGAINs, nothing
 /// registers with the reactor, and I/O degrades to single-fiber blocking
 /// exactly where the host can't support better.
+///
+/// Windows is a permanent probe-fail: CRT fds have no O_NONBLOCK, so
+/// ports always stay blocking — same degradation as a WASI host without
+/// fd_fdstat_set_flags, and the reactor there is timer/notify-only by
+/// construction (reactor.zig's WindowsEventBackend).
 pub fn maybeSetNonblocking(port: *types.Port) void {
+    if (comptime platform.is_windows) return;
     if (port.nonblocking or port.is_string_port or port.fd <= 2) return;
     const vm = vm_mod.vm_instance orelse return;
     if (vm.scheduler == null) return;
@@ -275,9 +282,9 @@ fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
         // buffer (or a concurrent close-port drains it for us).
         const buf = port.write_buf orelse break;
         maybeSetNonblocking(port);
-        const rc = std.posix.system.write(port.fd, buf.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+        const rc = platform.write(port.fd, buf.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
         if (rc < 0) {
-            const e = std.posix.errno(rc);
+            const e = platform.errno(rc);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
                 try waitPortFd(port, .write);
@@ -336,8 +343,8 @@ pub fn flushAllOpenPorts(gc: *memory.GC) void {
             if (!port.is_open or port.is_string_port or port.fd <= 2) continue;
             const wb = port.write_buf orelse continue;
             while (port.write_buf_start < port.write_buf_len) {
-                const rc = std.posix.system.write(port.fd, wb.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
-                if (rc < 0 and std.posix.errno(rc) == .INTR) continue;
+                const rc = platform.write(port.fd, wb.ptr + port.write_buf_start, port.write_buf_len - port.write_buf_start);
+                if (rc < 0 and platform.errno(rc) == .INTR) continue;
                 if (rc <= 0) break;
                 port.write_buf_start += @as(usize, @intCast(rc));
             }
@@ -504,10 +511,10 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+    const fd = platform.openRead(path_z) catch {
         return raiseFileError(gc, "cannot open input file", args[0]);
     };
-    errdefer _ = std.posix.system.close(fd);
+    errdefer _ = platform.close(fd);
 
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
     return gc.allocPort(fd, true, false, owned_name, true) catch {
@@ -526,14 +533,10 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch {
+    const fd = platform.openWriteTrunc(path_z, 0o644) catch {
         return raiseFileError(gc, "cannot open output file", args[0]);
     };
-    errdefer _ = std.posix.system.close(fd);
+    errdefer _ = platform.close(fd);
 
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
     return gc.allocPort(fd, false, true, owned_name, true) catch {
@@ -613,7 +616,7 @@ fn closePort(args: []const Value) PrimitiveError!Value {
             if (vm.scheduler) |sched| fiber_mod.wakeIoWaitersOnFd(sched, port.fd);
             if (vm.reactor) |r| r.unregister(port.fd);
         }
-        if (port.fd > 2) _ = std.posix.system.close(port.fd);
+        if (port.fd > 2) _ = platform.close(port.fd);
     }
     port.is_open = false;
     return types.VOID;
@@ -674,9 +677,9 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     maybeSetNonblocking(port);
     var chunk: [read_chunk_size]u8 = undefined;
     while (true) {
-        const raw = std.posix.system.read(port.fd, &chunk, chunk.len);
+        const raw = platform.read(port.fd, &chunk, chunk.len);
         if (raw < 0) {
-            const e = std.posix.errno(raw);
+            const e = platform.errno(raw);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
                 try waitPortFd(port, .read);
@@ -1020,9 +1023,9 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             }
         }
 
-        const raw_n = std.posix.system.read(port.fd, &tmp, tmp.len);
+        const raw_n = platform.read(port.fd, &tmp, tmp.len);
         if (raw_n < 0) {
-            const e = std.posix.errno(raw_n);
+            const e = platform.errno(raw_n);
             if (e == .INTR) continue;
             if (e == .AGAIN) {
                 // Mid-datum would-block: a parked retry re-executes this
@@ -1074,17 +1077,7 @@ fn fileExistsP(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    if (comptime @import("builtin").os.tag == .linux) {
-        const linux = std.os.linux;
-        var sx: linux.Statx = undefined;
-        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path_z, 0, linux.STATX.BASIC_STATS, &sx);
-        if (rc > @as(usize, std.math.maxInt(isize))) return types.FALSE;
-    } else {
-        var stat_buf: std.c.Stat = undefined;
-        if (std.c.fstatat(std.posix.AT.FDCWD, path_z, &stat_buf, 0) != 0)
-            return types.FALSE;
-    }
-    return types.TRUE;
+    return if (platform.pathExists(path_z)) types.TRUE else types.FALSE;
 }
 
 fn eofObjectP(args: []const Value) PrimitiveError!Value {
@@ -1177,7 +1170,7 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const result = std.posix.system.unlink(path_z);
+    const result = platform.unlink(path_z);
     if (result < 0) {
         var msg = gc.allocString("cannot delete file") catch return PrimitiveError.OutOfMemory;
         gc.pushRoot(&msg);

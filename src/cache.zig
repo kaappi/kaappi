@@ -26,6 +26,7 @@
 //! caching entirely.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const bytecode_file = @import("bytecode_file.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
@@ -77,7 +78,7 @@ pub fn pathForSource(allocator: std.mem.Allocator, source_path: []const u8) ?[]u
     var dir_buf: [1024]u8 = undefined;
     const dir = cacheDir(&dir_buf) orelse return null;
 
-    var abs_buf: [std.posix.PATH_MAX]u8 = undefined;
+    var abs_buf: [platform.PATH_MAX]u8 = undefined;
     const key_path = absPath(source_path, &abs_buf) orelse source_path;
     const key = std.hash.Wyhash.hash(0, key_path);
 
@@ -88,13 +89,11 @@ pub fn pathForSource(allocator: std.mem.Allocator, source_path: []const u8) ?[]u
 /// which it does on both the cache read and write paths), returning the slice
 /// or null on failure so the caller falls back to the raw path.
 fn absPath(path: []const u8, buf: []u8) ?[]const u8 {
-    if (path.len == 0 or path.len >= std.posix.PATH_MAX or buf.len < std.posix.PATH_MAX) return null;
-    var z: [std.posix.PATH_MAX]u8 = undefined;
+    if (path.len == 0 or path.len >= platform.PATH_MAX or buf.len < platform.PATH_MAX) return null;
+    var z: [platform.PATH_MAX]u8 = undefined;
     @memcpy(z[0..path.len], path);
     z[path.len] = 0;
-    if (std.c.realpath(z[0..path.len :0], buf.ptr) == null) return null;
-    const len = std.mem.indexOfScalar(u8, buf[0..std.posix.PATH_MAX], 0) orelse return null;
-    return buf[0..len];
+    return platform.realPath(z[0..path.len :0], buf);
 }
 
 /// Best-effort creation of `~/.kaappi` and `~/.kaappi/cache`. Failures are
@@ -112,7 +111,7 @@ pub fn ensureDir() void {
 fn mkdirBestEffort(path: []const u8) void {
     var z: [1024]u8 = undefined;
     const zpath = zPath(&z, path) orelse return;
-    _ = std.c.mkdir(zpath, 0o755);
+    _ = platform.mkdir(zpath, 0o755);
 }
 
 /// Copies `path` into `buf` with a NUL terminator, returning a sentinel slice
@@ -129,7 +128,7 @@ fn zPath(buf: []u8, path: []const u8) ?[:0]const u8 {
 /// If `args` is a `kaappi cache …` invocation, handle it fully and return the
 /// process exit code; otherwise return null so normal CLI dispatch proceeds.
 pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     _ = it.skip(); // argv[0]
     const first = it.next() orelse return null;
     if (!std.mem.eql(u8, first, "cache")) return null;
@@ -255,15 +254,13 @@ pub fn renderStatus(allocator: std.mem.Allocator, dir: []const u8, w: *std.Io.Wr
         try w.writeAll("  (path too long)\n0 entries, 0 B\n");
         return;
     };
-    const dh = std.c.opendir(dir_z) orelse {
+    var dh = platform.DirIter.open(dir_z) orelse {
         try w.writeAll("  (empty — no cache directory yet)\n0 entries, 0 B\n");
         return;
     };
-    defer _ = std.c.closedir(dh);
+    defer dh.close();
 
-    while (std.c.readdir(dh)) |ent| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&ent.name);
-        const name = std.mem.span(name_ptr);
+    while (dh.next()) |name| {
         if (!std.mem.endsWith(u8, name, ".sbc")) continue;
 
         const full = std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir, name }) catch continue;
@@ -350,7 +347,7 @@ pub fn clearDir(allocator: std.mem.Allocator, dir: []const u8) ClearResult {
 
     var z: [1024]u8 = undefined;
     const dir_z = zPath(&z, dir) orelse return res;
-    const dh = std.c.opendir(dir_z) orelse return res;
+    var dh = platform.DirIter.open(dir_z) orelse return res;
 
     var names: std.ArrayList([]u8) = .empty;
     defer {
@@ -358,9 +355,7 @@ pub fn clearDir(allocator: std.mem.Allocator, dir: []const u8) ClearResult {
         names.deinit(allocator);
     }
 
-    while (std.c.readdir(dh)) |ent| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&ent.name);
-        const name = std.mem.span(name_ptr);
+    while (dh.next()) |name| {
         if (!std.mem.endsWith(u8, name, ".sbc")) continue;
         const dup = allocator.dupe(u8, name) catch continue;
         names.append(allocator, dup) catch {
@@ -368,7 +363,7 @@ pub fn clearDir(allocator: std.mem.Allocator, dir: []const u8) ClearResult {
             continue;
         };
     }
-    _ = std.c.closedir(dh);
+    dh.close();
 
     for (names.items) |name| {
         const full = std.fmt.allocPrintSentinel(allocator, "{s}/{s}", .{ dir, name }, 0) catch continue;
@@ -382,7 +377,7 @@ pub fn clearDir(allocator: std.mem.Allocator, dir: []const u8) ClearResult {
             defer allocator.free(d);
             break :blk d.len;
         } else |_| 0;
-        if (std.c.unlink(full) != 0) continue;
+        if (platform.unlink(full) != 0) continue;
         res.removed += 1;
         res.bytes += size;
     }

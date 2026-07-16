@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const completions = @import("completions.zig");
 const reporting = @import("reporting.zig");
 
@@ -154,7 +155,7 @@ pub const Options = struct {
 // ── Public API ─────────────────────────────────────────────────────────
 
 pub fn preScanSandbox(args: std.process.Args) bool {
-    var iter = args.iterate();
+    var iter = platform.argsIterate(args);
     _ = iter.skip();
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--sandbox")) return true;
@@ -178,7 +179,7 @@ pub fn preScanSandbox(args: std.process.Args) bool {
 
 pub fn parse(args: std.process.Args) Options {
     var opts: Options = .{};
-    var iter = args.iterate();
+    var iter = platform.argsIterate(args);
     _ = iter.skip();
 
     while (iter.next()) |arg| {
@@ -456,7 +457,20 @@ fn parsePositiveUsize(str: []const u8, flag_name: []const u8) usize {
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-fn testArgs(argv: []const [*:0]const u8) std.process.Args {
+fn testArgs(comptime argv: []const [*:0]const u8) std.process.Args {
+    if (comptime platform.is_windows) {
+        // Windows argv is one WTF-16 command line; join the (simple,
+        // quote-free) test arguments so the parse tests exercise the real
+        // Windows command-line iterator.
+        comptime var line: []const u8 = "";
+        inline for (argv, 0..) |arg, i| {
+            const s = comptime std.mem.span(arg);
+            comptime std.debug.assert(std.mem.indexOfAny(u8, s, " \t\"") == null);
+            if (i > 0) line = line ++ " ";
+            line = line ++ s;
+        }
+        return .{ .vector = comptime std.unicode.wtf8ToWtf16LeStringLiteral(line) };
+    }
     return .{ .vector = argv };
 }
 

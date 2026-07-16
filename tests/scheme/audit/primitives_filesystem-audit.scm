@@ -4,6 +4,11 @@
 ;; Run directly and read the printed counts — run-all.sh only sees exit codes.
 
 (import (scheme base) (scheme write) (scheme file) (srfi 170) (srfi 60))
+
+;; symlinks/FIFOs/uid-gid are POSIX-only — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
 (import (scheme process-context) (srfi 64))
 
 (test-begin "primitives_filesystem audit")

@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
@@ -14,7 +15,7 @@ pub export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
 
     rt_gc = memory.GC.init(allocator);
 
-    if (std.c.getenv("KAAPPI_GC_THRESHOLD")) |env_ptr| {
+    if (platform.getenv("KAAPPI_GC_THRESHOLD")) |env_ptr| {
         const env = std.mem.span(env_ptr);
         if (std.fmt.parseInt(usize, env, 10)) |threshold| {
             rt_gc.gc_threshold = threshold;
@@ -61,9 +62,9 @@ pub export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
     return v.globals.get(name) orelse {
-        _ = std.posix.system.write(2, "undefined variable: ", 20);
-        _ = std.posix.system.write(2, name_ptr, len);
-        _ = std.posix.system.write(2, "\n", 1);
+        _ = platform.write(2, "undefined variable: ", 20);
+        _ = platform.write(2, name_ptr, len);
+        _ = platform.write(2, "\n", 1);
         std.process.exit(1);
     };
 }
@@ -73,7 +74,7 @@ pub export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
     v.defineGlobal(name, val) catch {
-        _ = std.posix.system.write(2, "failed to define global\n", 24);
+        _ = platform.write(2, "failed to define global\n", 24);
         std.process.exit(1);
     };
 }
@@ -88,9 +89,9 @@ pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len
     if (v.globals.getPtr(name)) |ptr| {
         ptr.* = val;
     } else {
-        _ = std.posix.system.write(2, "set!: unbound variable '", 24);
-        _ = std.posix.system.write(2, name_ptr, len);
-        _ = std.posix.system.write(2, "'\n", 2);
+        _ = platform.write(2, "set!: unbound variable '", 24);
+        _ = platform.write(2, name_ptr, len);
+        _ = platform.write(2, "'\n", 2);
         std.process.exit(1);
     }
 }
@@ -100,7 +101,7 @@ pub export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len:
     const len: usize = @intCast(str_len);
     const data = str_ptr[0..len];
     const result = v.gc.allocString(data) catch {
-        _ = std.posix.system.write(2, "failed to allocate string\n", 26);
+        _ = platform.write(2, "failed to allocate string\n", 26);
         std.process.exit(1);
     };
     return result;
@@ -111,7 +112,7 @@ pub export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
     const result = v.gc.allocSymbol(name) catch {
-        _ = std.posix.system.write(2, "failed to intern symbol\n", 24);
+        _ = platform.write(2, "failed to intern symbol\n", 24);
         std.process.exit(1);
     };
     return result;
@@ -125,7 +126,7 @@ pub export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque,
     const name = name_ptr[0..@as(usize, @intCast(name_len))];
     const nc_fn: types.NativeClosureFnType = @ptrCast(@alignCast(fn_ptr));
     const result = v.gc.allocNativeClosure(nc_fn, uv, a, name) catch {
-        _ = std.posix.system.write(2, "OOM: failed to allocate native closure\n", 39);
+        _ = platform.write(2, "OOM: failed to allocate native closure\n", 39);
         std.process.exit(1);
     };
     return result;
@@ -137,15 +138,15 @@ pub export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque,
 fn fatalVMError(vm: *vm_mod.VM, context: []const u8, err: anyerror) noreturn {
     vm.noteUncaughtException(err);
     const detail = vm.getErrorDetail();
-    _ = std.posix.system.write(2, context.ptr, context.len);
+    _ = platform.write(2, context.ptr, context.len);
     if (detail.len > 0) {
-        _ = std.posix.system.write(2, ": ", 2);
-        _ = std.posix.system.write(2, detail.ptr, detail.len);
+        _ = platform.write(2, ": ", 2);
+        _ = platform.write(2, detail.ptr, detail.len);
     }
     const name = @errorName(err);
-    _ = std.posix.system.write(2, " (", 2);
-    _ = std.posix.system.write(2, name.ptr, name.len);
-    _ = std.posix.system.write(2, ")\n", 2);
+    _ = platform.write(2, " (", 2);
+    _ = platform.write(2, name.ptr, name.len);
+    _ = platform.write(2, ")\n", 2);
     std.process.exit(1);
 }
 
@@ -250,7 +251,7 @@ pub export fn kaappi_quote_cached(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len
     // is the right anchor.
     const val = v.eval(source) catch |err| fatalVMError(v, "eval error", err);
     _ = v.gc.rootedSlot(val) catch {
-        _ = std.posix.system.write(2, "OOM: failed to root quoted constant\n", 36);
+        _ = platform.write(2, "OOM: failed to root quoted constant\n", 36);
         std.process.exit(1);
     };
     slot.* = val;
@@ -259,11 +260,11 @@ pub export fn kaappi_quote_cached(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len
 
 fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
     const vm = vm_mod.vm_instance orelse {
-        _ = std.posix.system.write(2, "runtime: no VM instance\n", 24);
+        _ = platform.write(2, "runtime: no VM instance\n", 24);
         std.process.exit(1);
     };
     const proc = vm.globals.get(name) orelse {
-        _ = std.posix.system.write(2, "runtime: undefined primitive\n", 29);
+        _ = platform.write(2, "runtime: undefined primitive\n", 29);
         std.process.exit(1);
     };
     const args = [_]u64{ a, b };
@@ -321,19 +322,19 @@ pub export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
 
 pub export fn kaappi_car(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.car(v);
-    _ = std.posix.system.write(2, "car: not a pair\n", 16);
+    _ = platform.write(2, "car: not a pair\n", 16);
     std.process.exit(1);
 }
 
 pub export fn kaappi_cdr(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.cdr(v);
-    _ = std.posix.system.write(2, "cdr: not a pair\n", 16);
+    _ = platform.write(2, "cdr: not a pair\n", 16);
     std.process.exit(1);
 }
 
 pub export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     const gc = memory.gc_instance orelse {
-        _ = std.posix.system.write(2, "cons: no GC instance\n", 21);
+        _ = platform.write(2, "cons: no GC instance\n", 21);
         std.process.exit(1);
     };
     var val_a = a;
@@ -341,7 +342,7 @@ pub export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     gc.pushRoot(&val_a);
     gc.pushRoot(&val_b);
     const result = gc.allocPair(val_a, val_b) catch {
-        _ = std.posix.system.write(2, "OOM: failed to allocate pair\n", 29);
+        _ = platform.write(2, "OOM: failed to allocate pair\n", 29);
         std.process.exit(1);
     };
     gc.popRoot();
@@ -367,13 +368,13 @@ pub export fn kaappi_is_null(v: u64) callconv(.c) u64 {
 
 pub export fn kaappi_make_box(vm: ?*vm_mod.VM, init: u64) callconv(.c) u64 {
     const v = vm orelse {
-        _ = std.posix.system.write(2, "make-box: null vm\n", 18);
+        _ = platform.write(2, "make-box: null vm\n", 18);
         std.process.exit(1);
     };
     // allocPair roots `init` internally before it may collect, so a young
     // initial value survives a GC triggered by this very allocation.
     return v.gc.allocPair(init, types.NIL) catch {
-        _ = std.posix.system.write(2, "OOM: failed to allocate box\n", 28);
+        _ = platform.write(2, "OOM: failed to allocate box\n", 28);
         std.process.exit(1);
     };
 }
@@ -392,7 +393,7 @@ pub export fn kaappi_box_set(box: u64, val: u64) callconv(.c) void {
 
 pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
     const v = vm orelse {
-        _ = std.posix.system.write(2, "null vm\n", 8);
+        _ = platform.write(2, "null vm\n", 8);
         std.process.exit(1);
     };
     const n: usize = @intCast(nargs);

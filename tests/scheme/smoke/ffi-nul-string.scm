@@ -3,6 +3,11 @@
 
 (import (scheme base) (scheme write))
 
+;; self-dlopen does not expose libc on Windows — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (define libc (ffi-open #f))
 (define c-strlen (ffi-fn libc "strlen" '(string) 'long))
 

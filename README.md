@@ -83,13 +83,20 @@ zig build test                       # run the unit tests
 | Linux | x86_64 | yes | yes | LLVM backend |
 | Linux | aarch64 | yes | yes | LLVM backend |
 | Linux | riscv64 | yes | yes | LLVM backend |
+| Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
 powers the [playground](https://kaappi-lang.org/playground/).
 
-Windows is not supported: Kaappi depends on POSIX APIs (mmap, signals) and
-linenoise (terminal I/O).
+The Windows port (`zig build -Dtarget=aarch64-windows`) covers the full
+interpreter — REPL (plain line editing, no history/completion), fibers,
+channels, OS threads, FFI (`LoadLibrary`), and the `kaappi test` runner.
+Platform differences: ports never switch to non-blocking I/O (fiber I/O
+degrades to blocking reads, timers still work), and the POSIX-only slice
+of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a
+catchable file error. `cond-expand` distinguishes the platforms: Windows
+builds expose the `windows` feature identifier instead of `posix`.
 
 ## A taste of Kaappi
 

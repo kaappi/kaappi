@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
@@ -54,7 +55,7 @@ const Color = struct {
 };
 
 fn initColor() void {
-    use_color = std.c.isatty(1) != 0;
+    use_color = platform.isatty(1);
 }
 
 const Config = struct {
@@ -66,12 +67,12 @@ const Config = struct {
     lockfile: []const u8,
 };
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
+fn writeToFd(fd: platform.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
+        const result = platform.write(fd, bytes.ptr + total, bytes.len - total);
         if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
+            if (platform.errno(result) == .INTR) continue;
             break;
         }
         if (result == 0) break;
@@ -100,15 +101,18 @@ fn fatal(msg: []const u8) noreturn {
 pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const path_z = try allocator.dupeZ(u8, path);
     defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return error.FileNotFound;
-    defer _ = std.posix.system.close(fd);
+    const fd = platform.openRead(path_z) catch return error.FileNotFound;
+    defer _ = platform.close(fd);
     var buf: std.ArrayList(u8) = .empty;
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const n = std.posix.read(fd, &tmp) catch {
+        const raw = platform.read(fd, &tmp, tmp.len);
+        if (raw < 0) {
+            if (platform.errno(raw) == .INTR) continue;
             buf.deinit(allocator);
             return error.ReadFailed;
-        };
+        }
+        const n: usize = @intCast(raw);
         if (n == 0) break;
         buf.appendSlice(allocator, tmp[0..n]) catch return error.OutOfMemory;
     }
@@ -118,15 +122,11 @@ pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
     const path_z = try allocator.dupeZ(u8, path);
     defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch return error.CannotOpen;
-    defer _ = std.posix.system.close(fd);
+    const fd = platform.openWriteTrunc(path_z, 0o644) catch return error.CannotOpen;
+    defer _ = platform.close(fd);
     var total: usize = 0;
     while (total < content.len) {
-        const result = std.posix.system.write(fd, content.ptr + total, content.len - total);
+        const result = platform.write(fd, content.ptr + total, content.len - total);
         if (result <= 0) return error.WriteFailed;
         total += @as(usize, @intCast(result));
     }
@@ -135,30 +135,24 @@ pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []cons
 fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
     const path_z = try allocator.dupeZ(u8, path);
     defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .APPEND = true,
-    }, 0o644) catch return error.CannotOpen;
-    defer _ = std.posix.system.close(fd);
-    _ = std.posix.system.write(fd, line.ptr, line.len);
-    _ = std.posix.system.write(fd, "\n", 1);
+    const fd = platform.openAppend(path_z, 0o644) catch return error.CannotOpen;
+    defer _ = platform.close(fd);
+    _ = platform.write(fd, line.ptr, line.len);
+    _ = platform.write(fd, "\n", 1);
 }
 
 pub fn fileExists(allocator: std.mem.Allocator, path: []const u8) bool {
     const path_z = allocator.dupeZ(u8, path) catch return false;
     defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return false;
-    _ = std.posix.system.close(fd);
+    const fd = platform.openRead(path_z) catch return false;
+    _ = platform.close(fd);
     return true;
 }
 
 fn dirExists(allocator: std.mem.Allocator, path: []const u8) bool {
     const path_z = allocator.dupeZ(u8, path) catch return false;
     defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{ .DIRECTORY = true }, 0) catch return false;
-    _ = std.posix.system.close(fd);
-    return true;
+    return platform.isDir(path_z);
 }
 
 fn joinPath(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
@@ -290,7 +284,7 @@ fn removeDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_di
         defer allocator.free(target);
         const target_z = allocator.dupeZ(u8, target) catch continue;
         defer allocator.free(target_z);
-        _ = std.posix.system.unlink(target_z);
+        _ = platform.unlink(target_z);
     }
 }
 
@@ -308,7 +302,7 @@ fn removeSldFiles(allocator: std.mem.Allocator, pkg_lib_dir: []const u8, lib_dir
             defer allocator.free(target);
             const target_z = allocator.dupeZ(u8, target) catch continue;
             defer allocator.free(target_z);
-            _ = std.posix.system.unlink(target_z);
+            _ = platform.unlink(target_z);
         }
     }
 }
@@ -785,7 +779,7 @@ fn printUsage() void {
 }
 
 pub fn getenv(name: [*:0]const u8) ?[]const u8 {
-    const val = std.c.getenv(name) orelse return null;
+    const val = platform.getenv(name) orelse return null;
     return std.mem.sliceTo(val, 0);
 }
 
@@ -826,7 +820,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     initColor();
 
-    var args = init.args.iterate();
+    var args = platform.argsIterate(init.args);
     _ = args.skip();
 
     var locked_mode = false;
@@ -869,6 +863,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
         printUsage();
         return;
     };
+
+    // Package installation shells out to POSIX userland (cp -R, find,
+    // sh -c for build commands) that Windows doesn't have; the read-only
+    // subcommands work everywhere. Gate the mutating ones until the
+    // install pipeline is reimplemented on the platform shim.
+    if (comptime platform.is_windows) {
+        const mutating = std.mem.eql(u8, cmd, "install") or
+            std.mem.eql(u8, cmd, "remove") or std.mem.eql(u8, cmd, "update");
+        if (mutating) {
+            writeStderr("thottam: package installation is not yet supported on Windows\n");
+            std.process.exit(1);
+        }
+    }
 
     if (std.mem.eql(u8, cmd, "install")) {
         const spec = sub_arg orelse {

@@ -29,6 +29,7 @@
 //! `docs/dev/test-runner.md` for the full contract.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
@@ -436,6 +437,15 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
     }
     argv_z[argv.len] = null;
 
+    if (comptime platform.is_windows) {
+        var argv_slices_buf: [32][]const u8 = undefined;
+        if (argv.len > argv_slices_buf.len) return null;
+        argv_slices_buf[0] = exe;
+        for (argv[1..], 1..) |arg, i| argv_slices_buf[i] = arg;
+        const res = platform.winSpawnCaptureMerged(arena, argv_slices_buf[0..argv.len], null) catch return null;
+        return .{ .stdout = res.output, .ok = res.exit_code == 0 };
+    }
+
     var pipe: [2]c_int = undefined;
     if (std.c.pipe(&pipe) != 0) return null;
 
@@ -488,15 +498,15 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
 fn findInPath(arena: std.mem.Allocator, name: []const u8) ?[]const u8 {
     // An explicit path (contains '/') is used as-is.
     if (std.mem.indexOfScalar(u8, name, '/') != null) return name;
-    const path_env = std.c.getenv("PATH") orelse return null;
+    const path_env = platform.getenv("PATH") orelse return null;
     const path_str = std.mem.span(path_env);
-    var iter = std.mem.splitScalar(u8, path_str, ':');
+    var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
     while (iter.next()) |dir| {
         if (dir.len == 0) continue;
-        const full = std.fmt.allocPrint(arena, "{s}/{s}", .{ dir, name }) catch continue;
+        const full = std.fmt.allocPrint(arena, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
         const full_z = arena.dupeZ(u8, full) catch continue;
-        const fd = std.posix.openat(std.posix.AT.FDCWD, full_z, .{ .ACCMODE = .RDONLY }, 0) catch continue;
-        _ = std.posix.system.close(fd);
+        const fd = platform.openRead(full_z) catch continue;
+        _ = platform.close(fd);
         return full;
     }
     return null;
@@ -508,10 +518,20 @@ fn findInPath(arena: std.mem.Allocator, name: []const u8) ?[]const u8 {
 /// access, so it works for deleted files too). Relative paths resolve against
 /// `base`, which must itself be absolute.
 fn toAbs(arena: std.mem.Allocator, base: []const u8, path: []const u8) ?[]const u8 {
-    if (path.len > 0 and path[0] == '/') {
-        return std.fs.path.resolve(arena, &.{path}) catch null;
+    const resolved = if (path.len > 0 and path[0] == '/')
+        std.fs.path.resolve(arena, &.{path}) catch return null
+    else
+        std.fs.path.resolve(arena, &.{ base, path }) catch return null;
+    // std.fs.path.resolve emits backslashes on Windows; the import graph
+    // (and every path the runtime builds) uses '/', so normalize to keep
+    // graph keys and git-diff paths comparable.
+    if (comptime platform.is_windows) {
+        const mutable = @constCast(resolved);
+        for (mutable) |*ch| {
+            if (ch.* == '\\') ch.* = '/';
+        }
     }
-    return std.fs.path.resolve(arena, &.{ base, path }) catch null;
+    return resolved;
 }
 
 fn stringBytes(v: Value) ?[]const u8 {

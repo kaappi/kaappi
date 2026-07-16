@@ -12,6 +12,7 @@
 //!             zig build stress-channel -- <seed> <producers> <consumers> <per-producer>
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
@@ -22,7 +23,7 @@ const pct_stress = @import("pct_stress.zig");
 fn fail(comptime fmt: []const u8, args: anytype) noreturn {
     var buf: [512]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, fmt, args) catch fmt;
-    _ = std.posix.system.write(2, msg.ptr, msg.len);
+    _ = platform.write(2, msg.ptr, msg.len);
     std.process.exit(1);
 }
 
@@ -139,7 +140,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     var buf: [256]u8 = undefined;
     const banner = try std.fmt.bufPrint(&buf, "stress-channel: seed={d} producers={d} consumers={d} per_producer={d}\n", .{ seed, n_producers, m_consumers, per_producer });
-    _ = std.posix.system.write(1, banner.ptr, banner.len);
+    _ = platform.write(1, banner.ptr, banner.len);
 
     pct_stress.enabled = true;
     last_progress_ns.store(nowNs(), .monotonic);
@@ -199,5 +200,5 @@ pub fn main(init: std.process.Init.Minimal) !void {
         fail("FAIL: notifier leak: baseline={d} now={d} (seed={d})\n", .{ notifier_baseline, reactor_mod.notifierLiveCount(), seed });
 
     const ok_msg = "stress-channel: PASS\n";
-    _ = std.posix.system.write(1, ok_msg.ptr, ok_msg.len);
+    _ = platform.write(1, ok_msg.ptr, ok_msg.len);
 }

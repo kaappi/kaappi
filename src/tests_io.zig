@@ -1,5 +1,6 @@
 // Phase 9: Ports and I/O (R7RS 6.13)
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -217,6 +218,8 @@ test "file-exists?" {
 }
 
 test "file-exists? returns #t for unreadable files" {
+    // POSIX permission bits; Windows ACLs don't map to chmod(0o000).
+    if (comptime platform.is_windows) return error.SkipZigTest;
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -238,6 +241,7 @@ test "file-exists? returns #t for unreadable files" {
 
 test "file-exists? returns #t for FIFOs" {
     if (comptime @import("builtin").os.tag == .wasi) return error.SkipZigTest;
+    if (comptime platform.is_windows) return error.SkipZigTest; // no mkfifo
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

@@ -6,6 +6,7 @@
 // while it waits, write buffering with real flush, and the close-port
 // wake discipline.
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -191,7 +192,7 @@ test "thread-terminate! pulls a parked reader off the reactor; the fd stays usab
     const f_val = try vm.eval("f");
     try std.testing.expectEqual(fiber_mod.FiberStatus.io_waiting, types.toObject(f_val).as(fiber_mod.Fiber).status);
     _ = try vm.eval("(thread-terminate! f)");
-    try std.testing.expectEqual(@as(?std.posix.fd_t, null), types.toObject(f_val).as(fiber_mod.Fiber).io_fd);
+    try std.testing.expectEqual(@as(?platform.fd_t, null), types.toObject(f_val).as(fiber_mod.Fiber).io_fd);
 
     _ = try vm.eval("(define g (spawn (lambda () (read-char rp))))");
     _ = try vm.eval("(define w (spawn (lambda () (write-char #\\k wp) (flush-output-port wp))))");
@@ -208,19 +209,19 @@ test "port write buffer holds bytes until flush; close-port flushes the remainde
     const pipe = makePipe();
     setNonblockingFd(pipe[0]); // test-side reads must not block on an empty pipe
     _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
-    defer _ = std.posix.system.close(pipe[0]); // read end stays Zig-owned
+    defer _ = platform.close(pipe[0]); // read end stays Zig-owned
 
     _ = try vm.eval("(write-char #\\z wp)");
     var buf: [8]u8 = undefined;
     // Buffered: nothing reaches the pipe before the flush.
-    try std.testing.expect(std.posix.system.read(pipe[0], &buf, buf.len) < 0);
+    try std.testing.expect(platform.read(pipe[0], &buf, buf.len) < 0);
     _ = try vm.eval("(flush-output-port wp)");
-    try std.testing.expectEqual(@as(isize, 1), std.posix.system.read(pipe[0], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), platform.read(pipe[0], &buf, buf.len));
     try std.testing.expectEqual(@as(u8, 'z'), buf[0]);
 
     _ = try vm.eval("(write-char #\\q wp)");
     _ = try vm.eval("(close-port wp)");
-    try std.testing.expectEqual(@as(isize, 1), std.posix.system.read(pipe[0], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), platform.read(pipe[0], &buf, buf.len));
     try std.testing.expectEqual(@as(u8, 'q'), buf[0]);
 }
 
@@ -236,18 +237,18 @@ test "a read on the same port flushes its pending writes first" {
     var fds: [2]std.c.fd_t = undefined;
     try std.testing.expectEqual(@as(c_int, 0), std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &fds));
     _ = try definePortGlobal(vm, "sp", fds[0], true, true);
-    defer _ = std.posix.system.close(fds[1]); // peer end stays Zig-owned
+    defer _ = platform.close(fds[1]); // peer end stays Zig-owned
 
     // Stage the peer's response up front so the read completes immediately
     // once the flush-before-read has happened.
-    _ = std.posix.system.write(fds[1], "y", 1);
+    _ = platform.write(fds[1], "y", 1);
 
     _ = try vm.eval("(write-char #\\x sp)"); // buffered request
     const r = try vm.eval("(read-char sp)");
     try std.testing.expectEqual(types.makeChar('y'), r);
 
     var buf: [8]u8 = undefined;
-    try std.testing.expectEqual(@as(isize, 1), std.posix.system.read(fds[1], &buf, buf.len));
+    try std.testing.expectEqual(@as(isize, 1), platform.read(fds[1], &buf, buf.len));
     try std.testing.expectEqual(@as(u8, 'x'), buf[0]);
 }
 
@@ -268,7 +269,7 @@ test "(read) must not lose read_buf when its write drain parks" {
     _ = try definePortGlobal(vm, "peer", fds[1], true, true);
 
     // The first (read sp) consumes (a) and stashes " (b)" into port.read_buf.
-    _ = std.posix.system.write(fds[1], "(a) (b)", 7);
+    _ = platform.write(fds[1], "(a) (b)", 7);
     const first = try vm.eval("(equal? (read sp) '(a))");
     try std.testing.expectEqual(types.TRUE, first);
 
@@ -303,12 +304,12 @@ test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
 
     const pipe = makePipe();
     _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = std.posix.system.close(pipe[1]);
+    defer _ = platform.close(pipe[1]);
 
     // (read) slurps a 4 KiB chunk, consumes "(a)", and stashes " 7" in
     // port.read_buf. The old binary-side byte reader had its own copy that
     // skipped read_buf entirely, silently losing these bytes.
-    _ = std.posix.system.write(pipe[1], "(a) 7", 5);
+    _ = platform.write(pipe[1], "(a) 7", 5);
     const datum_ok = try vm.eval("(equal? (read rp) '(a))");
     try std.testing.expectEqual(types.TRUE, datum_ok);
     const b = try vm.eval("(read-u8 rp)");
@@ -325,11 +326,11 @@ test "lazy O_NONBLOCK: set only for fd > 2 and only once a scheduler exists" {
 
     const pipe = makePipe();
     const rport = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = std.posix.system.close(pipe[1]);
+    defer _ = platform.close(pipe[1]);
 
     // Sequential program: reads never flip the fd, so blocking semantics
     // and the syscall profile are untouched.
-    _ = std.posix.system.write(pipe[1], "a", 1);
+    _ = platform.write(pipe[1], "a", 1);
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(!rport.nonblocking);
 
@@ -340,7 +341,7 @@ test "lazy O_NONBLOCK: set only for fd > 2 and only once a scheduler exists" {
     try std.testing.expect(!stdin_port.nonblocking);
 
     // A real-fd port does flip on its next use now that fibers exist.
-    _ = std.posix.system.write(pipe[1], "b", 1);
+    _ = platform.write(pipe[1], "b", 1);
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(rport.nonblocking);
 }
@@ -443,14 +444,14 @@ test "readOneByte batches an available burst into read_buf, not one syscall per 
 
     const pipe = makePipe();
     const rport = try definePortGlobal(vm, "rp", pipe[0], true, false);
-    defer _ = std.posix.system.close(pipe[1]);
+    defer _ = platform.close(pipe[1]);
 
     // Stage a burst, then read a single byte. Batching pulls the whole burst
     // in one read(2) and parks the tail in read_buf; without it every byte
     // would cost its own read(2) and read_buf would stay empty -- this is the
     // one assertion that fails on the pre-#1460 single-byte reader.
     const burst = "ABCDEFGHIJ";
-    try std.testing.expectEqual(@as(isize, burst.len), std.posix.system.write(pipe[1], burst, burst.len));
+    try std.testing.expectEqual(@as(isize, burst.len), platform.write(pipe[1], burst, burst.len));
     const first = try vm.eval("(read-u8 rp)");
     try std.testing.expectEqual(types.makeFixnum('A'), first);
     try std.testing.expectEqual(@as(usize, burst.len - 1), rport.read_buf_len);

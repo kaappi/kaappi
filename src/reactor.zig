@@ -8,6 +8,7 @@
 //! kqueue (macOS/BSD), epoll (Linux), poll_oneoff (WASI, Phase 4). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const fiber_mod = @import("fiber.zig");
 const memory = @import("memory.zig");
@@ -30,7 +31,8 @@ const Backend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos => KqueueBackend,
     .linux => EpollBackend,
     .wasi => WasiPollBackend,
-    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
+    .windows => WindowsEventBackend,
+    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi/windows only)"),
 };
 
 const TimerEntry = struct {
@@ -104,16 +106,20 @@ pub const ThreadNotifier = struct {
                 // way to learn a notify happened.
                 while (true) {
                     const rc = std.c.kevent(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
-                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                    if (rc >= 0 or platform.errno(rc) != .INTR) break;
                 }
             },
             .linux => {
                 const one: u64 = 1;
                 while (true) {
-                    const rc = std.posix.system.write(self.backend.fd, @ptrCast(&one), @sizeOf(u64));
-                    if (rc >= 0 or std.posix.errno(rc) != .INTR) break;
+                    const rc = platform.write(self.backend.fd, @ptrCast(&one), @sizeOf(u64));
+                    if (rc >= 0 or platform.errno(rc) != .INTR) break;
                 }
             },
+            // Auto-reset event: signaling is idempotent while pending and
+            // the next WaitForSingleObject consumes it atomically — the
+            // same self-clearing wake the EVFILT.USER/eventfd paths give.
+            .windows => _ = platform.win.SetEvent(self.backend.event),
             .wasi => {},
             else => unreachable,
         }
@@ -128,7 +134,8 @@ const NotifierBackend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos => struct { kq: i32 },
     .linux => struct { fd: i32 },
     .wasi => struct {},
-    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi only)"),
+    .windows => struct { event: platform.win.HANDLE },
+    else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi/windows only)"),
 };
 
 /// KEP-0002 §7 leak-check hook, mirrors shared_object.liveCount() --
@@ -159,9 +166,12 @@ pub fn retainNotifier(n: *ThreadNotifier) void {
 pub fn releaseNotifier(n: *ThreadNotifier) void {
     if (n.refcount.fetchSub(1, .acq_rel) == 1) {
         switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos => _ = std.posix.system.close(n.backend.kq),
-            .linux => _ = std.posix.system.close(n.backend.fd),
+            .macos, .ios, .tvos, .watchos, .visionos => _ = platform.close(n.backend.kq),
+            .linux => _ = platform.close(n.backend.fd),
             .wasi => {},
+            // Shared with the backend's wait — closed only here, exactly
+            // like kqueue's shared kq (see KqueueBackend.deinit).
+            .windows => _ = platform.win.CloseHandle(n.backend.event),
             else => unreachable,
         }
         std.heap.c_allocator.destroy(n);
@@ -456,7 +466,7 @@ const KqueueBackend = struct {
             .udata = 0,
         };
         self.apply((&reg)[0..1]) catch {
-            _ = std.posix.system.close(kq);
+            _ = platform.close(kq);
             return error.Unexpected;
         };
         return self;
@@ -540,7 +550,7 @@ const KqueueBackend = struct {
         }
         const rc = std.c.kevent(self.kq, self.raw[0..0].ptr, 0, &self.raw, self.raw.len, ts_ptr);
         if (rc < 0) {
-            if (std.posix.errno(rc) == .INTR) return self.ready[0..0];
+            if (platform.errno(rc) == .INTR) return self.ready[0..0];
             return error.Unexpected;
         }
 
@@ -673,7 +683,7 @@ const EpollBackend = struct {
                 // slot itself is inert (Reactor.poll's regs lookup never
                 // finds an entry for notify_fd).
                 var drain_buf: [8]u8 = undefined;
-                _ = std.posix.system.read(self.notify_fd, &drain_buf, drain_buf.len);
+                _ = platform.read(self.notify_fd, &drain_buf, drain_buf.len);
                 self.ready[i] = .{ .fd = self.notify_fd, .readable = false, .writable = false };
                 continue;
             }
@@ -876,5 +886,65 @@ const WasiPollBackend = struct {
         if (readable) dirs.read = false;
         if (writable) dirs.write = false;
         if (!dirs.read and !dirs.write) _ = self.interests.swapRemove(fd);
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Windows event backend
+//
+// Windows has no fd-readiness support here by construction: CRT fds have
+// no O_NONBLOCK, so maybeSetNonblocking (primitives_io.zig) is a comptime
+// no-op, no read/write ever EAGAINs, and register() is never reached —
+// the same shape as a WASI host whose NONBLOCK probe fails, except made
+// permanent. What remains is exactly what the reactor still owes the
+// scheduler on such a platform: bounded timer waits (thread-sleep!, timed
+// channel/mutex waits) and the KEP-0002 cross-thread notify. One
+// auto-reset Win32 event serves both — WaitForSingleObject bounded by the
+// nearest deadline, SetEvent as the notify ring.
+// ---------------------------------------------------------------------------
+
+const WindowsEventBackend = struct {
+    /// Shared with the ThreadNotifier (same handle), so — like kqueue's
+    /// `kq` — exactly one place may close it: releaseNotifier's zero
+    /// transition. deinit here is a no-op.
+    event: platform.win.HANDLE,
+
+    /// The allocator is part of the uniform backend init signature
+    /// (WasiPollBackend needs it); this backend owns no allocations.
+    fn init(_: std.mem.Allocator) !WindowsEventBackend {
+        const ev = platform.win.CreateEventW(null, 0, 0, null) orelse return error.Unexpected;
+        return .{ .event = ev };
+    }
+
+    fn notifierBackend(self: *const WindowsEventBackend) NotifierBackend {
+        return .{ .event = self.event };
+    }
+
+    fn deinit(self: *WindowsEventBackend) void {
+        _ = self;
+    }
+
+    /// Unreachable by construction (see the header comment): ports never
+    /// go non-blocking on Windows, so nothing ever registers an fd. A
+    /// clean error rather than `unreachable` so a future caller bug
+    /// surfaces as a failed wait-registration, not UB.
+    fn arm(_: *WindowsEventBackend, _: i32, _: bool, _: bool, _: bool) !void {
+        return error.Unexpected;
+    }
+
+    fn disarmAll(_: *WindowsEventBackend, _: i32) void {}
+
+    fn wait(self: *WindowsEventBackend, timeout_ns: ?u64) ![]const ReadyEvent {
+        const ms: u32 = if (timeout_ns) |ns| blk: {
+            // Ceil so a timer may fire slightly late but never early
+            // (resolved KEP-0001 question 2, epoll's msFromNs discipline).
+            const ceil_ms = (ns +| 999_999) / 1_000_000;
+            break :blk @intCast(@min(ceil_ms, platform.win.INFINITE - 1));
+        } else platform.win.INFINITE;
+        _ = platform.win.WaitForSingleObject(self.event, ms);
+        // Timer expiry is decided by the reactor against clockNs()
+        // (popExpiredTimers); a notify set wake_pending before SetEvent.
+        // There are never fd events to report.
+        return &[_]ReadyEvent{};
     }
 };

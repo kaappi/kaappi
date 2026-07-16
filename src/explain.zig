@@ -16,6 +16,7 @@
 //!                                    (the source a docs generator consumes)
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const diagnostics = @import("diagnostics.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
 const reporting = @import("reporting.zig");
@@ -39,7 +40,7 @@ pub const Request = struct {
 /// `explain` is a pure query over the static registry — it needs no VM, GC, or
 /// library setup, so main dispatches it before any of that is created.
 pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     _ = it.skip(); // argv[0]
     const first = it.next() orelse return null;
     if (!std.mem.eql(u8, first, "explain")) return null;

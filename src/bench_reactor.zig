@@ -19,6 +19,7 @@
 // Build/run:  zig build bench-reactor
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const reactor_mod = @import("reactor.zig");
 const fiber_mod = @import("fiber.zig");
 const Reactor = reactor_mod.Reactor;
@@ -37,7 +38,7 @@ fn makePipe() [2]std.c.fd_t {
 }
 
 fn closeFd(fd: std.c.fd_t) void {
-    _ = std.posix.system.close(fd);
+    _ = platform.close(fd);
 }
 
 const RearmResult = struct { arm_ns: f64, io_ns: f64 };
@@ -70,9 +71,9 @@ fn benchRearmVsIo(iters: u32) !RearmResult {
     const io_start = nowNs();
     i = 0;
     while (i < iters) : (i += 1) {
-        const wrote = std.posix.system.write(pipe[1], &buf, 1);
+        const wrote = platform.write(pipe[1], &buf, 1);
         if (wrote != 1) return error.ShortWrite;
-        const bytes_read = std.posix.system.read(pipe[0], &buf, 1);
+        const bytes_read = platform.read(pipe[0], &buf, 1);
         if (bytes_read != 1) return error.ShortRead;
     }
     const io_elapsed = nowNs() - io_start;
@@ -105,7 +106,7 @@ fn benchWakeAllFanout(allocator: std.mem.Allocator, n: u32) !FanoutResult {
     }
 
     var buf: [1]u8 = .{'x'};
-    const wrote = std.posix.system.write(pipe[1], &buf, 1);
+    const wrote = platform.write(pipe[1], &buf, 1);
     if (wrote != 1) return error.ShortWrite;
 
     var ready: std.ArrayList(*Fiber) = .empty;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
@@ -9,19 +10,7 @@ const PrimitiveError = primitives.PrimitiveError;
 const LS = primitives.LibSet;
 
 fn freshSeed() u64 {
-    if (@import("builtin").os.tag == .linux) {
-        var buf: [8]u8 = undefined;
-        const rc = std.os.linux.getrandom(&buf, buf.len, 0);
-        if (rc == buf.len) return @bitCast(buf);
-    } else {
-        const arc4 = @extern(*const fn () callconv(.c) u32, .{ .name = "arc4random" });
-        const lo: u64 = arc4();
-        const hi: u64 = arc4();
-        return (hi << 32) | lo;
-    }
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
+    return platform.randomSeed64();
 }
 
 pub const specs = [_]primitives.PrimSpec{

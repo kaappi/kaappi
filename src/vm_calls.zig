@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const Value = types.Value;
 
@@ -29,9 +30,7 @@ pub fn continuationArgValue(gc: *memory.GC, args: []const Value) VMError!Value {
 }
 
 pub fn clockNs() u64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+    return platform.monotonicNs();
 }
 
 pub fn profileCreditSelf(vm: *VM) void {

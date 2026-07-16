@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin_os = @import("builtin").os;
 const is_wasm = builtin_os.tag == .wasi;
 
@@ -11,21 +12,19 @@ pub fn readWholeFile(allocator: std.mem.Allocator, path: []const u8, max_size: u
     } else blk: {
         const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
         defer allocator.free(path_z);
-        const raw_fd = std.c.open(path_z, .{});
-        if (raw_fd < 0) return error.FileNotFound;
-        break :blk raw_fd;
+        break :blk platform.openRead(path_z) catch return error.FileNotFound;
     };
-    defer _ = std.c.close(fd);
+    defer platform.close(fd);
 
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const raw = std.c.read(fd, &tmp, tmp.len);
+        const raw = platform.read(fd, &tmp, tmp.len);
         if (raw == 0) break;
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
+            if (platform.errno(raw) == .INTR) continue;
             return error.InputOutput;
         }
         const bytes_read: usize = @intCast(raw);

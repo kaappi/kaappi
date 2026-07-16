@@ -138,6 +138,39 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+  # Cross-compile the Windows aarch64 binaries and the unit-test binary.
+  # Compile-only: no Windows ARM64 runner exists on GitHub Actions, so
+  # execution is verified on a real Windows 11 ARM64 machine (see
+  # docs/dev/windows.md). This job keeps the target from bit-rotting.
+  windows-cross:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: windows-cross
+
+      - name: Build (cross-compile for aarch64-windows)
+        run: zig build -Dtarget=aarch64-windows
+
+      - name: Compile unit tests (aarch64-windows)
+        # The run step cannot execute a foreign binary; compiling it is
+        # the regression gate. `|| true` is NOT used — a compile error
+        # must fail, so filter only the expected spawn failure.
+        run: |
+          zig build test -Dtarget=aarch64-windows 2>&1 | tee win-test-build.log || true
+          if grep -E "error:" win-test-build.log | grep -qvE "unable to spawn foreign binary|the following build command failed"; then
+            echo "unexpected compile errors" && exit 1
+          fi
+          ls .zig-cache/o/*/unit-tests.exe
+
   wasm:
     needs: format
     runs-on: ubuntu-latest

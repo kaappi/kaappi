@@ -103,11 +103,16 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | x86_64 | yes | yes | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | CI tested (QEMU) |
+| Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
 | WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
 `zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries
 run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
+`zig build -Dtarget=aarch64-windows` cross-compiles the Windows binaries
+(kaappi.exe, thottam.exe, kaappi-lsp.exe); syscall-level platform
+differences live in `src/platform.zig` (see `docs/dev/windows.md` for the
+port's architecture, degradations, and how to test on a Windows machine).
 
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
 fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-

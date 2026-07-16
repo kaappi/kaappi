@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const platform = @import("platform.zig");
 const build_options = @import("build_options");
 const diagnostics = @import("diagnostics.zig");
 
@@ -503,7 +504,7 @@ pub const Promise = struct {
 
 pub const Port = struct {
     header: Object,
-    fd: std.posix.fd_t,
+    fd: platform.fd_t,
     is_input: bool,
     is_output: bool,
     is_open: bool,
@@ -1348,8 +1349,16 @@ const is_wasm_target = builtin.os.tag == .wasi;
 /// carve-out. `kaappi-threads` is omitted on wasm, matching
 /// Lib.wasmAvailable()'s `srfi_18 => false` gate (primitives.zig) — no OS
 /// threads there. (KEP-0004)
-const base_platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex", "kaappi-fibers", "kaappi-reactor", "kaappi-diagnostics" };
-pub const platform_features = if (is_wasm_target) base_platform_features else base_platform_features ++ [_][]const u8{"kaappi-threads"};
+const is_windows_target = builtin.os.tag == .windows;
+const base_platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "exact-closed", "exact-complex", "kaappi-fibers", "kaappi-reactor", "kaappi-diagnostics" };
+// R7RS appendix B feature identifiers: exactly one OS-class identifier —
+// `windows` on Windows, `posix` everywhere else (WASI hosts are POSIX-ish
+// enough for the subset the runtime exposes there).
+const os_feature = [_][]const u8{if (is_windows_target) "windows" else "posix"};
+pub const platform_features = if (is_wasm_target)
+    base_platform_features ++ os_feature
+else
+    base_platform_features ++ os_feature ++ [_][]const u8{"kaappi-threads"};
 
 test "nil is not a pointer" {
     try std.testing.expect(!isPointer(NIL));

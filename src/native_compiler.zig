@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
 const compiler = @import("compiler.zig");
@@ -147,19 +148,17 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     const should_free = output_path == null;
     defer if (should_free) allocator.free(out_path);
 
-    const fd = std.posix.openat(std.posix.AT.FDCWD, out_path, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch |err| {
+    const out_path_z = try allocator.dupeZ(u8, out_path);
+    defer allocator.free(out_path_z);
+    const fd = platform.openWriteTrunc(out_path_z, 0o644) catch |err| {
         writeStderr("Failed to create output file\n");
         return err;
     };
-    defer _ = std.posix.system.close(fd);
+    defer _ = platform.close(fd);
     const data = emitter.toSlice();
     var total: usize = 0;
     while (total < data.len) {
-        const result = std.posix.system.write(fd, data.ptr + total, data.len - total);
+        const result = platform.write(fd, data.ptr + total, data.len - total);
         if (result <= 0) {
             writeStderr("Failed to write output\n");
             return error.WriteFailed;
@@ -175,13 +174,17 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
 
-    const pid = std.c.getpid();
-    var ll_buf: [64]u8 = undefined;
-    var ll_w: std.Io.Writer = .fixed(&ll_buf);
-    try ll_w.print("/tmp/kaappi_native_{d}.ll", .{pid});
+    const pid = platform.getPid();
+    var tmp_buf: [512]u8 = undefined;
+    const tmp_dir: []const u8 = if (comptime platform.is_windows)
+        (if (platform.getenv("TEMP")) |t| std.mem.sliceTo(t, 0) else "C:/Windows/Temp")
+    else
+        "/tmp";
+    var ll_w: std.Io.Writer = .fixed(&tmp_buf);
+    try ll_w.print("{s}/kaappi_native_{d}.ll", .{ tmp_dir, pid });
     const ll_path = ll_w.buffered();
-    ll_buf[ll_path.len] = 0;
-    defer _ = std.posix.system.unlink(@ptrCast(ll_path.ptr));
+    tmp_buf[ll_path.len] = 0;
+    defer _ = platform.unlink(tmp_buf[0..ll_path.len :0]);
     try emitLlvmFile(vm, path, ll_path);
 
     const out_path = output_path orelse blk: {
@@ -226,28 +229,28 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
 }
 
 fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
-    const path_env = std.c.getenv("PATH") orelse return null;
+    const path_env = platform.getenv("PATH") orelse return null;
     const path_str = std.mem.span(path_env);
-    var iter = std.mem.splitScalar(u8, path_str, ':');
+    var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
     while (iter.next()) |dir| {
-        const full = std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir, name }) catch continue;
+        const full = std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
         const full_z = allocator.dupeZ(u8, full) catch {
             allocator.free(full);
             continue;
         };
         allocator.free(full);
-        const fd = std.posix.openat(std.posix.AT.FDCWD, full_z, .{ .ACCMODE = .RDONLY }, 0) catch {
+        const fd = platform.openRead(full_z) catch {
             allocator.free(full_z);
             continue;
         };
-        _ = std.posix.system.close(fd);
+        _ = platform.close(fd);
         return full_z;
     }
     return null;
 }
 
 fn findLibDir(allocator: std.mem.Allocator) ?[]const u8 {
-    if (std.c.getenv("KAAPPI_LIB_DIR")) |env| {
+    if (platform.getenv("KAAPPI_LIB_DIR")) |env| {
         const dir = std.mem.span(env);
         if (checkLibDir(allocator, dir)) return dir;
     }
@@ -304,10 +307,10 @@ fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void 
 }
 
 fn checkLibDir(allocator: std.mem.Allocator, dir: []const u8) bool {
-    const path = std.fmt.allocPrint(allocator, "{s}/libkaappi_rt.a", .{dir}) catch return false;
+    const path = std.fmt.allocPrintSentinel(allocator, "{s}/libkaappi_rt.a", .{dir}, 0) catch return false;
     defer allocator.free(path);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY }, 0) catch return false;
-    _ = std.posix.system.close(fd);
+    const fd = platform.openRead(path) catch return false;
+    _ = platform.close(fd);
     return true;
 }
 
@@ -363,29 +366,40 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     argc += 1;
     argv_buf[argc] = "-lm";
     argc += 1;
-    argv_buf[argc] = "-lpthread";
-    argc += 1;
+    if (comptime !platform.is_windows) {
+        argv_buf[argc] = "-lpthread";
+        argc += 1;
+    }
     argv_buf[argc] = null;
 
-    const pid = std.posix.system.fork();
-    if (pid < 0) return false;
+    const link_ok = blk: {
+        if (comptime platform.is_windows) {
+            var argv_slices: [16][]const u8 = undefined;
+            for (argv_buf[0..argc], 0..) |arg, i| argv_slices[i] = std.mem.sliceTo(arg.?, 0);
+            const code = platform.winSpawnPassthrough(allocator, argv_slices[0..argc], null) catch break :blk false;
+            break :blk code == 0;
+        }
+        const pid = std.posix.system.fork();
+        if (pid < 0) return false;
 
-    if (pid == 0) {
-        _ = std.posix.system.execve(
-            @ptrCast(argv_buf[0].?),
-            @ptrCast(&argv_buf),
-            @ptrCast(std.c.environ),
-        );
-        std.process.exit(127);
-    }
+        if (pid == 0) {
+            _ = std.posix.system.execve(
+                @ptrCast(argv_buf[0].?),
+                @ptrCast(&argv_buf),
+                @ptrCast(std.c.environ),
+            );
+            std.process.exit(127);
+        }
 
-    var status: c_int = 0;
-    _ = std.c.waitpid(pid, &status, 0);
-    const raw: c_uint = @bitCast(status);
-    const exited = (raw & 0x7f) == 0;
-    if (!exited) return false;
-    const exit_code = (raw >> 8) & 0xff;
-    if (exit_code == 0) {
+        var status: c_int = 0;
+        _ = std.c.waitpid(pid, &status, 0);
+        const raw: c_uint = @bitCast(status);
+        const exited = (raw & 0x7f) == 0;
+        if (!exited) break :blk false;
+        const exit_code = (raw >> 8) & 0xff;
+        break :blk exit_code == 0;
+    };
+    if (link_ok) {
         var msgbuf: [512]u8 = undefined;
         const msg = std.fmt.bufPrint(&msgbuf, "Compiled {s}\n", .{out_path}) catch return true;
         writeStdout(msg);

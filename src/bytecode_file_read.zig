@@ -8,6 +8,7 @@
 //! the inverse.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const file_utils = @import("file_utils.zig");
@@ -411,7 +412,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
             var w: std.Io.Writer = .fixed(&buf);
             w.print("error: bytecode too large ({d} bytes, max {d})\n", .{ code_len, bf.MAX_CODE_BYTES }) catch {};
             const msg = w.buffered();
-            _ = std.posix.system.write(2, msg.ptr, msg.len);
+            _ = platform.write(2, msg.ptr, msg.len);
             return null;
         }
         const code_bytes = r.readBytes(code_len) catch return null;
