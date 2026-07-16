@@ -127,7 +127,8 @@ for end users; a hard verifier **error** still fails the compile regardless.
 primitives (`kaappi_fixnum_add`, `kaappi_car`, …): they live in the static
 archive `libkaappi_rt.a`, on the far side of a compilation boundary `-O2` alone
 cannot cross. So the hottest primitives are emitted **as inline IR** instead of
-calls (#1493), removing the per-operation call in the common case:
+calls (#1493, in `src/llvm_emit_inline.zig`), removing the per-operation call in
+the common case:
 
 | Primitive | Inline fast path | Slow-path fallback |
 |-----------|------------------|--------------------|
@@ -137,7 +138,7 @@ calls (#1493), removing the per-operation call in the common case:
 
 The fast paths touch only the **NaN-boxed Value bits** (fixnum tag, payload,
 nil/boolean immediates), whose encoding is stable and is pulled from `types.zig`
-at emitter comptime (`nanbox` in `llvm_emit.zig`) — no magic numbers are
+at emitter comptime (`nanbox` in `llvm_emit_inline.zig`) — no magic numbers are
 hand-transcribed into the IR. `car`, `cdr`, and `cons` deliberately stay as
 direct specialized calls: `Pair`/`Object` are **auto-layout** (non-`extern`)
 structs whose field offsets Zig does not guarantee, so they cannot be encoded in
@@ -175,7 +176,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy). A fixed-arity one's global value is a native closure over that entry (`kaappi_create_native_closure`, #1500); a variadic one's value stays `kaappi_eval_cached`. Non-lambda values: `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
 | `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
-| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope |
+| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope (`src/llvm_emit_let.zig`) |
 | `cond`, `case`, `do` | Native `if`-style block/`phi` chains (`cond`/`case`) and a self-branching `alloca` loop (`do`) when every sub-form is emittable in the current lexical scope; otherwise a whole-form `kaappi_eval_cached` fallback (`src/llvm_emit_forms.zig`, kaappi#1496) |
 | `letrec`, `letrec*`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
 | `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
