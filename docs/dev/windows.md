@@ -16,8 +16,12 @@ needed on the build machine.
 Cross-compilation is currently the **only** way to build: the official
 Zig 0.16.0 aarch64-windows toolchain access-violates compiling anything
 natively on Windows ARM64 (`zig build` and `zig build-exe` alike, on any
-project — #1613), so kaappi cannot be built on the machine it runs on
-until the upstream fix lands.
+project — #1613). Root cause: LLVM miscompiled `private thread_local`
+access on aarch64-windows (ziglang#31865 on Codeberg), and the shipped
+zig.exe — itself a stripped, LLVM-built aarch64-windows binary — carries
+the miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
+compile natively on the box; kaappi native builds unblock when the first
+fixed release (0.17.0) ships and the pinned toolchain moves to it.
 
 ## Architecture: src/platform.zig
 
@@ -137,10 +141,13 @@ ships `kaappi-aarch64-windows.exe`, `thottam-aarch64-windows.exe`, and
 `libkaappi_rt-aarch64-windows.lib` (the gnu-ABI static lib is emitted as
 `kaappi_rt.lib`). The row builds with `-Dstrip=false`: a **stripped**
 kaappi.exe access-violates at startup on ARM64 Windows (0xC0000005
-before any output; a stripped thottam.exe and small stripped test
-programs — including one spawning a 64 MB-stack thread — run fine, so
-it's specific to the large kaappi image; toolchain investigation
-pending). The post-release acceptance workflow checksums the Windows
+before any output — #1607). Root cause: under strip, Zig demotes
+threadlocals to `private` linkage and LLVM emits a broken +64 KB TLS
+offset for them on aarch64-windows (ziglang#31865) — kaappi reaches
+`vm_instance`/`gc_instance` at startup, while thottam and small probes
+have no affected threadlocal access, which is why only kaappi.exe
+crashed. Fixed in LLVM/Zig master; re-enable strip for the row and
+retest after the toolchain bump (#1613). The post-release acceptance workflow checksums the Windows
 artifacts but does not yet execute them (wiring it to the hosted
 `windows-11-arm` runners is open) — smoke-test a release manually per
 the github-release skill's Step 10.
@@ -157,7 +164,9 @@ the github-release skill's Step 10.
 * Native compilation on Windows ARM64 crashes in the Zig 0.16.0
   toolchain (`zig build`/`zig build-exe` access-violate on any project,
   #1613) — all builds must cross-compile, and `kaappi compile` on the
-  box (#1610) is blocked on the same upstream fix.
+  box (#1610) is blocked on the same upstream fix. Fixed upstream
+  (ziglang#31865; Zig master works on the box, verified 2026-07-17);
+  both unblock at the 0.17.0 toolchain bump.
 * The FFI Scheme suite (`tests/scheme/ffi/`) doesn't run on Windows:
   POSIX library names (`"libm"`), unverified `(ffi-open #f)` semantics,
   and a `.dylib`/`.so`-only fixture (#1611).
@@ -173,5 +182,5 @@ the github-release skill's Step 10.
   plain REPL depends on the console's UTF-8 code page (set at startup).
 * Long paths (> 260 chars) need the system long-path opt-in.
 * `-Dstrip=true` produces a kaappi.exe that access-violates at startup
-  on ARM64 Windows (see Releasing above) — releases ship it unstripped
-  until the toolchain issue is understood.
+  on ARM64 Windows (#1607, see Releasing above) — releases ship it
+  unstripped until the toolchain bump lands the LLVM TLS fix.
