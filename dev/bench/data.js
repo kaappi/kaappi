@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784197430735,
+  "lastUpdate": 1784203587279,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "72da4981008b24b7cb5dacd6d42ae772274052c4",
-          "message": "Re-raise errors from FFI callbacks when the C call returns (#1185) (#1385)\n\nErrors raised inside an ffi-callback invoked from C vanished: the\ntrampolines set vm.last_callback_error, but nothing ever read the flag,\nso the callback handed a default 0 to C and the enclosing FFI call\nreported success. A callback returning a non-integer where the\nsignature declares int was coerced to 0 with the same silence.\n\nA Scheme exception cannot unwind the C frames between the FFI call and\nthe trampoline, so park it instead: trampolines stash the pending\nexception in the new GC-traced vm.callback_error_value (synthesizing an\nerror object from the recorded detail for VM-level errors), and callFfi\nre-raises it once the C call returns — the C result is garbage at that\npoint and must not be delivered as a success. First error wins; later\ncallback invocations by the same C call run on already-poisoned state.\nControl-flow signals (ContinuationInvoked/Yielded/Terminated/\nExecutionTimeout) keep their existing handling. Int-returning\ntrampolines now stash the same way for non-fixnum or out-of-c_int-range\nresults.\n\nThe four FFI dispatch sites propagate ExceptionRaised instead of\ncollapsing every callFfi failure to TypeError, so guard receives the\noriginal condition object with its message intact.\n\nCloses #1185\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T01:50:37Z",
-          "tree_id": "72fb8221d4c01fd78849937ba681cedc3705ebfc",
-          "url": "https://github.com/kaappi/kaappi/commit/72da4981008b24b7cb5dacd6d42ae772274052c4"
-        },
-        "date": 1783649899306,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.114908,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.111516,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.038225,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.43624,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014264,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.374887,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.514277,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067797,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.533113,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981337,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.670075,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.173706,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.400328,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.898239,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045816,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041973,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3f02051d4b7c6cc8048663f5c099c1ea96b9cfb4",
+          "message": "Fix --profile dropping functions promoted to the old generation (#1599)\n\nprintProfileReport, writeProfileJson, and resetProfileCounters walked\nonly gc.objects, but sweepYoung promotes functions surviving two minor\ncollections onto gc.old_objects. Long-running programs therefore printed\nno profile at all (count == 0 hit the silent return), mid-length runs\nprinted a report silently missing the oldest — hottest — functions, and\nREPL profile resets left stale counters on promoted functions. Coverage\nreporting is unaffected (it reads counters via library export refs, not\na heap walk).\n\nAll three walkers now share an allObjects iterator over both generation\nlists. Regression tests force promotion with explicit minor collections\nand assert reset and JSON output both reach old-generation functions;\nboth fail on the young-list-only walk.\n\nFound while capturing --profile traces of kaappi-examples for the\nKEP-0003 revisit-trigger check (#1596).\n\nCloses #1598\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T17:02:36+05:30",
+          "tree_id": "97e096c83a8a495363153452bdaf9e19b386d579",
+          "url": "https://github.com/kaappi/kaappi/commit/3f02051d4b7c6cc8048663f5c099c1ea96b9cfb4"
+        },
+        "date": 1784203586160,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.375372,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.555533,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.897716,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.48501,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006477,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054793,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508008,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070129,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.320437,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.046789,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.580299,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430599,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.86786,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.692816,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044698,
             "unit": "seconds"
           }
         ]
