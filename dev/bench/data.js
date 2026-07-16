@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784232881692,
+  "lastUpdate": 1784237398489,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6a4034f9a6f4329b6b45ce08f6f9680dd86ca696",
-          "message": "Ground fuzzing feasibility note in the research literature (#1388)\n\n* Ground fuzzing feasibility note in the research literature\n\nThe note argued from Fuzzilli's design alone; the same conclusions are\nthe central findings of ~15 years of compiler/interpreter fuzzing\nresearch, so cite the primary sources and let them sharpen the plan:\n\n- New \"What the research literature says\" section surveying 18 verified\n  papers (grammar-based fuzzing, differential compiler testing, the\n  Fuzzilli line, functional-language testing, LLM generation), each\n  mapped to a concrete Kaappi decision.\n- Key find: Zig's std.testing.Smith is exactly Zest's parametric-\n  generator architecture (ISSTA 2019), so the Tier 2 grammar generator\n  is a published, validated design.\n- Tier 3 restructured: a Kaappi-vs-itself variant (bytecode VM vs LLVM\n  native backend, per Midtgaard et al. ICFP 2017 and FuzzJIT) now\n  precedes the external-oracle variant, since it needs no reference\n  Scheme installed.\n- Operating guidance: pair fuzz runs with -Dgc-stress=true builds.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review precision findings on the research survey\n\n- classfuzz/classming: describe their actual oracle (diff across multiple\n  JVM implementations); present the .sbc-mutation idea as our own\n  adaptation, since Kaappi has no second VM to diff against.\n- Tier 3 external oracle: pin one reference interpreter at a fixed\n  version (Chibi first) with fixed invocation/normalization, instead of\n  an open-ended implementation list.\n- Fuzz4All: state the throughput comparison as a qualitative expectation\n  with its reason, not a bare figure.\n- gc-stress: \"attempts collection at every allocation\" — maybeCollect\n  skips when no_collect is held or the GC is disabled (memory.zig).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T08:19:31+05:30",
-          "tree_id": "6a0b680b73693b357c845a4b9e97338ea4eba9f0",
-          "url": "https://github.com/kaappi/kaappi/commit/6a4034f9a6f4329b6b45ce08f6f9680dd86ca696"
-        },
-        "date": 1783653452765,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.09246,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.250543,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.02487,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.09221,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01416,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.374417,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.516703,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067819,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.63726,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.982034,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.659503,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.16524,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.386769,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.846059,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04496,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045715,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4585791606e76c1e1ed30d96c08ad1e24a191f53",
+          "message": "Document the root cause of the ARM64 Windows toolchain crashes (#1613, #1607) (#1615)\n\nBoth the Zig 0.16.0 native-compilation crash (#1613) and the stripped\nkaappi.exe startup crash (#1607) trace to one upstream bug: under strip,\nZig demotes threadlocals to private linkage, and LLVM's AArch64 COFF\nS_HI12 fixup emits a +64 KB TLS offset for them (Codeberg ziglang#31865,\nfixed via llvm/llvm-project#199581). Verified on the reference VM: Zig\nmaster 0.17.0-dev.1413 compiles natively on the box, and a 7-line\nthreadlocal probe reproduces the strip crash under 0.16.0 and runs clean\nwhen built by master. Update windows.md and the release.yml strip\ncomment so nobody starts the now-obsolete #1607 bisection; both issues\nunblock at the 0.17.0 toolchain bump.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T20:58:04Z",
+          "tree_id": "c4151adf3f9bb6104e9619afe1aed05c54838733",
+          "url": "https://github.com/kaappi/kaappi/commit/4585791606e76c1e1ed30d96c08ad1e24a191f53"
+        },
+        "date": 1784237396660,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.810649,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.036382,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.865889,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.090056,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006501,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.051699,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.460137,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.063953,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.458431,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.721067,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.47179,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.405382,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.670115,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.973771,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040612,
             "unit": "seconds"
           }
         ]
