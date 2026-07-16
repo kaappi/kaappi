@@ -22,10 +22,10 @@
     (set! order (cons (channel-receive ch) order))
     (reverse order)))
 
-;; --- capacity 0: every send is permanently full (no rendezvous handoff;
-;; the reservation-based protocol has no direct sender/receiver pairing),
-;; so a timed send on it always times out ---
-(test-equal "capacity-0 channel: send always times out (degenerate, documented)"
+;; --- capacity 0: a rendezvous channel (KEP-0002 §6 as amended, #1602) —
+;; a timed send with no receiver committed parks and times out; the full
+;; pairing semantics live in fiber-channel-rendezvous.scm ---
+(test-equal "capacity-0 channel: unpaired send times out"
   'timed-out
   (let ((ch (make-channel 0)))
     (channel-send ch 1 0.05 'timed-out)))

@@ -251,3 +251,119 @@ test "processor-count returns a positive fixnum" {
     // import needed, same as any other registered primitive.
     try th.expectEvalTrue("(and (integer? (processor-count)) (exact? (processor-count)) (> (processor-count) 0))");
 }
+
+// Rendezvous channels (KEP-0002 §6 as amended; #1600/#1601/#1602):
+// (make-channel 0) pairs a sender with a committed receiver instead of the
+// pre-amendment "permanently full" degenerate behavior.
+
+test "rendezvous channel: fiber sender pairs with main receiver (#1600 repro)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define ch (make-channel 0))");
+    _ = try vm.eval("(spawn (lambda () (channel-send ch 41)))");
+    const result = try vm.eval("(+ 1 (channel-receive ch))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "rendezvous channel: main sender pairs with fiber receiver" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define ch (make-channel 0))");
+    _ = try vm.eval("(define f (spawn (lambda () (channel-receive ch))))");
+    _ = try vm.eval("(channel-send ch 7)");
+    const result = try vm.eval("(fiber-join f)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "rendezvous channel: demand token accounting stays balanced" {
+    // The §4 step 7a token discipline: every terminal exit of a receive —
+    // timeout, guarded deadlock raise, delivered value — must leave
+    // rv_demand at zero once no receiver is committed. A leak here admits
+    // sends nobody will ever collect.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define ch (make-channel 0))");
+    const ch_val = try vm.eval("ch");
+    const ch = types.toObject(ch_val).as(types.Channel);
+
+    // timed-out receive releases its token
+    _ = try vm.eval("(channel-receive ch 0.02 'to)");
+    try std.testing.expectEqual(@as(u32, 0), ch.rv_demand);
+
+    // a guarded deadlock raise releases too
+    _ = try vm.eval("(guard (e (#t 'dead)) (channel-receive ch))");
+    try std.testing.expectEqual(@as(u32, 0), ch.rv_demand);
+
+    // a completed handoff releases the receiver's token
+    _ = try vm.eval("(spawn (lambda () (channel-send ch 'v)))");
+    _ = try vm.eval("(channel-receive ch)");
+    try std.testing.expectEqual(@as(u32, 0), ch.rv_demand);
+    try std.testing.expectEqual(@as(u32, 0), ch.queue_len);
+}
+
+test "rendezvous channel: timed-out receive leaves no phantom demand for senders" {
+    // Pure-behavior twin of the accounting test: if the timed-out
+    // receiver's token leaked, the later timed send would be admitted and
+    // strand its value; if a value were stranded, the final receive would
+    // return it instead of timing out.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((ch (make-channel 0)))
+        \\  (list (channel-receive ch 0.02 'rto)
+        \\        (channel-send ch 'v 0.02 'sto)
+        \\        (channel-receive ch 0.02 'empty)))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(rto sto empty)", s);
+}
+
+test "rendezvous channel: parked timed senders pair under a nested main receive" {
+    // Regression for the frozen-ancestor interleaving found while testing
+    // #1602: two *timed* sends used to park in-call (driving), the main
+    // fiber's receive was dispatched as the innermost nested frame, and its
+    // demand-wake could never reach the driving ancestors (#1487) — the
+    // receive raised a spurious KP3000 deadlock with two viable senders
+    // frozen beneath it. The flat yield_retry park keeps every rendezvous
+    // waiter dispatchable.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define ch (make-channel 0))");
+    _ = try vm.eval("(define s1 (spawn (lambda () (if (eq? (channel-send ch 'a 0.4 'ta) 'ta) 'ta 'sent-a))))");
+    _ = try vm.eval("(define s2 (spawn (lambda () (if (eq? (channel-send ch 'b 0.4 'tb) 'tb) 'tb 'sent-b))))");
+    _ = try vm.eval("(yield)");
+    // One-demand/one-send admission (#1604 review): joining both senders
+    // pins EXACTLY one delivery and one timeout, and the final probe pins
+    // that no second value was admitted and stranded — the two ways
+    // findings 5/6 would have manifested here.
+    const summary = try vm.eval(
+        \\(let* ((got (channel-receive ch))
+        \\       (r1 (fiber-join s1))
+        \\       (r2 (fiber-join s2))
+        \\       (rest (channel-receive ch 0.05 'empty)))
+        \\  (list got r1 r2 rest))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, summary, .write);
+    defer std.testing.allocator.free(s);
+    const ok = std.mem.eql(u8, s, "(a sent-a tb empty)") or
+        std.mem.eql(u8, s, "(b ta sent-b empty)");
+    try std.testing.expect(ok);
+}

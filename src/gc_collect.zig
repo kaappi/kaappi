@@ -190,7 +190,8 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const fiber = obj.as(fiber_mod.Fiber);
             if (isYoungPointer(gc, fiber.thunk) or isYoungPointer(gc, fiber.result) or
                 isYoungPointer(gc, fiber.waiting_on) or isYoungPointer(gc, fiber.name) or
-                isYoungPointer(gc, fiber.specific) or isYoungPointer(gc, fiber.io_buffer)) return true;
+                isYoungPointer(gc, fiber.specific) or isYoungPointer(gc, fiber.io_buffer) or
+                isYoungPointer(gc, fiber.rv_demand_on)) return true;
             if (fiber.current_exception) |exc| {
                 if (isYoungPointer(gc, exc)) return true;
             }

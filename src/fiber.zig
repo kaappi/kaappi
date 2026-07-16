@@ -93,6 +93,18 @@ pub const Fiber = struct {
     /// accumulate duplicate ring entries; cleared when scheduleImpl consumes
     /// or discards the entry (#1477).
     queued: bool = false,
+    /// Rendezvous demand token (KEP-0002 §6 as amended, kaappi#1601/#1602):
+    /// the capacity-0 channel this fiber's parked receive has committed to,
+    /// or VOID. Set (with a write barrier) when the receive's park decision
+    /// increments the channel's `rv_demand`; makes that increment idempotent
+    /// across the yield_retry re-execution of the whole primitive. Released
+    /// — counter decrement + reset to VOID — on every terminal exit of the
+    /// wait (value, eof, timeout, error) and on fiber death
+    /// (releaseFiberRendezvousToken, the abandonFiberMutexes precedent).
+    /// Traced by markFiberState/referencesYoung like `waiting_on`; unlike
+    /// `waiting_on` it survives a wake (clear_waiting_on) until the retry
+    /// exits, which is exactly why it needs independent tracing.
+    rv_demand_on: Value = types.VOID,
     /// Mutexes this fiber currently owns (as `Value`s), maintained by
     /// mutex-lock! (#1458). `abandonFiberMutexes` walks this on fiber death
     /// instead of scanning a GC heap for owned mutexes — the mutex object may
@@ -229,6 +241,11 @@ pub const FiberScheduler = struct {
     /// once — a terminal fiber is never revived, so it can't be pushed twice)
     /// can't drift across call sites.
     pub fn retireSlot(self: *FiberScheduler, fiber: *Fiber, status: FiberStatus) void {
+        // Normally a no-op: the channel primitives release the rendezvous
+        // demand token on their own exits. Catches a fiber that died
+        // between a wake and its retry (e.g. dispatch-loop error paths), so
+        // its committed demand can't admit sends nobody will ever collect.
+        releaseFiberRendezvousToken(fiber);
         fiber.status = status;
         // Slot 0 is the main fiber; it can be transiently marked .completed at
         // top level (vm_calls.zig) but must never be recycled — ensureScheduler
@@ -964,6 +981,30 @@ pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
     fiber.owned_mutexes.clearRetainingCapacity();
 }
 
+/// Release `fiber`'s rendezvous demand token, if it holds one (KEP-0002 §6
+/// as amended: every terminal exit of a rendezvous wait releases its token,
+/// and fiber death is the terminal exit of last resort — the
+/// abandonFiberMutexes precedent). Normally a no-op: the channel primitives
+/// release on their own value/eof/timeout/error exits; this catches a fiber
+/// killed between a wake and its retry (thread-terminate!, an errored
+/// dispatch). The channel stub is always in this thread's heap (the
+/// receive path's foreign-owner check gates acquisition), so the local
+/// decrement never touches another thread's memory; a promoted channel's
+/// counter lives in the SharedChannel and is withdrawn under its lock
+/// (#1603), safe from any thread.
+pub fn releaseFiberRendezvousToken(fiber: *Fiber) void {
+    if (fiber.rv_demand_on == types.VOID) return;
+    const ch = types.toObject(fiber.rv_demand_on).as(types.Channel);
+    if (ch.shared) |raw| {
+        const shared_channel = @import("shared_channel.zig");
+        const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
+        shared_channel.withdrawRvDemand(sc);
+    } else {
+        ch.rv_demand -= 1;
+    }
+    fiber.rv_demand_on = types.VOID;
+}
+
 /// Wait for `target` fiber to finish. Shared by fiber-join and
 /// thread-join!'s fiber path — the exact same wait condition.
 pub const TargetWait = struct {
@@ -1236,6 +1277,7 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
     gc.markValue(fiber.thunk);
     gc.markValue(fiber.result);
     gc.markValue(fiber.waiting_on);
+    gc.markValue(fiber.rv_demand_on);
     gc.markValue(fiber.name);
     gc.markValue(fiber.specific);
 

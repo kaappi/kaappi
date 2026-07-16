@@ -437,7 +437,7 @@ fn benchRealPromoted(workload: Workload, iters: u64) !f64 {
     var i: u64 = 0;
     while (i < iters) : (i += 1) {
         _ = try shared_channel.send(sc, payload, null);
-        _ = try shared_channel.receive(sc, &dest_gc, null);
+        _ = try shared_channel.receive(sc, &dest_gc, null, false);
         freeArena(&dest_gc); // bound the receiver heap, matching the matrix harness
     }
     const elapsed = nowNs() - start;

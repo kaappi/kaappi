@@ -31,15 +31,17 @@
     (channel-send ch 42)
     (channel-receive ch 5)))
 
-;; --- send: no timeout-val -> raises on a permanently-full channel ---
-(test-assert "channel-send on a full channel times out and raises"
+;; --- send: no timeout-val -> raises when no receiver ever commits
+;; (capacity 0 = rendezvous, KEP-0002 §6 as amended: an unpaired send
+;; parks; the timeout is the escape hatch) ---
+(test-assert "channel-send with no receiver times out and raises"
   (let ((ch (make-channel 0)))
     (guard (e (#t (channel-timeout-exception? e)))
       (channel-send ch 1 0.05)
       #f)))
 
 ;; --- send: with timeout-val -> returns it instead of raising ---
-(test-equal "channel-send on a full channel times out and returns timeout-val"
+(test-equal "channel-send with no receiver times out and returns timeout-val"
   'gave-up
   (let ((ch (make-channel 0)))
     (channel-send ch 1 0.05 'gave-up)))

@@ -86,7 +86,7 @@ const Consumer = struct {
         defer local_gc.deinit();
 
         while (self.count.load(.monotonic) < self.target_total) {
-            const outcome = shared_channel.receive(self.sc, &local_gc, notifier) catch |err|
+            const outcome = shared_channel.receive(self.sc, &local_gc, notifier, false) catch |err|
                 fail("consumer: receive failed: {t} (seed={d})\n", .{ err, seed });
             switch (outcome) {
                 .value => |v| {
