@@ -1,17 +1,18 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 
 /// Returns the kaappi home directory path written into `buf`.
 /// Checks `KAAPPI_HOME` env var first; falls back to `$HOME/.kaappi`.
 /// Returns null if neither env var is available or the path exceeds `buf`.
 pub fn getHome(buf: []u8) ?[]const u8 {
-    if (std.c.getenv("KAAPPI_HOME")) |kh| {
+    if (platform.getenv("KAAPPI_HOME")) |kh| {
         const home = std.mem.sliceTo(kh, 0);
         if (home.len > 0 and home.len <= buf.len) {
             @memcpy(buf[0..home.len], home);
             return buf[0..home.len];
         }
     }
-    const home_ptr = std.c.getenv("HOME") orelse return null;
+    const home_ptr = platform.getenv("HOME") orelse return null;
     const home = std.mem.sliceTo(home_ptr, 0);
     const suffix = "/.kaappi";
     const total = home.len + suffix.len;
@@ -26,7 +27,7 @@ test "getHome falls back to HOME/.kaappi" {
     if (getHome(&buf)) |home| {
         try std.testing.expect(home.len > 0);
         try std.testing.expect(std.mem.endsWith(u8, home, "/.kaappi") or
-            std.c.getenv("KAAPPI_HOME") != null);
+            platform.getenv("KAAPPI_HOME") != null);
     }
 }
 
@@ -73,6 +74,10 @@ fn siblingLibDir(exe_path: []const u8, buf: []u8) ?[]const u8 {
 /// sibling `lib/` dir and, by the `kaappi test` orchestrator, to re-spawn the
 /// same binary as a worker regardless of how it was invoked.
 pub fn getExePath(buf: []u8) ?[]const u8 {
+    if (comptime @import("builtin").os.tag == .windows) {
+        return platform.getExePathWindows(buf);
+    }
+
     if (comptime @import("builtin").os.tag == .linux) {
         // /proc/self/exe is a kernel-resolved canonical path already —
         // no realpath needed. Reject a result that fills the whole

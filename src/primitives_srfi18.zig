@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
@@ -221,9 +222,8 @@ pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
         if (t.seconds < 0) return 0;
         const ns_clamped: u64 = if (t.nanoseconds > 0) @intCast(t.nanoseconds) else 0;
         const sec_ns: u64 = @as(u64, @intCast(t.seconds)) * 1_000_000_000 + ns_clamped;
-        var now_ts: std.c.timespec = undefined;
-        _ = std.c.clock_gettime(.REALTIME, &now_ts);
-        const now_ns = @as(u64, @intCast(now_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(now_ts.nsec));
+        const now_rt = platform.realTime();
+        const now_ns = @as(u64, @intCast(now_rt.sec)) * 1_000_000_000 + @as(u64, @intCast(now_rt.nsec));
         if (sec_ns <= now_ns) return 0;
         const mono_now = fiber_mod.clockNs();
         return mono_now + (sec_ns - now_ns);
@@ -635,9 +635,8 @@ fn getSleepSeconds(v: Value) PrimitiveError!f64 {
     }
     if (types.isPointer(v) and types.toObject(v).tag == .srfi18_time) {
         const t = types.toObject(v).as(types.Srfi18Time);
-        var ts: std.c.timespec = undefined;
-        _ = std.c.clock_gettime(.REALTIME, &ts);
-        const now: f64 = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1e9;
+        const rt = platform.realTime();
+        const now: f64 = @as(f64, @floatFromInt(rt.sec)) + @as(f64, @floatFromInt(rt.nsec)) / 1e9;
         const target: f64 = @as(f64, @floatFromInt(t.seconds)) + @as(f64, @floatFromInt(t.nanoseconds)) / 1e9;
         return target - now;
     }
@@ -702,15 +701,7 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn sleepNs(ns: u64) void {
-    var ts: std.c.timespec = .{
-        .sec = @intCast(ns / 1_000_000_000),
-        .nsec = @intCast(ns % 1_000_000_000),
-    };
-    while (true) {
-        const ret = std.c.nanosleep(&ts, &ts);
-        if (ret == 0) break;
-        if (std.posix.errno(ret) != .INTR) break;
-    }
+    platform.sleepNs(ns);
 }
 
 fn threadJoinFn(args: []const Value) PrimitiveError!Value {
@@ -1359,9 +1350,8 @@ fn condvarBroadcastFn(args: []const Value) PrimitiveError!Value {
 
 fn currentTimeFn(_: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .utc) catch return PrimitiveError.OutOfMemory;
+    const rt = platform.realTime();
+    return gc.allocSrfi18Time(@intCast(rt.sec), @intCast(rt.nsec), .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 fn timeToSecondsFn(args: []const Value) PrimitiveError!Value {

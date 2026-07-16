@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
@@ -221,8 +222,7 @@ test "shared rendezvous: close wakes a parked child-thread receiver (determinist
         const demand = sc.rv_demand;
         memory.spinUnlock(&sc.lock);
         if (demand > 0) break;
-        var ts: std.c.timespec = .{ .sec = 0, .nsec = 1 * std.time.ns_per_ms };
-        _ = std.c.nanosleep(&ts, &ts);
+        platform.sleepNs(1 * std.time.ns_per_ms);
     }
     try std.testing.expect(spins < 2000);
 

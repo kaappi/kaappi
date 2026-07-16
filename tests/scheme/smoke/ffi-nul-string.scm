@@ -1,7 +1,12 @@
 ;;; Regression test for issue #630: toCString must reject strings with
 ;;; embedded NUL bytes instead of silently truncating them.
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context))
+
+;; self-dlopen does not expose libc on Windows — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
 
 (define libc (ffi-open #f))
 (define c-strlen (ffi-fn libc "strlen" '(string) 'long))

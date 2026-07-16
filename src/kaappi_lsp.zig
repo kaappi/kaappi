@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
@@ -38,7 +39,7 @@ const initialize_result =
     "{\"capabilities\":{\"textDocumentSync\":1,\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[]},\"hoverProvider\":true,\"documentSymbolProvider\":true,\"definitionProvider\":true,\"referencesProvider\":true},\"serverInfo\":{\"name\":\"kaappi-lsp\",\"version\":\"" ++ version ++ "\"}}";
 
 fn log(msg: []const u8) void {
-    _ = std.posix.system.write(2, msg.ptr, msg.len);
+    _ = platform.write(2, msg.ptr, msg.len);
 }
 
 fn logFmt(buf: []u8, comptime fmt: []const u8, args: anytype) void {
@@ -124,7 +125,11 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
     // Read headers until blank line
     while (true) {
         var byte: [1]u8 = undefined;
-        const n = std.posix.read(0, &byte) catch return null;
+        const n = platform.read(0, &byte, 1);
+        if (n < 0) {
+            if (platform.errno(n) == .INTR) continue;
+            return null;
+        }
         if (n == 0) return null;
         if (header_len < header_buf.len) {
             header_buf[header_len] = byte[0];
@@ -154,24 +159,43 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
     const body = allocator.alloc(u8, content_length) catch return null;
     var total: usize = 0;
     while (total < content_length) {
-        const n = std.posix.read(0, body[total..]) catch {
+        const n = platform.read(0, body.ptr + total, content_length - total);
+        if (n < 0) {
+            if (platform.errno(n) == .INTR) continue;
             allocator.free(body);
             return null;
-        };
+        }
         if (n == 0) {
             allocator.free(body);
             return null;
         }
-        total += n;
+        total += @intCast(n);
     }
     return body;
+}
+
+/// Writes the whole slice, retrying short writes and EINTR: a partial
+/// LSP header or payload desynchronizes the JSON-RPC framing for every
+/// later message, so give up on the frame only on a hard write error.
+fn writeAll(fd: platform.fd_t, bytes: []const u8) bool {
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const n = platform.write(fd, bytes.ptr + offset, bytes.len - offset);
+        if (n < 0) {
+            if (platform.errno(n) == .INTR) continue;
+            return false;
+        }
+        if (n == 0) return false;
+        offset += @intCast(n);
+    }
+    return true;
 }
 
 fn writeMessage(allocator: std.mem.Allocator, json: []const u8) void {
     var header: [64]u8 = undefined;
     const h = std.fmt.bufPrint(&header, "Content-Length: {d}\r\n\r\n", .{json.len}) catch return;
-    _ = std.posix.system.write(1, h.ptr, h.len);
-    _ = std.posix.system.write(1, json.ptr, json.len);
+    if (!writeAll(1, h)) return;
+    _ = writeAll(1, json);
     _ = allocator;
 }
 

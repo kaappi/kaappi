@@ -2,6 +2,11 @@
 ;; causing bignum-backed rationals to marshal as 0.0 or +inf.0 in FFI.
 (import (scheme base) (scheme write) (scheme process-context) (srfi 64))
 
+;; no libm on Windows — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (test-begin "bignum-rational-ffi-793")
 
 (define libm (ffi-open "libm"))

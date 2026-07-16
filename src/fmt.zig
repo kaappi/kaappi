@@ -27,6 +27,7 @@
 //! a source file.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
@@ -574,9 +575,8 @@ fn writeWholeFile(path: []const u8, bytes: []const u8) !void {
     if (path.len >= buf.len) return error.NameTooLong;
     @memcpy(buf[0..path.len], path);
     buf[path.len] = 0;
-    const path_z: [*:0]const u8 = @ptrCast(&buf);
-    const fd = try std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644);
-    defer _ = std.posix.system.close(fd);
+    const fd = platform.openWriteTrunc(buf[0..path.len :0], 0o644) catch |err| return err;
+    defer _ = platform.close(fd);
     reporting.writeToFd(fd, bytes);
 }
 
@@ -585,10 +585,10 @@ fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
     defer result.deinit(allocator);
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const raw = std.c.read(0, &tmp, tmp.len);
+        const raw = platform.read(0, &tmp, tmp.len);
         if (raw == 0) break;
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
+            if (platform.errno(raw) == .INTR) continue;
             return error.ReadFailed;
         }
         const n: usize = @intCast(raw);

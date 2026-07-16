@@ -1,16 +1,17 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
 pub const vm_mod = @import("vm.zig");
 pub const library_mod = @import("library.zig");
 const file_utils = @import("file_utils.zig");
 
-pub fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
+pub fn writeToFd(fd: platform.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
+        const result = platform.write(fd, bytes.ptr + total, bytes.len - total);
         if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
+            if (platform.errno(result) == .INTR) continue;
             break;
         }
         if (result == 0) break;
@@ -464,11 +465,18 @@ pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
     xml.appendSlice(allocator, "</coverage>\n") catch {};
 
     // Write to file
-    const fd = std.posix.openat(std.posix.AT.FDCWD, @ptrCast(path), .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch {
+    var path_buf: [platform.PATH_MAX]u8 = undefined;
+    if (path.len >= path_buf.len) {
+        writeStderr("error: could not open coverage XML output file\n");
+        return;
+    }
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const fd = platform.openWriteTrunc(path_buf[0..path.len :0], 0o644) catch {
         writeStderr("error: could not open coverage XML output file\n");
         return;
     };
-    defer _ = std.posix.system.close(fd);
+    defer _ = platform.close(fd);
 
     writeToFd(fd, xml.items);
 }
@@ -595,7 +603,7 @@ pub fn printCoverageReport(vm: *vm_mod.VM) void {
     }
 }
 
-fn writeJsonEscaped(fd: std.posix.fd_t, s: []const u8) void {
+fn writeJsonEscaped(fd: platform.fd_t, s: []const u8) void {
     for (s) |c| {
         switch (c) {
             '"' => writeToFd(fd, "\\\""),
@@ -616,12 +624,12 @@ fn writeJsonEscaped(fd: std.posix.fd_t, s: []const u8) void {
 }
 
 pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch return;
-    defer _ = std.posix.system.close(fd);
+    var path_buf: [platform.PATH_MAX]u8 = undefined;
+    if (path.len >= path_buf.len) return;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const fd = platform.openWriteTrunc(path_buf[0..path.len :0], 0o644) catch return;
+    defer _ = platform.close(fd);
 
     writeToFd(fd, "[");
     var first = true;

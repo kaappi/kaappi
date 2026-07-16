@@ -3,6 +3,11 @@
 
 (import (scheme base) (scheme write) (scheme process-context) (srfi 64) (srfi 170))
 
+;; user-gid/group-info are POSIX-only — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (test-begin "group-info-by-name")
 
 (let* ((gid (user-gid))

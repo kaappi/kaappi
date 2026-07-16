@@ -9,6 +9,11 @@
 (import (scheme base) (scheme write))
 (import (scheme process-context) (srfi 64))
 
+;; the self-handle (ffi-open #f) does not expose libc on Windows — skip there.
+(cond-expand
+  (windows (display "skipped on windows\n") (exit 0))
+  (else #f))
+
 (test-begin "primitives_ffi audit")
 
 ;;; --- ffi-open ---

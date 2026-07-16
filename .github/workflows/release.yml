@@ -16,15 +16,45 @@ jobs:
           - os: macos-latest
             target: aarch64-macos
             artifact: kaappi-aarch64-macos
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           - os: ubuntu-latest
             target: x86_64-linux
             artifact: kaappi-x86_64-linux
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           - os: ubuntu-24.04-arm
             target: aarch64-linux
             artifact: kaappi-aarch64-linux
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           - os: ubuntu-latest
             target: riscv64-linux
             artifact: kaappi-riscv64-linux
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
+          # Cross-compiled via Zig's bundled mingw-w64; execution is
+          # verified on real Windows 11 ARM64 hardware (docs/dev/windows.md)
+          # since GitHub has no ARM64 Windows runners. The gnu-ABI static
+          # lib is emitted as kaappi_rt.lib on this target. strip: false —
+          # a stripped kaappi.exe access-violates at startup on ARM64
+          # Windows (toolchain issue, see docs/dev/windows.md); thottam is
+          # unaffected but the row ships both unstripped for consistency.
+          - os: ubuntu-latest
+            target: aarch64-windows
+            artifact: kaappi-aarch64-windows.exe
+            exe_ext: .exe
+            lib_src: kaappi_rt.lib
+            lib_ext: .lib
+            strip: false
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -38,7 +68,7 @@ jobs:
 
       - name: Build release binaries and runtime library
         run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=true
+          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=${{ matrix.strip }}
           zig build lib -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
       - name: Sign and notarize macOS binaries
@@ -80,9 +110,9 @@ jobs:
 
       - name: Rename binaries
         run: |
-          cp zig-out/bin/kaappi ${{ matrix.artifact }}
-          cp zig-out/bin/thottam thottam-${{ matrix.target }}
-          cp zig-out/lib/libkaappi_rt.a libkaappi_rt-${{ matrix.target }}.a
+          cp zig-out/bin/kaappi${{ matrix.exe_ext }} ${{ matrix.artifact }}
+          cp zig-out/bin/thottam${{ matrix.exe_ext }} thottam-${{ matrix.target }}${{ matrix.exe_ext }}
+          cp zig-out/lib/${{ matrix.lib_src }} libkaappi_rt-${{ matrix.target }}${{ matrix.lib_ext }}
 
       - name: Upload kaappi artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -94,15 +124,15 @@ jobs:
       - name: Upload thottam artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: thottam-${{ matrix.target }}
-          path: thottam-${{ matrix.target }}
+          name: thottam-${{ matrix.target }}${{ matrix.exe_ext }}
+          path: thottam-${{ matrix.target }}${{ matrix.exe_ext }}
           retention-days: 1
 
       - name: Upload libkaappi_rt artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: libkaappi_rt-${{ matrix.target }}
-          path: libkaappi_rt-${{ matrix.target }}.a
+          path: libkaappi_rt-${{ matrix.target }}${{ matrix.lib_ext }}
           retention-days: 1
 
   build-wasm:

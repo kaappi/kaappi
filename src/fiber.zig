@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const memory = @import("memory.zig");
@@ -10,9 +11,7 @@ const VMError = vm_mod.VMError;
 const CallFrame = types.CallFrame;
 
 pub fn clockNs() u64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
+    return platform.monotonicNs();
 }
 
 pub const FiberStatus = enum(u8) {
@@ -75,7 +74,7 @@ pub const Fiber = struct {
     /// on the reactor (KEP-0001 Phase 3). Unused by anything shipped in
     /// Phase 2, but the fields must exist now so the scheduler/GC plumbing
     /// can be built and tested ahead of the port-layer primitives.
-    io_fd: ?std.posix.fd_t = null,
+    io_fd: ?platform.fd_t = null,
     io_interest: reactor_mod.Interest = .read,
     /// Pins an in-flight read/write buffer across GC while a primitive is
     /// parked on the reactor. Traced by markFiberState/referencesYoung.
@@ -1038,7 +1037,7 @@ fn wakeReadyFiber(f: *Fiber) void {
 /// clean "port closed" error instead of sleeping on an fd that will never
 /// fire (the caller unregisters it from the reactor right after this).
 /// Mirrors wakeChannelWaiters' iterate-and-flip discipline.
-pub fn wakeIoWaitersOnFd(sched: *FiberScheduler, fd: std.posix.fd_t) void {
+pub fn wakeIoWaitersOnFd(sched: *FiberScheduler, fd: platform.fd_t) void {
     for (sched.fibers.items) |f| {
         if (f) |fiber| {
             if (fiber.status == .io_waiting and fiber.io_fd == fd) {
@@ -1075,7 +1074,7 @@ const IoWait = struct {
 ///   reports the fd ready or a close-port wake intervenes, then returns so
 ///   the caller retries its syscall. Blocking main on I/O this way keeps
 ///   sibling fibers running while preserving blocking-read semantics.
-pub fn waitForFd(vm: *VM, fd: std.posix.fd_t, interest: reactor_mod.Interest) VMError!void {
+pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VMError!void {
     const ctx = try ensureScheduler(vm);
     const me = vm.current_fiber orelse return VMError.InvalidArgument;
     const my_idx = ctx.sched.current_idx;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin_os = @import("builtin").os;
 const is_wasm = builtin_os.tag == .wasi;
 const is_linux = builtin_os.tag == .linux;
@@ -24,7 +25,7 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
-pub const ln = if (is_wasm) struct {} else @import("linenoise.zig");
+pub const ln = if (is_wasm or builtin_os.tag == .windows) struct {} else @import("linenoise.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -92,22 +93,9 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (comptime !is_wasm) {
         const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
         defer allocator.free(path_z);
-        const probe_fd = std.c.open(path_z, .{});
-        if (probe_fd >= 0) {
-            defer _ = std.c.close(probe_fd);
-            const is_dir = if (comptime is_linux) blk: {
-                const linux = std.os.linux;
-                var sx: linux.Statx = undefined;
-                const rc = linux.statx(probe_fd, "", 0x1000, .{ .TYPE = true }, &sx);
-                break :blk rc <= @as(usize, std.math.maxInt(isize)) and (sx.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
-            } else blk: {
-                var stat_buf: std.c.Stat = undefined;
-                break :blk std.c.fstat(probe_fd, &stat_buf) == 0 and (stat_buf.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
-            };
-            if (is_dir) {
-                std.debug.print("Error: '{s}' is a directory\n", .{path});
-                return error.IsDir;
-            }
+        if (platform.isDir(path_z)) {
+            std.debug.print("Error: '{s}' is a directory\n", .{path});
+            return error.IsDir;
         }
     }
 
@@ -129,10 +117,10 @@ fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const raw = std.c.read(0, &tmp, tmp.len);
+        const raw = platform.read(0, &tmp, tmp.len);
         if (raw == 0) break;
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
+            if (platform.errno(raw) == .INTR) continue;
             break;
         }
         const bytes_read: usize = @intCast(raw);
@@ -257,8 +245,25 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 
-    const opts = cli.parse(init.args);
+    var opts = cli.parse(init.args);
     if (opts.action == .exit_ok) return;
+
+    // Windows argv paths arrive with backslashes, but every internal path
+    // operation — script-relative includes, sibling-library resolution,
+    // cache keys — splits and joins on '/'. Win32 accepts '/' everywhere,
+    // so normalize the script path once at the boundary.
+    if (comptime platform.is_windows) {
+        if (opts.file_path) |fp| {
+            const dup = allocator.dupe(u8, fp) catch fp;
+            if (dup.ptr != fp.ptr) {
+                const mutable = @constCast(dup);
+                for (mutable) |*ch| {
+                    if (ch.* == '\\') ch.* = '/';
+                }
+                opts.file_path = dup;
+            }
+        }
+    }
 
     // Apply parsed options to VM/GC
     if (opts.no_ir_opt) ir_mod.optimize_enabled = false;
@@ -413,24 +418,29 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 lib_paths[lib_path_count] = klp;
                 lib_path_count += 1;
             }
-            const env_name = if (@import("builtin").os.tag == .macos)
-                "DYLD_LIBRARY_PATH"
-            else
-                "LD_LIBRARY_PATH";
-            const existing = std.c.getenv(env_name);
-            if (existing) |ex| {
-                const ex_len = std.mem.len(ex);
-                const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
-                if (new) |n| {
-                    @memcpy(n[0..klp.len], klp);
-                    n[klp.len] = ':';
-                    @memcpy(n[klp.len + 1 .. klp.len + 1 + ex_len], ex[0..ex_len]);
-                    n[klp.len + 1 + ex_len] = 0;
-                    _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
+            // The dynamic-linker search path is a POSIX concept; Windows
+            // resolves DLLs via PATH and ffi-open's own explicit
+            // ~/.kaappi/lib probe, so there is nothing to export there.
+            if (comptime !platform.is_windows) {
+                const env_name = if (@import("builtin").os.tag == .macos)
+                    "DYLD_LIBRARY_PATH"
+                else
+                    "LD_LIBRARY_PATH";
+                const existing = platform.getenv(env_name);
+                if (existing) |ex| {
+                    const ex_len = std.mem.len(ex);
+                    const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
+                    if (new) |n| {
+                        @memcpy(n[0..klp.len], klp);
+                        n[klp.len] = ':';
+                        @memcpy(n[klp.len + 1 .. klp.len + 1 + ex_len], ex[0..ex_len]);
+                        n[klp.len + 1 + ex_len] = 0;
+                        _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
+                    }
+                } else {
+                    const z = allocator.dupeZ(u8, klp) catch null;
+                    if (z) |zz| _ = setenv(env_name, zz, 1);
                 }
-            } else {
-                const z = allocator.dupeZ(u8, klp) catch null;
-                if (z) |zz| _ = setenv(env_name, zz, 1);
             }
         }
 
@@ -547,7 +557,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             writeStderr("kaappi-wasm: no file specified\n");
             return;
         }
-        if (!is_wasm and std.c.isatty(0) == 0) {
+        if (!is_wasm and !platform.isatty(0)) {
             try runStdin(vm);
         } else {
             try repl_mod.repl(vm);
@@ -1050,6 +1060,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
 }
 
 test {
+    _ = platform;
     _ = types;
     _ = memory;
     _ = reader;

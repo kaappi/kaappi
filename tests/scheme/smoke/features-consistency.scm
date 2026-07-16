@@ -8,7 +8,11 @@
 (test-assert "r7rs in features" (and (memq 'r7rs (features)) #t))
 (test-assert "kaappi in features" (and (memq 'kaappi (features)) #t))
 (test-assert "ieee-float in features" (and (memq 'ieee-float (features)) #t))
-(test-assert "posix in features" (and (memq 'posix (features)) #t))
+;; Exactly one OS-class identifier: windows on Windows, posix elsewhere.
+(test-assert "os feature in features"
+  (cond-expand
+    (windows (and (memq 'windows (features)) (not (memq 'posix (features))) #t))
+    (else (and (memq 'posix (features)) (not (memq 'windows (features))) #t))))
 (test-assert "exact-closed in features" (and (memq 'exact-closed (features)) #t))
 (test-assert "exact-complex in features" (and (memq 'exact-complex (features)) #t))
 

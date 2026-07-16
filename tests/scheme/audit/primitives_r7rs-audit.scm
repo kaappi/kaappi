@@ -40,7 +40,12 @@
                       (pair? (car env))
                       (string? (caar env))
                       (string? (cdar env))
-                      (and (assoc "PATH" env) #t))))
+                      ;; Windows preserves case but names are
+                      ;; case-insensitive ("Path"), so compare ci there.
+                      (and (cond-expand
+                             (windows (assoc "PATH" env string-ci=?))
+                             (else (assoc "PATH" env)))
+                           #t))))
 ;; exit/emergency-exit semantics (afters run for exit, skipped for
 ;; emergency-exit; #f→1, #t→0, default→0) are covered by
 ;; tests/scheme/errors/exit-wind.sh since they terminate the process.

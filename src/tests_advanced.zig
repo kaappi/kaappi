@@ -1,5 +1,6 @@
 // Phase 11: Deferred features
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -588,7 +589,7 @@ test "cond-expand kaappi-threads feature" {
 // probe this test is gating.
 test "cond-expand library check honors sandbox mode" {
     // Skip when source tree isn't available (cross-compiled binary in container)
-    _ = std.posix.openat(std.posix.AT.FDCWD, "lib/srfi/41.sld", .{}, 0) catch return error.SkipZigTest;
+    if (!platform.pathExists("lib/srfi/41.sld")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -617,7 +618,7 @@ test "cond-expand library check honors sandbox mode" {
 
 test "load library from .sld file" {
     // Skip when source tree isn't available (cross-compiled binary in container)
-    _ = std.posix.openat(std.posix.AT.FDCWD, "testlib/helper.sld", .{}, 0) catch return error.SkipZigTest;
+    if (!platform.pathExists("testlib/helper.sld")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -635,7 +636,7 @@ test "load library from .sld file" {
 }
 
 test "load library with include declaration" {
-    _ = std.posix.openat(std.posix.AT.FDCWD, "testlib/with-include.sld", .{}, 0) catch return error.SkipZigTest;
+    if (!platform.pathExists("testlib/with-include.sld")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

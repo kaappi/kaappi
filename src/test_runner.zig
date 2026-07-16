@@ -26,6 +26,7 @@
 //! chance to emit its result.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const reporting = @import("reporting.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
@@ -50,10 +51,8 @@ pub const USAGE_ERROR_EXIT: u8 = 2;
 const EMIT_ENV = "KAAPPI_TEST_EMIT";
 const SEED_ENV = "KAAPPI_TEST_SEED";
 
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 fn getEnv(name: [*:0]const u8) ?[]const u8 {
-    const v = std.c.getenv(name) orelse return null;
+    const v = platform.getenv(name) orelse return null;
     return std.mem.span(v);
 }
 
@@ -262,13 +261,13 @@ fn writeIntOrNull(w: *std.Io.Writer, v: Value) !void {
 }
 
 fn writeFile(path: []const u8, bytes: []const u8) void {
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    var buf: [platform.PATH_MAX]u8 = undefined;
     if (path.len >= buf.len) return;
     @memcpy(buf[0..path.len], path);
     buf[path.len] = 0;
-    const path_z: [*:0]const u8 = @ptrCast(&buf);
-    const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch return;
-    defer _ = std.posix.system.close(fd);
+    const path_z: [:0]const u8 = buf[0..path.len :0];
+    const fd = platform.openWriteTrunc(path_z, 0o644) catch return;
+    defer _ = platform.close(fd);
     reporting.writeToFd(fd, bytes);
 }
 
@@ -315,7 +314,7 @@ const Totals = struct {
 /// Like `explain`, the orchestrator needs no VM of its own — it spawns workers
 /// — so main dispatches it before any VM/GC setup.
 pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     const argv0 = it.next() orelse return null;
     const first = it.next() orelse return null;
     if (!std.mem.eql(u8, first, "test")) return null;
@@ -376,7 +375,7 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
 fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     // The exe to spawn as a worker: prefer the resolved self-path so it works
     // regardless of how the parent was invoked, falling back to argv[0].
-    var exe_buf: [std.posix.PATH_MAX]u8 = undefined;
+    var exe_buf: [platform.PATH_MAX]u8 = undefined;
     const exe_path = kaappi_paths.getExePath(&exe_buf) orelse argv0;
 
     // One seed for the whole run; a random but human-typable value when the
@@ -385,7 +384,7 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     {
         var sbuf: [32]u8 = undefined;
         const s = std.fmt.bufPrintZ(&sbuf, "{d}", .{seed}) catch return 1;
-        _ = setenv(SEED_ENV, s.ptr, 1);
+        platform.setEnv(allocator, SEED_ENV, std.mem.sliceTo(s.ptr, 0)) catch return 1;
     }
 
     var files: std.ArrayList([]const u8) = .empty;
@@ -447,19 +446,14 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
 }
 
 fn runOneFile(allocator: std.mem.Allocator, exe_path: []const u8, file: []const u8, opts: *ParentOpts, index: usize, totals: *Totals) void {
-    const emit_path = std.fmt.allocPrint(allocator, "{s}/kaappi-test-{d}-{d}.json", .{ tmpDir(), std.c.getpid(), index }) catch {
+    const emit_path = std.fmt.allocPrint(allocator, "{s}/kaappi-test-{d}-{d}.json", .{ tmpDir(), platform.getPid(), index }) catch {
         writeStderr("kaappi test: out of memory\n");
         return;
     };
     defer allocator.free(emit_path);
 
     {
-        var pbuf: [std.posix.PATH_MAX]u8 = undefined;
-        if (emit_path.len < pbuf.len) {
-            @memcpy(pbuf[0..emit_path.len], emit_path);
-            pbuf[emit_path.len] = 0;
-            _ = setenv(EMIT_ENV, @ptrCast(&pbuf), 1);
-        }
+        platform.setEnv(allocator, EMIT_ENV, emit_path) catch {};
     }
 
     const spawn = spawnWorker(allocator, exe_path, file, opts.lib_paths.items) catch {
@@ -494,6 +488,17 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
         try argv.append(allocator, p);
     }
     try argv.append(allocator, file);
+
+    if (comptime platform.is_windows) {
+        // Same 1 MiB in-loop cap as the POSIX read loop below: the pipe
+        // keeps draining past it, so a runaway worker can neither exhaust
+        // memory here nor block on a full pipe.
+        const res = platform.winSpawnCaptureMerged(allocator, argv.items, null, 1024 * 1024) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.ForkFailed,
+        };
+        return .{ .output = res.output, .exit_code = res.exit_code, .signaled = false };
+    }
 
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.items.len + 1);
     @memset(argv_z, null);
@@ -850,12 +855,10 @@ fn discoverDir(allocator: std.mem.Allocator, dir_path: []const u8, out: *std.Arr
 
     const dir_z = allocator.dupeZ(u8, dir_path) catch return error.OutOfMemory;
     defer allocator.free(dir_z);
-    const dir = std.c.opendir(dir_z) orelse return;
-    defer _ = std.c.closedir(dir);
+    var dir = platform.DirIter.open(dir_z) orelse return;
+    defer dir.close();
 
-    while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
-        const name = std.mem.span(name_ptr);
+    while (dir.next()) |name| {
         if (name.len == 0 or name[0] == '.') continue; // skip . .. and dotfiles
 
         const full = try std.fs.path.join(allocator, &.{ dir_path, name });
@@ -871,17 +874,13 @@ fn discoverDir(allocator: std.mem.Allocator, dir_path: []const u8, out: *std.Arr
     }
 }
 
-/// True if `path` names a directory. Implemented by attempting to open it as
-/// one (opendir fails with ENOTDIR on a regular file) — no stat needed, matching
-/// the raw-libc filesystem style used elsewhere in the tree.
+/// True if `path` names a directory.
 fn isDirectory(path: []const u8) bool {
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    var buf: [platform.PATH_MAX]u8 = undefined;
     if (path.len >= buf.len) return false;
     @memcpy(buf[0..path.len], path);
     buf[path.len] = 0;
-    const dir = std.c.opendir(@ptrCast(&buf)) orelse return false;
-    _ = std.c.closedir(dir);
-    return true;
+    return platform.isDir(buf[0..path.len :0]);
 }
 
 /// A cheap gate so directory recursion runs only SRFI-64 suites — skipping
@@ -904,21 +903,22 @@ fn lessThanStr(_: void, a: []const u8, b: []const u8) bool {
 }
 
 fn tmpDir() []const u8 {
+    if (comptime platform.is_windows) return getEnv("TEMP") orelse "C:/Windows/Temp";
     return getEnv("TMPDIR") orelse "/tmp";
 }
 
 fn randomSeed() u64 {
-    const entropy = clockNs() ^ (@as(u64, @intCast(std.c.getpid())) << 32);
+    const entropy = clockNs() ^ (@as(u64, @intCast(platform.getPid())) << 32);
     var prng = std.Random.DefaultPrng.init(entropy);
     return prng.random().intRangeLessThan(u64, 1, 1_000_000);
 }
 
 fn unlinkPath(path: []const u8) void {
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
+    var buf: [platform.PATH_MAX]u8 = undefined;
     if (path.len >= buf.len) return;
     @memcpy(buf[0..path.len], path);
     buf[path.len] = 0;
-    _ = std.c.unlink(@ptrCast(&buf));
+    _ = platform.unlink(buf[0..path.len :0]);
 }
 
 fn oom() u8 {

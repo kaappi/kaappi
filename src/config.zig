@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
@@ -65,7 +66,7 @@ pub const Config = struct {
 
 pub fn load() Config {
     var cfg: Config = .{};
-    const nc = std.c.getenv("NO_COLOR");
+    const nc = platform.getenv("NO_COLOR");
     const no_color = nc != null and std.mem.sliceTo(nc.?, 0).len > 0;
     if (no_color) {
         cfg.theme = Theme.no_color;
@@ -267,21 +268,21 @@ fn warnLine(line_num: usize, msg: []const u8) void {
     if (comptime builtin.is_test) return;
     var buf: [128]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: {s} (line {d})\n", .{ msg, line_num }) catch return;
-    _ = std.posix.system.write(2, out.ptr, out.len);
+    _ = platform.write(2, out.ptr, out.len);
 }
 
 fn warnColor(line_num: usize, key: []const u8, value: []const u8) void {
     if (comptime builtin.is_test) return;
     var buf: [192]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: unknown color '{s}' for {s} (line {d})\n", .{ value, key, line_num }) catch return;
-    _ = std.posix.system.write(2, out.ptr, out.len);
+    _ = platform.write(2, out.ptr, out.len);
 }
 
 fn warnKey(line_num: usize, key: []const u8) void {
     if (comptime builtin.is_test) return;
     var buf: [128]u8 = undefined;
     const out = std.fmt.bufPrint(&buf, "config: unknown key '{s}' (line {d})\n", .{ key, line_num }) catch return;
-    _ = std.posix.system.write(2, out.ptr, out.len);
+    _ = platform.write(2, out.ptr, out.len);
 }
 
 // --- Tests ---

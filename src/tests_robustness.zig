@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");

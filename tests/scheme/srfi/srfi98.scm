@@ -2,6 +2,12 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi98.scm
 
 (import (scheme base) (srfi 98) (scheme process-context) (srfi 64))
+;; Windows preserves case but names are case-insensitive ("Path"), so
+;; the alist lookup must compare case-insensitively there.
+(define (env-assoc name env)
+  (cond-expand
+    (windows (assoc name env string-ci=?))
+    (else (assoc name env))))
 
 (test-begin "srfi-98")
 
@@ -11,8 +17,8 @@
 
 (define env (get-environment-variables))
 (test-equal #t (list? env))
-(test-equal #t (pair? (assoc "PATH" env)))
-(test-equal #t (string? (cdr (assoc "PATH" env))))
+(test-equal #t (pair? (env-assoc "PATH" env)))
+(test-equal #t (string? (cdr (env-assoc "PATH" env))))
 
 ;; every entry is a (string . string) pair
 (test-equal #t
@@ -24,7 +30,7 @@
              (loop (cdr e))))))
 
 ;; the alist agrees with single-variable lookup
-(test-equal (get-environment-variable "PATH") (cdr (assoc "PATH" env)))
+(test-equal (get-environment-variable "PATH") (cdr (env-assoc "PATH" env)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-98")

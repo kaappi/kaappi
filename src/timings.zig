@@ -29,6 +29,7 @@
 //! own stdout clean for piping. See `docs/dev/timings.md`.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 
 const is_wasm = builtin.os.tag == .wasi;
@@ -116,9 +117,7 @@ fn nowNs() u64 {
         if (test_clock) |t| return t;
     }
     if (comptime is_wasm) return 0;
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+    return platform.monotonicNs();
 }
 
 /// Enter `stage`. Credits any elapsed time to the (now-frozen) parent stage,
@@ -345,7 +344,7 @@ fn writeStderr(bytes: []const u8) void {
     if (comptime is_wasm) {
         _ = std.posix.write(2, bytes) catch 0;
     } else {
-        _ = std.posix.system.write(2, bytes.ptr, bytes.len);
+        _ = platform.write(2, bytes.ptr, bytes.len);
     }
 }
 

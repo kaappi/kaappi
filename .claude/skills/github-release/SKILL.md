@@ -134,7 +134,7 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, plus kaappi.wasm (wasm32-wasi)
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), plus kaappi.wasm (wasm32-wasi)
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -177,6 +177,13 @@ and runs acceptance tests on macOS, Linux x86/ARM, WASM, plus checksum and
 install script verification. If it fails, investigate before updating the
 docs site — a failure means the release artifacts have a problem (e.g.
 missing entitlement, broken binary, bad checksum).
+
+The Windows artifacts are covered by the checksum job (it verifies every
+released file) but have **no CI acceptance leg** — GitHub has no ARM64
+Windows runners. To smoke-test them on a real Windows 11 ARM64 machine
+(e.g. the `ssh win11` UTM VM), download `kaappi-aarch64-windows.exe` there
+and run `--version`, a small script, and `kaappi features` (the feature
+list must show `windows`, not `posix`). See `docs/dev/windows.md`.
 
 ## Step 11: Update docs site (playground WASM + version)
 

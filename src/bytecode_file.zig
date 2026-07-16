@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const build_options = @import("build_options");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -172,7 +173,7 @@ test "bytecode round-trip: simple function" {
     try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
         // Clean up test file
-        _ = std.posix.system.unlink(@ptrCast(path));
+        _ = platform.unlink(path);
     }
 
     // Deserialize
@@ -212,7 +213,7 @@ test "bytecode round-trip: hash mismatch returns null" {
 
     try writeFileWithTopLevel(allocator, &funcs_arr, 12345, "test.scm", path);
     defer {
-        _ = std.posix.system.unlink(@ptrCast(path));
+        _ = platform.unlink(path);
     }
 
     // Try reading with different hash
@@ -268,7 +269,7 @@ test "bytecode round-trip: various constant types" {
 
     try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
-        _ = std.posix.system.unlink(@ptrCast(path));
+        _ = platform.unlink(path);
     }
 
     const result = try readFileWithTopLevel(&gc, hash, path);
@@ -335,7 +336,7 @@ test "bytecode round-trip: nested functions" {
 
     try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
-        _ = std.posix.system.unlink(@ptrCast(path));
+        _ = platform.unlink(path);
     }
 
     const result = try readFileWithTopLevel(&gc, hash, path);
@@ -478,19 +479,15 @@ test "bytecode validation rejects oversized function count header" {
     try w.writeU32(allocator, 1);
 
     const path = "/tmp/kaappi_test_bad_func_count.sbc";
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch unreachable;
-    defer _ = std.posix.system.close(fd);
-    defer _ = std.posix.system.unlink(@ptrCast(path));
+    const fd = platform.openWriteTrunc(path, 0o644) catch unreachable;
+    defer _ = platform.close(fd);
+    defer _ = platform.unlink(path);
 
     var total: usize = 0;
     while (total < w.buf.items.len) {
-        const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
+        const wrote = platform.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
         if (wrote < 0) {
-            if (std.posix.errno(wrote) == .INTR) continue;
+            if (platform.errno(wrote) == .INTR) continue;
             break;
         }
         if (wrote == 0) break;
@@ -547,7 +544,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
 
     try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer {
-        _ = std.posix.system.unlink(@ptrCast(path));
+        _ = platform.unlink(path);
     }
 
     const result = try readFileWithTopLevel(&gc, hash, path);
@@ -604,7 +601,7 @@ test "bytecode round-trip: line table and source_line preserved" {
     const path = "/tmp/kaappi_test_linetable.sbc";
 
     try writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
-    defer _ = std.posix.system.unlink(@ptrCast(path));
+    defer _ = platform.unlink(path);
 
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
@@ -660,19 +657,15 @@ test "bytecode validation rejects invalid opcode" {
     try w.writeU32(allocator, 0); // line_table count
 
     const path = "/tmp/kaappi_test_invalid_opcode.sbc";
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch unreachable;
-    defer _ = std.posix.system.close(fd);
-    defer _ = std.posix.system.unlink(@ptrCast(path));
+    const fd = platform.openWriteTrunc(path, 0o644) catch unreachable;
+    defer _ = platform.close(fd);
+    defer _ = platform.unlink(path);
 
     var total: usize = 0;
     while (total < w.buf.items.len) {
-        const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
+        const wrote = platform.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
         if (wrote < 0) {
-            if (std.posix.errno(wrote) == .INTR) continue;
+            if (platform.errno(wrote) == .INTR) continue;
             break;
         }
         if (wrote == 0) break;

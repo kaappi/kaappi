@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const primitives = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
@@ -68,6 +69,30 @@ fn makedev(major: u64, minor: u64) u64 {
 }
 
 fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
+    if (comptime platform.is_windows) {
+        // _wstat64 always follows reparse points (`follow` has no effect)
+        // and Windows has no POSIX uid/gid/blocks; absent concepts report
+        // as zero, exactly like SRFI-170 suggests for hosts without them.
+        var wbuf: platform.WPathBuf = undefined;
+        const wpath = platform.widen(&wbuf, std.mem.sliceTo(path, 0)) orelse return null;
+        var st: platform.win.Stat64 = undefined;
+        if (platform.win._wstat64(wpath.ptr, &st) != 0) return null;
+        return .{
+            .mode = @intCast(st.st_mode),
+            .size = st.st_size,
+            .mtime_sec = st.st_mtime,
+            .atime_sec = st.st_atime,
+            .ctime_sec = st.st_ctime,
+            .dev = @intCast(st.st_dev),
+            .ino = @intCast(st.st_ino),
+            .nlinks = @intCast(@max(st.st_nlink, 0)),
+            .rdev = @intCast(st.st_rdev),
+            .blksize = 0,
+            .blocks = 0,
+            .uid = 0,
+            .gid = 0,
+        };
+    }
     if (is_linux) {
         const linux = std.os.linux;
         var sx: linux.Statx = undefined;
@@ -199,6 +224,14 @@ fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError
     return PrimitiveError.ExceptionRaised;
 }
 
+/// POSIX-only operations raise a clean, catchable file error on Windows
+/// instead of being silently absent — the name stays bound, so portable
+/// code can probe with guard/with-exception-handler.
+fn raiseUnsupportedOnWindows(comptime name: []const u8) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return raiseFileError(gc, name ++ ": not supported on Windows", types.FALSE);
+}
+
 fn extractPath(val: Value) ?[]const u8 {
     if (!types.isString(val)) return null;
     const str = types.toObject(val).as(types.SchemeString);
@@ -225,10 +258,10 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const dir = std.c.opendir(path_z) orelse {
+    var dir = platform.DirIter.open(path_z) orelse {
         return raiseFileError(gc, "cannot open directory", args[0]);
     };
-    defer _ = std.c.closedir(dir);
+    defer dir.close();
 
     var str_val: Value = types.NIL;
     gc.pushRoot(&str_val);
@@ -237,10 +270,7 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result);
     defer gc.popRoot();
 
-    while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
-        const name = std.mem.span(name_ptr);
-
+    while (dir.next()) |name| {
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         if (!include_dotfiles and name.len > 0 and name[0] == '.') continue;
 
@@ -268,7 +298,18 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
         return raiseFileError(gc, "cannot stat file", args[0]);
     };
 
-    const S = std.c.S;
+    // std.c.S doesn't exist on Windows; these mode bits are identical
+    // across every target we build (the CRT uses the classic values).
+    const S = if (platform.is_windows) struct {
+        const IFMT: u32 = 0xF000;
+        const IFDIR: u32 = 0x4000;
+        const IFREG: u32 = 0x8000;
+        const IFLNK: u32 = 0xA000;
+        const IFIFO: u32 = 0x1000;
+        const IFSOCK: u32 = 0xC000;
+        const IFCHR: u32 = 0x2000;
+        const IFBLK: u32 = 0x6000;
+    } else std.c.S;
     const file_type: types.FileInfo.FileType = blk: {
         const masked = sr.mode & S.IFMT;
         if (masked == S.IFDIR) break :blk .directory;
@@ -425,7 +466,7 @@ fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    if (std.c.mkdir(path_z, mode) != 0) {
+    if (platform.mkdir(path_z, @intCast(mode)) != 0) {
         return raiseFileError(gc, "cannot create directory", args[0]);
     }
     return types.VOID;
@@ -439,7 +480,7 @@ fn deleteDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    if (std.c.rmdir(path_z) != 0) {
+    if (platform.rmdir(path_z) != 0) {
         return raiseFileError(gc, "cannot delete directory", args[0]);
     }
     return types.VOID;
@@ -461,13 +502,14 @@ fn renameFileFn(args: []const Value) PrimitiveError!Value {
     const new_z = gc.allocator.dupeZ(u8, new) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_z);
 
-    if (std.c.rename(old_z, new_z) != 0) {
+    if (platform.rename(old_z, new_z) != 0) {
         return raiseFileError(gc, "cannot rename file", args[0]);
     }
     return types.VOID;
 }
 
 fn createSymlinkFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("create-symlink");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const old = extractPath(args[0]) orelse return primitives.typeError("create-symlink", "string", args[0]);
     const new = extractPath(args[1]) orelse return primitives.typeError("create-symlink", "string", args[1]);
@@ -486,6 +528,7 @@ fn createSymlinkFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("read-symlink");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("read-symlink", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -505,6 +548,7 @@ fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn createHardLinkFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("create-hard-link");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const old = extractPath(args[0]) orelse return primitives.typeError("create-hard-link", "string", args[0]);
     const new = extractPath(args[1]) orelse return primitives.typeError("create-hard-link", "string", args[1]);
@@ -530,15 +574,15 @@ fn realPathFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    var resolved_buf: [std.posix.PATH_MAX]u8 = undefined;
-    const resolved = std.c.realpath(path_z, &resolved_buf) orelse {
+    var resolved_buf: [platform.PATH_MAX]u8 = undefined;
+    const resolved = platform.realPath(path_z, &resolved_buf) orelse {
         return raiseFileError(gc, "cannot resolve path", args[0]);
     };
-    const len = std.mem.indexOfScalar(u8, resolved[0..resolved_buf.len], 0) orelse resolved_buf.len;
-    return gc.allocString(resolved[0..len]) catch return PrimitiveError.OutOfMemory;
+    return gc.allocString(resolved) catch return PrimitiveError.OutOfMemory;
 }
 
 fn setFileModeFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-file-mode");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-mode", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -555,6 +599,7 @@ fn setFileModeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn truncateFileFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("truncate-file");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("truncate-file", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -571,6 +616,7 @@ fn truncateFileFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn createFifoFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("create-fifo");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("create-fifo", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -590,6 +636,7 @@ fn createFifoFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setFileOwnerFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-file-owner");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-owner", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -628,6 +675,7 @@ fn timeArgToTimespec(args: []const Value, idx: usize) std.c.timespec {
 }
 
 fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-file-times");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-times", "string", args[0]);
     try validatePathNoNul(path, args[0]);
@@ -652,10 +700,11 @@ fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
 
 fn pidFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    return types.makeFixnum(@as(i64, @intCast(std.c.getpid())));
+    return types.makeFixnum(platform.getPid());
 }
 
 fn umaskFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("umask");
     _ = args;
     const cur = std.c.umask(0);
     _ = std.c.umask(cur);
@@ -663,6 +712,7 @@ fn umaskFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setUmaskFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-umask!");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("set-umask!", "integer", args[0]);
     const mask = try validateMode(gc, args[0]);
@@ -673,12 +723,11 @@ fn setUmaskFn(args: []const Value) PrimitiveError!Value {
 fn currentDirectoryFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
-    const result = std.c.getcwd(&buf, buf.len) orelse {
+    var buf: [platform.PATH_MAX]u8 = undefined;
+    const result = platform.getCwd(&buf) orelse {
         return raiseFileError(gc, "cannot get current directory", types.FALSE);
     };
-    const len = std.mem.indexOfScalar(u8, result[0..buf.len], 0) orelse buf.len;
-    return gc.allocString(result[0..len]) catch return PrimitiveError.OutOfMemory;
+    return gc.allocString(result) catch return PrimitiveError.OutOfMemory;
 }
 
 fn setCurrentDirectoryFn(args: []const Value) PrimitiveError!Value {
@@ -689,33 +738,38 @@ fn setCurrentDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    if (std.c.chdir(path_z) != 0) {
+    if (platform.chdir(path_z) != 0) {
         return raiseFileError(gc, "cannot change directory", args[0]);
     }
     return types.VOID;
 }
 
 fn userUidFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-uid");
     _ = args;
     return types.makeFixnum(@as(i64, @intCast(std.c.getuid())));
 }
 
 fn userGidFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-gid");
     _ = args;
     return types.makeFixnum(@as(i64, @intCast(std.c.getgid())));
 }
 
 fn userEffectiveUidFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-effective-uid");
     _ = args;
     return types.makeFixnum(@as(i64, @intCast(std.c.geteuid())));
 }
 
 fn userEffectiveGidFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-effective-gid");
     _ = args;
     return types.makeFixnum(@as(i64, @intCast(std.c.getegid())));
 }
 
 fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-supplementary-gids");
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
@@ -740,6 +794,7 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn niceFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("nice");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var delta: c_int = 1;
     if (args.len > 0 and types.isFixnum(args[0])) {
@@ -773,14 +828,9 @@ fn setEnvVarFn(args: []const Value) PrimitiveError!Value {
     try validatePathNoNul(name, args[0]);
     try validatePathNoNul(value, args[1]);
 
-    const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(name_z);
-    const value_z = gc.allocator.dupeZ(u8, value) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(value_z);
-
-    if (setenv(name_z, value_z, 1) != 0) {
+    platform.setEnv(gc.allocator, name, value) catch {
         return raiseFileError(gc, "cannot set environment variable", args[0]);
-    }
+    };
     return types.VOID;
 }
 
@@ -789,10 +839,7 @@ fn deleteEnvVarFn(args: []const Value) PrimitiveError!Value {
     const name = extractPath(args[0]) orelse return primitives.typeError("delete-environment-variable!", "string", args[0]);
     try validatePathNoNul(name, args[0]);
 
-    const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(name_z);
-
-    _ = unsetenv(name_z);
+    platform.unsetEnv(gc.allocator, name) catch return PrimitiveError.OutOfMemory;
     return types.VOID;
 }
 
@@ -803,7 +850,7 @@ fn deleteEnvVarFn(args: []const Value) PrimitiveError!Value {
 fn terminalP(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("terminal?", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
-    return if (std.c.isatty(port.fd) != 0) types.TRUE else types.FALSE;
+    return if (platform.isatty(port.fd)) types.TRUE else types.FALSE;
 }
 
 // -------------------------------------------------------------------------
@@ -811,6 +858,7 @@ fn terminalP(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn userInfoFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-info");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const pw = if (types.isFixnum(args[0])) blk: {
@@ -874,6 +922,7 @@ fn userInfoFullName(args: []const Value) PrimitiveError!Value {
 }
 
 fn groupInfoFn(args: []const Value) PrimitiveError!Value {
+    if (comptime platform.is_windows) return raiseUnsupportedOnWindows("group-info");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     if (types.isFixnum(args[0])) {
@@ -922,12 +971,12 @@ fn openDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const dir = std.c.opendir(path_z) orelse {
+    const dir = platform.dirIterCreate(path_z) orelse {
         return raiseFileError(gc, "cannot open directory", args[0]);
     };
 
     return gc.allocDirectoryObject(@ptrCast(dir), include_dotfiles) catch {
-        _ = std.c.closedir(dir);
+        platform.dirIterDestroy(dir);
         return PrimitiveError.OutOfMemory;
     };
 }
@@ -938,17 +987,15 @@ fn readDirectoryFn(args: []const Value) PrimitiveError!Value {
     const d = types.toDirectoryObject(args[0]);
 
     const dir_ptr = d.dir orelse return types.EOF;
-    const dir: *std.c.DIR = @ptrCast(@alignCast(dir_ptr));
+    const dir: *platform.DirIter = @ptrCast(@alignCast(dir_ptr));
 
-    while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
-        const name = std.mem.span(name_ptr);
+    while (dir.next()) |name| {
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         if (!d.include_dotfiles and name.len > 0 and name[0] == '.') continue;
         return gc.allocString(name) catch return PrimitiveError.OutOfMemory;
     }
 
-    _ = std.c.closedir(dir);
+    platform.dirIterDestroy(dir);
     d.dir = null;
     return types.EOF;
 }
@@ -957,7 +1004,7 @@ fn closeDirectoryFn(args: []const Value) PrimitiveError!Value {
     if (!types.isDirectoryObject(args[0])) return primitives.typeError("close-directory", "directory-object", args[0]);
     const d = types.toDirectoryObject(args[0]);
     if (d.dir) |dir| {
-        _ = std.c.closedir(@ptrCast(@alignCast(dir)));
+        platform.dirIterDestroy(@ptrCast(@alignCast(dir)));
         d.dir = null;
     }
     return types.VOID;
@@ -970,17 +1017,15 @@ fn closeDirectoryFn(args: []const Value) PrimitiveError!Value {
 fn posixTimeFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .utc) catch return PrimitiveError.OutOfMemory;
+    const rt = platform.realTime();
+    return gc.allocSrfi18Time(@intCast(rt.sec), @intCast(rt.nsec), .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 fn monotonicTimeFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .monotonic) catch return PrimitiveError.OutOfMemory;
+    const mono = platform.monotonicNs();
+    return gc.allocSrfi18Time(@intCast(mono / 1_000_000_000), @intCast(mono % 1_000_000_000), .monotonic) catch return PrimitiveError.OutOfMemory;
 }
 
 // (file-info-type fi) — return type as symbol
@@ -1005,14 +1050,16 @@ fn fileInfoTypeFn(args: []const Value) PrimitiveError!Value {
 fn tempFilePrefixFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocString("/tmp/kaappi-") catch return PrimitiveError.OutOfMemory;
+    var buf: [512]u8 = undefined;
+    return gc.allocString(platform.tempFilePrefix(&buf)) catch return PrimitiveError.OutOfMemory;
 }
 
 // (create-temp-file [prefix]) — create a temp file and return its path
 fn createTempFileFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
-    var prefix: []const u8 = "/tmp/kaappi-";
+    var prefix_buf: [512]u8 = undefined;
+    var prefix: []const u8 = platform.tempFilePrefix(&prefix_buf);
     if (args.len > 0 and types.isString(args[0])) {
         const s = types.toObject(args[0]).as(types.SchemeString);
         prefix = s.data[0..s.len];
@@ -1021,14 +1068,34 @@ fn createTempFileFn(args: []const Value) PrimitiveError!Value {
 
     // Build template: prefix + XXXXXX + null
     var template_buf: [256]u8 = undefined;
-    if (prefix.len + 7 > template_buf.len) return raiseFileError(gc, "temp file prefix too long", args[0]);
+    if (prefix.len + 7 > template_buf.len) return raiseFileError(gc, "temp file prefix too long", if (args.len > 0) args[0] else types.FALSE);
     @memcpy(template_buf[0..prefix.len], prefix);
     @memcpy(template_buf[prefix.len..][0..6], "XXXXXX");
     template_buf[prefix.len + 6] = 0;
 
+    if (comptime platform.is_windows) {
+        // No mkstemp in the CRT: fill the template with entropy ourselves
+        // and rely on O_EXCL to make creation race-free, retrying on
+        // collision exactly as mkstemp does.
+        var attempt: u32 = 0;
+        while (attempt < 100) : (attempt += 1) {
+            var seed = platform.monotonicNs() ^ (@as(u64, @intCast(platform.getPid())) << 32) ^ (@as(u64, attempt) << 56);
+            const letters = "abcdefghijklmnopqrstuvwxyz0123456789";
+            for (template_buf[prefix.len..][0..6]) |*ch| {
+                ch.* = letters[@intCast(seed % letters.len)];
+                seed /= letters.len;
+            }
+            const path_z: [:0]const u8 = template_buf[0 .. prefix.len + 6 :0];
+            const wfd = platform.openWriteTruncExcl(path_z, 0o600) catch continue;
+            _ = platform.close(wfd);
+            return gc.allocString(path_z) catch return PrimitiveError.OutOfMemory;
+        }
+        return raiseFileError(gc, "cannot create temp file", types.FALSE);
+    }
+
     const fd = mkstemp(@ptrCast(template_buf[0 .. prefix.len + 6 :0]));
     if (fd < 0) return raiseFileError(gc, "cannot create temp file", types.FALSE);
-    _ = std.posix.system.close(fd);
+    _ = platform.close(fd);
 
     // Find actual path length (null-terminated)
     var path_len: usize = 0;

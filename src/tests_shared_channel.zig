@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
@@ -33,9 +34,7 @@ fn testDestroyHook(_: *shared_object.Header) void {
 }
 
 fn nowNsForStressTest() u64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+    return platform.monotonicNs();
 }
 
 test "shared_object: init/retain/release destroys exactly at zero" {

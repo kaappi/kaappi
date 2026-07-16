@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const diagnostics = @import("diagnostics.zig");
 const shared_buffer = @import("shared_buffer.zig");
@@ -518,7 +519,7 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ri));
     }
 
-    pub fn allocPort(self: *GC, fd: std.posix.fd_t, is_input: bool, is_output: bool, name: []const u8, owns_name: bool) !Value {
+    pub fn allocPort(self: *GC, fd: platform.fd_t, is_input: bool, is_output: bool, name: []const u8, owns_name: bool) !Value {
         try self.maybeCollect();
         const port = try self.allocator.create(Port);
         port.* = .{

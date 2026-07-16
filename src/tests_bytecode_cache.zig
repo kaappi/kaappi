@@ -13,6 +13,7 @@
 // gc.extra_roots for the whole run (see main.zig comment near compiled_funcs).
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");

@@ -23,6 +23,7 @@ investigation produced analysis worth keeping.
 | [ir.md](ir.md) | Compiler IR: 33 node types, analysis passes, optimization passes |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
+| [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, the `windows` feature identifier, how to test on a Windows machine |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |
 | [test-runner.md](test-runner.md) | `kaappi test`: the first-class SRFI-64 runner — discovery, worker subprocesses, `--json` schema, `--seed` |

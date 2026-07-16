@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
@@ -10,7 +11,11 @@ const reporting = @import("reporting.zig");
 const expander = @import("expander.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
 const crash = @import("crash.zig");
-const ln = if (is_wasm) struct {} else @import("linenoise.zig");
+/// linenoise is POSIX-only (termios). The Windows REPL keeps the whole
+/// eval/print/debug-command loop and swaps only the line source: a plain
+/// prompt + buffered stdin read (no editing/history/completion).
+const use_linenoise = !is_wasm and !platform.is_windows;
+const ln = if (use_linenoise) @import("linenoise.zig") else struct {};
 
 const config_mod = @import("config.zig");
 const version = @import("main.zig").version;
@@ -23,10 +28,53 @@ var highlight_enabled: bool = true;
 
 fn getTerminalWidth() u16 {
     if (comptime is_wasm) return 80;
-    var ws: std.posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
-    const ret = std.c.ioctl(1, std.c.T.IOCGWINSZ, @intFromPtr(&ws));
-    if (ret == 0 and ws.col > 0) return ws.col;
-    return 80;
+    return platform.terminalWidth() orelse 80;
+}
+
+/// One REPL line. linenoise where available; otherwise write the prompt
+/// and read a plain line from fd 0 (Windows). Returns a malloc'd
+/// NUL-terminated line without its trailing newline — the linenoise
+/// return contract — freed by `freeReplLine`. Null on EOF.
+fn readReplLine(prompt: [*:0]const u8) ?[*:0]u8 {
+    if (comptime use_linenoise) return @ptrCast(ln.linenoise(prompt));
+
+    const prompt_s = std.mem.span(prompt);
+    _ = platform.write(1, prompt_s.ptr, prompt_s.len);
+
+    const allocator = std.heap.c_allocator;
+    var line: std.ArrayList(u8) = .empty;
+    defer line.deinit(allocator);
+    while (true) {
+        var byte: [1]u8 = undefined;
+        const n = platform.read(0, &byte, 1);
+        if (n < 0) {
+            if (platform.errno(n) == .INTR) continue;
+            return null;
+        }
+        if (n == 0) {
+            if (line.items.len == 0) return null; // EOF at line start
+            break; // EOF terminates a final unterminated line
+        }
+        if (byte[0] == '\n') break;
+        line.append(allocator, byte[0]) catch return null;
+    }
+    if (line.items.len > 0 and line.items[line.items.len - 1] == '\r') {
+        _ = line.pop();
+    }
+    line.append(allocator, 0) catch return null;
+    const owned = line.toOwnedSlice(allocator) catch return null;
+    return @ptrCast(owned.ptr);
+}
+
+fn freeReplLine(line_ptr: [*:0]u8) void {
+    if (comptime use_linenoise) {
+        ln.free(@ptrCast(line_ptr));
+        return;
+    }
+    // Mirror of readReplLine's raw_c_allocator ownership: reconstruct the
+    // allocation (bytes incl. the NUL) and free it.
+    const len = std.mem.len(line_ptr);
+    std.heap.c_allocator.free(line_ptr[0 .. len + 1]);
 }
 
 const writeStdout = reporting.writeStdout;
@@ -619,24 +667,25 @@ pub fn repl(vm: *vm_mod.VM) !void {
 
     terminal_width = getTerminalWidth();
     repl_vm = vm;
-    ln.setMultiLine(true);
-    ln.historySetMaxLen(cfg.history_length);
 
     var hist_path_buf: [512]u8 = undefined;
-    const hist_path: ?[*:0]const u8 = blk: {
+    const hist_path: ?[*:0]const u8 = if (comptime use_linenoise) blk: {
+        ln.setMultiLine(true);
+        ln.historySetMaxLen(cfg.history_length);
         const kaappi_paths = @import("kaappi_paths.zig");
         var home_buf: [256]u8 = undefined;
         const kaappi_home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
         const dir = std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}", .{kaappi_home}) catch break :blk null;
-        _ = std.c.mkdir(dir.ptr, 0o755);
+        _ = platform.mkdir(dir, 0o755);
         const path = std.fmt.bufPrintZ(&hist_path_buf, "{s}/history", .{kaappi_home}) catch break :blk null;
         break :blk path;
-    };
-    if (hist_path) |p| ln.historyLoad(p);
-
-    ln.setCompletionCallback(&completionCallback);
-    if (highlight_enabled) {
-        ln.setHighlightCallback(&highlightCallback);
+    } else null;
+    if (comptime use_linenoise) {
+        if (hist_path) |p| ln.historyLoad(p);
+        ln.setCompletionCallback(&completionCallback);
+        if (highlight_enabled) {
+            ln.setHighlightCallback(&highlightCallback);
+        }
     }
 
     // Build colored prompt strings: <color>text<reset>\0
@@ -673,14 +722,18 @@ pub fn repl(vm: *vm_mod.VM) !void {
     while (true) {
         const prompt: [*:0]const u8 = if (input_buf.items.len > 0) continuation_prompt else primary_prompt;
         accumulated_input = input_buf.items;
-        const line_ptr = ln.linenoise(prompt) orelse {
-            const err = std.c._errno().*;
-            if (err == @intFromEnum(std.posix.E.AGAIN)) {
-                if (input_buf.items.len > 0) {
-                    input_buf.clearRetainingCapacity();
+        const line_ptr = readReplLine(prompt) orelse {
+            if (comptime use_linenoise) {
+                // linenoise signals ctrl-C via EAGAIN: reset any pending
+                // multi-line input instead of exiting.
+                const err = std.c._errno().*;
+                if (err == @intFromEnum(std.posix.E.AGAIN)) {
+                    if (input_buf.items.len > 0) {
+                        input_buf.clearRetainingCapacity();
+                    }
+                    writeStdout("\n");
+                    continue;
                 }
-                writeStdout("\n");
-                continue;
             }
             if (input_buf.items.len > 0) {
                 input_buf.clearRetainingCapacity();
@@ -689,7 +742,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
             }
             break;
         };
-        defer ln.free(@ptrCast(line_ptr));
+        defer freeReplLine(line_ptr);
 
         const line = std.mem.span(line_ptr);
         const trimmed = std.mem.trim(u8, line, " \t\r");
@@ -800,13 +853,10 @@ pub fn repl(vm: *vm_mod.VM) !void {
         }
         if (std.mem.startsWith(u8, debug_trimmed, ",time ")) {
             const time_expr = debug_trimmed[6..];
-            var ts: std.c.timespec = undefined;
-            _ = std.c.clock_gettime(.MONOTONIC, &ts);
+            const t0 = platform.monotonicNs();
             evalInput(vm, allocator, time_expr);
-            var te: std.c.timespec = undefined;
-            _ = std.c.clock_gettime(.MONOTONIC, &te);
-            const secs = @as(f64, @floatFromInt(te.sec - ts.sec)) +
-                @as(f64, @floatFromInt(te.nsec - ts.nsec)) / 1_000_000_000.0;
+            const t1 = platform.monotonicNs();
+            const secs = @as(f64, @floatFromInt(t1 - t0)) / 1_000_000_000.0;
             var tbuf: [64]u8 = undefined;
             const ts_str = std.fmt.bufPrint(&tbuf, "; {d:.3} seconds\n", .{secs}) catch "; ? seconds\n";
             writeStdout(ts_str);
@@ -1044,18 +1094,22 @@ pub fn repl(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        var hist_buf: std.ArrayList(u8) = .empty;
-        defer hist_buf.deinit(allocator);
-        hist_buf.appendSlice(allocator, full_input) catch {};
-        hist_buf.append(allocator, 0) catch {};
-        ln.historyAdd(@ptrCast(hist_buf.items.ptr));
+        if (comptime use_linenoise) {
+            var hist_buf: std.ArrayList(u8) = .empty;
+            defer hist_buf.deinit(allocator);
+            hist_buf.appendSlice(allocator, full_input) catch {};
+            hist_buf.append(allocator, 0) catch {};
+            ln.historyAdd(@ptrCast(hist_buf.items.ptr));
+        }
 
         evalInputTyped(vm, allocator, full_input, .store_last);
 
         input_buf.clearRetainingCapacity();
     }
 
-    if (hist_path) |p| ln.historySave(p);
+    if (comptime use_linenoise) {
+        if (hist_path) |p| ln.historySave(p);
+    }
     repl_vm = null;
 }
 

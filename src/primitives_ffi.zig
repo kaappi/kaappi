@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const primitives = @import("primitives.zig");
 const memory = @import("memory.zig");
@@ -35,7 +36,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 
     if (args[0] == types.FALSE) {
         // Open default process (all linked symbols including libc)
-        const handle = std.c.dlopen(null, std.c.RTLD{ .LAZY = true }) orelse return primitives.typeError("ffi-open", "openable library", args[0]);
+        const handle = platform.dlOpen(null) orelse return primitives.typeError("ffi-open", "openable library", args[0]);
         return gc.allocFfiLibrary(handle, "default") catch return PrimitiveError.OutOfMemory;
     }
 
@@ -50,20 +51,19 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
     const cname: [*:0]const u8 = @ptrCast(buf[0..str.len :0]);
 
     // Try the name as-is
-    if (std.c.dlopen(cname, std.c.RTLD{ .LAZY = true })) |handle| {
+    if (platform.dlOpen(cname)) |handle| {
         return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
     }
 
     // Try platform library suffixes. ".so.6" covers glibc's core libraries
     // (libm, libc), where the unversioned .so is a linker script that
     // dlopen cannot load.
-    const platform_suffixes = [_][]const u8{ ".dylib", ".so", ".so.6" };
-    for (platform_suffixes) |suffix| {
+    for (platform.dl_suffixes) |suffix| {
         if (str.len + suffix.len < buf.len) {
             @memcpy(buf[str.len..][0..suffix.len], suffix);
             buf[str.len + suffix.len] = 0;
             const cname2: [*:0]const u8 = @ptrCast(buf[0 .. str.len + suffix.len :0]);
-            if (std.c.dlopen(cname2, std.c.RTLD{ .LAZY = true })) |handle| {
+            if (platform.dlOpen(cname2)) |handle| {
                 return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
             }
         }
@@ -74,8 +74,9 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
     var home_buf: [256]u8 = undefined;
     if (kaappi_paths.getHome(&home_buf)) |kaappi_home| {
         const lib_prefix = "/lib/";
-        const suffixes = [_][]const u8{ "", ".dylib", ".so" };
-        for (suffixes) |suffix| {
+        const home_suffixes: []const []const u8 =
+            if (comptime platform.is_windows) &.{ "", ".dll" } else &.{ "", ".dylib", ".so" };
+        for (home_suffixes) |suffix| {
             if (kaappi_home.len + lib_prefix.len + str.len + suffix.len < 512) {
                 var pbuf: [512]u8 = undefined;
                 @memcpy(pbuf[0..kaappi_home.len], kaappi_home);
@@ -85,7 +86,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
                 const total = kaappi_home.len + lib_prefix.len + str.len + suffix.len;
                 pbuf[total] = 0;
                 const pname: [*:0]const u8 = @ptrCast(pbuf[0..total :0]);
-                if (std.c.dlopen(pname, std.c.RTLD{ .LAZY = true })) |handle| {
+                if (platform.dlOpen(pname)) |handle| {
                     return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
                 }
             }
@@ -93,7 +94,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
     }
 
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (std.c.dlerror()) |err_msg| {
+    if (platform.dlError()) |err_msg| {
         const msg = std.mem.span(err_msg);
         vm.setErrorDetail("ffi-open: {s}", .{msg});
     } else {
@@ -124,9 +125,9 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     name_buf[name_str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
 
-    const symbol = std.c.dlsym(handle, cname) orelse {
+    const symbol = platform.dlSym(handle, cname) orelse {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-        if (std.c.dlerror()) |err_msg| {
+        if (platform.dlError()) |err_msg| {
             const msg = std.mem.span(err_msg);
             vm.setErrorDetail("ffi-fn: {s}", .{msg});
         } else {
@@ -171,7 +172,7 @@ fn ffiClose(args: []const Value) PrimitiveError!Value {
     if (!types.isFfiLibrary(args[0])) return primitives.typeError("ffi-close", "ffi-library", args[0]);
     const lib = types.toObject(args[0]).as(types.FfiLibrary);
     if (lib.handle) |handle| {
-        _ = std.c.dlclose(handle);
+        _ = platform.dlClose(handle);
         lib.handle = null;
     }
     return types.VOID;

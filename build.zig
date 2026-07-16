@@ -82,12 +82,15 @@ pub fn build(b: *std.Build) void {
     const null_embed = wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
     const is_wasm_target = target.result.os.tag == .wasi;
+    // linenoise is POSIX-only (termios); the Windows REPL uses a plain
+    // stdin line loop instead (repl.zig).
+    const use_linenoise = !is_wasm_target and target.result.os.tag != .windows;
 
     // Main module (embedded_bytecode added below based on bundle mode)
     const main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = optimize,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .strip = strip,
         .single_threaded = if (is_wasm_target) true else null,
     });
@@ -113,7 +116,7 @@ pub fn build(b: *std.Build) void {
         const compiler_mod = kaappiModule(b, options_mod, .{
             .target = target,
             .optimize = optimize,
-            .linenoise = !is_wasm_target,
+            .linenoise = use_linenoise,
             .embed = compiler_null_embed,
         });
 
@@ -181,7 +184,7 @@ pub fn build(b: *std.Build) void {
         .root = "src/runtime_exports.zig",
         .target = target,
         .optimize = optimize,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .embed = null_embed,
     });
     const lib = b.addLibrary(.{
@@ -372,6 +375,12 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    // Cross-compiled test binaries the host can't execute (no emulator
+    // registered — e.g. aarch64-windows) skip cleanly instead of failing,
+    // so `zig build test -Dtarget=aarch64-windows` is a compile gate CI
+    // can run anywhere. Native runs and QEMU-backed riscv64 are
+    // unaffected (the binary is executable there, so it still runs).
+    run_unit_tests.skip_foreign_checks = true;
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
@@ -386,6 +395,7 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     const run_thottam_tests = b.addRunArtifact(thottam_tests);
+    run_thottam_tests.skip_foreign_checks = true;
     test_step.dependOn(&run_thottam_tests.step);
 
     // Code coverage via kcov (always Debug for DWARF line info)
@@ -413,7 +423,7 @@ pub fn build(b: *std.Build) void {
     const cov_main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = .Debug,
-        .linenoise = !is_wasm_target,
+        .linenoise = use_linenoise,
         .embed = null_embed,
     });
     const cov_exe = b.addExecutable(.{

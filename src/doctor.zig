@@ -21,6 +21,7 @@
 //! PATH) describe a degraded-but-usable environment and keep the exit code 0.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const reporting = @import("reporting.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
@@ -148,7 +149,7 @@ pub const Request = struct {
 /// If `args` is a `kaappi doctor …` invocation, handle it fully and return the
 /// process exit code; otherwise return null so normal CLI dispatch proceeds.
 pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
-    var it = args.iterate();
+    var it = platform.argsIterate(args);
     _ = it.skip(); // argv[0]
     const first = it.next() orelse return null;
     if (!std.mem.eql(u8, first, "doctor")) return null;
@@ -358,7 +359,7 @@ fn collectNativeBackend(r: *Report) void {
     // An explicit KAAPPI_LIB_DIR that does not resolve is a definite
     // misconfiguration — the user asked for a specific runtime library and it
     // is not there — so it is the one FAIL-level finding doctor emits.
-    if (std.c.getenv("KAAPPI_LIB_DIR")) |env| {
+    if (platform.getenv("KAAPPI_LIB_DIR")) |env| {
         const dir = std.mem.sliceTo(env, 0);
         if (!dirExists(a, dir)) {
             r.add("native-backend", "KAAPPI_LIB_DIR", .fail, r.fmt("{s} (directory does not exist)", .{dir}), "point KAAPPI_LIB_DIR at a directory containing libkaappi_rt.a, or unset it to use the default search");
@@ -420,9 +421,9 @@ fn collectRepl(r: *Report) void {
         r.add("repl", "history", .warn, "cannot resolve ~/.kaappi (neither KAAPPI_HOME nor HOME set)", "set HOME (or KAAPPI_HOME) so REPL history has a home");
     }
 
-    const stdin_tty = std.c.isatty(0) != 0;
-    const stdout_tty = std.c.isatty(1) != 0;
-    const term = if (std.c.getenv("TERM")) |t| std.mem.sliceTo(t, 0) else "(unset)";
+    const stdin_tty = platform.isatty(0);
+    const stdout_tty = platform.isatty(1);
+    const term = if (platform.getenv("TERM")) |t| std.mem.sliceTo(t, 0) else "(unset)";
     r.add("repl", "terminal", .pass, r.fmt("stdin tty={s}, stdout tty={s}, TERM={s}", .{ boolStr(stdin_tty), boolStr(stdout_tty), term }), null);
 }
 
@@ -440,28 +441,26 @@ fn collectFfi(r: *Report) void {
         r.add("ffi", "native-libraries", .pass, "skipped: out of memory", null);
         return;
     };
-    const dir = std.c.opendir(lib_dir_z) orelse {
+    var dir = platform.DirIter.open(lib_dir_z) orelse {
         r.add("ffi", "native-libraries", .pass, r.fmt("no native libraries ({s} not present)", .{lib_dir}), null);
         return;
     };
-    defer _ = std.c.closedir(dir);
+    defer dir.close();
 
     var checked: usize = 0;
     var failed: usize = 0;
-    while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
-        const name = std.mem.span(name_ptr);
+    while (dir.next()) |name| {
         if (!isNativeLibrary(name)) continue;
         checked += 1;
 
         const full = r.fmt("{s}/{s}", .{ lib_dir, name });
         const full_z = a.dupeZ(u8, full) catch continue;
-        if (std.c.dlopen(full_z, std.c.RTLD{ .LAZY = true })) |handle| {
-            _ = std.c.dlclose(handle);
+        if (platform.dlOpen(full_z)) |handle| {
+            platform.dlClose(handle);
             r.add("ffi", r.fmt("{s}", .{name}), .pass, "dlopen succeeded", null);
         } else {
             failed += 1;
-            const err = if (std.c.dlerror()) |e| std.mem.span(e) else "dlopen failed";
+            const err = if (platform.dlError()) |e| std.mem.span(e) else "dlopen failed";
             r.add("ffi", r.fmt("{s}", .{name}), .warn, r.fmt("{s}", .{err}), "rebuild or reinstall the library (its dependencies may be missing)");
         }
     }
@@ -490,7 +489,7 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
     const a = r.allocator();
 
-    const tmp = if (std.c.getenv("TMPDIR")) |t| std.mem.sliceTo(t, 0) else "/tmp";
+    const tmp = platform.tempDir();
 
     // Work inside a private 0700 directory with a random name (mkdtemp-style).
     // `mkdir` refuses to reuse an existing name, so a hostile pre-planted
@@ -499,30 +498,30 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
     const hex = randomHex();
     const dir_path = r.fmt("{s}/kaappi-doctor-{s}", .{ tmp, hex[0..] });
     const dir_z = a.dupeZ(u8, dir_path) catch return;
-    if (std.c.mkdir(dir_z, 0o700) != 0) {
+    if (platform.mkdir(dir_z, 0o700) != 0) {
         r.add("native-backend", "smoke-link", .pass, r.fmt("skipped (cannot create temp dir in {s})", .{tmp}), null);
         return;
     }
-    defer _ = std.c.rmdir(dir_z);
+    defer _ = platform.rmdir(dir_z);
 
     const c_path = r.fmt("{s}/smoke.c", .{dir_path});
     const out_path = r.fmt("{s}/smoke.out", .{dir_path});
     const c_path_z = a.dupeZ(u8, c_path) catch return;
     const out_path_z = a.dupeZ(u8, out_path) catch return;
-    defer _ = std.c.unlink(c_path_z);
-    defer _ = std.c.unlink(out_path_z);
+    defer _ = platform.unlink(c_path_z);
+    defer _ = platform.unlink(out_path_z);
 
     const c_source =
         \\extern unsigned long long kaappi_fixnum_add(unsigned long long, unsigned long long);
         \\int main(void) { return (int)kaappi_fixnum_add(0, 0); }
         \\
     ;
-    const cfd = std.posix.openatZ(std.posix.AT.FDCWD, c_path_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true }, 0o600) catch {
+    const cfd = platform.openWriteTruncExcl(c_path_z, 0o600) catch {
         r.add("native-backend", "smoke-link", .pass, r.fmt("skipped (cannot write temp file in {s})", .{tmp}), null);
         return;
     };
     reporting.writeToFd(cfd, c_source);
-    _ = std.posix.system.close(cfd);
+    _ = platform.close(cfd);
 
     // A C compiler capable of driving the linker is required; `zig` needs the
     // `cc` subcommand. Prefer zig cc (per the repo's linking rule), then cc.
@@ -554,32 +553,44 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
     push(&argv, &argc, a, "-lkaappi_rt");
     push(&argv, &argc, a, "-lc");
     push(&argv, &argc, a, "-lm");
-    push(&argv, &argc, a, "-lpthread");
+    if (comptime !platform.is_windows) push(&argv, &argc, a, "-lpthread");
     argv[argc] = null;
 
-    const child = std.posix.system.fork();
-    if (child < 0) {
-        r.add("native-backend", "smoke-link", .pass, "skipped (fork failed)", null);
-        return;
-    }
-    if (child == 0) {
-        // Silence the compiler's own diagnostics so they don't pollute doctor's
-        // output; the link's exit status is all we inspect.
-        const devnull = std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY }, 0) catch -1;
-        if (devnull >= 0) {
-            _ = std.c.dup2(devnull, 1);
-            _ = std.c.dup2(devnull, 2);
+    const link_ok = blk: {
+        if (comptime platform.is_windows) {
+            // winSpawnCapture already silences the compiler (stdout captured,
+            // stderr → NUL); only the exit status matters here.
+            var argv_slices: [16][]const u8 = undefined;
+            for (argv[0..argc], 0..) |arg, i| argv_slices[i] = std.mem.sliceTo(arg.?, 0);
+            const out = platform.winSpawnCapture(a, argv_slices[0..argc], null) catch break :blk false;
+            a.free(out);
+            break :blk true;
         }
-        _ = std.posix.system.execve(@ptrCast(argv[0].?), @ptrCast(&argv), @ptrCast(std.c.environ));
-        std.process.exit(127);
-    }
+        const child = std.posix.system.fork();
+        if (child < 0) {
+            r.add("native-backend", "smoke-link", .pass, "skipped (fork failed)", null);
+            return;
+        }
+        if (child == 0) {
+            // Silence the compiler's own diagnostics so they don't pollute doctor's
+            // output; the link's exit status is all we inspect.
+            const devnull = platform.openNullSink() catch -1;
+            if (devnull >= 0) {
+                _ = std.c.dup2(devnull, 1);
+                _ = std.c.dup2(devnull, 2);
+            }
+            _ = std.posix.system.execve(@ptrCast(argv[0].?), @ptrCast(&argv), @ptrCast(std.c.environ));
+            std.process.exit(127);
+        }
 
-    var status: c_int = 0;
-    _ = std.c.waitpid(child, &status, 0);
-    const raw: c_uint = @bitCast(status);
-    const exited = (raw & 0x7f) == 0;
-    const code = (raw >> 8) & 0xff;
-    if (exited and code == 0) {
+        var status: c_int = 0;
+        _ = std.c.waitpid(child, &status, 0);
+        const raw: c_uint = @bitCast(status);
+        const exited = (raw & 0x7f) == 0;
+        const code = (raw >> 8) & 0xff;
+        break :blk exited and code == 0;
+    };
+    if (link_ok) {
         r.add("native-backend", "smoke-link", .pass, r.fmt("linked a test program against libkaappi_rt.a in {s}", .{lib_dir}), null);
     } else {
         r.add("native-backend", "smoke-link", .warn, "link against libkaappi_rt.a failed", "run 'kaappi compile <file.scm>' to see the linker error");
@@ -590,20 +601,18 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
 fn dirExists(a: std.mem.Allocator, path: []const u8) bool {
     const path_z = a.dupeZ(u8, path) catch return false;
-    const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{ .DIRECTORY = true }, 0) catch return false;
-    _ = std.posix.system.close(fd);
-    return true;
+    return platform.isDir(path_z);
 }
 
 fn dirWritable(a: std.mem.Allocator, path: []const u8) bool {
     const path_z = a.dupeZ(u8, path) catch return false;
-    return std.c.access(path_z, std.posix.W_OK) == 0;
+    return platform.accessWritable(path_z);
 }
 
 fn fileExists(a: std.mem.Allocator, path: []const u8) bool {
     const path_z = a.dupeZ(u8, path) catch return false;
-    const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{ .ACCMODE = .RDONLY }, 0) catch return false;
-    _ = std.posix.system.close(fd);
+    const fd = platform.openRead(path_z) catch return false;
+    _ = platform.close(fd);
     return true;
 }
 
@@ -615,19 +624,19 @@ fn hasArchive(a: std.mem.Allocator, dir: []const u8) bool {
 /// Returns the first `<dir>/name` on PATH that opens for reading, allocated in
 /// `a`. Mirrors native_compiler's discovery so doctor and compile agree.
 fn findInPath(a: std.mem.Allocator, name: []const u8) ?[]const u8 {
-    const path_env = std.c.getenv("PATH") orelse return null;
+    const path_env = platform.getenv("PATH") orelse return null;
     const path_str = std.mem.sliceTo(path_env, 0);
-    var iter = std.mem.splitScalar(u8, path_str, ':');
+    var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
     while (iter.next()) |raw_dir| {
         if (raw_dir.len == 0) continue;
         // Trim trailing slashes so a "…/bin/" PATH entry doesn't render as
         // "…/bin//kaappi" — this string is shown to the user.
-        const dir = std.mem.trimEnd(u8, raw_dir, "/");
+        const dir = std.mem.trimEnd(u8, raw_dir, if (platform.is_windows) "/\\" else "/");
         if (dir.len == 0) continue;
-        const full = std.fmt.allocPrint(a, "{s}/{s}", .{ dir, name }) catch continue;
+        const full = std.fmt.allocPrint(a, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
         const full_z = a.dupeZ(u8, full) catch continue;
-        const fd = std.posix.openatZ(std.posix.AT.FDCWD, full_z, .{ .ACCMODE = .RDONLY }, 0) catch continue;
-        _ = std.posix.system.close(fd);
+        const fd = platform.openRead(full_z) catch continue;
+        _ = platform.close(fd);
         return full;
     }
     return null;
@@ -636,10 +645,9 @@ fn findInPath(a: std.mem.Allocator, name: []const u8) ?[]const u8 {
 /// Canonicalizes `path` via realpath into an arena copy (or null on failure).
 fn realpath(a: std.mem.Allocator, path: []const u8) ?[]const u8 {
     const path_z = a.dupeZ(u8, path) catch return null;
-    var buf: [std.posix.PATH_MAX]u8 = undefined;
-    const resolved = std.c.realpath(path_z, &buf) orelse return null;
-    const len = std.mem.indexOfScalar(u8, resolved[0..buf.len], 0) orelse return null;
-    return a.dupe(u8, resolved[0..len]) catch null;
+    var buf: [platform.PATH_MAX]u8 = undefined;
+    const resolved = platform.realPath(path_z, &buf) orelse return null;
+    return a.dupe(u8, resolved) catch null;
 }
 
 /// 16 lowercase hex chars of entropy for a private temp-dir name. Reads
@@ -647,14 +655,14 @@ fn realpath(a: std.mem.Allocator, path: []const u8) ?[]const u8 {
 /// monotonic clock only if that device is unavailable.
 fn randomHex() [16]u8 {
     var raw: [8]u8 = undefined;
-    if (std.posix.openatZ(std.posix.AT.FDCWD, "/dev/urandom", .{ .ACCMODE = .RDONLY }, 0)) |fd| {
-        const n = std.posix.read(fd, &raw) catch 0;
-        _ = std.posix.system.close(fd);
-        if (n == raw.len) return std.fmt.bytesToHex(raw, .lower);
-    } else |_| {}
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    const seed = @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
+    if (comptime !platform.is_windows) {
+        if (platform.openRead("/dev/urandom")) |fd| {
+            const n = platform.read(fd, &raw, raw.len);
+            _ = platform.close(fd);
+            if (n == raw.len) return std.fmt.bytesToHex(raw, .lower);
+        } else |_| {}
+    }
+    const seed = platform.monotonicNs() ^ (@as(u64, @intCast(@abs(platform.realTime().nsec))) << 17);
     std.mem.writeInt(u64, raw[0..8], seed, .little);
     return std.fmt.bytesToHex(raw, .lower);
 }
@@ -662,7 +670,8 @@ fn randomHex() [16]u8 {
 fn isNativeLibrary(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".dylib") or
         std.mem.endsWith(u8, name, ".so") or
-        std.mem.indexOf(u8, name, ".so.") != null;
+        std.mem.indexOf(u8, name, ".so.") != null or
+        std.mem.endsWith(u8, name, ".dll");
 }
 
 fn boolStr(b: bool) []const u8 {

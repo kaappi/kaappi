@@ -8,6 +8,13 @@
 (import (scheme base) (scheme write) (scheme read) (scheme eval) (scheme file)
         (scheme time) (scheme char) (scheme process-context) (srfi 64))
 
+;; Windows preserves case but names are case-insensitive ("Path"), so
+;; the alist lookup must compare case-insensitively there.
+(define (env-assoc name env)
+  (cond-expand
+    (windows (assoc name env string-ci=?))
+    (else (assoc name env))))
+
 (test-begin "r7rs-control-io-gaps")
 
 ;; --- 6.10 map and friends (p. 51) ---
@@ -134,7 +141,7 @@
 (test-equal "get-environment-variable returns string" #t
   (string? (get-environment-variable "PATH")))
 (test-equal "get-environment-variables alist" #t
-  (pair? (assoc "PATH" (get-environment-variables))))
+  (pair? (env-assoc "PATH" (get-environment-variables))))
 ;; delete-file on a missing file signals a file-error (p. 60)
 (test-equal "delete-file missing signals file-error" 'fe
   (guard (e ((file-error? e) 'fe) (#t 'other))

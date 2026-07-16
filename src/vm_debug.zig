@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
@@ -90,9 +91,9 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
         writeStderr("debug> ");
         var i: usize = 0;
         while (i < cmd_buf.len) {
-            const result = std.posix.system.read(0, cmd_buf[i .. i + 1].ptr, 1);
+            const result = platform.read(0, cmd_buf[i .. i + 1].ptr, 1);
             if (result < 0) {
-                if (std.posix.errno(result) == .INTR) continue;
+                if (platform.errno(result) == .INTR) continue;
                 vm.debug_mode = false;
                 vm.step_mode = .none;
                 return;

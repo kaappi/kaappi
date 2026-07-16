@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
@@ -53,18 +54,16 @@ fn disassembleFn(args: []const Value) PrimitiveError!Value {
 fn currentSecond(args: []const Value) PrimitiveError!Value {
     _ = args;
 
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    const secs: f64 = @as(f64, @floatFromInt(ts.sec)) +
-        @as(f64, @floatFromInt(ts.nsec)) / 1e9;
+    const rt = platform.realTime();
+    const secs: f64 = @as(f64, @floatFromInt(rt.sec)) +
+        @as(f64, @floatFromInt(rt.nsec)) / 1e9;
     return types.makeFlonum(secs);
 }
 
 fn currentJiffy(args: []const Value) PrimitiveError!Value {
     _ = args;
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    const us: i64 = @as(i64, @intCast(ts.sec)) * 1000000 + @divFloor(@as(i64, @intCast(ts.nsec)), 1000);
+    const ns = platform.monotonicNs();
+    const us: i64 = @intCast(ns / 1000);
     return types.makeFixnum(us);
 }
 
@@ -153,15 +152,13 @@ fn getEnvVar(args: []const Value) PrimitiveError!Value {
     const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(name_z);
 
-    const env = std.c.getenv(name_z);
+    const env = platform.getenv(name_z);
     if (env) |val| {
         const val_slice = std.mem.span(val);
         return gc.allocString(val_slice) catch return PrimitiveError.OutOfMemory;
     }
     return types.FALSE;
 }
-
-extern var environ: [*:null]?[*:0]const u8;
 
 fn getEnvVars(args: []const Value) PrimitiveError!Value {
     _ = args;
@@ -179,9 +176,9 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&key_val);
     defer gc.popRoot();
 
-    var i: usize = 0;
-    while (environ[i]) |entry| : (i += 1) {
-        const s = std.mem.span(entry);
+    var env_it = platform.EnvIter.init();
+    defer env_it.deinit();
+    while (env_it.next()) |s| {
         if (std.mem.indexOfScalar(u8, s, '=')) |eq_pos| {
             key_val = gc.allocString(s[0..eq_pos]) catch return PrimitiveError.OutOfMemory;
             const val_str = gc.allocString(s[eq_pos + 1 ..]) catch return PrimitiveError.OutOfMemory;
@@ -286,7 +283,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     // Open and read the file
-    const fd = std.c.open(path_z, .{});
+    const fd = platform.openRead(path_z) catch -1;
     if (fd < 0) {
         var msg = gc.allocString("cannot open file") catch return PrimitiveError.OutOfMemory;
         gc.pushRoot(&msg);
@@ -301,14 +298,14 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         vm.current_exception = err_obj;
         return PrimitiveError.ExceptionRaised;
     }
-    defer _ = std.c.close(fd);
+    defer if (fd >= 0) platform.close(fd);
 
     var contents: std.ArrayList(u8) = .empty;
     defer contents.deinit(gc.allocator);
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const raw = std.c.read(fd, &tmp, tmp.len);
+        const raw = platform.read(fd, &tmp, tmp.len);
         if (raw <= 0) break;
         const n: usize = @intCast(raw);
         contents.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;

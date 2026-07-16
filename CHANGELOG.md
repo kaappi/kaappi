@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Windows aarch64 target** — `zig build -Dtarget=aarch64-windows` cross-compiles `kaappi.exe`, `thottam.exe`, and `kaappi-lsp.exe` (via Zig's bundled mingw-w64; releases ship `kaappi-aarch64-windows.exe`). The full interpreter works on Windows 11 ARM64 — REPL (plain line editing), fibers, channels (incl. capacity-0 rendezvous), SRFI-18 OS threads, FFI via `LoadLibrary`, and the `kaappi test` runner — verified with the complete unit and R7RS suites on real hardware. Platform notes: ports never switch to non-blocking I/O (fiber I/O degrades to blocking reads; timers and cross-thread wakeups still work), the POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a catchable file error, and `cond-expand`/`(features)` expose a `windows` identifier in place of `posix`. thottam runs read-only subcommands; `install`/`remove`/`update` are not yet supported on Windows. See `docs/dev/windows.md`
+
 ### Fixed
+
+- FFI 64-bit integer marshaling now uses a platform-independent `i64` carrier: on LLP64 targets (Windows) C `long` is 32-bit and is routed through the 32-bit marshaling class, while `int64`/`uint64`/`size_t` keep full 64-bit range — previously all four assumed `c_long` was 64-bit (identical behavior on macOS/Linux, where it is)
 - macOS release binaries can now `ffi-open` user-compiled libraries: the hardened-runtime signing entitlements add `com.apple.security.cs.disable-library-validation`, without which dlopen refused every locally-built `.dylib` (kaappi-net, kaappi-pg, kaappi-sqlite, kaappi-crypto) on release binaries while source builds worked (#1587)
 
 ## [0.15.0] - 2026-07-16

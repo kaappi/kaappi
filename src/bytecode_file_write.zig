@@ -5,6 +5,7 @@
 //! via `bytecode_file.zig`; see `bytecode_file_read.zig` for the inverse.
 
 const std = @import("std");
+const platform = @import("platform.zig");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const build_options = @import("build_options");
 const types = @import("types.zig");
@@ -317,18 +318,18 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
 
 fn writeBufferToFile(w: *Writer, path: []const u8) !void {
     if (comptime is_wasm) return BytecodeError.WriteError;
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch return BytecodeError.WriteError;
-    defer _ = std.posix.system.close(fd);
+    var path_buf: [platform.PATH_MAX]u8 = undefined;
+    if (path.len >= path_buf.len) return BytecodeError.WriteError;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const fd = platform.openWriteTrunc(path_buf[0..path.len :0], 0o644) catch return BytecodeError.WriteError;
+    defer _ = platform.close(fd);
 
     var total: usize = 0;
     while (total < w.buf.items.len) {
-        const result = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
+        const result = platform.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
         if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
+            if (platform.errno(result) == .INTR) continue;
             return BytecodeError.WriteError;
         }
         if (result == 0) return BytecodeError.WriteError;
