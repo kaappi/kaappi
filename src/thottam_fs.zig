@@ -77,10 +77,13 @@ fn removeIfLink(z: [:0]const u8) !void {
     const st = platform.lstatPath(z) orelse return;
     if (!st.is_symlink) return;
     if (st.is_dir) {
-        // Windows directory junction/symlink: rmdir removes the link.
+        // Windows directory junction/symlink: rmdir removes the link
+        // (READONLY isn't honored on directory objects).
         if (platform.rmdir(z) != 0) return error.CopyFailed;
     } else {
-        if (platform.unlink(z) != 0) return error.CopyFailed;
+        // DeleteFile does honor READONLY on the link object itself, so
+        // retry through makeWritable like every other unlink here.
+        try unlinkRetry(z, null);
     }
 }
 
@@ -526,15 +529,21 @@ test "copyTree skips source symlinks and replaces destination symlinks (POSIX)" 
         const leak = try std.mem.concat(allocator, u8, &.{ base, "/src/leak.sld" });
         defer allocator.free(leak);
         try mklink(allocator, outside, leak);
+        const plain = try std.mem.concat(allocator, u8, &.{ base, "/src/plain.sld" });
+        defer allocator.free(plain);
+        try thottam.writeFile(allocator, plain, "P");
 
-        // Destination pre-planted with links: a file link where real.sld's
-        // parent dir will merge, and a dir link where kaappi/ will merge.
+        // Destination pre-planted with links: a file link where plain.sld
+        // will land, and a dir link where kaappi/ will merge.
         const dst = try std.mem.concat(allocator, u8, &.{ base, "/dst" });
         defer allocator.free(dst);
         try makeDirRecursive(allocator, dst);
         const dst_dirlink = try std.mem.concat(allocator, u8, &.{ dst, "/kaappi" });
         defer allocator.free(dst_dirlink);
         try mklink(allocator, outside_dir, dst_dirlink);
+        const dst_filelink = try std.mem.concat(allocator, u8, &.{ dst, "/plain.sld" });
+        defer allocator.free(dst_filelink);
+        try mklink(allocator, outside, dst_filelink);
         const src_root = try std.mem.concat(allocator, u8, &.{ base, "/src" });
         defer allocator.free(src_root);
 
@@ -544,6 +553,19 @@ test "copyTree skips source symlinks and replaces destination symlinks (POSIX)" 
         const leak_dst = try std.mem.concat(allocator, u8, &.{ dst, "/leak.sld" });
         defer allocator.free(leak_dst);
         try std.testing.expect(!thottam.fileExists(allocator, leak_dst));
+
+        // Destination file link replaced by a real file; the link's old
+        // target was not written through.
+        const dst_filelink_z = try allocator.dupeZ(u8, dst_filelink);
+        defer allocator.free(dst_filelink_z);
+        const plain_after = platform.lstatPath(dst_filelink_z) orelse return error.TestUnexpectedResult;
+        try std.testing.expect(!plain_after.is_symlink);
+        const plain_content = try thottam.readFile(allocator, dst_filelink);
+        defer allocator.free(plain_content);
+        try std.testing.expectEqualStrings("P", plain_content);
+        const outside_content = try thottam.readFile(allocator, outside);
+        defer allocator.free(outside_content);
+        try std.testing.expectEqualStrings("secret", outside_content);
 
         // Destination dir link replaced by a real directory; nothing
         // leaked into its old target.
