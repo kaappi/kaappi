@@ -114,6 +114,20 @@ hygiene,srfi,audit}` file. The fd-readiness unit suites
 excluded on Windows by `vm_tests.zig` — they test POSIX pipe readiness
 that cannot exist under the no-non-blocking design.
 
+## Releasing
+
+`release.yml` cross-compiles the Windows row from an ubuntu runner and
+ships `kaappi-aarch64-windows.exe`, `thottam-aarch64-windows.exe`, and
+`libkaappi_rt-aarch64-windows.lib` (the gnu-ABI static lib is emitted as
+`kaappi_rt.lib`). The row builds with `-Dstrip=false`: a **stripped**
+kaappi.exe access-violates at startup on ARM64 Windows (0xC0000005
+before any output; a stripped thottam.exe and small stripped test
+programs — including one spawning a 64 MB-stack thread — run fine, so
+it's specific to the large kaappi image; toolchain investigation
+pending). The post-release acceptance workflow checksums the Windows
+artifacts but cannot execute them (no GitHub ARM64 Windows runners) —
+smoke-test a release manually per the github-release skill's Step 10.
+
 ## Known gaps / follow-ups
 
 * Fiber I/O suspension needs a real Windows readiness backend (IOCP or
@@ -126,3 +140,6 @@ that cannot exist under the no-non-blocking design.
 * Console reads are byte-oriented ANSI/UTF-8; typing non-ASCII at the
   plain REPL depends on the console's UTF-8 code page (set at startup).
 * Long paths (> 260 chars) need the system long-path opt-in.
+* `-Dstrip=true` produces a kaappi.exe that access-violates at startup
+  on ARM64 Windows (see Releasing above) — releases ship it unstripped
+  until the toolchain issue is understood.
