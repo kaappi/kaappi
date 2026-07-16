@@ -260,9 +260,13 @@ rule regardless of what Linux showed (one machine reading Between makes
 agreement-or-disagreement both resolve to Between) — but the two machines
 turning out to *agree* is a stronger result than that logical fallback: it's
 a genuine cross-machine confirmation of the same demand shape, not just an
-unfalsifiable classification. KEP-0003 therefore **stays Draft (gated)**;
-#1474 stays open with the revisit trigger documented (real
-`kaappi-examples` traces with an `IP-*`-shaped hot loop).
+unfalsifiable classification. KEP-0003 therefore **stays Draft (gated)**.
+The protocol's default action for this outcome is to leave kaappi#1474 open
+as a placeholder for the revisit trigger; the maintainer closed it anyway on
+2026-07-16 as an explicit call (issuecomment-4987953896) once the dataset
+and this worksheet were complete. The trigger itself is unaffected by that
+housekeeping choice and remains the thing to watch for: real
+`kaappi-examples` traces with an `IP-*`-shaped hot loop.
 
 ### Reading (both machines) — what the numbers say beyond the verdict
 
@@ -310,6 +314,12 @@ status PR.
 | **2 Erlang** | KEP-0003 → **Rejected** (data linked) | open the Alternative-1 issue (refcounted immutable payloads) under KEP-0002 UQ 1; close #1475 unworked |
 | **3 Absent** | KEP-0003 → **Rejected** (data linked) | close both #1475 **and** the Alternative-1 line, with the data linked |
 | **4 Between** | KEP-0003 stays **Draft** (gated) | #1474 stays open; document the revisit trigger: real `kaappi-examples` traces with an `IP-*`-shaped hot loop |
+
+*(This run landed outcome 4. The "#1474 stays open" cell above is the
+protocol's default action; in practice the maintainer closed #1474 on
+2026-07-16 once this worksheet was complete, rather than leaving it open —
+see the note at the end of the Combined outcome section. The revisit
+trigger stands regardless of the issue's open/closed state.)*
 
 ---
 

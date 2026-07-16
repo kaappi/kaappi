@@ -221,10 +221,16 @@ adopted **before** the frozen run starts (once it starts, the protocol freezes):
    raise, so it does not affect measurement, but it is a latent robustness bug
    worth a separate issue.
 
-## What is deferred
+## Status — campaign complete
 
-Lever D has now landed, so the gate's `C+D` cells are runnable. The frozen §4
-collection on **both** reference machines (macOS aarch64 + Linux x86_64, ≥ 8
-physical cores), the gate worksheet fill-in, and the KEP-0002 UQ 1 amendment are
-the campaign's remaining operational steps, to run once the harness is reviewed
-(ideally after kaappi#1489 is fixed — see limitation 2).
+The frozen §4 collection has run on **both** reference machines: macOS
+aarch64 (commit `b6d349c0`, 920 launches, 0 failures) and Linux x86_64
+(commit `807fd64a`, ~1000 launches, 0 failures; FO-DIGEST's 64 MiB cell
+excluded on Linux only, see `results/gate-linux-x86_64-metadata.txt`).
+Both machines independently classify **4 Between** — agreement, not just
+the cross-machine rule's fallback. The gate worksheet
+(`../../docs/dev/kep-0003-acceptance-gate-worksheet.md`) is fully filled;
+kaappi#1489 (limitation 2) was fixed before either frozen run started, and
+neither run hit a hang. kaappi#1474 (the gate decision issue) is closed;
+KEP-0003 stays Draft, gated, with its revisit trigger documented in the
+worksheet.
