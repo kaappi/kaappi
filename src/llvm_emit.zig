@@ -5,52 +5,12 @@ const printer = @import("printer.zig");
 const native_decls = @import("native_decls.zig");
 // #1499 forward-reference reservation + finalization stubs (mutual tail calls).
 const tailcall = @import("llvm_emit_tailcall.zig");
+// #1493 inline fixnum fast paths (+, -, *, <, =, null?).
+const inline_prim = @import("llvm_emit_inline.zig");
+// Native let / let* emission.
+const let_emit = @import("llvm_emit_let.zig");
 
 const Value = types.Value;
-
-// NaN-box encoding constants for inline primitive emission. Derived at comptime
-// from types.zig so the emitted IR always matches the runtime's value
-// representation — no hand-transcribed magic numbers to drift out of sync.
-// These describe only the immediate Value bit layout (fixnum tag, payload, nil,
-// booleans), which is stable; heap-object field offsets (auto-layout structs)
-// are deliberately NOT encoded here, so car/cdr/cons stay as runtime calls.
-const nanbox = struct {
-    // High 16 bits (v >> 48) that mark a fixnum: 0xFFFD.
-    const fix_tag_hi: u64 = types.makeFixnum(0) >> 48;
-    // Base fixnum tag bits, OR'd with a 48-bit payload to box an integer.
-    const fix_base: i64 = @bitCast(types.makeFixnum(0));
-    // Mask selecting the 48-bit fixnum payload.
-    const payload_mask: i64 = std.math.maxInt(u48);
-    // Inclusive range of integers representable as a fixnum (i48).
-    const fix_min: i64 = std.math.minInt(i48);
-    const fix_max: i64 = std.math.maxInt(i48);
-    const nil: i64 = @bitCast(types.NIL);
-    const true_val: i64 = @bitCast(types.TRUE);
-    const false_val: i64 = @bitCast(types.FALSE);
-};
-
-const ArithOp = enum {
-    add,
-    sub,
-    mul,
-
-    // LLVM checked-arithmetic intrinsic that mirrors the runtime's
-    // @addWithOverflow / @subWithOverflow / @mulWithOverflow fast path.
-    fn overflowIntrinsic(self: ArithOp) []const u8 {
-        return switch (self) {
-            .add => "@llvm.sadd.with.overflow.i64",
-            .sub => "@llvm.ssub.with.overflow.i64",
-            .mul => "@llvm.smul.with.overflow.i64",
-        };
-    }
-
-    fn fromName(name: []const u8) ?ArithOp {
-        if (std.mem.eql(u8, name, "+")) return .add;
-        if (std.mem.eql(u8, name, "-")) return .sub;
-        if (std.mem.eql(u8, name, "*")) return .mul;
-        return null;
-    }
-};
 
 // #1499: tailcc + musttail give guaranteed constant-stack mutual tail calls,
 // but only on backends whose LLVM target supports them. aarch64 and x86_64 both
@@ -101,32 +61,6 @@ pub const ReservedFast = struct {
     arity: u8,
     consumed: bool = false, // a top-level define of this name has been emitted
 };
-
-fn nameInList(names: []const []const u8, name: []const u8) bool {
-    for (names) |n| {
-        if (std.mem.eql(u8, n, name)) return true;
-    }
-    return false;
-}
-
-// Conservative "evaluating this node might allocate (and therefore trigger a
-// GC)". Used to elide the shadow-stack rooting that only exists to keep an
-// already-computed operand alive while a *later* operand is evaluated: if the
-// later operand cannot allocate, nothing can collect, so the root push/pop pair
-// (two cross-module runtime calls) is pure overhead. Errs toward `true` — only
-// leaves whose emission is provably allocation-free return `false`:
-//   - immediate constants (fixnum/bool/char/nil) lower to a bare `add i64 0, K`;
-//     heap constants (string/symbol/pair) call make_string/intern_symbol/eval.
-//   - variable references (global_ref) always lower to a load or a
-//     non-allocating runtime call (global_lookup / box_ref).
-// Every compound form may allocate, so it stays `true`.
-fn nodeMayAllocate(node: *const ir.Node) bool {
-    return switch (node.tag) {
-        .constant => types.isPointer(node.data.constant),
-        .global_ref => false,
-        else => true,
-    };
-}
 
 pub const LLVMEmitter = struct {
     buf: std.ArrayList(u8),
@@ -387,8 +321,8 @@ pub const LLVMEmitter = struct {
             .define => try self.emitDefine(node.data.define),
             .set_form => try self.emitSet(node.data.set_form),
             .lambda => try self.emitLambda(node.data.lambda),
-            .let_form => try self.emitLet(node.data.let_form.args, false, node.ann.is_tail),
-            .let_star => try self.emitLet(node.data.let_star.args, true, node.ann.is_tail),
+            .let_form => try let_emit.emitLet(self, node.data.let_form.args, false, node.ann.is_tail),
+            .let_star => try let_emit.emitLet(self, node.data.let_star.args, true, node.ann.is_tail),
             .letrec => try self.emitLetEvalFallback(node.data.letrec.args, "letrec"),
             .letrec_star => try self.emitLetEvalFallback(node.data.letrec_star.args, "letrec*"),
             .passthrough => try self.emitPassthrough(node.data.passthrough),
@@ -571,10 +505,10 @@ pub const LLVMEmitter = struct {
             }
             if (!is_shadowed and !self.rebound_globals.contains(op_name)) {
                 if (call.args.len == 2) {
-                    if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
+                    if (inline_prim.tryEmitInlineBinary(self, op_name, call.args)) |result| return result;
                 }
                 if (call.args.len == 1) {
-                    if (self.tryEmitInlineUnary(op_name, call.args[0])) |result| return result;
+                    if (inline_prim.tryEmitInlineUnary(self, op_name, call.args[0])) |result| return result;
                 }
             }
         }
@@ -691,224 +625,6 @@ pub const LLVMEmitter = struct {
         for (exprs) |expr| {
             last = try self.emitNode(expr);
         }
-        return last;
-    }
-
-    fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
-        // The let form is about to be evaluated in the global environment;
-        // bind the enclosing frame's params/rest/upvalues as globals first
-        // or references to them inside the form come up undefined (#1410).
-        try lambda.bindParamsAsGlobals(self);
-        const keyword = if (sequential) "let*" else "let";
-        // Build `(let bindings body ...)` by iterating the args list elements.
-        // The args value is `(bindings body ...)` — a list whose elements must
-        // be printed individually (not as one list) to avoid extra parens.
-        var source_buf: std.ArrayList(u8) = .empty;
-        defer source_buf.deinit(self.backing_alloc);
-        source_buf.appendSlice(self.backing_alloc, "(") catch return error.OutOfMemory;
-        source_buf.appendSlice(self.backing_alloc, keyword) catch return error.OutOfMemory;
-        var current = args;
-        while (current != types.NIL and types.isPair(current)) {
-            source_buf.append(self.backing_alloc, ' ') catch return error.OutOfMemory;
-            const elem = types.car(current);
-            const elem_str = printer.valueToString(self.backing_alloc, elem, .write) catch return error.OutOfMemory;
-            defer self.backing_alloc.free(elem_str);
-            source_buf.appendSlice(self.backing_alloc, elem_str) catch return error.OutOfMemory;
-            current = types.cdr(current);
-        }
-        source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
-        return self.emitCachedEval(source_buf.items);
-    }
-
-    // Abandon a partially emitted native let and compile the whole form via
-    // the interpreter instead. Pops the GC roots already pushed for emitted
-    // bindings (the natively computed values are dead once the interpreter
-    // re-evaluates the form; leaving their roots pushed would leak stack
-    // slots into the GC root set on every execution of this code path).
-    fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap([]const u8), roots_pushed: usize) EmitError![]const u8 {
-        try self.emitPopRoots(roots_pushed);
-        self.locals.?.deinit();
-        self.locals = saved_locals;
-        return self.emitLetFallback(args, sequential);
-    }
-
-    fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
-        const bindings = types.car(args);
-        const body_list = types.cdr(args);
-
-        // #827: If the let form (bindings or body) contains sub-expressions
-        // that need interpreter eval fallback (cond, do, letrec, etc.),
-        // compile the entire let via the interpreter to preserve correct
-        // lexical scoping.
-        if (lambda.sexprNeedsEvalFallback(args)) {
-            return self.emitLetFallback(args, sequential);
-        }
-        // #827/#1497: A body lambda that captures a let-bound variable cannot
-        // be compiled natively unless that variable is boxed — the native
-        // closure tier rejects by-value capture of let-locals. A captured var
-        // that is also mutated is assignment-converted to a heap box (#1497);
-        // a captured but unmutated var has no box, so the whole let falls back
-        // to the interpreter (which handles the scope correctly).
-        var box_names: [32][]const u8 = undefined;
-        var box_count: usize = 0;
-        {
-            var var_names: [32][]const u8 = undefined;
-            var name_count: usize = 0;
-            var blist = bindings;
-            while (blist != types.NIL and types.isPair(blist)) : (blist = types.cdr(blist)) {
-                if (name_count >= 32) break;
-                const b = types.car(blist);
-                if (types.isPair(b) and types.isSymbol(types.car(b))) {
-                    var_names[name_count] = types.symbolName(types.car(b));
-                    name_count += 1;
-                }
-            }
-            for (var_names[0..name_count]) |v| {
-                if (!lambda.bodyHasCapturingLambda(self, body_list, (&v)[0..1])) continue;
-                if (!lambda.sexprBodySetsName(body_list, v)) {
-                    return self.emitLetFallback(args, sequential);
-                }
-                box_names[box_count] = v;
-                box_count += 1;
-            }
-        }
-        const any_boxed = box_count > 0;
-
-        // Boxed lets lower their body non-tail so the binding roots (which hold
-        // the box pointers) are always popped at the fall-through, never
-        // stranded past an in-body tail-call ret.
-        const body_tail = is_tail and !any_boxed;
-
-        // Box map scope for this let, extending any enclosing frame's boxes.
-        const saved_boxes = self.boxes;
-        var owns_boxes = false;
-        defer if (owns_boxes) {
-            if (self.boxes) |*b| b.deinit();
-            self.boxes = saved_boxes;
-        };
-        if (any_boxed) {
-            self.boxes = if (saved_boxes) |existing|
-                existing.clone() catch return error.OutOfMemory
-            else
-                std.StringHashMap([]const u8).init(self.allocator());
-            owns_boxes = true;
-        }
-
-        const saved_locals = self.locals;
-        self.locals = if (saved_locals) |existing|
-            existing.clone() catch return error.OutOfMemory
-        else
-            std.StringHashMap([]const u8).init(self.allocator());
-
-        var binding_root_count: usize = 0;
-
-        if (!sequential) {
-            var binding_allocas: [32][]const u8 = undefined;
-            var var_names: [32][]const u8 = undefined;
-            var count: usize = 0;
-            var blist = bindings;
-            while (blist != types.NIL and types.isPair(blist)) {
-                if (count >= 32) {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
-                }
-                const binding = types.car(blist);
-                const var_sym = types.car(binding);
-                const init_expr = types.car(types.cdr(binding));
-                if (!types.isSymbol(var_sym)) {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
-                }
-
-                const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
-                };
-                const alloca = try self.freshTemp();
-                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-                // #827: an init that cannot be emitted in this lexical scope
-                // (e.g. a lambda) sends the whole let to the interpreter,
-                // like the body path below.
-                const val = self.emitNode(node) catch {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, count);
-                };
-                // A captured+mutated let-local is stored as a heap box; the
-                // alloca (rooted below) then holds the box pointer (#1497).
-                if (nameInList(box_names[0..box_count], types.symbolName(var_sym))) {
-                    const box = try self.freshTemp();
-                    try self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, val });
-                    try self.print("  store i64 {s}, ptr {s}\n", .{ box, alloca });
-                } else {
-                    try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
-                }
-                try self.emitRootPushAlloca(alloca);
-
-                binding_allocas[count] = alloca;
-                var_names[count] = types.symbolName(var_sym);
-                count += 1;
-                blist = types.cdr(blist);
-            }
-
-            for (0..count) |i| {
-                if (nameInList(box_names[0..box_count], var_names[i])) {
-                    self.boxes.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
-                } else {
-                    self.locals.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
-                }
-            }
-            binding_root_count = count;
-        } else {
-            var blist = bindings;
-            while (blist != types.NIL and types.isPair(blist)) {
-                const binding = types.car(blist);
-                const var_sym = types.car(binding);
-                const init_expr = types.car(types.cdr(binding));
-                if (!types.isSymbol(var_sym)) {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
-                }
-
-                const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
-                };
-                const val = self.emitNode(node) catch {
-                    return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
-                };
-                const alloca = try self.freshTemp();
-                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-                // Box a captured+mutated let*-local; later inits in this same
-                // let* then read it through the box (#1497).
-                if (nameInList(box_names[0..box_count], types.symbolName(var_sym))) {
-                    const box = try self.freshTemp();
-                    try self.print("  {s} = call i64 @kaappi_make_box(ptr %vm, i64 {s})\n", .{ box, val });
-                    try self.print("  store i64 {s}, ptr {s}\n", .{ box, alloca });
-                    self.boxes.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
-                } else {
-                    try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
-                    self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
-                }
-                try self.emitRootPushAlloca(alloca);
-                binding_root_count += 1;
-                blist = types.cdr(blist);
-            }
-        }
-
-        var last: []const u8 = "";
-        var body_expr = body_list;
-        while (body_expr != types.NIL and types.isPair(body_expr)) {
-            const rest = types.cdr(body_expr);
-            const expr_is_tail = body_tail and (rest == types.NIL or !types.isPair(rest));
-            const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
-                return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
-            };
-            // #827: if emitNode fails (e.g. a lambda that cannot be eval'd in
-            // this lexical scope), fall back to evaluating the entire let form
-            // via the interpreter.
-            last = self.emitNode(node) catch {
-                return self.abandonLetForFallback(args, sequential, saved_locals, binding_root_count);
-            };
-            body_expr = rest;
-        }
-
-        try self.emitPopRoots(binding_root_count);
-        self.locals.?.deinit();
-        self.locals = saved_locals;
         return last;
     }
 
@@ -1375,185 +1091,6 @@ pub const LLVMEmitter = struct {
         return lambda.tryCompileLambdaNative(self, data);
     }
 
-    fn tryEmitInlineBinary(self: *LLVMEmitter, name: []const u8, args: []const *ir.Node) ?[]const u8 {
-        const export_name = native_decls.findInline(.binary, name) orelse return null;
-        const a = self.emitNode(args[0]) catch return null;
-        // Root the first operand across the second's evaluation only when that
-        // evaluation could actually collect. For the common hot-loop shapes
-        // `(op var const)` and `(op var var)` the second operand is a leaf, so
-        // this drops two runtime calls (push_root/pop_roots) per operation.
-        const root_a = nodeMayAllocate(args[1]);
-        if (root_a) self.emitRootPush(a) catch return null;
-        const b = self.emitNode(args[1]) catch return null;
-        if (root_a) self.emitPopRoots(1) catch return null;
-
-        // Arithmetic and comparison operate purely on NaN-boxed Value bits, so
-        // their fixnum fast paths lower to inline IR with a call to the runtime
-        // only on the slow path (non-fixnum operands, or overflow out of the
-        // i48 fixnum range → bignum promotion). This removes the per-operation
-        // cross-module call that -O2 alone cannot eliminate (#1493). cons falls
-        // through to a direct specialized call: it always allocates, so there is
-        // no call-free fast path, and its Pair layout is not encodable here.
-        if (ArithOp.fromName(name)) |op|
-            return self.emitInlineArith(op, a, b, export_name) catch return null;
-        if (std.mem.eql(u8, name, "<"))
-            return self.emitInlineCompare(.lt, a, b, export_name) catch return null;
-        if (std.mem.eql(u8, name, "="))
-            return self.emitInlineCompare(.eq, a, b, export_name) catch return null;
-
-        const result = self.freshTemp() catch return null;
-        self.print("  {s} = call i64 @{s}(i64 {s}, i64 {s})\n", .{ result, export_name, a, b }) catch return null;
-        return result;
-    }
-
-    fn tryEmitInlineUnary(self: *LLVMEmitter, name: []const u8, arg: *const ir.Node) ?[]const u8 {
-        const export_name = native_decls.findInline(.unary, name) orelse return null;
-        const v = self.emitNode(arg) catch return null;
-
-        // null? is a single Value comparison against the nil immediate — no
-        // heap access, no fallback needed. car/cdr touch the (auto-layout) Pair
-        // struct and raise on a non-pair, so they stay as direct runtime calls.
-        if (std.mem.eql(u8, name, "null?"))
-            return self.emitInlineNullCheck(v) catch return null;
-
-        const result = self.freshTemp() catch return null;
-        self.print("  {s} = call i64 @{s}(i64 {s})\n", .{ result, export_name, v }) catch return null;
-        return result;
-    }
-
-    // Emit `%dst = <sign-extended i48 payload of %boxed>`. Shifting the tag bits
-    // out to the left and arithmetic-shifting back sign-extends bit 47, matching
-    // types.toFixnum. Caller must have already checked %boxed is a fixnum.
-    fn emitUnboxFixnum(self: *LLVMEmitter, boxed: []const u8) EmitError![]const u8 {
-        const shifted = try self.freshTemp();
-        try self.print("  {s} = shl i64 {s}, 16\n", .{ shifted, boxed });
-        const val = try self.freshTemp();
-        try self.print("  {s} = ashr i64 {s}, 16\n", .{ val, shifted });
-        return val;
-    }
-
-    // Emit `%dst = i1` that is true iff %boxed carries the fixnum tag
-    // (`(boxed >> 48) == 0xFFFD`), matching types.isFixnum.
-    fn emitIsFixnum(self: *LLVMEmitter, boxed: []const u8) EmitError![]const u8 {
-        const hi = try self.freshTemp();
-        try self.print("  {s} = lshr i64 {s}, 48\n", .{ hi, boxed });
-        const is_fix = try self.freshTemp();
-        try self.print("  {s} = icmp eq i64 {s}, {d}\n", .{ is_fix, hi, nanbox.fix_tag_hi });
-        return is_fix;
-    }
-
-    // Compute `i1` = both operands are fixnums, then branch to the caller's
-    // fixnum fast-path block or its runtime slow-path block accordingly.
-    fn emitBothFixnumBranch(self: *LLVMEmitter, a: []const u8, b: []const u8, fast: []const u8, slow: []const u8) EmitError!void {
-        const a_fix = try self.emitIsFixnum(a);
-        const b_fix = try self.emitIsFixnum(b);
-        const both = try self.freshTemp();
-        try self.print("  {s} = and i1 {s}, {s}\n", .{ both, a_fix, b_fix });
-        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ both, fast, slow });
-    }
-
-    // Fixnum fast path for +, -, *. On non-fixnum operands or a result outside
-    // the i48 fixnum range (overflow → bignum), fall back to the runtime.
-    fn emitInlineArith(self: *LLVMEmitter, op: ArithOp, a: []const u8, b: []const u8, export_name: []const u8) EmitError![]const u8 {
-        const id = self.label_counter;
-        self.label_counter += 1;
-        const fast = try std.fmt.allocPrint(self.allocator(), "arith_fast{d}", .{id});
-        const box = try std.fmt.allocPrint(self.allocator(), "arith_box{d}", .{id});
-        const slow = try std.fmt.allocPrint(self.allocator(), "arith_slow{d}", .{id});
-        const done = try std.fmt.allocPrint(self.allocator(), "arith_done{d}", .{id});
-
-        try self.emitBothFixnumBranch(a, b, fast, slow);
-
-        try self.startBlock(fast);
-        const va = try self.emitUnboxFixnum(a);
-        const vb = try self.emitUnboxFixnum(b);
-        const ov = try self.freshTemp();
-        try self.print("  {s} = call {{ i64, i1 }} {s}(i64 {s}, i64 {s})\n", .{ ov, op.overflowIntrinsic(), va, vb });
-        const raw = try self.freshTemp();
-        try self.print("  {s} = extractvalue {{ i64, i1 }} {s}, 0\n", .{ raw, ov });
-        const ovf = try self.freshTemp();
-        try self.print("  {s} = extractvalue {{ i64, i1 }} {s}, 1\n", .{ ovf, ov });
-        const ge = try self.freshTemp();
-        try self.print("  {s} = icmp sge i64 {s}, {d}\n", .{ ge, raw, nanbox.fix_min });
-        const le = try self.freshTemp();
-        try self.print("  {s} = icmp sle i64 {s}, {d}\n", .{ le, raw, nanbox.fix_max });
-        const in_range = try self.freshTemp();
-        try self.print("  {s} = and i1 {s}, {s}\n", .{ in_range, ge, le });
-        const not_ovf = try self.freshTemp();
-        try self.print("  {s} = xor i1 {s}, true\n", .{ not_ovf, ovf });
-        const ok = try self.freshTemp();
-        try self.print("  {s} = and i1 {s}, {s}\n", .{ ok, in_range, not_ovf });
-        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ ok, box, slow });
-
-        try self.startBlock(box);
-        const masked = try self.freshTemp();
-        try self.print("  {s} = and i64 {s}, {d}\n", .{ masked, raw, nanbox.payload_mask });
-        const boxed = try self.freshTemp();
-        try self.print("  {s} = or i64 {s}, {d}\n", .{ boxed, masked, nanbox.fix_base });
-        try self.print("  br label %{s}\n", .{done});
-
-        try self.startBlock(slow);
-        const slow_res = try self.freshTemp();
-        try self.print("  {s} = call i64 @{s}(i64 {s}, i64 {s})\n", .{ slow_res, export_name, a, b });
-        try self.print("  br label %{s}\n", .{done});
-
-        try self.startBlock(done);
-        const result = try self.freshTemp();
-        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {s}, %{s} ]\n", .{ result, boxed, box, slow_res, slow });
-        return result;
-    }
-
-    const CompareKind = enum { lt, eq };
-
-    // Fixnum fast path for < and =. Non-fixnum operands fall back to the
-    // runtime, which handles the full numeric tower.
-    fn emitInlineCompare(self: *LLVMEmitter, kind: CompareKind, a: []const u8, b: []const u8, export_name: []const u8) EmitError![]const u8 {
-        const id = self.label_counter;
-        self.label_counter += 1;
-        const fast = try std.fmt.allocPrint(self.allocator(), "cmp_fast{d}", .{id});
-        const slow = try std.fmt.allocPrint(self.allocator(), "cmp_slow{d}", .{id});
-        const done = try std.fmt.allocPrint(self.allocator(), "cmp_done{d}", .{id});
-
-        try self.emitBothFixnumBranch(a, b, fast, slow);
-
-        try self.startBlock(fast);
-        const cond = try self.freshTemp();
-        switch (kind) {
-            // Fixnums have a canonical encoding, so equal integers have equal
-            // bits — the raw compare matches the runtime's `a == b`.
-            .eq => try self.print("  {s} = icmp eq i64 {s}, {s}\n", .{ cond, a, b }),
-            // Ordering needs the sign-extended payloads (raw compare would
-            // mis-order negatives).
-            .lt => {
-                const va = try self.emitUnboxFixnum(a);
-                const vb = try self.emitUnboxFixnum(b);
-                try self.print("  {s} = icmp slt i64 {s}, {s}\n", .{ cond, va, vb });
-            },
-        }
-        const fast_res = try self.freshTemp();
-        try self.print("  {s} = select i1 {s}, i64 {d}, i64 {d}\n", .{ fast_res, cond, nanbox.true_val, nanbox.false_val });
-        try self.print("  br label %{s}\n", .{done});
-
-        try self.startBlock(slow);
-        const slow_res = try self.freshTemp();
-        try self.print("  {s} = call i64 @{s}(i64 {s}, i64 {s})\n", .{ slow_res, export_name, a, b });
-        try self.print("  br label %{s}\n", .{done});
-
-        try self.startBlock(done);
-        const result = try self.freshTemp();
-        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {s}, %{s} ]\n", .{ result, fast_res, fast, slow_res, slow });
-        return result;
-    }
-
-    // null? — a single comparison against the nil immediate, no heap access.
-    fn emitInlineNullCheck(self: *LLVMEmitter, v: []const u8) EmitError![]const u8 {
-        const cond = try self.freshTemp();
-        try self.print("  {s} = icmp eq i64 {s}, {d}\n", .{ cond, v, nanbox.nil });
-        const result = try self.freshTemp();
-        try self.print("  {s} = select i1 {s}, i64 {d}, i64 {d}\n", .{ result, cond, nanbox.true_val, nanbox.false_val });
-        return result;
-    }
-
     // Whether a tail call here can be a guaranteed `musttail call tailcc`
     // (#1499). It must be in tail position, inside a `tailcc` fast-entry body
     // (matching calling convention), and the shadow stack must hold no roots a
@@ -1768,7 +1305,7 @@ pub const LLVMEmitter = struct {
             try self.write(")\n");
         }
         // Checked-arithmetic intrinsics used by the inline fixnum fast paths
-        // for +, -, * (emitInlineArith).
+        // for +, -, * (emitInlineArith in llvm_emit_inline.zig).
         try self.write("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n");
         try self.write("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n");
         try self.write("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
