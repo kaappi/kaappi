@@ -2,8 +2,10 @@ const std = @import("std");
 const platform = @import("platform.zig");
 
 /// Returns the kaappi home directory path written into `buf`.
-/// Checks `KAAPPI_HOME` env var first; falls back to `$HOME/.kaappi`.
-/// Returns null if neither env var is available or the path exceeds `buf`.
+/// Checks `KAAPPI_HOME` env var first; falls back to `$HOME/.kaappi`
+/// (`%USERPROFILE%/.kaappi` on Windows, whose shells don't set HOME —
+/// git-bash sets both). Returns null if no env var is available or the
+/// path exceeds `buf`.
 pub fn getHome(buf: []u8) ?[]const u8 {
     if (platform.getenv("KAAPPI_HOME")) |kh| {
         const home = std.mem.sliceTo(kh, 0);
@@ -12,7 +14,9 @@ pub fn getHome(buf: []u8) ?[]const u8 {
             return buf[0..home.len];
         }
     }
-    const home_ptr = platform.getenv("HOME") orelse return null;
+    const home_ptr = platform.getenv("HOME") orelse
+        (if (platform.is_windows) platform.getenv("USERPROFILE") else null) orelse
+        return null;
     const home = std.mem.sliceTo(home_ptr, 0);
     const suffix = "/.kaappi";
     const total = home.len + suffix.len;

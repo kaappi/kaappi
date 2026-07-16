@@ -2,7 +2,12 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const builtin = @import("builtin");
 
-const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
+const dylib_ext = if (builtin.os.tag == .macos)
+    ".dylib"
+else if (builtin.os.tag == .windows)
+    ".dll"
+else
+    ".so";
 const version = @import("build_options").version;
 
 const crash = @import("crash.zig");
@@ -16,13 +21,13 @@ pub const panic = crash.PanicHandler("thottam");
 const semver = @import("thottam_semver.zig");
 const proc = @import("thottam_proc.zig");
 const state = @import("thottam_state.zig");
+const tfs = @import("thottam_fs.zig");
 
 const Semver = semver.Semver;
 const parseConstraints = semver.parseConstraints;
 const matchesAllConstraints = semver.matchesAllConstraints;
 const isConstraintSpec = semver.isConstraintSpec;
 
-const runCapture = proc.runCapture;
 const runPassthrough = proc.runPassthrough;
 const runGit = proc.runGit;
 const runGitCapture = proc.runGitCapture;
@@ -240,46 +245,29 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     return m;
 }
 
-fn copyDir(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
-    const exit_code = try runPassthrough(allocator, &.{ "/bin/cp", "-R", src, dst }, null);
-    if (exit_code != 0) return error.CopyFailed;
-}
-
 pub fn removeDir(allocator: std.mem.Allocator, path: []const u8) !void {
-    _ = try runPassthrough(allocator, &.{ "/bin/rm", "-rf", path }, null);
+    try tfs.removeTree(allocator, path);
 }
 
 fn copyDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir: []const u8) !u32 {
-    const pattern = try std.mem.concat(allocator, u8, &.{ "*", dylib_ext });
-    defer allocator.free(pattern);
-    const output = runCapture(allocator, &.{
-        "/usr/bin/find", pkg_dir, "-maxdepth", "1", "-name", pattern, "-print",
-    }, null) catch return 0;
-    defer allocator.free(output);
+    var names = tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false) catch return 0;
+    defer tfs.freePathList(allocator, &names);
     var count: u32 = 0;
-    var lines = std.mem.splitScalar(u8, output, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        const basename = std.fs.path.basename(line);
+    for (names.items) |basename| {
+        const src = joinPath(allocator, pkg_dir, basename) catch continue;
+        defer allocator.free(src);
         const dst = joinPath(allocator, lib_dir, basename) catch continue;
         defer allocator.free(dst);
-        _ = runPassthrough(allocator, &.{ "/bin/cp", line, dst }, null) catch continue;
+        tfs.copyFile(allocator, src, dst) catch continue;
         count += 1;
     }
     return count;
 }
 
 fn removeDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir: []const u8) !void {
-    const pattern = try std.mem.concat(allocator, u8, &.{ "*", dylib_ext });
-    defer allocator.free(pattern);
-    const output = runCapture(allocator, &.{
-        "/usr/bin/find", pkg_dir, "-maxdepth", "1", "-name", pattern, "-print",
-    }, null) catch return;
-    defer allocator.free(output);
-    var lines = std.mem.splitScalar(u8, output, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        const basename = std.fs.path.basename(line);
+    var names = tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false) catch return;
+    defer tfs.freePathList(allocator, &names);
+    for (names.items) |basename| {
         const target = joinPath(allocator, lib_dir, basename) catch continue;
         defer allocator.free(target);
         const target_z = allocator.dupeZ(u8, target) catch continue;
@@ -289,27 +277,51 @@ fn removeDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_di
 }
 
 fn removeSldFiles(allocator: std.mem.Allocator, pkg_lib_dir: []const u8, lib_dir: []const u8) !void {
-    const output = runCapture(allocator, &.{
-        "/usr/bin/find", pkg_lib_dir, "-name", "*.sld", "-print",
-    }, null) catch return;
-    defer allocator.free(output);
-    var lines = std.mem.splitScalar(u8, output, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        if (std.mem.startsWith(u8, line, pkg_lib_dir)) {
-            const rel = line[pkg_lib_dir.len..];
-            const target = std.mem.concat(allocator, u8, &.{ lib_dir, rel }) catch continue;
-            defer allocator.free(target);
-            const target_z = allocator.dupeZ(u8, target) catch continue;
-            defer allocator.free(target_z);
-            _ = platform.unlink(target_z);
-        }
+    var rels = tfs.collectFilesWithSuffix(allocator, pkg_lib_dir, ".sld", true) catch return;
+    defer tfs.freePathList(allocator, &rels);
+    for (rels.items) |rel| {
+        const target = joinPath(allocator, lib_dir, rel) catch continue;
+        defer allocator.free(target);
+        const target_z = allocator.dupeZ(u8, target) catch continue;
+        defer allocator.free(target_z);
+        _ = platform.unlink(target_z);
     }
 }
 
 fn printBuf(buf: []u8, comptime fmt: []const u8, args: anytype) void {
     const msg = std.fmt.bufPrint(buf, fmt, args) catch return;
     writeStdout(msg);
+}
+
+/// Run a package's `build:` line from kaappi.pkg. POSIX gets `/bin/sh -c`
+/// exactly as before. Windows has no /bin/sh, and every ecosystem `build:`
+/// is a Makefile producing POSIX shared libraries — refuse with a clear
+/// error rather than half-run something; pure-Scheme packages (no `build:`
+/// line, most of the ecosystem) never reach this.
+fn runBuildCommand(allocator: std.mem.Allocator, pkg: []const u8, build_cmd: []const u8, pkg_dir: []const u8) !void {
+    var buf: [512]u8 = undefined;
+    if (comptime platform.is_windows) {
+        printErrColor(Color.red, "error: ");
+        const msg = std.fmt.bufPrint(&buf, "{s} has a 'build:' command in kaappi.pkg; building native packages is not supported on Windows (pure-Scheme packages install fine)\n", .{pkg}) catch "package 'build:' commands are not supported on Windows\n";
+        writeStderr(msg);
+        return error.BuildFailed;
+    }
+    printBuf(&buf, "  Building {s}...\n", .{pkg});
+    const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
+    if (exit_code != 0) {
+        printErrColor(Color.red, "  Build failed\n");
+        return error.BuildFailed;
+    }
+}
+
+/// Merge the contents of a package's lib/ into the shared lib dir — the
+/// `cp -R lib/. dst/` shape this replaced: existing files are overwritten
+/// (updates re-copy), unrelated files in dst survive. Non-fatal like the
+/// old ignored cp exit code, but say so when something goes wrong.
+fn installLibTree(allocator: std.mem.Allocator, lib_src: []const u8, lib_dir: []const u8) void {
+    tfs.copyTree(allocator, lib_src, lib_dir) catch {
+        printErrColor(Color.yellow, "  warning: failed to install some library files\n");
+    };
 }
 
 fn printColor(comptime color: []const u8, text: []const u8) void {
@@ -477,12 +489,7 @@ fn doInstall(
         }
 
         if (manifest.build_cmd) |build_cmd| {
-            printBuf(&buf, "  Building {s}...\n", .{pkg});
-            const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
-            if (exit_code != 0) {
-                printErrColor(Color.red, "  Build failed\n");
-                return error.BuildFailed;
-            }
+            try runBuildCommand(allocator, pkg, build_cmd, pkg_dir);
         }
     }
 
@@ -490,15 +497,7 @@ fn doInstall(
     defer allocator.free(lib_src);
     if (dirExists(allocator, lib_src)) {
         writeStdout("  Installing libraries...\n");
-        // "src/." copies the directory CONTENTS on both BSD and GNU cp.
-        // A trailing "/" only means that on BSD; GNU cp copies the directory
-        // itself, nesting libraries under lib/lib/ where the loader never
-        // finds them.
-        const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/." });
-        defer allocator.free(src_glob);
-        const dst_glob = try std.mem.concat(allocator, u8, &.{ config.lib_dir, "/" });
-        defer allocator.free(dst_glob);
-        _ = runPassthrough(allocator, &.{ "/bin/cp", "-R", src_glob, dst_glob }, null) catch {};
+        installLibTree(allocator, lib_src, config.lib_dir);
     }
 
     const dylib_count = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
@@ -640,25 +639,14 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
             defer manifest.deinit(allocator);
             if (manifest.build_cmd) |build_cmd| {
-                var build_buf: [256]u8 = undefined;
-                printBuf(&build_buf, "  Building {s}...\n", .{p});
-                const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
-                if (exit_code != 0) {
-                    printErrColor(Color.red, "  Build failed\n");
-                    return error.BuildFailed;
-                }
+                try runBuildCommand(allocator, p, build_cmd, pkg_dir);
             }
         }
 
         const lib_src = try joinPath(allocator, pkg_dir, "lib");
         defer allocator.free(lib_src);
         if (dirExists(allocator, lib_src)) {
-            // "src/." — see doInstall: portable contents-copy for BSD and GNU cp.
-            const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/." });
-            defer allocator.free(src_glob);
-            const dst_glob = try std.mem.concat(allocator, u8, &.{ config.lib_dir, "/" });
-            defer allocator.free(dst_glob);
-            _ = runPassthrough(allocator, &.{ "/bin/cp", "-R", src_glob, dst_glob }, null) catch {};
+            installLibTree(allocator, lib_src, config.lib_dir);
         }
 
         _ = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
@@ -785,7 +773,10 @@ pub fn getenv(name: [*:0]const u8) ?[]const u8 {
 
 fn buildConfig(allocator: std.mem.Allocator) !Config {
     const home = getenv("KAAPPI_HOME") orelse blk: {
-        const user_home = getenv("HOME") orelse fatal("HOME not set");
+        // Windows shells set USERPROFILE, not HOME (git-bash sets both).
+        const user_home = getenv("HOME") orelse
+            (if (platform.is_windows) getenv("USERPROFILE") else null) orelse
+            fatal(if (platform.is_windows) "neither HOME nor USERPROFILE is set" else "HOME not set");
         break :blk try std.mem.concat(allocator, u8, &.{ user_home, "/.kaappi" });
     };
     const org = getenv("KAAPPI_ORG") orelse "https://github.com/kaappi";
@@ -801,13 +792,10 @@ fn buildConfig(allocator: std.mem.Allocator) !Config {
 }
 
 fn ensureDirs(allocator: std.mem.Allocator, config: Config) void {
-    const lib_z = allocator.dupeZ(u8, config.lib_dir) catch return;
-    defer allocator.free(lib_z);
-    const src_z = allocator.dupeZ(u8, config.src_dir) catch return;
-    defer allocator.free(src_z);
-    _ = runPassthrough(allocator, &.{ "/bin/mkdir", "-p", config.lib_dir, config.src_dir }, null) catch {};
+    tfs.makeDirRecursive(allocator, config.lib_dir) catch {};
+    tfs.makeDirRecursive(allocator, config.src_dir) catch {};
     if (!fileExists(allocator, config.installed)) {
-        _ = runPassthrough(allocator, &.{ "/usr/bin/touch", config.installed }, null) catch {};
+        tfs.touchFile(allocator, config.installed) catch {};
     }
 }
 
@@ -864,19 +852,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     };
 
-    // Package installation shells out to POSIX userland (cp -R, find,
-    // sh -c for build commands) that Windows doesn't have; the read-only
-    // subcommands work everywhere. Gate the mutating ones until the
-    // install pipeline is reimplemented on the platform shim.
-    if (comptime platform.is_windows) {
-        const mutating = std.mem.eql(u8, cmd, "install") or
-            std.mem.eql(u8, cmd, "remove") or std.mem.eql(u8, cmd, "update");
-        if (mutating) {
-            writeStderr("thottam: package installation is not yet supported on Windows\n");
-            std.process.exit(1);
-        }
-    }
-
     if (std.mem.eql(u8, cmd, "install")) {
         const spec = sub_arg orelse {
             writeStderr("Usage: thottam install <package>[@<version>][::url]\n");
@@ -914,6 +889,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 }
 
+// Pull in the sibling modules' tests: the test binary's root is this file,
+// and Zig only collects tests from files referenced by a test block.
+test {
+    _ = semver;
+    _ = proc;
+    _ = state;
+    _ = tfs;
+}
+
 test "markVisited copies keys so freed dependency names stay valid (issue #784)" {
     const allocator = std.testing.allocator;
     var visited = std.StringHashMap(void).init(allocator);
@@ -931,6 +915,8 @@ test "markVisited copies keys so freed dependency names stay valid (issue #784)"
 test "dylib_ext is correct for platform" {
     if (builtin.os.tag == .macos) {
         try std.testing.expectEqualStrings(".dylib", dylib_ext);
+    } else if (builtin.os.tag == .windows) {
+        try std.testing.expectEqualStrings(".dll", dylib_ext);
     } else {
         try std.testing.expectEqualStrings(".so", dylib_ext);
     }

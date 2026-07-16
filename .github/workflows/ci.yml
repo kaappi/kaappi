@@ -176,6 +176,7 @@ jobs:
           mkdir -p win-stage
           cp zig-out/bin/kaappi.exe zig-out/bin/thottam.exe zig-out/bin/kaappi-lsp.exe win-stage/
           cp "$(ls -t .zig-cache/o/*/unit-tests.exe | head -1)" win-stage/
+          cp "$(ls -t .zig-cache/o/*/thottam-tests.exe | head -1)" win-stage/
 
       - name: Upload binaries for windows-arm-test
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -186,7 +187,8 @@ jobs:
 
   # Execute the suite on real Windows ARM64 via GitHub's hosted
   # windows-11-arm runners (free for public repos): the unit suite, the
-  # R7RS suite, and the .scm suites verified on the port's reference VM
+  # thottam suite + install/remove integration (#1609), the R7RS suite,
+  # and the .scm suites verified on the port's reference VM
   # (docs/dev/windows.md). The binaries come cross-compiled from
   # windows-cross — Zig 0.16.0 cannot compile natively on Windows ARM64
   # (zig build/build-exe access-violate on any project, #1613) — so this
@@ -235,6 +237,31 @@ jobs:
       - name: Unit tests
         shell: bash
         run: bin/unit-tests.exe
+
+      - name: thottam unit tests
+        shell: bash
+        run: bin/thottam-tests.exe
+
+      - name: thottam integration test
+        # Mirrors the POSIX test job's step: a real install of the
+        # pure-Scheme kaappi-json (Git for Windows is preinstalled on the
+        # runner), imported through the installed lib dir, then removed —
+        # which deletes a real git clone, whose read-only pack files are
+        # the Windows-specific removal hazard (#1609). KAAPPI_HOME is a
+        # C:/-style path (pwd -W): thottam hands paths straight to git.exe
+        # and the CRT, which never see git-bash's /d/... spellings.
+        shell: bash
+        run: |
+          export KAAPPI_HOME="$(pwd -W)/thottam-home"
+          bin/thottam.exe list
+          bin/thottam.exe install kaappi-json
+          bin/thottam.exe list | grep kaappi-json
+          bin/thottam.exe verify
+          echo '(import (kaappi json)) (display (json-write-string (list 1 2 3))) (newline)' > use-json.scm
+          bin/kaappi.exe --lib-path "$KAAPPI_HOME/lib" use-json.scm
+          bin/thottam.exe remove kaappi-json
+          ! bin/thottam.exe list | grep kaappi-json
+          rm -f use-json.scm
 
       - name: R7RS test suite
         shell: bash
