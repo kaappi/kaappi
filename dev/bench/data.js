@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784182931432,
+  "lastUpdate": 1784185374049,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6c8e50dd7bdf38029ff80314287ad7a8a0a3df6b",
-          "message": "Migrate (chibi test) tests to SRFI-64 (#1313) (#1382)\n\nThe (chibi test) shim exists only to run the upstream R7RS suite, but 55\nother test files had adopted it. SRFI-64 is the standardized framework\nthe rest of the suite uses, has richer assertions, and — unlike the shim,\nwhich always exits 0 — its exit-on-fail epilogue lets run-all.sh detect\nfailures from the exit code instead of grepping output.\n\n- tests/scheme/{srfi,audit,compliance}: (chibi test) -> (srfi 64),\n  test -> test-equal, runner-grab epilogue with (exit 1) on failure;\n  test-values forms (srfi152) become test-equal + call-with-values;\n  commented-out ;; FAIL: #NNN assertions renamed so they still work\n  when un-commented after fixes\n- r7rs-tests.scm stays on the shim (upstream suite, out of scope)\n- audit-primitives skill template and audit-strategy.md session\n  protocol now prescribe SRFI-64 for new test files\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T06:32:43+05:30",
-          "tree_id": "e0b5479c7b0740bd783f8fa7a8263e9c42800e55",
-          "url": "https://github.com/kaappi/kaappi/commit/6c8e50dd7bdf38029ff80314287ad7a8a0a3df6b"
-        },
-        "date": 1783646902636,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.539062,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.748696,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.005804,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.639852,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012924,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.339225,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512108,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070221,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.66317,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.07954,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.756625,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.037119,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.630738,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715128,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045588,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044577,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2986a76a6806532a86959992bea95c44d93db1f",
+          "message": "Allow dlopen of user FFI libraries in signed macOS releases (#1588)\n\nThe Developer ID signature applies the hardened runtime, whose library\nvalidation refuses any dylib not signed by the same team or by Apple —\nso every locally-built C FFI library (kaappi-net, kaappi-pg,\nkaappi-sqlite, kaappi-crypto) failed ffi-open with a dlopen error on\nrelease binaries, while unsigned source builds loaded the same file\nfine. disable-library-validation is the entitlement Apple provides for\nexactly this plugin-loading case, alongside the allow-jit grant the\nfile already carries.\n\nVerified on macOS arm64 by re-signing a source build ad hoc with the\nhardened runtime: with the shipped entitlements the test dylib is\nrefused; with this change it loads (#1587).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T12:05:12+05:30",
+          "tree_id": "4044abeee169fccb636fc6db1409cd8d5f760a34",
+          "url": "https://github.com/kaappi/kaappi/commit/e2986a76a6806532a86959992bea95c44d93db1f"
+        },
+        "date": 1784185372572,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.386215,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.987767,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.918868,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.483742,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006582,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05395,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507035,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070033,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.390283,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.979294,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574074,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43716,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.845996,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.743857,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043705,
             "unit": "seconds"
           }
         ]
