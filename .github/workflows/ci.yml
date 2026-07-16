@@ -161,14 +161,12 @@ jobs:
         run: zig build -Dtarget=aarch64-windows
 
       - name: Compile unit tests (aarch64-windows)
-        # The run step cannot execute a foreign binary; compiling it is
-        # the regression gate. `|| true` is NOT used — a compile error
-        # must fail, so filter only the expected spawn failure.
+        # The host can't execute the foreign test binaries; the build's
+        # Run steps set skip_foreign_checks, so this compiles everything
+        # and skips execution — a plain compile gate with normal error
+        # propagation.
         run: |
-          zig build test -Dtarget=aarch64-windows 2>&1 | tee win-test-build.log || true
-          if grep -E "error:" win-test-build.log | grep -qvE "unable to spawn foreign binary|the following build command failed"; then
-            echo "unexpected compile errors" && exit 1
-          fi
+          zig build test -Dtarget=aarch64-windows
           ls .zig-cache/o/*/unit-tests.exe
 
   wasm:

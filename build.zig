@@ -375,6 +375,12 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    // Cross-compiled test binaries the host can't execute (no emulator
+    // registered — e.g. aarch64-windows) skip cleanly instead of failing,
+    // so `zig build test -Dtarget=aarch64-windows` is a compile gate CI
+    // can run anywhere. Native runs and QEMU-backed riscv64 are
+    // unaffected (the binary is executable there, so it still runs).
+    run_unit_tests.skip_foreign_checks = true;
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
@@ -389,6 +395,7 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
     const run_thottam_tests = b.addRunArtifact(thottam_tests);
+    run_thottam_tests.skip_foreign_checks = true;
     test_step.dependOn(&run_thottam_tests.step);
 
     // Code coverage via kcov (always Debug for DWARF line info)
