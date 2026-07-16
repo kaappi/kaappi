@@ -238,6 +238,9 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
             null;
         defer if (self.boxes) |*b| b.deinit();
         self.frame_entry_roots = 0;
+        // A fresh frame starts with no let-binding roots (#1585); saveScope
+        // restored the enclosing value on exit.
+        self.body_scope_roots = 0;
 
         const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch return null;
         defer self.allocator().free(header);
@@ -567,6 +570,9 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.boxes = if (boxed.any) std.StringHashMap([]const u8).init(self.backing_alloc) else null;
         defer if (self.boxes) |*b| b.deinit();
         self.frame_entry_roots = 0;
+        // A fresh frame starts with no let-binding roots (#1585); saveScope
+        // restored the enclosing value on exit.
+        self.body_scope_roots = 0;
         // A tail call in this body may be a guaranteed `musttail` only from a
         // `tailcc` fast entry (#1499).
         self.in_fast_entry = use_fast;

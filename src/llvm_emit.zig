@@ -114,8 +114,22 @@ pub const LLVMEmitter = struct {
     // for a variadic frame, the rest-list slot (#1498). Boxed frames disable
     // tail-call emission, so their only `ret` is the trailing one; a variadic
     // self-tail loop keeps tail calls, so emitCallNode/emitDirectCall also pop
-    // these before a tail-call `ret` (a no-op when the count is zero).
+    // these before a tail-call `ret` (a no-op when the count is zero). These are
+    // pushed BEFORE the frame's loop header (body_label), so a self-tail call's
+    // branch-back to that header does NOT pop them — they persist across
+    // iterations (the rest-list slot is overwritten in place).
     frame_entry_roots: usize = 0,
+    // Number of GC roots pushed by let/let* bindings AFTER the frame's loop
+    // header that are live at the current tail position and must be released
+    // before EVERY tail transfer: both a `ret` through an in-body tail call and
+    // a self-tail call's branch-back to the header (which re-enters the let and
+    // re-pushes them, so leaving them would leak one root set per iteration —
+    // #1585). Distinct from frame_entry_roots precisely because the branch-back
+    // must pop these but not those. emitLet publishes its binding_root_count
+    // here while lowering its body in tail position and restores the prior value
+    // afterwards; nested lets accumulate. Always 0 unless self.locals != null
+    // (inside a rooted let), which keeps musttail disabled while it is nonzero.
+    body_scope_roots: usize = 0,
     // True only while emitting a `tailcc` register-argument fast-entry body
     // (#1499). A tail call to another native fast entry may be a guaranteed
     // `musttail call tailcc` only here — the uniform (ccc) entries, closures,
@@ -146,6 +160,7 @@ pub const LLVMEmitter = struct {
         locals: ?std.StringHashMap([]const u8),
         boxes: ?std.StringHashMap([]const u8),
         frame_entry_roots: usize,
+        body_scope_roots: usize,
         in_fast_entry: bool,
     };
 
@@ -164,6 +179,7 @@ pub const LLVMEmitter = struct {
             .locals = self.locals,
             .boxes = self.boxes,
             .frame_entry_roots = self.frame_entry_roots,
+            .body_scope_roots = self.body_scope_roots,
             .in_fast_entry = self.in_fast_entry,
         };
     }
@@ -182,6 +198,7 @@ pub const LLVMEmitter = struct {
         self.locals = s.locals;
         self.boxes = s.boxes;
         self.frame_entry_roots = s.frame_entry_roots;
+        self.body_scope_roots = s.body_scope_roots;
         self.in_fast_entry = s.in_fast_entry;
     }
 
@@ -553,9 +570,9 @@ pub const LLVMEmitter = struct {
 
         if (is_tail) {
             // Balance the frame-entry GC roots (variadic rest list, boxed
-            // params) before returning through this tail call (#1498). A no-op
-            // when the frame pushed none.
-            try self.emitPopRoots(self.frame_entry_roots);
+            // params) AND any let-binding roots live in the body (#1585) before
+            // returning through this tail call (#1498). A no-op when both are 0.
+            try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
             try self.print("  ret i64 {s}\n", .{result});
             try self.emitOrphanAfterTail();
         }
@@ -612,6 +629,14 @@ pub const LLVMEmitter = struct {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ rest_tmp, alloca });
             }
         }
+
+        // Release the let-binding roots pushed since the loop header before
+        // branching back to it (#1585): the loop re-enters those lets and
+        // re-pushes fresh roots, so leaving them stacked leaks one set per
+        // iteration until the shadow stack overflows. frame_entry_roots (the
+        // rest-list slot) live BEFORE the header and are deliberately NOT popped
+        // — they persist across iterations, overwritten in place above.
+        try self.emitPopRoots(self.body_scope_roots);
 
         try self.print("  br label %{s}\n", .{body_lbl});
 
@@ -1095,11 +1120,13 @@ pub const LLVMEmitter = struct {
     // (#1499). It must be in tail position, inside a `tailcc` fast-entry body
     // (matching calling convention), and the shadow stack must hold no roots a
     // torn-down frame would strand: not inside a rooted `let` (self.locals is
-    // non-null only there) and with the frame-entry roots — rest list / boxed
-    // params, always 0 in a fast entry — already balanced. LLVM also requires
-    // the musttail to immediately precede its `ret`, which these guarantee.
+    // non-null only there, and body_scope_roots is likewise nonzero only there —
+    // #1585) and with the frame-entry roots — rest list / boxed params, always 0
+    // in a fast entry — already balanced. LLVM also requires the musttail to
+    // immediately precede its `ret`, which these guarantee.
     fn mustTailSafe(self: *LLVMEmitter, is_tail: bool) bool {
-        return is_tail and self.in_fast_entry and self.locals == null and self.frame_entry_roots == 0;
+        return is_tail and self.in_fast_entry and self.locals == null and
+            self.frame_entry_roots == 0 and self.body_scope_roots == 0;
     }
 
     // Direct call to a native fast entry (#1499): arguments are passed by value
@@ -1137,8 +1164,10 @@ pub const LLVMEmitter = struct {
         if (is_tail) {
             // A fast entry has no frame-entry roots, so for musttail this is a
             // no-op and the musttail immediately precedes ret as LLVM requires;
-            // a non-fast tail caller may still have some to balance (#1498).
-            if (!musttail) try self.emitPopRoots(self.frame_entry_roots);
+            // a non-fast tail caller may still have frame-entry roots and, inside
+            // a let, body-scope roots to balance (#1498, #1585). musttail is only
+            // chosen when both counts are 0 (see mustTailSafe).
+            if (!musttail) try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
             try self.print("  ret i64 {s}\n", .{result});
             try self.emitOrphanAfterTail();
         }
@@ -1179,9 +1208,9 @@ pub const LLVMEmitter = struct {
 
         if (is_tail) {
             // Balance the frame-entry GC roots (variadic rest list, boxed
-            // params) before returning through this tail call (#1498). A no-op
-            // when the frame pushed none.
-            try self.emitPopRoots(self.frame_entry_roots);
+            // params) AND any let-binding roots live in the body (#1585) before
+            // returning through this tail call (#1498). A no-op when both are 0.
+            try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
             try self.print("  ret i64 {s}\n", .{result});
             try self.emitOrphanAfterTail();
         }

@@ -61,21 +61,50 @@ fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError!
     return self.emitCachedEval(source_buf.items);
 }
 
-// Abandon a partially emitted native let and compile the whole form via
-// the interpreter instead. Pops the GC roots already pushed for emitted
-// bindings (the natively computed values are dead once the interpreter
-// re-evaluates the form; leaving their roots pushed would leak stack
-// slots into the GC root set on every execution of this code path).
-fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap([]const u8), roots_pushed: usize) EmitError![]const u8 {
-    try self.emitPopRoots(roots_pushed);
+// Abandon a partially emitted native let and compile the whole form via the
+// interpreter instead. Native let lowering is transactional (#1586): binding
+// initializers are written into self.buf as they are lowered, but the
+// interpreter fallback re-evaluates the WHOLE form, so any already-emitted init
+// with side effects would run once natively and again from the fallback.
+// Truncating self.buf back to the pre-let checkpoint discards every stranded
+// instruction — allocas, initializer side effects, box creation, and the GC
+// root pushes alike — so there is exactly one evaluation and nothing to pop
+// (the push_root calls were discarded with the rest). Restoring current_block
+// reopens the block the let began in: an initializer's in-scope control flow
+// (an `if`, say) may have split that block into terminated predecessors and a
+// fresh successor, all now truncated away, leaving the checkpoint block live
+// again for the fallback to emit into.
+fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, saved_locals: ?std.StringHashMap([]const u8), checkpoint: Checkpoint) EmitError![]const u8 {
+    self.buf.shrinkRetainingCapacity(checkpoint.buf_len);
+    self.current_block = checkpoint.block;
+    self.body_scope_roots = checkpoint.body_scope_roots;
     self.locals.?.deinit();
     self.locals = saved_locals;
     return emitLetFallback(self, args, sequential);
 }
 
+// The emitter state emitLet must be able to roll back to when it abandons a
+// partially lowered form to the interpreter (#1586). Captured before any of the
+// let's own IR is written.
+const Checkpoint = struct {
+    buf_len: usize,
+    block: []const u8,
+    body_scope_roots: usize,
+};
+
 pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
     const bindings = types.car(args);
     const body_list = types.cdr(args);
+
+    // Snapshot the emitter state before writing any of this let's IR, so an
+    // abandon partway through can roll back to exactly here (#1586). Captured up
+    // front — the upfront fallbacks below emit nothing before returning, so they
+    // never need it, but capturing here keeps the pre-let block/position exact.
+    const checkpoint: Checkpoint = .{
+        .buf_len = self.buf.items.len,
+        .block = self.current_block,
+        .body_scope_roots = self.body_scope_roots,
+    };
 
     // #827: If the let form (bindings or body) contains sub-expressions
     // that need interpreter eval fallback (cond, do, letrec, etc.),
@@ -150,17 +179,17 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         var blist = bindings;
         while (blist != types.NIL and types.isPair(blist)) {
             if (count >= 32) {
-                return abandonLetForFallback(self, args, sequential, saved_locals, count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             }
             const binding = types.car(blist);
             const var_sym = types.car(binding);
             const init_expr = types.car(types.cdr(binding));
             if (!types.isSymbol(var_sym)) {
-                return abandonLetForFallback(self, args, sequential, saved_locals, count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             }
 
             const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                return abandonLetForFallback(self, args, sequential, saved_locals, count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             const alloca = try self.freshTemp();
             try self.print("  {s} = alloca i64, align 8\n", .{alloca});
@@ -168,7 +197,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
             // (e.g. a lambda) sends the whole let to the interpreter,
             // like the body path below.
             const val = self.emitNode(node) catch {
-                return abandonLetForFallback(self, args, sequential, saved_locals, count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             // A captured+mutated let-local is stored as a heap box; the
             // alloca (rooted below) then holds the box pointer (#1497).
@@ -202,14 +231,14 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
             const var_sym = types.car(binding);
             const init_expr = types.car(types.cdr(binding));
             if (!types.isSymbol(var_sym)) {
-                return abandonLetForFallback(self, args, sequential, saved_locals, binding_root_count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             }
 
             const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
-                return abandonLetForFallback(self, args, sequential, saved_locals, binding_root_count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             const val = self.emitNode(node) catch {
-                return abandonLetForFallback(self, args, sequential, saved_locals, binding_root_count);
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             const alloca = try self.freshTemp();
             try self.print("  {s} = alloca i64, align 8\n", .{alloca});
@@ -230,23 +259,36 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         }
     }
 
+    // #1585: while the body is lowered in tail position, the binding roots must
+    // be released before every tail transfer — a `ret` through an in-body tail
+    // call and a self-tail call's branch-back to the loop header alike.
+    // Publishing them into body_scope_roots threads them into the same
+    // pop-before-tail accounting the tail-call emitters already apply, so the
+    // roots are dropped on those paths instead of being stranded past the `ret`
+    // (or re-pushed unbounded each loop iteration). The trailing emitPopRoots
+    // below still covers the ordinary fall-through (non-tail) exit; on a
+    // tail-transfer path it lands in the dead orphan block after the `ret`.
+    // Boxed lets set body_tail = false and pop only at fall-through.
+    if (body_tail) self.body_scope_roots += binding_root_count;
+
     var last: []const u8 = "";
     var body_expr = body_list;
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         const rest = types.cdr(body_expr);
         const expr_is_tail = body_tail and (rest == types.NIL or !types.isPair(rest));
         const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
-            return abandonLetForFallback(self, args, sequential, saved_locals, binding_root_count);
+            return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
         };
         // #827: if emitNode fails (e.g. a lambda that cannot be eval'd in
         // this lexical scope), fall back to evaluating the entire let form
         // via the interpreter.
         last = self.emitNode(node) catch {
-            return abandonLetForFallback(self, args, sequential, saved_locals, binding_root_count);
+            return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
         };
         body_expr = rest;
     }
 
+    self.body_scope_roots = checkpoint.body_scope_roots;
     try self.emitPopRoots(binding_root_count);
     self.locals.?.deinit();
     self.locals = saved_locals;
