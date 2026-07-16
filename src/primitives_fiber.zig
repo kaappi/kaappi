@@ -243,6 +243,15 @@ fn releaseSharedRvToken(sc: *shared_channel.SharedChannel, ch_val: Value, me: *f
     shared_channel.withdrawRvDemand(sc);
 }
 
+/// Field-only clear, for exits where the counter was already adjusted
+/// under the channel lock — a pop with `holds_token` (§4 receive step 3 as
+/// amended: withdraw-at-pop, incl. its copy-failure raise) and
+/// tryTimeoutWithdraw's `.withdrawn`. Calling releaseSharedRvToken there
+/// would decrement a second time.
+fn clearSharedRvTokenField(ch_val: Value, me: *fiber_mod.Fiber) void {
+    if (me.rv_demand_on == ch_val) me.rv_demand_on = types.VOID;
+}
+
 /// Terminal-exit cleanup for a rendezvous flat park's preserved deadline
 /// (#1602): a dispatched fiber's timed wait keeps `me.deadline_ns` (and
 /// possibly a live reactor timer) across yield_retry re-executions — see
@@ -379,7 +388,16 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         me.deadline_ns = null;
     }
     if (me.timed_out) {
+        // §6 delivery-wins (#1604 review): admission that opened together
+        // with the timer pop completes the send — the timeout applies to
+        // waiting, never to an already-satisfiable operation. Closed is
+        // checked first, matching the shared path's decide.
         me.timed_out = false;
+        if (ch.closed) return raiseFiberError("channel-send: send on closed channel");
+        if (ch.queue_len < localSendBound(ch, cap)) {
+            try enqueueChannel(gc, ch, ch_val, payload);
+            return types.VOID;
+        }
         return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID);
     }
 
@@ -621,9 +639,19 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
         ctx.sched.removeSharedWaiter(me);
 
         if (me.timed_out) {
+            // §6 delivery-wins, post-park mirror of the entry decide
+            // (#1604 review): a slot or rendezvous demand that materialized
+            // together with the timer pop completes the send; only a
+            // genuine would_park honors the timer.
             me.timed_out = false;
             me.deadline_ns = null;
-            return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID);
+            const decide = shared_channel.send(sc, payload, notifier) catch |err|
+                return translateSharedChannelError(err, "channel-send");
+            switch (decide) {
+                .sent => return types.VOID,
+                .closed => return raiseFiberError("channel-send: send on closed channel"),
+                .would_park => return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-send: timed out", types.VOID),
+            }
         }
         // Loop back to 1: re-registers if still full, sends if a slot
         // opened (or the channel closed) while parked.
@@ -714,28 +742,37 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             // §6 delivery-wins (#1601): decide the timeout through one
             // actual receive() — a handoff that committed before the
             // deadline was processed is returned, never discarded; the
-            // timeout applies to waiting only. On a rendezvous channel one
-            // more case defers the decision: the §6 reservation-drain rule
-            // — an admitted send mid-copy against this receiver's demand
-            // (reserved > 0, queue empty) must land or abort before the
-            // receiver may leave, or the sender would report success into
-            // nowhere. Both resolutions ring recv_waiters (the push always
-            // did; the abort now does on a rendezvous channel — see
-            // shared_channel.send's failure path), so the drain is a park,
-            // not a spin: the dispatched flat park keeps timed_out set so
-            // the rung redispatch re-enters this branch, and the main
-            // fiber's in-place park restores it before looping back here.
-            const o = shared_channel.receive(sc, gc, notifier) catch |err| {
+            // timeout applies to waiting only. On a rendezvous channel the
+            // rest of the decision is tryTimeoutWithdraw, ONE mutex
+            // section over the queue re-check, the reservation check, and
+            // the demand decrement (§6 as amended — model finding 6: with
+            // the reservation check and the withdrawal in separate lock
+            // sections, a sender can reserve against the still-held token
+            // after the zero observation and push into demand that no
+            // longer exists). `.reservation_pending` is the §6
+            // reservation-drain rule — an admitted send mid-copy must land
+            // or abort before the receiver may leave; both resolutions
+            // ring recv_waiters (the push always did; the abort does on a
+            // rendezvous channel — see shared_channel.send's failure
+            // path), so the drain is a park, not a spin: the dispatched
+            // flat park keeps timed_out set so the rung redispatch
+            // re-enters this branch, and the main fiber's in-place park
+            // restores it before looping back here.
+            const holds = me.rv_demand_on == ch_val;
+            const o = shared_channel.receive(sc, gc, notifier, holds) catch |err| {
+                // receive() fails only in the post-pop copy-out, so a held
+                // token was already withdrawn with the pop: clear, never
+                // decrement again.
                 me.timed_out = false;
                 me.deadline_ns = null;
-                releaseSharedRvToken(sc, ch_val, me);
+                clearSharedRvTokenField(ch_val, me);
                 return translateSharedChannelError(err, "channel-receive");
             };
             switch (o) {
                 .value => |v| {
                     me.timed_out = false;
                     me.deadline_ns = null;
-                    releaseSharedRvToken(sc, ch_val, me);
+                    clearSharedRvTokenField(ch_val, me);
                     return v;
                 },
                 .eof => {
@@ -746,12 +783,24 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                 },
                 .would_park => {},
             }
-            if (!rendezvous or shared_channel.reservedCount(sc) == 0) {
+            if (!rendezvous) {
                 me.timed_out = false;
                 me.deadline_ns = null;
-                releaseSharedRvToken(sc, ch_val, me);
                 return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
             }
+            switch (shared_channel.tryTimeoutWithdraw(sc, me.rv_demand_on == ch_val)) {
+                .withdrawn => {
+                    me.timed_out = false;
+                    me.deadline_ns = null;
+                    clearSharedRvTokenField(ch_val, me);
+                    return if (has_timeout_val) timeout_val else srfi18.raiseError(.channel_timeout, "channel-receive: timed out", types.VOID);
+                },
+                .value_ready => continue :outer, // raced in after the receive(): delivery wins
+                .reservation_pending => {},
+            }
+            // Error exits below are terminal for this wait: release the
+            // token (kaappi#1604 review — a leak here is phantom demand a
+            // main fiber never backstops) and drop the preserved deadline.
             if (is_dispatched) {
                 me.status = .waiting;
                 me.waiting_on = ch_val;
@@ -759,6 +808,9 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                 ctx.sched.enrollSharedWaiter(me) catch |err| {
                     me.status = .running;
                     me.waiting_on = types.VOID;
+                    releaseSharedRvToken(sc, ch_val, me);
+                    me.timed_out = false;
+                    me.deadline_ns = null;
                     return err;
                 };
                 vm.yield_retry = true;
@@ -774,20 +826,27 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
             ctx.sched.enrollSharedWaiter(me) catch |err| {
                 me.status = .running;
                 me.waiting_on = types.VOID;
+                releaseSharedRvToken(sc, ch_val, me);
+                me.deadline_ns = null;
                 return err;
             };
             _ = fiber_mod.runSchedulerStep(SharedChannelWait, .{ .me = me }, ctx.vm, ctx.sched, me) catch |err| {
                 ctx.sched.removeSharedWaiter(me);
                 me.status = .running;
                 me.waiting_on = types.VOID;
+                releaseSharedRvToken(sc, ch_val, me);
+                me.deadline_ns = null;
                 return err;
             };
             ctx.sched.removeSharedWaiter(me);
             me.timed_out = true;
             continue :outer;
         }
-        const outcome = shared_channel.receive(sc, gc, notifier) catch |err| {
-            releaseSharedRvToken(sc, ch_val, me);
+        const outcome = shared_channel.receive(sc, gc, notifier, me.rv_demand_on == ch_val) catch |err| {
+            // Fails only in the post-pop copy-out: a held token was already
+            // withdrawn with the pop (§4 step 3 as amended) — clear, never
+            // decrement again.
+            clearSharedRvTokenField(ch_val, me);
             return translateSharedChannelError(err, "channel-receive");
         };
         switch (outcome) {
@@ -796,7 +855,7 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
-                releaseSharedRvToken(sc, ch_val, me);
+                clearSharedRvTokenField(ch_val, me);
                 return v;
             },
             .eof => {
@@ -845,8 +904,8 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // whenever it returns .would_park, so the park below is always armed;
         // if the drive instead produced a value (or EOF), it is returned here
         // and the fiber never parks.
-        const redo = shared_channel.receive(sc, gc, notifier) catch |err| {
-            releaseSharedRvToken(sc, ch_val, me);
+        const redo = shared_channel.receive(sc, gc, notifier, me.rv_demand_on == ch_val) catch |err| {
+            clearSharedRvTokenField(ch_val, me);
             return translateSharedChannelError(err, "channel-receive");
         };
         switch (redo) {
@@ -855,7 +914,7 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = null;
                 }
-                releaseSharedRvToken(sc, ch_val, me);
+                clearSharedRvTokenField(ch_val, me);
                 return v;
             },
             .eof => {
@@ -878,17 +937,33 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // promoteChannel seeded rv_demand with it.
         if (rendezvous) acquireSharedRvToken(vm, sc, ch_val, me);
 
+        // Every error exit from the park machinery below is terminal for
+        // this wait: release the token and detach any armed timer, matching
+        // the status/waiting_on cleanup these handlers already do
+        // (kaappi#1604 review). Only the deliberate Yielded park keeps the
+        // token — the retry re-enters the whole primitive.
         if (is_dispatched) {
             me.status = .waiting;
             me.waiting_on = ch_val;
             vm.gc.writeBarrier(&me.header, ch_val);
             if (me.deadline_ns orelse deadline_ns) |d| {
                 me.deadline_ns = d;
-                try ctx.reactor.addTimer(d, me);
+                ctx.reactor.addTimer(d, me) catch |err| {
+                    me.status = .running;
+                    me.waiting_on = types.VOID;
+                    releaseSharedRvToken(sc, ch_val, me);
+                    me.deadline_ns = null;
+                    return err;
+                };
             }
             ctx.sched.enrollSharedWaiter(me) catch |err| {
                 me.status = .running;
                 me.waiting_on = types.VOID;
+                releaseSharedRvToken(sc, ch_val, me);
+                if (me.deadline_ns != null) {
+                    ctx.reactor.removeTimer(me);
+                    me.deadline_ns = null;
+                }
                 return err;
             };
             vm.yield_retry = true;
@@ -909,17 +984,33 @@ fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_va
         // fibers).
         if (me.deadline_ns orelse deadline_ns) |d| {
             me.deadline_ns = d;
-            try ctx.reactor.addTimer(d, me);
+            ctx.reactor.addTimer(d, me) catch |err| {
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                releaseSharedRvToken(sc, ch_val, me);
+                me.deadline_ns = null;
+                return err;
+            };
         }
         ctx.sched.enrollSharedWaiter(me) catch |err| {
             me.status = .running;
             me.waiting_on = types.VOID;
+            releaseSharedRvToken(sc, ch_val, me);
+            if (me.deadline_ns != null) {
+                ctx.reactor.removeTimer(me);
+                me.deadline_ns = null;
+            }
             return err;
         };
         _ = fiber_mod.runSchedulerStep(SharedChannelWait, .{ .me = me }, ctx.vm, ctx.sched, me) catch |err| {
             ctx.sched.removeSharedWaiter(me);
             me.status = .running;
             me.waiting_on = types.VOID;
+            releaseSharedRvToken(sc, ch_val, me);
+            if (me.deadline_ns != null) {
+                ctx.reactor.removeTimer(me);
+                me.deadline_ns = null;
+            }
             return err;
         };
         ctx.sched.removeSharedWaiter(me);
@@ -1043,7 +1134,15 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
                 if (me.deadline_ns orelse deadline_ns) |d| {
                     ctx.reactor.removeTimer(me);
                     me.deadline_ns = d;
-                    try ctx.reactor.addTimer(d, me);
+                    ctx.reactor.addTimer(d, me) catch |err| {
+                        // Terminal for this wait: don't leak the committed
+                        // demand or leave park state behind (#1604 review).
+                        me.status = .running;
+                        me.waiting_on = types.VOID;
+                        me.deadline_ns = null;
+                        releaseRvToken(ch, ch_val, me);
+                        return err;
+                    };
                 }
                 vm.yield_retry = true;
                 return PrimitiveError.Yielded;
@@ -1070,9 +1169,24 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         vm.gc.writeBarrier(&me.header, ch_val);
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a channel send / close
         me.deadline_ns = d;
-        try ctx.reactor.addTimer(d, me);
+        ctx.reactor.addTimer(d, me) catch |err| {
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            releaseRvToken(ch, ch_val, me);
+            return err;
+        };
     }
-    _ = try fiber_mod.runSchedulerStep(ChannelWait, .{ .ch = ch }, ctx.vm, ctx.sched, me);
+    _ = fiber_mod.runSchedulerStep(ChannelWait, .{ .ch = ch }, ctx.vm, ctx.sched, me) catch |err| {
+        // Terminal for this wait (the main fiber has no retireSlot backstop):
+        // release the committed demand and detach the timer (#1604 review).
+        releaseRvToken(ch, ch_val, me);
+        if (deadline_ns != null) {
+            ctx.reactor.removeTimer(me);
+            me.deadline_ns = null;
+        }
+        return err;
+    };
     if (deadline_ns != null) {
         ctx.reactor.removeTimer(me);
         me.deadline_ns = null;

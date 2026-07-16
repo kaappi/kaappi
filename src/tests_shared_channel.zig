@@ -281,7 +281,7 @@ test "reply-to worked example (§1): the received half, with the rc 1->2->3->2 p
     // against an envelope-owned stub (obj.owner = the envelope GC's id, not
     // memory.gc_instance) -- exactly why the alias path deliberately skips
     // the ownership check.
-    const recv_outcome = try shared_channel.receive(tasks_sc, &dest_gc, null);
+    const recv_outcome = try shared_channel.receive(tasks_sc, &dest_gc, null, false);
     const received_val = switch (recv_outcome) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
@@ -407,7 +407,7 @@ test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1
     instrument.setLever(.none);
     _ = try shared_channel.send(sc, types.makeFixnum(42), null);
     try std.testing.expect(sc.queue_head.?.gc != null);
-    const r0 = try shared_channel.receive(sc, &dest_gc, null);
+    const r0 = try shared_channel.receive(sc, &dest_gc, null, false);
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r0.value));
 
     // Lever C: the same immediate skips the heap entirely (gc == null) and
@@ -415,7 +415,7 @@ test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1
     instrument.setLever(.c);
     _ = try shared_channel.send(sc, types.makeFixnum(7), null);
     try std.testing.expect(sc.queue_head.?.gc == null);
-    const r1 = try shared_channel.receive(sc, &dest_gc, null);
+    const r1 = try shared_channel.receive(sc, &dest_gc, null, false);
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1.value));
 
     // A pointer payload still takes the heap path under lever C.
@@ -424,7 +424,7 @@ test "instrument lever C: an immediate payload skips the envelope heap (kaappi#1
     const pair = try src_gc.allocPair(types.makeFixnum(1), types.NIL);
     _ = try shared_channel.send(sc, pair, null);
     try std.testing.expect(sc.queue_head.?.gc != null);
-    _ = try shared_channel.receive(sc, &dest_gc, null);
+    _ = try shared_channel.receive(sc, &dest_gc, null, false);
 
     sc.release();
     try std.testing.expectEqual(baseline, shared_object.liveCount());
@@ -454,7 +454,7 @@ test "lever C shipped default: immediates skip the envelope heap, pointers keep 
     for (immediates) |imm| {
         _ = try shared_channel.send(sc, imm, null);
         try std.testing.expect(sc.queue_head.?.gc == null);
-        const r = try shared_channel.receive(sc, &dest_gc, null);
+        const r = try shared_channel.receive(sc, &dest_gc, null, false);
         try std.testing.expectEqual(imm, r.value);
     }
 
@@ -464,7 +464,7 @@ test "lever C shipped default: immediates skip the envelope heap, pointers keep 
     const pair = try src_gc.allocPair(types.makeFixnum(1), types.NIL);
     _ = try shared_channel.send(sc, pair, null);
     try std.testing.expect(sc.queue_head.?.gc != null);
-    _ = try shared_channel.receive(sc, &dest_gc, null);
+    _ = try shared_channel.receive(sc, &dest_gc, null, false);
 
     sc.release();
     // No envelope heap leaks (an immediate envelope owns no GC to destroy).
@@ -494,7 +494,7 @@ test "instrument lever D: a large bytevector crosses by shared buffer, then copi
 
     var dest_gc = memory.GC.init(std.testing.allocator);
     defer dest_gc.deinit();
-    const recv = try shared_channel.receive(sc, &dest_gc, null);
+    const recv = try shared_channel.receive(sc, &dest_gc, null, false);
     const recv_bv = types.toObject(recv.value).as(types.Bytevector);
     // Receive side: aliased the SAME buffer (no new snapshot), bytes intact.
     try std.testing.expect(recv_bv.shared == shared_ptr);
@@ -548,7 +548,7 @@ test "lever B arena: a receive parks its GC, the next send reuses it, symbol-bea
     try std.testing.expect(sc.cached_gc.load(.acquire) == null);
     const g1 = sc.queue_head.?.gc.?; // the envelope's freshly-allocated arena GC
 
-    const r1 = try shared_channel.receive(sc, &dest_gc, null);
+    const r1 = try shared_channel.receive(sc, &dest_gc, null, false);
     try expectSymbolNamed(types.car(r1.value), "foo");
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.cdr(r1.value)));
     // receive reset g1 and parked it in the cache for reuse.
@@ -563,7 +563,7 @@ test "lever B arena: a receive parks its GC, the next send reuses it, symbol-bea
     try std.testing.expect(sc.queue_head.?.gc.? == g1); // REUSE: same arena GC
     try std.testing.expect(sc.cached_gc.load(.acquire) == null); // taken by the send
 
-    const r2 = try shared_channel.receive(sc, &dest_gc, null);
+    const r2 = try shared_channel.receive(sc, &dest_gc, null, false);
     try expectSymbolNamed(types.car(r2.value), "bar");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.cdr(r2.value)));
 
@@ -571,7 +571,7 @@ test "lever B arena: a receive parks its GC, the next send reuses it, symbol-bea
     // gone, so this interns a fresh live symbol rather than aliasing the first.
     const msg3 = try src_gc.allocPair(try src_gc.allocSymbol("foo"), types.makeFixnum(3));
     _ = try shared_channel.send(sc, msg3, null);
-    const r3 = try shared_channel.receive(sc, &dest_gc, null);
+    const r3 = try shared_channel.receive(sc, &dest_gc, null, false);
     try expectSymbolNamed(types.car(r3.value), "foo");
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.cdr(r3.value)));
 
@@ -640,7 +640,7 @@ test "receive: pops a non-empty queue and deep-copies into the destination gc" {
     src_gc.deinit();
 
     var dest_gc = memory.GC.init(std.testing.allocator);
-    const outcome = try shared_channel.receive(sc, &dest_gc, null);
+    const outcome = try shared_channel.receive(sc, &dest_gc, null, false);
     const value = switch (outcome) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
@@ -666,7 +666,7 @@ test "receive: copy-out failure re-queues the envelope at the head (receive fail
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
     dest_gc.allocator = failing.allocator();
 
-    try std.testing.expectError(error.OutOfMemory, shared_channel.receive(sc, &dest_gc, null));
+    try std.testing.expectError(error.OutOfMemory, shared_channel.receive(sc, &dest_gc, null, false));
     try std.testing.expectEqual(@as(u32, 1), sc.queue_len); // FIFO preserved: still queued
 
     dest_gc.allocator = std.testing.allocator; // restore before deinit (matches how it was built)
@@ -674,7 +674,7 @@ test "receive: copy-out failure re-queues the envelope at the head (receive fail
 
     // The message is still deliverable, in order, on a subsequent receive.
     var dest_gc2 = memory.GC.init(std.testing.allocator);
-    const outcome = try shared_channel.receive(sc, &dest_gc2, null);
+    const outcome = try shared_channel.receive(sc, &dest_gc2, null, false);
     const value = switch (outcome) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
@@ -693,7 +693,7 @@ test "receive: empty and closed with reserved==0 returns eof" {
     var dest_gc = memory.GC.init(std.testing.allocator);
     defer dest_gc.deinit();
 
-    const outcome = try shared_channel.receive(sc, &dest_gc, null);
+    const outcome = try shared_channel.receive(sc, &dest_gc, null, false);
     try std.testing.expectEqual(shared_channel.RecvOutcome.eof, outcome);
 
     sc.release();
@@ -708,7 +708,7 @@ test "receive: empty and open registers a recv waiter and would park" {
     defer reactor.deinit();
     const notifier = reactor.notifyHandle();
 
-    const outcome = try shared_channel.receive(sc, &dest_gc, notifier);
+    const outcome = try shared_channel.receive(sc, &dest_gc, notifier, false);
     try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome);
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
     try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
@@ -729,13 +729,13 @@ test "receive: copy-out failure re-queues at the head under a bounded channel to
     var dest_gc = memory.GC.init(std.testing.allocator);
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
     dest_gc.allocator = failing.allocator();
-    try std.testing.expectError(error.OutOfMemory, shared_channel.receive(sc, &dest_gc, null));
+    try std.testing.expectError(error.OutOfMemory, shared_channel.receive(sc, &dest_gc, null, false));
     dest_gc.allocator = std.testing.allocator;
     dest_gc.deinit();
     try std.testing.expectEqual(@as(u32, 1), sc.queue_len); // FIFO preserved: still at capacity, not over
 
     var dest_gc2 = memory.GC.init(std.testing.allocator);
-    const value = switch (try shared_channel.receive(sc, &dest_gc2, null)) {
+    const value = switch (try shared_channel.receive(sc, &dest_gc2, null, false)) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
     };
@@ -781,14 +781,14 @@ test "required regression: bounded channel tolerates the documented transient ca
 
     // The overshoot drains with ordinary receives, FIFO order intact.
     var dest_gc = memory.GC.init(std.testing.allocator);
-    const first = switch (try shared_channel.receive(sc, &dest_gc, null)) {
+    const first = switch (try shared_channel.receive(sc, &dest_gc, null, false)) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
     };
     try std.testing.expectEqual(@as(i64, 11), types.toFixnum(types.car(first)));
     try std.testing.expectEqual(@as(u32, 1), sc.queue_len); // exactly at capacity now
 
-    const second = switch (try shared_channel.receive(sc, &dest_gc, null)) {
+    const second = switch (try shared_channel.receive(sc, &dest_gc, null, false)) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
     };
@@ -810,7 +810,7 @@ test "close: idempotent and wakes both waiter lists" {
 
     var dest_gc = memory.GC.init(std.testing.allocator);
     defer dest_gc.deinit();
-    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, try shared_channel.receive(sc, &dest_gc, notifier));
+    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, try shared_channel.receive(sc, &dest_gc, notifier, false));
     try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(1), notifier));
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
     try std.testing.expectEqual(@as(usize, 1), sc.send_waiters.items.len);
@@ -905,14 +905,14 @@ test "required regression: reserve, concurrent close, and the admitted push stil
     // eof: reserved is now 0, but the message is sitting in the queue and
     // is checked first.
     var dest_gc = memory.GC.init(std.testing.allocator);
-    const value = switch (try shared_channel.receive(sc, &dest_gc, null)) {
+    const value = switch (try shared_channel.receive(sc, &dest_gc, null, false)) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
     };
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(types.car(value)));
 
     // Only now, with the queue drained and reserved == 0, does eof appear.
-    try std.testing.expectEqual(shared_channel.RecvOutcome.eof, try shared_channel.receive(sc, &dest_gc, null));
+    try std.testing.expectEqual(shared_channel.RecvOutcome.eof, try shared_channel.receive(sc, &dest_gc, null, false));
 
     dest_gc.deinit();
     sc.release();
@@ -942,7 +942,7 @@ test "required regression: workers looping until eof all see the admitted messag
     var eof_count: u32 = 0;
     var i: u32 = 0;
     while (i < 4) : (i += 1) {
-        switch (try shared_channel.receive(sc, &dest_gc, null)) {
+        switch (try shared_channel.receive(sc, &dest_gc, null, false)) {
             .value => |v| {
                 try std.testing.expectEqual(@as(i64, 7), types.toFixnum(types.car(v)));
                 value_count += 1;
@@ -977,7 +977,7 @@ test "required regression: copy failure of the last reserved send on a closed ch
     // reserved==0 guard, exercised the ordinary way here).
     var dest_gc = memory.GC.init(std.testing.allocator);
     defer dest_gc.deinit();
-    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, try shared_channel.receive(sc, &dest_gc, notifier));
+    try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, try shared_channel.receive(sc, &dest_gc, notifier, false));
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
 
     // The in-flight send's own copy now fails. send()'s real failure path
@@ -996,7 +996,7 @@ test "required regression: copy failure of the last reserved send on a closed ch
 
     // Retrying now, as the woken receiver would, observes reserved == 0
     // and returns eof -- not a hang.
-    try std.testing.expectEqual(shared_channel.RecvOutcome.eof, try shared_channel.receive(sc, &dest_gc, null));
+    try std.testing.expectEqual(shared_channel.RecvOutcome.eof, try shared_channel.receive(sc, &dest_gc, null, false));
 
     sc.release();
     // Explicit, not deferred -- must run before the leak-count checks
@@ -1236,7 +1236,7 @@ test "KEP-0002 Phase 2: an exception raised in the child carrying a channel prom
         // different code path than the "channel created and returned"
         // test above (whose channel is empty until inside the envelope).
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(inner_ch.shared.?));
-        const recv_outcome = try shared_channel.receive(sc, &ctx.gc, null);
+        const recv_outcome = try shared_channel.receive(sc, &ctx.gc, null, false);
         const drained = switch (recv_outcome) {
             .value => |v| v,
             else => return error.TestUnexpectedResult,
@@ -1387,7 +1387,7 @@ test "required regression: a rung receiver that loses the pop race re-parks and 
     var dest_gc_a = memory.GC.init(std.testing.allocator);
 
     // Receiver A finds the queue empty and registers.
-    const outcome1 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    const outcome1 = try shared_channel.receive(sc, &dest_gc_a, notifier, false);
     try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome1);
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
 
@@ -1401,7 +1401,7 @@ test "required regression: a rung receiver that loses the pop race re-parks and 
     // first. This is exactly what "loses the pop race" means: A was rung,
     // but by the time it gets to retry, nothing is left.
     var dest_gc_fast = memory.GC.init(std.testing.allocator);
-    const fast_outcome = try shared_channel.receive(sc, &dest_gc_fast, null);
+    const fast_outcome = try shared_channel.receive(sc, &dest_gc_fast, null, false);
     const fast_value = switch (fast_outcome) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
@@ -1411,13 +1411,13 @@ test "required regression: a rung receiver that loses the pop race re-parks and 
     // A retries -- exactly what channelReceiveShared's loop does after
     // runSchedulerStep returns: the queue is empty again, so it must
     // re-register, not treat "I was woken" as "a value is waiting for me".
-    const outcome2 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    const outcome2 = try shared_channel.receive(sc, &dest_gc_a, notifier, false);
     try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome2);
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
 
     // A subsequent send correctly wakes A again -- no lost wakeup.
     _ = try shared_channel.send(sc, types.makeFixnum(9), null);
-    const outcome3 = try shared_channel.receive(sc, &dest_gc_a, notifier);
+    const outcome3 = try shared_channel.receive(sc, &dest_gc_a, notifier, false);
     const final_value = switch (outcome3) {
         .value => |v| v,
         else => return error.TestUnexpectedResult,
@@ -1481,7 +1481,7 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
             defer local_gc.deinit();
 
             while (count.load(.monotonic) < target_total) {
-                const outcome = shared_channel.receive(s, &local_gc, local_notifier) catch unreachable;
+                const outcome = shared_channel.receive(s, &local_gc, local_notifier, false) catch unreachable;
                 switch (outcome) {
                     .value => |v| {
                         const val = types.toFixnum(v);
@@ -1568,115 +1568,4 @@ test "KEP-0002 Phase 3 (#1468): main thread receives values sent concurrently by
     }
     try std.testing.expectEqual(baseline, shared_object.liveCount());
     try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
-}
-
-// Rendezvous on the shared representation (KEP-0002 §6 as amended;
-// #1600/#1601/#1603): capacity 0 admits a send exactly when a receiver has
-// committed demand.
-
-test "shared rendezvous: raw protocol admits only against committed demand" {
-    const baseline = shared_object.liveCount();
-    const sc = try shared_channel.SharedChannel.create();
-    sc.capacity = 0;
-
-    // no demand: would_park, nothing enqueued
-    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(1), null));
-
-    // one committed receiver: exactly one send admitted
-    shared_channel.commitRvDemand(sc);
-    try std.testing.expectEqual(shared_channel.SendOutcome.sent, try shared_channel.send(sc, types.makeFixnum(2), null));
-    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(3), null));
-
-    // the committed receiver collects the handoff and withdraws
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    const got = try shared_channel.receive(sc, &gc, null);
-    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(got.value));
-    shared_channel.withdrawRvDemand(sc);
-
-    // demand gone again: back to would_park
-    try std.testing.expectEqual(shared_channel.SendOutcome.would_park, try shared_channel.send(sc, types.makeFixnum(4), null));
-
-    sc.release();
-    try std.testing.expectEqual(baseline, shared_object.liveCount());
-}
-
-test "shared rendezvous: promotion seeds rv_demand from the local counter" {
-    // A receiver parked on the local representation before promotion holds
-    // a demand token counted in ch.rv_demand; promoteChannel must carry it
-    // so a remote sender's admission sees the migrated receiver (§2 step 4
-    // + §6 as amended).
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
-    _ = try ctx.vm.eval("(define ch (make-channel 0))");
-    const ch_val = try ctx.vm.eval("ch");
-    const ch = types.toObject(ch_val).as(types.Channel);
-
-    // Park a fiber receiver locally: it commits a demand token.
-    _ = try ctx.vm.eval("(define r (spawn (lambda () (channel-receive ch))))");
-    _ = try ctx.vm.eval("(yield)");
-    try std.testing.expectEqual(@as(u32, 1), ch.rv_demand);
-
-    const sc = try shared_channel.promoteChannel(&ctx.gc, ch);
-    try std.testing.expectEqual(@as(u32, 1), sc.rv_demand);
-
-    // A raw remote-style send is admitted against the migrated demand and
-    // the parked receiver collects it through the normal primitive path.
-    try std.testing.expectEqual(shared_channel.SendOutcome.sent, try shared_channel.send(sc, types.makeFixnum(9), null));
-    const joined = try ctx.vm.eval("(fiber-join r)");
-    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(joined));
-    try std.testing.expectEqual(@as(u32, 0), sc.rv_demand);
-}
-
-test "shared rendezvous: timed-out receive withdraws demand on the promoted channel" {
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
-    _ = try ctx.vm.eval("(define ch (make-channel 0))");
-    const ch_val = try ctx.vm.eval("ch");
-    const ch = types.toObject(ch_val).as(types.Channel);
-    const sc = try shared_channel.promoteChannel(&ctx.gc, ch);
-
-    const result = try ctx.vm.eval("(channel-receive ch 0.02 'rto)");
-    const printer = @import("printer.zig");
-    const s = try printer.valueToString(std.testing.allocator, result, .write);
-    defer std.testing.allocator.free(s);
-    try std.testing.expectEqualStrings("rto", s);
-    try std.testing.expectEqual(@as(u32, 0), sc.rv_demand);
-
-    // and the send side still refuses admission afterwards
-    const sres = try ctx.vm.eval("(channel-send ch 'v 0.02 'sto)");
-    const s2 = try printer.valueToString(std.testing.allocator, sres, .write);
-    defer std.testing.allocator.free(s2);
-    try std.testing.expectEqualStrings("sto", s2);
-    try std.testing.expectEqual(@as(u32, 0), sc.queue_len);
-}
-
-test "shared rendezvous: cross-thread handoff both directions" {
-    // The #1600 scenario on real OS threads, channel captured by the thunk
-    // (the KEP-0002 §2 legal sharing path — a top-level global would fail
-    // the foreign-owner check instead of promoting).
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
-    const got = try ctx.vm.eval(
-        \\(let* ((ch (make-channel 0))
-        \\       (t (thread-start! (make-thread (lambda () (channel-send ch 41))))))
-        \\  (let ((v (+ 1 (channel-receive ch))))
-        \\    (thread-join! t) ; join releases the child VM/GC (child_resources)
-        \\    v))
-    );
-    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(got));
-
-    const got2 = try ctx.vm.eval(
-        \\(let* ((ch (make-channel 0))
-        \\       (t (thread-start! (make-thread (lambda () (channel-receive ch))))))
-        \\  (channel-send ch 7)
-        \\  (thread-join! t))
-    );
-    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(got2));
 }

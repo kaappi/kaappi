@@ -346,13 +346,24 @@ test "rendezvous channel: parked timed senders pair under a nested main receive"
     defer vm.deinit();
 
     _ = try vm.eval("(define ch (make-channel 0))");
-    _ = try vm.eval("(define s1 (spawn (lambda () (channel-send ch 'a 0.5 'ta))))");
-    _ = try vm.eval("(define s2 (spawn (lambda () (channel-send ch 'b 0.5 'tb))))");
+    _ = try vm.eval("(define s1 (spawn (lambda () (if (eq? (channel-send ch 'a 0.4 'ta) 'ta) 'ta 'sent-a))))");
+    _ = try vm.eval("(define s2 (spawn (lambda () (if (eq? (channel-send ch 'b 0.4 'tb) 'tb) 'tb 'sent-b))))");
     _ = try vm.eval("(yield)");
-    const got = try vm.eval("(channel-receive ch)");
+    // One-demand/one-send admission (#1604 review): joining both senders
+    // pins EXACTLY one delivery and one timeout, and the final probe pins
+    // that no second value was admitted and stranded — the two ways
+    // findings 5/6 would have manifested here.
+    const summary = try vm.eval(
+        \\(let* ((got (channel-receive ch))
+        \\       (r1 (fiber-join s1))
+        \\       (r2 (fiber-join s2))
+        \\       (rest (channel-receive ch 0.05 'empty)))
+        \\  (list got r1 r2 rest))
+    );
     const printer = @import("printer.zig");
-    const s = try printer.valueToString(std.testing.allocator, got, .write);
+    const s = try printer.valueToString(std.testing.allocator, summary, .write);
     defer std.testing.allocator.free(s);
-    const one_of = std.mem.eql(u8, s, "a") or std.mem.eql(u8, s, "b");
-    try std.testing.expect(one_of);
+    const ok = std.mem.eql(u8, s, "(a sent-a tb empty)") or
+        std.mem.eql(u8, s, "(b ta sent-b empty)");
+    try std.testing.expect(ok);
 }

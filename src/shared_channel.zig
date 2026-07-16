@@ -605,15 +605,32 @@ pub fn withdrawRvDemand(sc: *SharedChannel) void {
     unlockChannel(sc);
 }
 
-/// Lock-protected read of the in-flight reservation count, for the §6
-/// reservation-drain rule: a timed-out rendezvous receiver that observes
-/// reserved > 0 with an empty queue keeps waiting (the push — or the
-/// abort's ring, see send's failure path — redecides it) instead of
-/// stranding a send already past its point of no return.
-pub fn reservedCount(sc: *SharedChannel) u32 {
+pub const TimeoutWithdrawOutcome = enum {
+    /// The demand token (when held) was withdrawn — the timeout stands.
+    withdrawn,
+    /// A value is queued: delivery wins, the caller must receive it.
+    value_ready,
+    /// An admitted send is mid-copy (§6 reservation-drain): the caller
+    /// keeps waiting — the push or the abort rings it — and re-decides.
+    reservation_pending,
+};
+
+/// §6's timeout withdraw as ONE mutex section (model finding 6,
+/// kaappi#1604 review): the queue check (delivery-wins), the reservation
+/// check (drain), and the demand decrement must not be separate lock
+/// acquisitions — a sender could otherwise reserve against the still-held
+/// token after a separate `reserved == 0` observation and push into demand
+/// that no longer exists, reporting success into nowhere. With this
+/// operation the sender's §4 step-3/7 admission and the receiver's
+/// withdrawal serialize on the same lock: after `.withdrawn`, no send is
+/// ever admitted against the departed receiver.
+pub fn tryTimeoutWithdraw(sc: *SharedChannel, holds_token: bool) TimeoutWithdrawOutcome {
     lockChannel(sc);
     defer unlockChannel(sc);
-    return sc.reserved;
+    if (sc.queue_len > 0) return .value_ready;
+    if (sc.reserved > 0) return .reservation_pending;
+    if (holds_token) sc.rv_demand -= 1;
+    return .withdrawn;
 }
 
 pub const SendOutcome = union(enum) {
@@ -706,9 +723,21 @@ pub const RecvOutcome = union(enum) {
 
 /// KEP-0002 §4 receive, on the shared representation, verbatim. `notifier`
 /// follows send()'s same null-is-safe convention on the park branch.
-pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifier) !RecvOutcome {
+///
+/// `holds_token` (§4 receive step 3 as amended — model finding 5,
+/// kaappi#1604 review): true when the calling fiber holds this channel's
+/// rendezvous demand token. A pop then withdraws that demand in the SAME
+/// mutex section as the pop — the receiver is satisfied the moment it owns
+/// an envelope, and the freed-slot ring below must not be able to wake a
+/// sender into demand whose owner already has a value. The caller clears
+/// its fiber token field (never decrements again) on both the `.value`
+/// outcome AND the copy-failure error: the pop consumed the token either
+/// way (the raise is a terminal exit; the re-queued envelope falls under
+/// §6's abnormal-exit rule). Always false for non-rendezvous callers.
+pub fn receive(sc: *SharedChannel, dest_gc: *memory.GC, notifier: ?*ThreadNotifier, holds_token: bool) !RecvOutcome {
     lockChannel(sc);
     if (sc.popFront()) |env| {
+        if (holds_token) sc.rv_demand -= 1;
         var snap: std.ArrayList(*ThreadNotifier) = .empty;
         defer snap.deinit(std.heap.c_allocator);
         sc.snapshotAndClearSendWaiters(&snap); // a slot opened

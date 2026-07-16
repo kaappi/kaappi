@@ -99,17 +99,24 @@
     (fiber-join f)))
 
 ;; --- two parked timed senders, one receiver: exactly one handoff ---
-;; (regression for the frozen-ancestor interleaving found in #1602: this
-;; raised a spurious deadlock when timed senders parked in-call)
-(test-assert "one of two parked timed senders pairs; the other times out"
+;; (regression for the frozen-ancestor interleaving found in #1602 — a
+;; spurious deadlock when timed senders parked in-call — strengthened per
+;; the #1604 review to pin one-demand/one-send admission: exactly one
+;; sender delivers, the other times out, and no second value strands)
+(test-assert "exactly one of two parked timed senders pairs; nothing strands"
   (let* ((ch (make-channel 0))
-         (s1 (spawn (lambda () (channel-send ch 'a 0.3 'ta))))
-         (s2 (spawn (lambda () (channel-send ch 'b 0.3 'tb)))))
+         (s1 (spawn (lambda () (if (eq? (channel-send ch 'a 0.3 'ta) 'ta) 'ta 'sent-a))))
+         (s2 (spawn (lambda () (if (eq? (channel-send ch 'b 0.3 'tb) 'tb) 'tb 'sent-b)))))
     (yield)
-    (let ((got (channel-receive ch)))
-      (fiber-join s1)
-      (fiber-join s2)
-      (memq got '(a b)))))
+    (let* ((got (channel-receive ch))
+           (r1 (fiber-join s1))
+           (r2 (fiber-join s2))
+           (rest (channel-receive ch 0.05 'empty)))
+      (and (eq? rest 'empty)
+           (case got
+             ((a) (and (eq? r1 'sent-a) (eq? r2 'tb)))
+             ((b) (and (eq? r1 'ta) (eq? r2 'sent-b)))
+             (else #f))))))
 
 ;; --- two parked receivers, two sends: both delivered ---
 (test-assert "two parked receivers each collect one of two sends"
