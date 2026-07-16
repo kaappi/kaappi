@@ -91,9 +91,13 @@ Scheme tests that exercise POSIX-only functionality gate themselves:
 
 ## Testing on a Windows machine
 
-CI has a compile-only `windows-cross` job (ci.yml) that keeps the target
-building, but GitHub has no ARM64 Windows runners, so nothing executes
-there; runtime behavior is verified against a real Windows 11 ARM64
+CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
+binaries and the unit-test exe from Linux, guarding the path release.yml
+ships with, and `windows-arm-test` executes the unit suite, the R7RS
+suite, and the VM-verified `.scm` suites on GitHub's hosted
+`windows-11-arm` runners on every PR. What CI can't run yet — the
+shell-based suites (#1612), the FFI suite (#1611), and interactive
+surfaces like the REPL — is verified against a real Windows 11 ARM64
 machine (e.g. a UTM VM with ssh). The unit-test binary compiles with the
 same target flag and runs on the box:
 
@@ -111,7 +115,8 @@ Two environment notes for the suite:
 Verified on Windows 11 ARM64 (build 26100): full unit suite (1037 pass,
 14 skipped — the skips are POSIX-permission/FIFO/uid tests), the complete
 R7RS suite, and every `tests/scheme/{smoke,compliance,continuations,
-hygiene,srfi,audit}` file. The fd-readiness unit suites
+hygiene,srfi,audit}` file — the same set the `windows-arm-test` CI job
+now runs on every PR. The fd-readiness unit suites
 (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`) are
 excluded on Windows by `vm_tests.zig` — they test POSIX pipe readiness
 that cannot exist under the no-non-blocking design.
@@ -127,8 +132,9 @@ before any output; a stripped thottam.exe and small stripped test
 programs — including one spawning a 64 MB-stack thread — run fine, so
 it's specific to the large kaappi image; toolchain investigation
 pending). The post-release acceptance workflow checksums the Windows
-artifacts but cannot execute them (no GitHub ARM64 Windows runners) —
-smoke-test a release manually per the github-release skill's Step 10.
+artifacts but does not yet execute them (wiring it to the hosted
+`windows-11-arm` runners is open) — smoke-test a release manually per
+the github-release skill's Step 10.
 
 ## Known gaps / follow-ups
 
@@ -139,6 +145,12 @@ smoke-test a release manually per the github-release skill's Step 10.
   files. Splitting the portable timer/notify tests out so they run on
   Windows is tracked with the readiness-backend work; runtime coverage
   today comes via the SRFI-18/fiber suites and the VM verification.
+* The FFI Scheme suite (`tests/scheme/ffi/`) doesn't run on Windows:
+  POSIX library names (`"libm"`), unverified `(ffi-open #f)` semantics,
+  and a `.dylib`/`.so`-only fixture (#1611).
+* The shell-based suites — errors, compile, test-runner, pipeline,
+  doctor, fmt, cache, timings, the smoke `.sh` scripts, sandbox, and
+  robustness — don't run on Windows (#1612).
 * thottam package installation (replace the POSIX userland calls with
   shim-based recursive copy/remove/walk; git is already spawned via
   CreateProcessW and works when Git for Windows is on PATH).

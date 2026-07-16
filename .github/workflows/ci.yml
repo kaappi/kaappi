@@ -138,10 +138,10 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
-  # Cross-compile the Windows aarch64 binaries and the unit-test binary.
-  # Compile-only: no Windows ARM64 runner exists on GitHub Actions, so
-  # execution is verified on a real Windows 11 ARM64 machine (see
-  # docs/dev/windows.md). This job keeps the target from bit-rotting.
+  # Cross-compile the Windows aarch64 binaries and the unit-test binary
+  # from Linux. Compile-only by design: this guards the cross-compilation
+  # path release.yml ships with, independent of the Windows runner image.
+  # Execution is covered by windows-arm-test below.
   windows-cross:
     needs: format
     runs-on: ubuntu-latest
@@ -168,6 +168,73 @@ jobs:
         run: |
           zig build test -Dtarget=aarch64-windows
           ls .zig-cache/o/*/unit-tests.exe
+
+  # Execute the suite on real Windows ARM64 via GitHub's hosted
+  # windows-11-arm runners (free for public repos). Runs the unit suite,
+  # the R7RS suite, and the .scm suites verified on the port's reference
+  # VM (docs/dev/windows.md). The shell-based suites (#1612) and the FFI
+  # suite (#1611) are not runnable on Windows yet.
+  windows-arm-test:
+    needs: format
+    runs-on: windows-11-arm
+    timeout-minutes: 40
+    steps:
+      # The Windows runner images set core.autocrlf=true; the Scheme
+      # suites compare exact output, so check out files as committed.
+      - name: Disable autocrlf
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: windows-arm
+
+      - name: Create tmp directories
+        # Tests write scratch files under /tmp/..., which kaappi.exe
+        # resolves to \tmp on the current drive (docs/dev/windows.md).
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\tmp | Out-Null
+          $drive = (Get-Location).Path.Substring(0, 2)
+          New-Item -ItemType Directory -Force -Path "$drive\tmp" | Out-Null
+
+      - name: Build
+        # Explicit target = the gnu-ABI binaries windows-cross and
+        # release.yml build; native detection on the runner could pick
+        # the msvc ABI instead.
+        run: zig build -Dtarget=aarch64-windows
+
+      - name: Unit tests
+        # Same command as windows-cross, but the host can execute the
+        # binary here, so the tests actually run.
+        run: zig build test -Dtarget=aarch64-windows
+
+      - name: R7RS test suite
+        shell: bash
+        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+      - name: Scheme suites (VM-verified subset)
+        shell: bash
+        run: |
+          fail=0
+          for dir in smoke compliance continuations hygiene srfi audit; do
+            for f in tests/scheme/$dir/*.scm; do
+              if zig-out/bin/kaappi "$f" > out.log 2>&1; then
+                echo "  PASS  $f"
+              else
+                echo "  FAIL  $f"
+                cat out.log
+                fail=1
+              fi
+            done
+          done
+          rm -f out.log
+          exit $fail
 
   wasm:
     needs: format
