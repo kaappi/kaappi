@@ -285,6 +285,26 @@ and is polled for completion. Self-destruct timer arms immediately before the
 stress suite launch (after provisioning and a plain sanity check). Cost:
 ~$0.084/hr, full 3-hour window costs ~$0.25.
 
+### `/do-gate-benchmark`
+
+Run the KEP-0002 Phase 7 gate-campaign statistical benchmark
+(`benchmarks/gate/run-gate.py` over `gate-harness.scm`) on a real x86-64 Linux
+reference machine — the dataset a KEP acceptance gate (e.g. KEP-0003,
+kaappi#1474) classifies mechanically via `benchmarks/gate/classify.py`. A
+different workload class from `/do-stress-test`/`/do-linux-test` (a multi-hour
+Kalibera-Jones statistics driver, not a test suite), needing ≥8 physical cores.
+Uses `s-8vcpu-16gb-intel` (this account's dedicated CPU-Optimized `c-`/`c2-`/
+`c5-` line is tier-restricted above 4 vCPUs) — verifies actual core topology
+with `lscpu` rather than trusting the vCPU count. Requires a direct
+single-iteration timing probe of the heaviest workload/size before committing
+to the full run: the same benchmark can run 5–6× slower per-thread on a cloud
+x86 vCPU than on the Apple Silicon reference for some interpreted kernels,
+so a naive time estimate can be badly wrong. Self-destruct timer budgeted
+1.5–2× the post-probe estimate. Grew out of collecting kaappi#1474's Linux
+dataset (PR #1580); see the skill file for the full lesson set (droplet
+tier-restriction gotcha, three bash-guard string-match footguns, splitting a
+run around a per-machine workload cap).
+
 ## Ecosystem Plugin (`kaappi-dev`)
 
 The `infra/` repo hosts a Claude Code plugin called `kaappi-dev` that provides

@@ -571,6 +571,7 @@ detailed checklists for GC write barriers, rooting, and compiler form additions.
 | `/linux-test` | Build and test on Linux via podman (aarch64, x86_64, riscv64) |
 | `/do-linux-test` | Full test suite on real x86-64 Linux via DigitalOcean droplet |
 | `/do-stress-test` | Unit suite under `-Dgc-stress=true` on a DigitalOcean droplet (3-hour lifetime) |
+| `/do-gate-benchmark` | KEP gate-campaign statistical benchmark (`benchmarks/gate/`) on a Linux x86_64 reference machine via DigitalOcean droplet |
 
 ### Ecosystem plugin (`kaappi-dev`)
 
