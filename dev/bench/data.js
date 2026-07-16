@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784215822082,
+  "lastUpdate": 1784219630137,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a4ac8c3811fc868a5a489d5a7cd4259fce5b9134",
-          "message": "Document practical fuzzing strategy (#1387)",
-          "timestamp": "2026-07-10T07:39:56+05:30",
-          "tree_id": "324ea0d8b816e66254b0796b08fa2a8ca7d248dc",
-          "url": "https://github.com/kaappi/kaappi/commit/a4ac8c3811fc868a5a489d5a7cd4259fce5b9134"
-        },
-        "date": 1783650906572,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.125202,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.804315,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.050203,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.429547,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014634,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.375196,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.513607,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067858,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.569918,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981219,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.705819,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.165506,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.431347,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.852996,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044673,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044654,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4d1fe2ec510f1455a0bf69ede282a13ff11bac5",
+          "message": "referencesYoung: trace owned_mutexes in the fiber arm (#1605)\n\nInvestigation of a suspected generational-GC gap (flagged during #1602):\nthe fiber arm of referencesYoung omitted owned_mutexes while\nmarkFiberState traces it, so remembered-set pruning looked able to drop\nan old fiber whose only reference to a young mutex is its owned list —\na use-after-free at the next minor sweep, or at abandonFiberMutexes.\n\nVerified false alarm for correctness: every scheduler-resident fiber is\nmarked as an unconditional root each collection (markVMRoots ->\nFiberScheduler.markRoots), minor collections included, so\nmarkFiberState re-traces owned_mutexes every cycle regardless of the\nremembered set — for fibers the pruning path is belt-and-braces, not\nload-bearing. The same argument covers the write-barrier-less\nowned_mutexes.append in mutex-lock!.\n\nAdd the loop anyway, with a comment recording that argument: it\nrestores the markFiberState/referencesYoung pairing convention\n(waiting_on, rv_demand_on) and keeps pruning safe even if the\nroot-marking invariant ever changes.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-16T16:01:38Z",
+          "tree_id": "4a9a561e47e4f15979a6bf524672717fd94102b8",
+          "url": "https://github.com/kaappi/kaappi/commit/a4d1fe2ec510f1455a0bf69ede282a13ff11bac5"
+        },
+        "date": 1784219628595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.046126,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.305025,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.919325,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.430356,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006751,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052976,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511059,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067797,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.244251,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.98872,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.513769,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471766,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.736071,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.846947,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044671,
             "unit": "seconds"
           }
         ]
