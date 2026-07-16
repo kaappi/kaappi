@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784219630137,
+  "lastUpdate": 1784232881692,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "46fcc6998f0d54011854d9150c9f1cfb86cd5028",
-          "message": "Release v0.14.0",
-          "timestamp": "2026-07-10T07:50:38+05:30",
-          "tree_id": "32e75ce700980c4a5292f35482906bfee732b730",
-          "url": "https://github.com/kaappi/kaappi/commit/46fcc6998f0d54011854d9150c9f1cfb86cd5028"
-        },
-        "date": 1783651912466,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.424017,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.972357,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.998658,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.846673,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012952,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338358,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507908,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071151,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.658624,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.969261,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.779419,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.044148,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.567926,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715096,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043519,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044671,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "329d40665069e0a1c1f2571590261d79be275e34",
+          "message": "Allow ~/.ssh reads in the project permissions (#1614)\n\nThe Windows port's testing workflow drives a remote win11 VM over ssh\n(docs/dev/windows.md), but the harness deny rule Read(~/.ssh/**) also\nblocks Bash commands that touch those paths, so even checking which\nhost aliases exist was refused mid-debug. Move the rule from deny to\nallow and update the harness docs to match.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T01:11:06+05:30",
+          "tree_id": "0a2707189871ae0ea273eb6a7977f824dc0d49af",
+          "url": "https://github.com/kaappi/kaappi/commit/329d40665069e0a1c1f2571590261d79be275e34"
+        },
+        "date": 1784232880334,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.055352,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.235633,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.93566,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.456218,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006808,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053025,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512016,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068737,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.31681,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.98608,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514476,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.481411,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.747366,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.91726,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045715,
             "unit": "seconds"
           }
         ]
