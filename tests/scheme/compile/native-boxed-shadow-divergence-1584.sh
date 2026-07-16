@@ -15,9 +15,9 @@
 
 set -euo pipefail
 
-KAAPPI="${1:-zig-out/bin/kaappi}"
-KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+KAAPPI="${1:-$REPO_DIR/zig-out/bin/kaappi}"
+KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 
 if [[ ! -f "$REPO_DIR/zig-out/lib/libkaappi_rt.a" ]]; then
     (cd "$REPO_DIR" && zig build lib > /dev/null 2>&1)
@@ -26,9 +26,10 @@ fi
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-# GNU timeout when available (Linux/CI; guards case 5, which hangs on a buggy
-# build). On macOS without coreutils, run unbounded — the programs terminate
-# on a correct build.
+# Every binary run is bounded: case 5 hangs forever on a buggy build, and a
+# wedged test job is worse than a failed one. Prefer GNU timeout when
+# available (Linux/CI); otherwise (macOS without coreutils) a background
+# watchdog kills the process after the same deadline.
 RUN_TIMEOUT=""
 for c in timeout gtimeout; do
     if command -v "$c" >/dev/null 2>&1; then
@@ -36,6 +37,23 @@ for c in timeout gtimeout; do
         break
     fi
 done
+
+run_bounded() {
+    if [[ -n "$RUN_TIMEOUT" ]]; then
+        $RUN_TIMEOUT "$@"
+        return
+    fi
+    "$@" &
+    local pid=$!
+    # Redirect the watchdog's stdio away from the caller's command
+    # substitution, or its 10s sleep would hold the capture pipe open.
+    ( sleep 10; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+    local watchdog=$!
+    local status=0
+    wait "$pid" || status=$?
+    kill "$watchdog" 2>/dev/null || true
+    return "$status"
+}
 
 fail=0
 
@@ -54,7 +72,7 @@ check() {
     fi
 
     local out
-    if ! out=$($RUN_TIMEOUT "$DIR/$name" 2>/dev/null); then
+    if ! out=$(run_bounded "$DIR/$name" 2>/dev/null); then
         echo "FAIL: $name — binary exited nonzero or timed out" >&2
         fail=1
         return
@@ -134,7 +152,7 @@ check shadow-do-var \
         ((lambda (h) a) 0)))
 (write (fd 1))
 (newline)' \
-'(3 . 7)'
+'(3 . 7)' yes
 
 # 6. Internal define in a let body shadowing a boxed param. This shape
 #    currently falls back to the interpreter as a whole (tier not pinned);
@@ -160,7 +178,7 @@ check seed-2788-f1 \
       (+ (car rest) (and (begin -76 v) (min 75 a)))))
 (write (f1 -68 -7))
 (newline)' \
-'-61'
+'-61' yes
 
 # 8. A lambda inside the let captures the PLAIN let-local that shadows the
 #    boxed param. There is no capturable slot for a plain let-local, so this

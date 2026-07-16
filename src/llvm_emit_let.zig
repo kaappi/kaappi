@@ -214,7 +214,14 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         binding_root_count = count;
     } else {
         var blist = bindings;
+        var count: usize = 0;
         while (blist != types.NIL and types.isPair(blist)) {
+            // Same 32-binding ceiling as the parallel-let path: the capture
+            // analysis above collects at most 32 names, so a binding past that
+            // would be registered unboxed even when captured+mutated.
+            if (count >= 32) {
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
+            }
             const binding = types.car(blist);
             const var_sym = types.car(binding);
             const init_expr = types.car(types.cdr(binding));
@@ -246,6 +253,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
             }) catch return error.OutOfMemory;
             try self.emitRootPushAlloca(alloca);
             binding_root_count += 1;
+            count += 1;
             blist = types.cdr(blist);
         }
     }
