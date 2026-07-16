@@ -250,15 +250,21 @@ pub fn removeDir(allocator: std.mem.Allocator, path: []const u8) !void {
 }
 
 fn copyDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir: []const u8) !u32 {
+    // An unreadable/missing pkg_dir means "no native libraries", but a
+    // found library that fails to copy fails the install — recording a
+    // package whose FFI half is missing helps nobody.
     var names = tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false) catch return 0;
     defer tfs.freePathList(allocator, &names);
     var count: u32 = 0;
     for (names.items) |basename| {
-        const src = joinPath(allocator, pkg_dir, basename) catch continue;
+        const src = try joinPath(allocator, pkg_dir, basename);
         defer allocator.free(src);
-        const dst = joinPath(allocator, lib_dir, basename) catch continue;
+        const dst = try joinPath(allocator, lib_dir, basename);
         defer allocator.free(dst);
-        tfs.copyFile(allocator, src, dst) catch continue;
+        tfs.copyFile(allocator, src, dst) catch {
+            printErrColor(Color.red, "  Failed to install native library\n");
+            return error.CopyFailed;
+        };
         count += 1;
     }
     return count;
@@ -316,11 +322,13 @@ fn runBuildCommand(allocator: std.mem.Allocator, pkg: []const u8, build_cmd: []c
 
 /// Merge the contents of a package's lib/ into the shared lib dir — the
 /// `cp -R lib/. dst/` shape this replaced: existing files are overwritten
-/// (updates re-copy), unrelated files in dst survive. Non-fatal like the
-/// old ignored cp exit code, but say so when something goes wrong.
-fn installLibTree(allocator: std.mem.Allocator, lib_src: []const u8, lib_dir: []const u8) void {
+/// (updates re-copy), unrelated files in dst survive. Fatal on failure so
+/// a partial copy is never recorded as installed (the old pipeline
+/// ignored cp's exit code and could).
+fn installLibTree(allocator: std.mem.Allocator, lib_src: []const u8, lib_dir: []const u8) !void {
     tfs.copyTree(allocator, lib_src, lib_dir) catch {
-        printErrColor(Color.yellow, "  warning: failed to install some library files\n");
+        printErrColor(Color.red, "  Failed to install library files\n");
+        return error.CopyFailed;
     };
 }
 
@@ -497,7 +505,7 @@ fn doInstall(
     defer allocator.free(lib_src);
     if (dirExists(allocator, lib_src)) {
         writeStdout("  Installing libraries...\n");
-        installLibTree(allocator, lib_src, config.lib_dir);
+        try installLibTree(allocator, lib_src, config.lib_dir);
     }
 
     const dylib_count = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
@@ -646,7 +654,7 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         const lib_src = try joinPath(allocator, pkg_dir, "lib");
         defer allocator.free(lib_src);
         if (dirExists(allocator, lib_src)) {
-            installLibTree(allocator, lib_src, config.lib_dir);
+            try installLibTree(allocator, lib_src, config.lib_dir);
         }
 
         _ = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
@@ -860,7 +868,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var visited = std.StringHashMap(void).init(allocator);
         defer freeVisited(allocator, &visited);
         doInstall(allocator, config, spec, locked_mode, &visited) catch |err| {
-            if (err == error.GitFailed or err == error.BuildFailed) std.process.exit(1);
+            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "remove")) {
@@ -876,7 +884,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try doList(allocator, config);
     } else if (std.mem.eql(u8, cmd, "update")) {
         doUpdate(allocator, config, sub_arg) catch |err| {
-            if (err == error.NotInstalled or err == error.GitFailed) std.process.exit(1);
+            if (err == error.NotInstalled or err == error.GitFailed or err == error.CopyFailed) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "verify")) {

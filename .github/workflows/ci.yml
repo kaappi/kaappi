@@ -255,6 +255,7 @@ jobs:
           export KAAPPI_HOME="$(pwd -W)/thottam-home"
           bin/thottam.exe list
           bin/thottam.exe install kaappi-json
+          bin/thottam.exe update kaappi-json
           bin/thottam.exe list | grep kaappi-json
           bin/thottam.exe verify
           echo '(import (kaappi json)) (display (json-write-string (list 1 2 3))) (newline)' > use-json.scm

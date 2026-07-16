@@ -67,13 +67,19 @@ pub fn touchFile(allocator: std.mem.Allocator, path: []const u8) !void {
     platform.close(fd);
 }
 
-/// Byte-copy src over dst (created 0o644, truncated if present). Follows a
-/// src symlink — matching `cp`, which copies the target's content.
+/// Byte-copy src over dst (created 0o644, truncated if present). Opening
+/// src follows a symlink — `cp <link> dst` copies the target's content —
+/// but a dst that is itself a symlink is unlinked first: writing through
+/// it would land outside the tree the caller is installing into.
 pub fn copyFile(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
     const src_z = try allocator.dupeZ(u8, src);
     defer allocator.free(src_z);
     const dst_z = try allocator.dupeZ(u8, dst);
     defer allocator.free(dst_z);
+
+    if (platform.lstatPath(dst_z)) |dst_st| {
+        if (dst_st.is_symlink) _ = platform.unlink(dst_z);
+    }
 
     const in = platform.openRead(src_z) catch return error.CopyFailed;
     defer platform.close(in);
@@ -133,9 +139,10 @@ fn freeNames(allocator: std.mem.Allocator, names: *std.ArrayList([]u8)) void {
 /// `cp -R src/. dst/`: recursively merge the *contents* of src into dst,
 /// creating dst (and any missing parents) first. Existing files are
 /// overwritten, existing subdirectories merged into — `thottam update`
-/// relies on both. A symlink to a regular file is copied by content (the
-/// common `libfoo.so -> libfoo.so.1` shape); directory symlinks are
-/// skipped, never followed.
+/// relies on both. Symlinks in src are skipped, never followed: reading
+/// through a package-controlled link would copy content from outside the
+/// package tree (old `cp -R` duplicated links instead of following them,
+/// and ecosystem lib/ trees contain none).
 pub fn copyTree(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
     try makeDirRecursive(allocator, dst);
 
@@ -151,12 +158,8 @@ pub fn copyTree(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) 
         defer allocator.free(child_dst);
 
         const st = lstat(allocator, child_src) orelse continue;
-        if (st.is_symlink) {
-            const target_z = try allocator.dupeZ(u8, child_src);
-            defer allocator.free(target_z);
-            const target = platform.statPath(target_z) orelse continue;
-            if (target.is_file) try copyFile(allocator, child_src, child_dst);
-        } else if (st.is_dir) {
+        if (st.is_symlink) continue;
+        if (st.is_dir) {
             try copyTree(allocator, child_src, child_dst);
         } else if (st.is_file) {
             try copyFile(allocator, child_src, child_dst);
@@ -462,6 +465,48 @@ test "removeTree unlinks symlinks without following them (POSIX)" {
         defer allocator.free(tree_z);
         try std.testing.expect(!platform.pathExists(tree_z));
         try std.testing.expect(thottam.fileExists(allocator, precious));
+    } else return error.SkipZigTest;
+}
+
+test "copyTree skips symlinks instead of following them (POSIX)" {
+    if (comptime !platform.is_windows and builtin.os.tag != .wasi) {
+        const c = struct {
+            extern "c" fn symlink(target: [*:0]const u8, linkpath: [*:0]const u8) c_int;
+        };
+        const allocator = std.testing.allocator;
+        var buf: [512]u8 = undefined;
+        const base = try testBase(&buf, "cplink");
+        defer removeTree(allocator, base) catch {};
+
+        const outside = try std.mem.concat(allocator, u8, &.{ base, "/outside.txt" });
+        defer allocator.free(outside);
+        try makeDirRecursive(allocator, base);
+        try thottam.writeFile(allocator, outside, "secret");
+
+        const src = try std.mem.concat(allocator, u8, &.{ base, "/src" });
+        defer allocator.free(src);
+        try makeDirRecursive(allocator, src);
+        const real = try std.mem.concat(allocator, u8, &.{ src, "/real.sld" });
+        defer allocator.free(real);
+        try thottam.writeFile(allocator, real, "R");
+        const link = try std.mem.concat(allocator, u8, &.{ src, "/leak.sld" });
+        defer allocator.free(link);
+        const outside_z = try allocator.dupeZ(u8, outside);
+        defer allocator.free(outside_z);
+        const link_z = try allocator.dupeZ(u8, link);
+        defer allocator.free(link_z);
+        try std.testing.expect(c.symlink(outside_z, link_z) == 0);
+
+        const dst = try std.mem.concat(allocator, u8, &.{ base, "/dst" });
+        defer allocator.free(dst);
+        try copyTree(allocator, src, dst);
+
+        const real_dst = try std.mem.concat(allocator, u8, &.{ dst, "/real.sld" });
+        defer allocator.free(real_dst);
+        try std.testing.expect(thottam.fileExists(allocator, real_dst));
+        const leak_dst = try std.mem.concat(allocator, u8, &.{ dst, "/leak.sld" });
+        defer allocator.free(leak_dst);
+        try std.testing.expect(!thottam.fileExists(allocator, leak_dst));
     } else return error.SkipZigTest;
 }
 
