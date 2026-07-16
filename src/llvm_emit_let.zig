@@ -22,9 +22,10 @@ const llvm_emit = @import("llvm_emit.zig");
 const LLVMEmitter = llvm_emit.LLVMEmitter;
 const EmitError = llvm_emit.EmitError;
 
-// #1497 assignment-conversion helpers (capture/mutation analysis) and #1410
-// param-globals binding live with the lambda emitter.
+// #1410 param-globals binding lives with the lambda emitter; the #1497
+// capture/mutation analysis and eval-fallback detection live in freevars.
 const lambda = @import("llvm_emit_lambda.zig");
+const freevars = @import("llvm_emit_freevars.zig");
 
 const Value = types.Value;
 
@@ -110,7 +111,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
     // that need interpreter eval fallback (cond, do, letrec, etc.),
     // compile the entire let via the interpreter to preserve correct
     // lexical scoping.
-    if (lambda.sexprNeedsEvalFallback(args)) {
+    if (freevars.sexprNeedsEvalFallback(args)) {
         return emitLetFallback(self, args, sequential);
     }
     // #827/#1497: A body lambda that captures a let-bound variable cannot
@@ -134,8 +135,8 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
             }
         }
         for (var_names[0..name_count]) |v| {
-            if (!lambda.bodyHasCapturingLambda(self, body_list, (&v)[0..1])) continue;
-            if (!lambda.sexprBodySetsName(body_list, v)) {
+            if (!freevars.bodyHasCapturingLambda(self, body_list, (&v)[0..1])) continue;
+            if (!freevars.sexprBodySetsName(body_list, v)) {
                 return emitLetFallback(self, args, sequential);
             }
             box_names[box_count] = v;
