@@ -13,6 +13,12 @@ zig build test -Dtarget=aarch64-windows   # compiles unit-tests.exe (run it on W
 Builds use Zig's bundled mingw-w64, so no Windows SDK or MSVC install is
 needed on the build machine.
 
+Cross-compilation is currently the **only** way to build: the official
+Zig 0.16.0 aarch64-windows toolchain access-violates compiling anything
+natively on Windows ARM64 (`zig build` and `zig build-exe` alike, on any
+project — #1613), so kaappi cannot be built on the machine it runs on
+until the upstream fix lands.
+
 ## Architecture: src/platform.zig
 
 The runtime is written against integer file descriptors with POSIX
@@ -95,7 +101,10 @@ CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
 binaries and the unit-test exe from Linux, guarding the path release.yml
 ships with, and `windows-arm-test` executes the unit suite, the R7RS
 suite, and the VM-verified `.scm` suites on GitHub's hosted
-`windows-11-arm` runners on every PR. What CI can't run yet — the
+`windows-11-arm` runners on every PR. The execution job installs no
+toolchain — it downloads the binaries `windows-cross` built as an
+artifact, because native compilation on Windows ARM64 is broken in the
+Zig 0.16.0 toolchain itself (#1613). What CI can't run yet — the
 shell-based suites (#1612), the FFI suite (#1611), and interactive
 surfaces like the REPL — is verified against a real Windows 11 ARM64
 machine (e.g. a UTM VM with ssh). The unit-test binary compiles with the
@@ -145,6 +154,10 @@ the github-release skill's Step 10.
   files. Splitting the portable timer/notify tests out so they run on
   Windows is tracked with the readiness-backend work; runtime coverage
   today comes via the SRFI-18/fiber suites and the VM verification.
+* Native compilation on Windows ARM64 crashes in the Zig 0.16.0
+  toolchain (`zig build`/`zig build-exe` access-violate on any project,
+  #1613) — all builds must cross-compile, and `kaappi compile` on the
+  box (#1610) is blocked on the same upstream fix.
 * The FFI Scheme suite (`tests/scheme/ffi/`) doesn't run on Windows:
   POSIX library names (`"libm"`), unverified `(ffi-open #f)` semantics,
   and a `.dylib`/`.so`-only fixture (#1611).
