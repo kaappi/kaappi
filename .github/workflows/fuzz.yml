@@ -235,10 +235,10 @@ jobs:
       # and the oracle version; the triage protocol lives in the script
       # header (Kaappi bug / oracle bug / generator leak).
       #
-      # IMPORTANT: keep at v7.0.1 — later versions default to archive: true,
-      # which wraps the files in a zip that hides the seed-*.scm markers
-      # from the report job's `find`, silently misclassifying real findings
-      # as infrastructure failures (#1429).
+      # upload-artifact v7+ defaults `archive: true` (and archive: false
+      # only supports a single file), so the artifact arrives at the report
+      # job as one wrapper zip. The report job unwraps it before marker
+      # detection — see its "Unwrap archived artifacts" step (#1429, #1584).
       - name: Upload divergences
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -285,6 +285,28 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
+
+      # upload-artifact v7+ archives by default (`archive: true`; false only
+      # supports a single file), and download-artifact v8 hands the wrapper
+      # zip back as a file instead of extracting it. Left wrapped, the
+      # finding markers below never match and every real finding is
+      # misclassified as an infrastructure failure (#1429, #1584 — the
+      # seed-2788 divergence was filed as "infrastructure or build failure").
+      # Unwrap in place so marker detection sees loose files under either
+      # upload behavior. Extraction only ever writes files for the excerpt
+      # below — this job still executes nothing from the artifacts.
+      - name: Unwrap archived artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d artifacts ] || exit 0
+          find artifacts -type f -name '*.zip' -print0 | while IFS= read -r -d '' z; do
+            if unzip -o -q "$z" -d "$(dirname "$z")"; then
+              rm -f "$z"
+            else
+              echo "::warning::Could not unwrap $z; leaving it in place"
+            fi
+          done
 
       - name: File or update finding issues
         shell: bash

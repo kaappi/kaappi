@@ -62,6 +62,15 @@ pub const ReservedFast = struct {
     consumed: bool = false, // a top-level define of this name has been emitted
 };
 
+// One `locals` entry: a binding introduced by let/let*, a do-loop variable, or
+// an internal define in a let body. When `boxed`, the slot alloca holds a box
+// POINTER (assignment conversion, #1497) and reads/writes go through
+// kaappi_box_ref / kaappi_box_set; otherwise the slot holds the value itself.
+pub const LocalBinding = struct {
+    slot: []const u8,
+    boxed: bool = false,
+};
+
 pub const LLVMEmitter = struct {
     buf: std.ArrayList(u8),
     symbols: std.StringHashMap(u32),
@@ -101,13 +110,22 @@ pub const LLVMEmitter = struct {
     current_block: []const u8 = "entry",
     rest_param_alloca: ?[]const u8 = null,
     rest_param_name: ?[]const u8 = null,
-    locals: ?std.StringHashMap([]const u8) = null,
-    // Boxed variables in the current frame (assignment conversion, #1497):
-    // name -> the alloca that holds the box POINTER. A boxed variable is both
-    // captured by a nested lambda and mutated; reads go through kaappi_box_ref
-    // and writes through kaappi_box_set, and nested closures capture the box
-    // pointer, restoring the interpreter's by-location semantics. Checked
-    // before params/upvalues in name resolution.
+    // Lexical bindings introduced inside the frame body: let/let* bindings,
+    // do-loop variables, and internal defines in a let body. Scope constructs
+    // clone this map on entry and restore it on exit, so `put` on a name
+    // shadows any same-named outer binding — including a boxed one: box-ness
+    // is a per-binding attribute, never a name-level one (#1584).
+    locals: ?std.StringHashMap(LocalBinding) = null,
+    // Frame-level boxed bindings (assignment conversion, #1497): boxed fixed
+    // params and, inside a native closure, the mirrored boxed captures — name
+    // -> the alloca that holds the box POINTER. Reads go through
+    // kaappi_box_ref and writes through kaappi_box_set, and nested closures
+    // capture the box pointer, restoring the interpreter's by-location
+    // semantics. Boxed let-locals do NOT live here — they are `locals`
+    // entries with `.boxed = true`, so inner scopes shadow correctly (#1584).
+    // bindParamsAsGlobals also reads this map as the frame-level "does this
+    // frame have boxed params/upvalues" fact, which must stay visible even
+    // while a let-local shadows the name.
     boxes: ?std.StringHashMap([]const u8) = null,
     // Number of GC roots pushed at the current frame's entry that must be popped
     // before every `ret` the frame emits: the boxed-param box slots (#1497) and,
@@ -157,7 +175,7 @@ pub const LLVMEmitter = struct {
         current_block: []const u8,
         rest_param_alloca: ?[]const u8,
         rest_param_name: ?[]const u8,
-        locals: ?std.StringHashMap([]const u8),
+        locals: ?std.StringHashMap(LocalBinding),
         boxes: ?std.StringHashMap([]const u8),
         frame_entry_roots: usize,
         body_scope_roots: usize,
@@ -368,16 +386,16 @@ pub const LLVMEmitter = struct {
         return self.emitImm(@bitCast(value));
     }
 
-    // Mirrors emitGlobalRef's lexical resolution order (locals, rest param,
-    // params, upvalues). Also consulted by the closure-tier free-variable
-    // analysis in llvm_emit_lambda.zig: a shadowed name is a capture even
-    // when a known global of the same name exists.
+    // Mirrors emitGlobalRef's lexical resolution order (locals, boxes, rest
+    // param, params, upvalues). Also consulted by the closure-tier
+    // free-variable analysis in llvm_emit_lambda.zig: a shadowed name is a
+    // capture even when a known global of the same name exists.
     pub fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
-        if (self.boxes) |bx| {
-            if (bx.get(name) != null) return true;
-        }
         if (self.locals) |loc| {
             if (loc.get(name) != null) return true;
+        }
+        if (self.boxes) |bx| {
+            if (bx.get(name) != null) return true;
         }
         if (self.rest_param_name) |rp_name| {
             if (std.mem.eql(u8, name, rp_name)) return true;
@@ -402,27 +420,46 @@ pub const LLVMEmitter = struct {
         return ir.isKnownGlobal(name) or self.reserved_fast.contains(name);
     }
 
+    // Read through a box: `slot` holds the box pointer, the result temp holds
+    // the box's current value.
+    fn emitBoxRead(self: *LLVMEmitter, slot: []const u8) EmitError![]const u8 {
+        const boxptr = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, slot });
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_box_ref(i64 {s})\n", .{ tmp, boxptr });
+        return tmp;
+    }
+
+    // Write through a box: `slot` holds the box pointer; the box's contents
+    // are replaced so every closure over the same binding sees the new value.
+    fn emitBoxWrite(self: *LLVMEmitter, slot: []const u8, val: []const u8) EmitError!void {
+        const boxptr = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, slot });
+        try self.print("  call void @kaappi_box_set(i64 {s}, i64 {s})\n", .{ boxptr, val });
+    }
+
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
 
-        // A boxed variable's slot holds the box pointer; read through the box
-        // so a set! from any sibling closure over the same binding is visible.
-        if (self.boxes) |bx| {
-            if (bx.get(name)) |box_alloca| {
-                const boxptr = try self.freshTemp();
-                try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, box_alloca });
+        // Innermost lexical bindings first: a let-local/do-var shadows any
+        // same-named boxed param or boxed outer binding (#1584). A boxed
+        // local's slot holds the box pointer; read through the box so a set!
+        // from any closure over the same binding is visible (#1497).
+        if (self.locals) |loc| {
+            if (loc.get(name)) |b| {
+                if (b.boxed) return self.emitBoxRead(b.slot);
                 const tmp = try self.freshTemp();
-                try self.print("  {s} = call i64 @kaappi_box_ref(i64 {s})\n", .{ tmp, boxptr });
+                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, b.slot });
                 return tmp;
             }
         }
 
-        if (self.locals) |loc| {
-            if (loc.get(name)) |alloca_name| {
-                const tmp = try self.freshTemp();
-                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, alloca_name });
-                return tmp;
+        // Frame-level boxed bindings: assignment-converted params and, inside
+        // a native closure, mirrored boxed captures (#1497).
+        if (self.boxes) |bx| {
+            if (bx.get(name)) |box_alloca| {
+                return self.emitBoxRead(box_alloca);
             }
         }
 
@@ -882,22 +919,22 @@ pub const LLVMEmitter = struct {
 
     // Store `val` into the slot that `name` denotes in the current scope.
     // Resolution order mirrors emitGlobalRef's read path so writes and reads
-    // reach the same binding.
+    // reach the same binding — in particular a let-local shadowing a boxed
+    // name must receive the store, not the outer box (#1584).
     fn emitStoreToVariable(self: *LLVMEmitter, name: []const u8, val: []const u8) EmitError!void {
-        // A boxed variable is mutated through its heap cell so the new value is
-        // visible to every closure that captured the same box (#1497).
-        if (self.boxes) |bx| {
-            if (bx.get(name)) |box_alloca| {
-                const boxptr = try self.freshTemp();
-                try self.print("  {s} = load i64, ptr {s}\n", .{ boxptr, box_alloca });
-                try self.print("  call void @kaappi_box_set(i64 {s}, i64 {s})\n", .{ boxptr, val });
+        if (self.locals) |loc| {
+            if (loc.get(name)) |b| {
+                // A boxed binding is mutated through its heap cell so the new
+                // value is visible to every closure that captured the same
+                // box (#1497).
+                if (b.boxed) return self.emitBoxWrite(b.slot, val);
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, b.slot });
                 return;
             }
         }
-        if (self.locals) |loc| {
-            if (loc.get(name)) |alloca_name| {
-                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca_name });
-                return;
+        if (self.boxes) |bx| {
+            if (bx.get(name)) |box_alloca| {
+                return self.emitBoxWrite(box_alloca, val);
             }
         }
         if (self.rest_param_name) |rp_name| {
@@ -1054,7 +1091,7 @@ pub const LLVMEmitter = struct {
             try self.print("  {s} = alloca i64, align 8\n", .{alloca});
             // Register before emitting the value so a self/mutual reference in
             // the initializer resolves to this binding (letrec*-style).
-            self.locals.?.put(name, alloca) catch return error.OutOfMemory;
+            self.locals.?.put(name, .{ .slot = alloca }) catch return error.OutOfMemory;
             const val = try self.emitScopedValue(data.value);
             try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
             return self.emitVoid();
