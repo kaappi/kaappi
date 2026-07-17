@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784294894175,
+  "lastUpdate": 1784295034082,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b54431c7b660de8a8c3f9f8a7c11a3077a3d6f80",
-          "message": "Fuzzing roadmap Phase 3: Kaappi vs external reference Scheme differential harness (#1418)\n\n* Fix register leak when macro expansions reference globals\n\nexpandAndCompileMacroUse loads each non-procedure global free variable\nof a template into a fresh register and aliases it as a local (R7RS\n4.3.1 referential transparency, #935). Those registers were never\nfreed after the expansion compiled, breaking the balanced-register\ncontract call compilation relies on: argument registers are allocated\ncontiguously, so the leak shifted every argument after the expansion\none slot up while the call still read the original window. The call\nthen saw the alias value in later argument slots — with (define g1 41)\nand (define-syntax m0 (syntax-rules () ((_) g1))):\n\n    (+ (m0) 1)    => 82\n    (list (m0) 1) => (41 41)\n\nor a spurious \"type error in 'arithmetic'\" when the global held a\nchar or procedure.\n\nFound by the Kaappi-vs-Chibi differential oracle (#1396) on its first\nbatch: all 28 divergences in 1900 seeds trace to this one leak. Both\ninternal oracles (opt-vs-no-opt, VM-vs-native) are structurally blind\nto it because every internal evaluation path shares this compiler.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fuzzing roadmap Phase 3: Kaappi vs external reference Scheme harness\n\nImplements #1396 (Tier 3, last item): run generated programs through\nkaappi and a pinned Chibi Scheme and diff normalized observables — the\nonly oracle that catches conformance bugs where both of Kaappi's own\nevaluation paths agree but are wrong. Its first batch caught exactly\nsuch a bug (the macro-expansion register leak fixed in the previous\ncommit): 28/1900 seeds diverged, all one root cause, invisible to the\nopt-vs-no-opt and VM-vs-native oracles since every internal path\nshares the compiler.\n\nThe portable-subset generator mode (src/fuzz_gen_portable.zig, with\ndata-kind productions split into fuzz_gen_portable_data.zig per the\nfile size policy) emits only fully-specified, deterministic R7RS-small\nprograms — Csmith's \"fully-specified subset only\" lesson. One rule per\nunspecified zone, each probed against real Chibi during development:\npure expressions (effects only in statement slots whose order the\nreport fixes; Midtgaard et al.'s effect discipline simplified), total\nby construction (guard always has else, single structured raise site,\nsingle structured call/cc escape), exact integers only, ASCII only,\nexplicit four-library import (Chibi enforces boundaries — delay/force\nlive in (scheme lazy)), void-valued top-level forms with explicit\n(write ...) observables, bytevectors echoed byte-wise (Chibi writes\nthem with hex bytes).\n\ntests/fuzz/oracle-diff.sh mirrors native-diff.sh: stdout byte-for-byte\nwhen both exit 0, error class otherwise (never message text), signal\nexits always divergent, timeouts skipped, oracle version recorded with\nany divergence, triage protocol (Kaappi bug / oracle bug / generator\nleak) in the header. A nightly oracle-diff job runs 1000 programs with\na rotating, replayable seed base. With the leak fixed, a 2000-seed\nbatch runs clean against Chibi 0.12.0.\n\nCloses #1396.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T16:36:42Z",
-          "tree_id": "e7fed72659c8c6e56a1aaf799a0b3e385625e13a",
-          "url": "https://github.com/kaappi/kaappi/commit/b54431c7b660de8a8c3f9f8a7c11a3077a3d6f80"
-        },
-        "date": 1783703476506,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.087137,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.016095,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.024986,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407253,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014234,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.374698,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509771,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068387,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.571317,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.982624,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.669633,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.167482,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.464136,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.91424,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045464,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043075,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "b9bfd6acdb14c81d202732d36643a5a0f47ee56a",
+          "message": "Improve /github-release skill with five fixes from v0.16.0 release\n\n- Fix Step 5 grep pattern to match actual .name spec structs\n- Add workspace ../CLAUDE.md version bump to Step 4\n- Remove stale src/main.zig src/thottam.zig from Step 7 git add\n- Add concrete ssh win11 smoke test commands to Step 10\n- Replace sleep+lookup dance with direct gh run watch in Step 11\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T18:34:11+05:30",
+          "tree_id": "bce4f68ea0ee7fc08fd3c937d523e2137449884e",
+          "url": "https://github.com/kaappi/kaappi/commit/b9bfd6acdb14c81d202732d36643a5a0f47ee56a"
+        },
+        "date": 1784295032150,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378259,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.542469,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.895145,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.403477,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006458,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053644,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503809,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068385,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.304652,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.945909,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.584182,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430903,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.820693,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.708728,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042833,
             "unit": "seconds"
           }
         ]
