@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784317988678,
+  "lastUpdate": 1784318564572,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "efa04eef45e36028bced6dfe082e91aee6d21cef",
-          "message": "Read rational literals with bignum numerators or denominators (#1423)\n\nThe tokenizer parsed rational parts as i64 with no bignum fallback, so\nvalid R7RS literals like 36893488147419103232/18446744073709551616\n(2^65/2^64) failed with a read error at the slash — or, with a radix\nprefix, silently split into a bignum and a stray symbol datum.\nstring->number already accepted the same syntax.\n\nDigit runs that overflow i64 now produce a big_rational token; datum\nconstruction parses each side with parseBignumString (rooting the\nnumerator across the second parse) and reduces via makeRationalReduced,\nso 2^65/2^64 reads as exact 2. Exactness and radix prefixes apply as\nfor fixnum rationals. Also frees the limbs buffer parseBignumString\nleaked on all-zero digit strings, previously unreachable.\n\nVerified under -Dgc-stress=true.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T17:59:22Z",
-          "tree_id": "686991e5f4c3fb313836d525dd2968b59b9d7c08",
-          "url": "https://github.com/kaappi/kaappi/commit/efa04eef45e36028bced6dfe082e91aee6d21cef"
-        },
-        "date": 1783708397878,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.864606,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.979752,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.974277,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.144737,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013475,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.316503,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461224,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.064819,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.182948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.755974,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.224557,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.977398,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.934851,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.979703,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042893,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044021,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "38fe09e15f2eb250ceae60c7a9d1d16f99661564",
+          "message": "Release v0.17.0",
+          "timestamp": "2026-07-18T01:02:14+05:30",
+          "tree_id": "199781ad3996e66f5891c6bba669de908d181aea",
+          "url": "https://github.com/kaappi/kaappi/commit/38fe09e15f2eb250ceae60c7a9d1d16f99661564"
+        },
+        "date": 1784318562815,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.428066,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.98952,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.933456,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.528655,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006446,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054337,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.543686,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071014,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.349275,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981115,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.577916,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426943,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.849591,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713908,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043561,
             "unit": "seconds"
           }
         ]
