@@ -136,6 +136,20 @@ pub fn makeBidiFdPair() [2]platform.fd_t {
     return fds;
 }
 
+/// A unidirectional OS *pipe* pair on every platform ([0] read end, [1]
+/// write end): pipe(2) on POSIX, CRT _pipe (64 KiB, binary) on Windows.
+/// Unlike makeFdPair — which substitutes loopback TCP on Windows because
+/// the readiness suites predate pipe readiness there — this is for tests
+/// that exercise the pipe kind itself (#1608 stage 2: polled readiness;
+/// on POSIX the same tests re-cover native pipe readiness). Raw test-side
+/// I/O on these fds must use platform.read/platform.write, not
+/// fdRead/fdWrite (whose Windows routing is socket-only).
+pub fn makePipeFdPair() [2]platform.fd_t {
+    var fds: [2]platform.fd_t = undefined;
+    std.debug.assert(platform.pipe(&fds) == 0);
+    return fds;
+}
+
 fn makeWinLoopbackPair() [2]platform.fd_t {
     platform.ensureWinsock();
     const ws = winsock_test;

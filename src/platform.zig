@@ -198,6 +198,40 @@ pub const win = if (is_windows) struct {
     pub const FILE_TYPE_PIPE: u32 = 0x3;
     pub extern "kernel32" fn GetFileType(h: HANDLE) callconv(.winapi) u32;
 
+    // --- Pipe readiness (#1608 stage 2). Anonymous/CRT pipe handles have
+    // no would-block mode and no FILE_FLAG_OVERLAPPED, so pipe readiness is
+    // *polled*: PeekNamedPipe answers "how many bytes could a read return
+    // right now", and NtQueryInformationFile(FilePipeLocalInformation)
+    // answers "how much buffer space could a write consume right now"
+    // (WriteQuotaAvailable — the same query libuv uses for its
+    // non-overlapped pipe writes; stable ntdll ABI since NT4, ntifs.h). ---
+    pub extern "kernel32" fn PeekNamedPipe(h: HANDLE, buf: ?*anyopaque, buf_size: u32, bytes_read: ?*u32, total_avail: ?*u32, bytes_left_msg: ?*u32) callconv(.winapi) c_int;
+    pub extern "ntdll" fn NtQueryInformationFile(h: HANDLE, iosb: *IoStatusBlock, info: *anyopaque, len: u32, class: c_int) callconv(.winapi) i32;
+    pub const IoStatusBlock = extern struct { status_or_pointer: usize, information: usize };
+    /// FILE_INFORMATION_CLASS value for FILE_PIPE_LOCAL_INFORMATION.
+    pub const FilePipeLocalInformation: c_int = 24;
+    /// ntifs.h FILE_PIPE_LOCAL_INFORMATION (all ULONGs).
+    pub const FilePipeLocalInfo = extern struct {
+        named_pipe_type: u32,
+        named_pipe_configuration: u32,
+        maximum_instances: u32,
+        current_instances: u32,
+        inbound_quota: u32,
+        read_data_available: u32,
+        outbound_quota: u32,
+        write_quota_available: u32,
+        named_pipe_state: u32,
+        named_pipe_end: u32,
+    };
+    // named_pipe_configuration values (data-flow direction is fixed at
+    // creation; which end may write follows from it + named_pipe_end).
+    pub const FILE_PIPE_INBOUND: u32 = 0;
+    pub const FILE_PIPE_OUTBOUND: u32 = 1;
+    pub const FILE_PIPE_FULL_DUPLEX: u32 = 2;
+    // named_pipe_end values.
+    pub const FILE_PIPE_CLIENT_END: u32 = 0;
+    pub const FILE_PIPE_SERVER_END: u32 = 1;
+
     pub extern "ws2_32" fn WSAStartup(version: u16, data: *WSAData) callconv(.winapi) c_int;
     pub extern "ws2_32" fn closesocket(s: SOCKET) callconv(.winapi) c_int;
     pub extern "ws2_32" fn WSAGetLastError() callconv(.winapi) c_int;
@@ -378,6 +412,17 @@ pub const isSocketFd = win_sock.isSocketFd;
 pub const setSockNonblockingFd = win_sock.setSockNonblockingFd;
 pub const sockRecv = win_sock.sockRecv;
 pub const sockSend = win_sock.sockSend;
+
+// Windows pipes (#1608 stage 2: polled pipe readiness) live in
+// platform_win_pipe.zig, the same seam. fdKind is the port layer's
+// first-touch classification (socket / pipe / other).
+const win_pipe = @import("platform_win_pipe.zig");
+pub const FdKind = win_pipe.FdKind;
+pub const fdKind = win_pipe.fdKind;
+pub const pipeHandleFromFd = win_pipe.pipeHandleFromFd;
+pub const pipeRead = win_pipe.pipeRead;
+pub const pipeWrite = win_pipe.pipeWrite;
+pub const pipePollReady = win_pipe.pipePollReady;
 pub const SockReadiness = win_sock.SockReadiness;
 pub const sockPollReady = win_sock.sockPollReady;
 

@@ -7,9 +7,10 @@
 // every already-listed waiter (Phase 3).
 //
 // The fds come from testing_helpers' cross-platform pairs: pipes and
-// AF_UNIX socketpairs on POSIX, loopback TCP pairs on Windows — where fd
-// readiness is socket-only (#1608), so this suite doubles as the
-// WSAEventSelect backend's coverage there.
+// AF_UNIX socketpairs on POSIX, loopback TCP pairs on Windows — where this
+// suite doubles as the WSAEventSelect socket backend's coverage (#1608
+// stage 1). The "#1608:" tests at the bottom use real OS-pipe pairs on
+// every platform, covering the polled pipe backend (stage 2) on Windows.
 const std = @import("std");
 const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
@@ -625,4 +626,84 @@ test "notify() from another OS thread interrupts a blocking poll()" {
     try std.testing.expectEqual(@as(usize, 0), ready.items.len);
     try std.testing.expect(reactor.notifier.wake_pending.load(.acquire));
     try std.testing.expect(elapsed_ns < 1_000_000_000);
+}
+
+// ---------------------------------------------------------------------------
+// #1608 stage 2: reactor-level coverage over real OS-pipe pairs. On POSIX
+// these re-cover the kqueue/epoll pipe paths; on Windows they exercise the
+// WindowsEventBackend pipe registry — arm routing via fdKind, the
+// poll-quantum-bounded wait, and the pipePollReady sweep.
+// ---------------------------------------------------------------------------
+
+test "#1608: pipe pair — register + poll wakes the fiber when the pipe becomes readable" {
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pipe = th.makePipeFdPair();
+    defer closeFd(pipe[0]);
+    defer closeFd(pipe[1]);
+
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pipe[0], .read, &fiber_a);
+
+    // Raw pipe write (CRT _write works on pipe fds; fdWrite's Windows
+    // routing is socket-only).
+    try std.testing.expectEqual(@as(isize, 1), platform.write(pipe[1], "x", 1));
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    // One poll call may time out at the pipe quantum before the sweep sees
+    // the byte; bound the loop generously instead of assuming one pass.
+    var waited_ns: u64 = 0;
+    while (ready.items.len == 0 and waited_ns < 5_000_000_000) : (waited_ns += 100_000_000) {
+        try reactor.poll(100_000_000, &ready);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_a, ready.items[0]);
+}
+
+test "#1608: pipe pair — poll times out empty while the pipe is silent" {
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pipe = th.makePipeFdPair();
+    defer closeFd(pipe[0]);
+    defer closeFd(pipe[1]);
+
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pipe[0], .read, &fiber_a); // never written to
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    // 50ms cap spans several pipe-poll quanta on Windows: every sweep must
+    // report the silent pipe not-ready, not just the first.
+    try reactor.poll(50_000_000, &ready);
+
+    try std.testing.expectEqual(@as(usize, 0), ready.items.len);
+}
+
+test "#1608: pipe pair — a write end with buffer space is ready for write interest" {
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pipe = th.makePipeFdPair();
+    defer closeFd(pipe[0]);
+    defer closeFd(pipe[1]);
+
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .io_waiting;
+    try reactor.register(pipe[1], .write, &fiber_a);
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    var waited_ns: u64 = 0;
+    while (ready.items.len == 0 and waited_ns < 5_000_000_000) : (waited_ns += 100_000_000) {
+        try reactor.poll(100_000_000, &ready);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }

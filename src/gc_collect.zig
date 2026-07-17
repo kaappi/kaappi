@@ -966,7 +966,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                         // A Windows socket port must send() — CRT _write
                         // cannot operate on a SOCKET handle (#1608).
                         const remaining = port.write_buf_len - start;
-                        const rc = if (platform.is_windows and port.sock_state.is_socket)
+                        const rc = if (platform.is_windows and port.fd_state.is_socket)
                             platform.sockSend(port.fd, wb.ptr + start, remaining)
                         else
                             platform.write(port.fd, wb.ptr + start, remaining);
