@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784274988273,
+  "lastUpdate": 1784275843445,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "81f95506f6112dcccf0fac0c7ce4c35af54805ea",
-          "message": "Descend into let/let* in the native closure free-variable analysis (#1409)\n\n* Descend into let/let* in the native closure free-variable analysis\n\nThe closure tiers in llvm_emit_lambda.zig treated .let_form/.let_star\nas opaque in both nodeHasFreeVars and collectNodeFreeVars, so a lambda\nthat captures an enclosing binding only through a let compiled as a\nclosed native closure and the reference degraded to\nkaappi_global_lookup — an \"undefined variable\" exit at runtime, or a\nsilently wrong value when a same-named global existed. Found by the\nVM-vs-native differential harness (#1395) at roughly 1% of generated\nprograms.\n\nWalk the raw let/let* S-expression with proper binder scoping (let\nbinders, nested lambda formals, let-vs-let* init visibility), feeding\nboth hasFreeVars and collectFreeVars, so tier 1 captures let-hidden\nreferences as upvalues — the emission side already resolves upvalues\ncorrectly, so the reproducer now compiles natively. The collectors also\nreport when the analysis cannot stay exact (name-buffer overflow, a\nform the walk cannot scope) so the tiers reject and fall back instead\nof emitting with an incomplete capture set.\n\nFixes #1407\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Rank enclosing lexical bindings above known globals in the closure analysis\n\nReview of #1409 found that every classification site in the closure-tier\nfree-variable analysis consulted ir.isKnownGlobal before asking whether\nan enclosing lexical binding shadows the name. A param named after a\nprimitive was therefore read as the primitive and its capture silently\ndropped: ((lambda (car) ((lambda () (let ((x car)) x)))) 5) compiled the\ninner lambda as a closed closure and returned #<builtin car> instead of\n5 — through the new let/let* walk and equally through the plain\n.global_ref path.\n\nThread the emitter into the analysis helpers and check isNameShadowed\n(which mirrors emitGlobalRef's resolution order) before isKnownGlobal in\nnodeHasFreeVars, collectNodeFreeVars, FreeNameWalk.noteRef, and\nvalueIsBoundOrLiteral. Harden tier 1's capture-source check to match:\nupvalues are copied out of the enclosing %args array, so a collected\nname that an enclosing let-local or rest parameter binds (they outrank\nparams) or that lives only in the enclosing closure's upvalue array\n(#1410) must reject rather than capture the wrong slot or degrade to a\nglobal.\n\nAlso assert the closure-creation call site (not just the runtime\ndeclaration preamble) in the closed-native-closure regression test,\nper review.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add list-ref to the known-global primitives list\n\nThe native-subset differential generator (#1408, now on main) emits\n(list-ref b i) in function bodies, and its contract requires every\nbody op to be in ir.isKnownGlobal so calls do not count as free\nvariables. list-ref was the one body op missing: once the let/let*\nwalk (#1409) made references inside lets visible, a generated body\nlike (let ((e (list ...))) (list-ref e 0)) reported list-ref as a\nfree name and the whole function fell back to the interpreter,\nfailing the no-unexpected-eval oracle on the CI merge ref (seed 6 of\nrun seed 0xf3c8bc08).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T19:53:35+05:30",
-          "tree_id": "f0e2057e0dd85251ceb258bc5cd5bcb2926c72d6",
-          "url": "https://github.com/kaappi/kaappi/commit/81f95506f6112dcccf0fac0c7ce4c35af54805ea"
-        },
-        "date": 1783695364853,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.149039,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.747485,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.028889,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.431129,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014204,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.375801,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50906,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068301,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.612022,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.989093,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.693258,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.162083,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.430894,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.897883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048257,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041057,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac4145ba344a678b014ca09aeb4a955ebe256fe5",
+          "message": "Add porting guide for new OSes and CPU architectures (#1624)\n\nThe Windows (#1606/#1608/#1609), WASI (KEP-0001 P4), and riscv64 ports\neach rediscovered where portability lives in this codebase: the\nplatform.zig shim, the reactor Backend switch (the one hard compile\ngate), the runtime capability probes, and the NaN-box 48-bit pointer\nconstraint. docs/dev/porting.md captures that as a support matrix, a\nporting-surface map, the fiber-I/O degradation ladder, and staged\nchecklists for OS and CPU ports, so the next port starts from a plan\ninstead of an archaeology dig. Index it in docs/dev/README.md and\npoint to it from CLAUDE.md's platform section.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T13:07:01+05:30",
+          "tree_id": "f75dd997959d87bd521c463af13d42fbddab1cfa",
+          "url": "https://github.com/kaappi/kaappi/commit/ac4145ba344a678b014ca09aeb4a955ebe256fe5"
+        },
+        "date": 1784275841831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.376365,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.477914,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.935537,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.457856,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006377,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054372,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50842,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069938,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.47887,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.99689,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.581556,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437309,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.839795,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.74896,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045411,
             "unit": "seconds"
           }
         ]
