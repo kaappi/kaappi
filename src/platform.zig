@@ -198,40 +198,6 @@ pub const win = if (is_windows) struct {
     pub const FILE_TYPE_PIPE: u32 = 0x3;
     pub extern "kernel32" fn GetFileType(h: HANDLE) callconv(.winapi) u32;
 
-    // --- Pipe readiness (#1608 stage 2). Anonymous/CRT pipe handles have
-    // no would-block mode and no FILE_FLAG_OVERLAPPED, so pipe readiness is
-    // *polled*: PeekNamedPipe answers "how many bytes could a read return
-    // right now", and NtQueryInformationFile(FilePipeLocalInformation)
-    // answers "how much buffer space could a write consume right now"
-    // (WriteQuotaAvailable — the same query libuv uses for its
-    // non-overlapped pipe writes; stable ntdll ABI since NT4, ntifs.h). ---
-    pub extern "kernel32" fn PeekNamedPipe(h: HANDLE, buf: ?*anyopaque, buf_size: u32, bytes_read: ?*u32, total_avail: ?*u32, bytes_left_msg: ?*u32) callconv(.winapi) c_int;
-    pub extern "ntdll" fn NtQueryInformationFile(h: HANDLE, iosb: *IoStatusBlock, info: *anyopaque, len: u32, class: c_int) callconv(.winapi) i32;
-    pub const IoStatusBlock = extern struct { status_or_pointer: usize, information: usize };
-    /// FILE_INFORMATION_CLASS value for FILE_PIPE_LOCAL_INFORMATION.
-    pub const FilePipeLocalInformation: c_int = 24;
-    /// ntifs.h FILE_PIPE_LOCAL_INFORMATION (all ULONGs).
-    pub const FilePipeLocalInfo = extern struct {
-        named_pipe_type: u32,
-        named_pipe_configuration: u32,
-        maximum_instances: u32,
-        current_instances: u32,
-        inbound_quota: u32,
-        read_data_available: u32,
-        outbound_quota: u32,
-        write_quota_available: u32,
-        named_pipe_state: u32,
-        named_pipe_end: u32,
-    };
-    // named_pipe_configuration values (data-flow direction is fixed at
-    // creation; which end may write follows from it + named_pipe_end).
-    pub const FILE_PIPE_INBOUND: u32 = 0;
-    pub const FILE_PIPE_OUTBOUND: u32 = 1;
-    pub const FILE_PIPE_FULL_DUPLEX: u32 = 2;
-    // named_pipe_end values.
-    pub const FILE_PIPE_CLIENT_END: u32 = 0;
-    pub const FILE_PIPE_SERVER_END: u32 = 1;
-
     pub extern "ws2_32" fn WSAStartup(version: u16, data: *WSAData) callconv(.winapi) c_int;
     pub extern "ws2_32" fn closesocket(s: SOCKET) callconv(.winapi) c_int;
     pub extern "ws2_32" fn WSAGetLastError() callconv(.winapi) c_int;
@@ -1266,7 +1232,8 @@ pub fn argsIterate(args: std.process.Args) std.process.Args.Iterator {
 /// every C runtime uses): wrap in quotes when it contains whitespace/
 /// quotes or is empty; backslashes immediately before a quote (or the
 /// closing quote) are doubled; embedded quotes get a backslash.
-fn appendQuotedArg(list: *std.ArrayList(u8), allocator: std.mem.Allocator, arg: []const u8) !void {
+/// Pub (with buildCommandLineW) only for tests_platform.zig.
+pub fn appendQuotedArg(list: *std.ArrayList(u8), allocator: std.mem.Allocator, arg: []const u8) !void {
     const needs_quotes = arg.len == 0 or std.mem.indexOfAny(u8, arg, " \t\"") != null;
     if (!needs_quotes) {
         try list.appendSlice(allocator, arg);
@@ -1293,7 +1260,7 @@ fn appendQuotedArg(list: *std.ArrayList(u8), allocator: std.mem.Allocator, arg: 
     try list.append(allocator, '"');
 }
 
-fn buildCommandLineW(allocator: std.mem.Allocator, argv: []const []const u8) ![:0]u16 {
+pub fn buildCommandLineW(allocator: std.mem.Allocator, argv: []const []const u8) ![:0]u16 {
     var line: std.ArrayList(u8) = .empty;
     defer line.deinit(allocator);
     for (argv, 0..) |arg, i| {
@@ -1448,103 +1415,5 @@ fn winSpawnInner(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[
     return @truncate(code);
 }
 
-// ---------------------------------------------------------------------------
-// tests (run on the host platform; the Windows arms are exercised by the
-// cross-compiled unit-test binary on a Windows machine)
-// ---------------------------------------------------------------------------
-
-fn expectQuoted(expected: []const u8, arg: []const u8) !void {
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(std.testing.allocator);
-    try appendQuotedArg(&list, std.testing.allocator, arg);
-    try std.testing.expectEqualStrings(expected, list.items);
-}
-
-// CommandLineToArgvW-inverse quoting: these are the canonical cases from
-// the Windows command-line parsing rules; the child's CRT must parse each
-// quoted form back to the original argument.
-test "appendQuotedArg: plain arg unquoted" {
-    try expectQuoted("abc", "abc");
-}
-
-test "appendQuotedArg: spaces force quotes" {
-    try expectQuoted("\"two words\"", "two words");
-}
-
-test "appendQuotedArg: empty arg becomes empty quotes" {
-    try expectQuoted("\"\"", "");
-}
-
-test "appendQuotedArg: embedded quote gets a backslash" {
-    try expectQuoted("\"say \\\" it\"", "say \" it");
-}
-
-test "appendQuotedArg: backslashes before a quote double" {
-    // arg: a\"b  →  "a\\\"b" (the two backslashes encode one literal \,
-    // the third escapes the quote)
-    try expectQuoted("\"a\\\\\\\"b\"", "a\\\"b");
-}
-
-test "appendQuotedArg: trailing backslashes double before the closing quote" {
-    // arg: dir\ with a space → "dir \\" so the closing quote isn't eaten
-    try expectQuoted("\"dir \\\\\"", "dir \\");
-}
-
-test "appendQuotedArg: backslashes not before a quote stay literal" {
-    // Windows paths with spaces: no doubling mid-string
-    try expectQuoted("\"C:\\Program Files\\kaappi\"", "C:\\Program Files\\kaappi");
-}
-
-test "buildCommandLineW joins and round-trips through WTF-16" {
-    const argv = [_][]const u8{ "git", "-C", "C:\\repo dir", "checkout", "v1.0.0", "--" };
-    const wline = try buildCommandLineW(std.testing.allocator, &argv);
-    defer std.testing.allocator.free(wline);
-    var narrow: [256]u8 = undefined;
-    const n = std.unicode.wtf16LeToWtf8(&narrow, wline);
-    try std.testing.expectEqualStrings("git -C \"C:\\repo dir\" checkout v1.0.0 --", narrow[0..n]);
-}
-
-test "monotonicNs advances" {
-    const a = monotonicNs();
-    const b = monotonicNs();
-    try std.testing.expect(b >= a);
-}
-
-test "realTime is after 2020" {
-    const rt = realTime();
-    try std.testing.expect(rt.sec > 1577836800); // 2020-01-01
-    try std.testing.expect(rt.nsec >= 0 and rt.nsec < 1_000_000_000);
-}
-
-test "statPath reports a directory" {
-    if (comptime is_wasm) return error.SkipZigTest;
-    const cwd_path = if (is_windows) "." else "/tmp";
-    const st = statPath(cwd_path) orelse return error.TestUnexpectedResult;
-    try std.testing.expect(st.is_dir);
-    try std.testing.expect(!st.is_file);
-}
-
-test "write to stdout-like sink via openNullSink" {
-    if (comptime is_wasm) return error.SkipZigTest;
-    const fd = try openNullSink();
-    defer close(fd);
-    const msg = "platform shim probe\n";
-    const rc = write(fd, msg.ptr, msg.len);
-    try std.testing.expect(rc == @as(isize, @intCast(msg.len)));
-}
-
-test "dlSym on the dlOpen(null) process handle finds CRT symbols (#1611)" {
-    // The (ffi-open #f) contract: the process handle resolves C runtime
-    // symbols — on Windows via the all-loaded-modules search (abs lives in
-    // ucrtbase.dll, never in the exe's export table), on POSIX via dlsym's
-    // global symbol scope.
-    if (comptime is_wasm) return error.SkipZigTest;
-    if (comptime builtin.target.abi.isMusl()) return error.SkipZigTest; // static libc: no dynamic loading
-    const proc = dlOpen(null) orelse return error.TestUnexpectedResult;
-    defer dlClose(proc);
-    try std.testing.expect(dlSym(proc, "abs") != null);
-    // A miss reports failure without poisoning later lookups.
-    try std.testing.expect(dlSym(proc, "kaappi_no_such_symbol_1611") == null);
-    _ = dlError();
-    try std.testing.expect(dlSym(proc, "abs") != null);
-}
+// Tests live in tests_platform.zig (extracted when this file outgrew the
+// 1500-line policy); appendQuotedArg/buildCommandLineW are pub for them.

@@ -610,6 +610,15 @@ test "#1608: two fibers reading two OS-pipe ports park and interleave" {
     // ever running and deadlock the test.
     _ = try vm.eval("(define f1 (spawn (lambda () (read-char rp1))))");
     _ = try vm.eval("(define f2 (spawn (lambda () (read-char rp2))))");
+    // Dispatch both readers and prove they *parked* on the reactor —
+    // .io_waiting is the load-bearing stage-2 claim on Windows — before
+    // the writer is even spawned, so a lucky writer-first schedule can't
+    // pass this test without the parked-pipe path.
+    _ = try vm.eval("(fiber-join (spawn (lambda () 1)))");
+    for ([_][]const u8{ "f1", "f2" }) |name| {
+        const f_val = try vm.eval(name);
+        try std.testing.expectEqual(fiber_mod.FiberStatus.io_waiting, types.toObject(f_val).as(fiber_mod.Fiber).status);
+    }
     _ = try vm.eval(
         \\(define w (spawn (lambda ()
         \\  (write-char #\b wp2) (flush-output-port wp2)
@@ -669,8 +678,10 @@ test "#1608: OS-pipe port stays blocking sequentially; enters non-blocking mode 
     defer platform.close(pipe[1]);
 
     // Sequential program: the fd-kind probe may run, but nothing flips —
-    // blocking semantics and the syscall profile are untouched.
-    _ = platform.write(pipe[1], "a", 1);
+    // blocking semantics and the syscall profile are untouched. Each raw
+    // write is asserted so a setup failure fails loudly here instead of
+    // hanging the blocking read below.
+    try std.testing.expectEqual(@as(isize, 1), platform.write(pipe[1], "a", 1));
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(!rport.nonblocking);
     if (comptime platform.is_windows) {
@@ -684,7 +695,7 @@ test "#1608: OS-pipe port stays blocking sequentially; enters non-blocking mode 
     // real O_NONBLOCK flip on POSIX, the emulated flag (no OS-level flip
     // exists for pipe fds) on Windows.
     _ = try vm.eval("(import (kaappi fibers)) (fiber-join (spawn (lambda () 1)))");
-    _ = platform.write(pipe[1], "b", 1);
+    try std.testing.expectEqual(@as(isize, 1), platform.write(pipe[1], "b", 1));
     _ = try vm.eval("(read-char rp)");
     try std.testing.expect(rport.nonblocking);
 }
@@ -706,9 +717,76 @@ test "#1608: closing an OS-pipe port with a parked reader raises a clean error i
         \\    (read-char rp)
         \\    'not-reached))))
     );
+    // Deliberately NOT pre-parked with a dispatch tick before spawning the
+    // closer (unlike the interleave test above): f's guard means its read
+    // runs under re-entrant native frames, and a pre-parked f redispatched
+    // by the later join drives the scheduler into an unbounded poll with
+    // the runnable closer never dispatched — a pre-existing interaction
+    // independent of the pipe backend (repros with socket pairs; #1625).
+    // The FIFO dispatch order below still exercises the parked path
+    // deterministically: at the join, f is dispatched first, parks on the
+    // empty pipe, and only then does its in-place drive dispatch closer.
     _ = try vm.eval("(define closer (spawn (lambda () (close-port rp))))");
     // The join completing at all is the "nothing hangs" half of the
     // acceptance criterion; the guard result is the "clean error" half.
     const r = try vm.eval("(equal? (fiber-join f) '(caught #t))");
     try std.testing.expectEqual(types.TRUE, r);
+}
+
+test "#1608: GC finalization of an abandoned pipe port with a full pipe drops the remainder instead of blocking" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pipe = th.makePipeFdPair();
+    defer platform.close(pipe[0]);
+
+    // Fill the pipe to exactly-full without ever blocking: quota-gated
+    // raw writes on Windows, O_NONBLOCK raw writes on POSIX. Reaching
+    // EAGAIN is the test's precondition — a plain blocking write in the
+    // sweep below would then hang forever.
+    if (comptime !platform.is_windows) th.setFdNonblocking(pipe[1]);
+    var chunk: [4096]u8 = undefined;
+    @memset(&chunk, 'f');
+    var filled = false;
+    var guard: usize = 0;
+    while (guard < 10_000) : (guard += 1) {
+        const rc = if (comptime platform.is_windows)
+            platform.pipeWrite(pipe[1], &chunk, chunk.len)
+        else
+            platform.write(pipe[1], &chunk, chunk.len);
+        if (rc < 0) {
+            try std.testing.expectEqual(platform.E.AGAIN, platform.errno(rc));
+            filled = true;
+            break;
+        }
+        try std.testing.expect(rc > 0);
+    }
+    try std.testing.expect(filled);
+
+    // An abandoned port owning the write end, with pending buffered
+    // output, in emulated non-blocking mode — exactly what a fiber
+    // terminated mid-park can leave for the collector. Rooted only while
+    // its fields are populated (the alloc below may collect under
+    // -Dgc-stress), then dropped so the next collection must sweep it.
+    var port_val = try gc.allocPort(pipe[1], false, true, "gcflush", false);
+    gc.pushRoot(&port_val);
+    const port = types.toObject(port_val).as(types.Port);
+    const pending = try gc.allocator.alloc(u8, 64);
+    @memset(pending, 'p');
+    port.write_buf = pending;
+    port.write_buf_start = 0;
+    port.write_buf_len = pending.len;
+    port.nonblocking = true;
+    if (comptime platform.is_windows) {
+        port.fd_state = .{ .probe_done = true, .is_socket = false, .is_pipe = true };
+    }
+    gc.popRoot();
+
+    // freeObject's best-effort flush hits the full pipe. The quota gate
+    // (Windows) / O_NONBLOCK (POSIX) turns that into an EAGAIN that drops
+    // the remainder, per the flush's own contract; a blocking write here
+    // would hang this collection — and the whole OS thread — forever.
+    gc.collect();
 }

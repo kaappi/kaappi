@@ -21,10 +21,26 @@
 //! flag, so their pipe I/O keeps the plain blocking CRT calls and syscall
 //! profile.
 //!
+//! One documented caveat rules the threading story: MSDN warns that
+//! PeekNamedPipe "can block thread execution the same way any I/O function
+//! can when called on a synchronous handle in a multi-threaded
+//! application" — synchronous file objects serialize their I/O, so a peek
+//! races a *concurrent blocking read on the same handle from another
+//! thread*. That situation is outside this runtime's model: ports never
+//! cross OS threads (SRFI-18 threads deep-copy, each owns its VM/GC), so
+//! every peek, quota query, and read/write on a pipe handle issues from
+//! the one thread that owns the port — and the only *blocking* pipe reads
+//! that thread ever makes are sequential-mode (no scheduler, so nothing
+//! else runs) or post-peek (bytes known present, returns immediately).
+//! Foreign FFI code sharing a pipe handle across threads accepts the same
+//! caveat POSIX code sharing an fd across threads always has.
+//!
 //! Everything here is a comptime no-op off Windows. Split placed beside
 //! platform_win_sock.zig (file size policy); platform.zig re-exports the
-//! public symbols, and the raw kernel32/ntdll externs stay in
-//! `platform.win`.
+//! public symbols. Unlike the ws2_32 slice — whose externs live in
+//! `platform.win` because reactor.zig and testing_helpers share them —
+//! the kernel32/ntdll pipe externs below have this file as their only
+//! consumer, so they stay private to it.
 
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -32,6 +48,42 @@ const win = platform.win;
 const E = platform.E;
 const fd_t = platform.fd_t;
 const is_windows = platform.is_windows;
+
+/// Pipe-readiness syscall surface (#1608 stage 2). PeekNamedPipe answers
+/// "how many bytes could a read return right now";
+/// NtQueryInformationFile(FilePipeLocalInformation) answers "how much
+/// buffer space could a write consume right now" (WriteQuotaAvailable —
+/// the same query libuv uses for its non-overlapped pipe writes; stable
+/// ntdll ABI since NT4, ntifs.h). Wrapped in the same comptime guard as
+/// `platform.win` so nothing Windows-flavored is ever analyzed elsewhere.
+const winp = if (is_windows) struct {
+    pub extern "kernel32" fn PeekNamedPipe(h: win.HANDLE, buf: ?*anyopaque, buf_size: u32, bytes_read: ?*u32, total_avail: ?*u32, bytes_left_msg: ?*u32) callconv(.winapi) c_int;
+    pub extern "ntdll" fn NtQueryInformationFile(h: win.HANDLE, iosb: *IoStatusBlock, info: *anyopaque, len: u32, class: c_int) callconv(.winapi) i32;
+    pub const IoStatusBlock = extern struct { status_or_pointer: usize, information: usize };
+    /// FILE_INFORMATION_CLASS value for FILE_PIPE_LOCAL_INFORMATION.
+    pub const FilePipeLocalInformation: c_int = 24;
+    /// ntifs.h FILE_PIPE_LOCAL_INFORMATION (all ULONGs).
+    pub const FilePipeLocalInfo = extern struct {
+        named_pipe_type: u32,
+        named_pipe_configuration: u32,
+        maximum_instances: u32,
+        current_instances: u32,
+        inbound_quota: u32,
+        read_data_available: u32,
+        outbound_quota: u32,
+        write_quota_available: u32,
+        named_pipe_state: u32,
+        named_pipe_end: u32,
+    };
+    // named_pipe_configuration values (data-flow direction is fixed at
+    // creation; which end may write follows from it + named_pipe_end).
+    pub const FILE_PIPE_INBOUND: u32 = 0;
+    pub const FILE_PIPE_OUTBOUND: u32 = 1;
+    pub const FILE_PIPE_FULL_DUPLEX: u32 = 2;
+    // named_pipe_end values.
+    pub const FILE_PIPE_CLIENT_END: u32 = 0;
+    pub const FILE_PIPE_SERVER_END: u32 = 1;
+} else struct {};
 
 /// What a CRT fd wraps, as far as fd readiness is concerned. `.socket`
 /// gets event-driven readiness (WSAEventSelect, stage 1), `.pipe` gets
@@ -62,10 +114,10 @@ pub fn pipeHandleFromFd(fd: fd_t) ?win.HANDLE {
     return @ptrFromInt(@as(usize, @bitCast(raw)));
 }
 
-fn queryPipeInfo(h: win.HANDLE) ?win.FilePipeLocalInfo {
-    var iosb: win.IoStatusBlock = undefined;
-    var info: win.FilePipeLocalInfo = undefined;
-    const status = win.NtQueryInformationFile(h, &iosb, &info, @sizeOf(win.FilePipeLocalInfo), win.FilePipeLocalInformation);
+fn queryPipeInfo(h: win.HANDLE) ?winp.FilePipeLocalInfo {
+    var iosb: winp.IoStatusBlock = undefined;
+    var info: winp.FilePipeLocalInfo = undefined;
+    const status = winp.NtQueryInformationFile(h, &iosb, &info, @sizeOf(winp.FilePipeLocalInfo), winp.FilePipeLocalInformation);
     if (status < 0) return null;
     return info;
 }
@@ -77,11 +129,11 @@ fn queryPipeInfo(h: win.HANDLE) ?win.FilePipeLocalInfo {
 /// Load-bearing for pipeWrite: quota == 0 on a writable end means "full,
 /// park until the reader drains", but on a non-writable end it would mean
 /// "park forever" — that case must surface the real write error instead.
-fn isWritableEnd(info: win.FilePipeLocalInfo) bool {
+fn isWritableEnd(info: winp.FilePipeLocalInfo) bool {
     return switch (info.named_pipe_configuration) {
-        win.FILE_PIPE_FULL_DUPLEX => true,
-        win.FILE_PIPE_INBOUND => info.named_pipe_end == win.FILE_PIPE_CLIENT_END,
-        win.FILE_PIPE_OUTBOUND => info.named_pipe_end == win.FILE_PIPE_SERVER_END,
+        winp.FILE_PIPE_FULL_DUPLEX => true,
+        winp.FILE_PIPE_INBOUND => info.named_pipe_end == winp.FILE_PIPE_CLIENT_END,
+        winp.FILE_PIPE_OUTBOUND => info.named_pipe_end == winp.FILE_PIPE_SERVER_END,
         // Unknown layout: claim writable and let the write surface the truth.
         else => true,
     };
@@ -100,7 +152,7 @@ pub fn pipeRead(fd: fd_t, buf: [*]u8, len: usize) isize {
         return -1;
     };
     var avail: u32 = 0;
-    if (win.PeekNamedPipe(h, null, 0, null, &avail, null) != 0 and avail == 0) {
+    if (winp.PeekNamedPipe(h, null, 0, null, &avail, null) != 0 and avail == 0) {
         win._errno().* = @intFromEnum(E.AGAIN);
         return -1;
     }
@@ -146,7 +198,7 @@ pub fn pipePollReady(fd: fd_t, want_read: bool, want_write: bool) PipeReadiness 
     var result: PipeReadiness = .{};
     if (want_read) {
         var avail: u32 = 0;
-        if (win.PeekNamedPipe(h, null, 0, null, &avail, null) == 0) {
+        if (winp.PeekNamedPipe(h, null, 0, null, &avail, null) == 0) {
             result.readable = true;
         } else {
             result.readable = avail > 0;
