@@ -810,6 +810,16 @@ fn genLetInt(g: *Gen, d: u32) Error!void {
 /// never a reference to an outer binding), mutates it, and computes an int
 /// from it — no sibling expression can observe the mutation. This is the
 /// only structure mutation allowed in expression position.
+///
+/// Ordering invariant (#1620): the constructor's sub-expressions sit in the
+/// let INIT (outer scope — generate them before registering the binding),
+/// but the mutation statement's index/value sub-expressions sit in the let
+/// BODY, where `name` shadows any outer binding. Reserve `name` before
+/// generating those, or the picker can reference an outer same-named int
+/// that now resolves to the fresh object (seed 10294 emitted
+/// `(bytevector-u8-set! c (modulo c 1) ...)` — a type error). The kind is
+/// upgraded from .reserved once the mutation statement is complete, so the
+/// body result may reference the mutated object.
 fn genLetMut(g: *Gen, d: u32) Error!void {
     var nb: [4][]const u8 = undefined;
     const names = g.pickNames(1, &nb);
@@ -827,22 +837,24 @@ fn genLetMut(g: *Gen, d: u32) Error!void {
             try g.emitf("(let (({s} (make-vector {d} ", .{ name, len });
             try genInt(g, d);
             try g.emitf("))) (vector-set! {s} ", .{name});
+            try g.pushBinding(name, .reserved);
             try genIndex(g, d, len);
             try g.emit(" ");
             try genInt(g, d);
             try g.emit(") ");
-            try g.pushBinding(name, .{ .vector = .{ .len = len, .boxed = false } });
+            g.scope.items[mark].kind = .{ .vector = .{ .len = len, .boxed = false } };
         },
         .str => {
             const len: u16 = @intCast(g.ch.range(.len_pick, 1, 6));
             try g.emitf("(let (({s} (make-string {d} ", .{ name, len });
             try genChar(g, d);
             try g.emitf("))) (string-set! {s} ", .{name});
+            try g.pushBinding(name, .reserved);
             try genIndex(g, d, len);
             try g.emit(" ");
             try genChar(g, d);
             try g.emit(") ");
-            try g.pushBinding(name, .{ .string = .{ .len = len, .mutable = true } });
+            g.scope.items[mark].kind = .{ .string = .{ .len = len, .mutable = true } };
         },
         .list => {
             const len: u16 = @intCast(g.ch.range(.len_pick, 1, 4));
@@ -852,20 +864,22 @@ fn genLetMut(g: *Gen, d: u32) Error!void {
                 try genInt(g, d);
             }
             try g.emitf("))) (set-car! {s} ", .{name});
+            try g.pushBinding(name, .reserved);
             try genInt(g, d);
             try g.emit(") ");
-            try g.pushBinding(name, .{ .list = .{ .len = .{ .exact = len }, .mut = .all, .ints = true } });
+            g.scope.items[mark].kind = .{ .list = .{ .len = .{ .exact = len }, .mut = .all, .ints = true } };
         },
         .bv => {
             const len: u16 = @intCast(g.ch.range(.len_pick, 1, 6));
             try g.emitf("(let (({s} (make-bytevector {d} {d}))) (bytevector-u8-set! {s} ", .{
                 name, len, g.ch.range(.lit_pick, 0, 255), name,
             });
+            try g.pushBinding(name, .reserved);
             try genIndex(g, d, len);
             try g.emit(" (modulo ");
             try genInt(g, d);
             try g.emit(" 256)) ");
-            try g.pushBinding(name, .{ .bytevector = len });
+            g.scope.items[mark].kind = .{ .bytevector = len };
         },
     }
     try genInt(g, d);
