@@ -233,12 +233,9 @@ jobs:
 
       # Each divergence comes with the program, both sides' stdout/stderr,
       # and the oracle version; the triage protocol lives in the script
-      # header (Kaappi bug / oracle bug / generator leak).
-      #
-      # upload-artifact v7+ defaults `archive: true` (and archive: false
-      # only supports a single file), so the artifact arrives at the report
-      # job as one wrapper zip. The report job unwraps it before marker
-      # detection — see its "Unwrap archived artifacts" step (#1429, #1584).
+      # header (Kaappi bug / oracle bug / generator leak). The report job's
+      # marker detection must stay layout-agnostic about where these files
+      # land — see the layout note in its filing step (#1584, #1620).
       - name: Upload divergences
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -259,7 +256,7 @@ jobs:
   #
   # To avoid false-positive finding issues, filing is gated on the finding
   # marker actually being present in the uploaded artifacts — the encoded
-  # crash input for the fuzz job, seed-<N>.scm divergences for the diff
+  # crash input for the fuzz job, per-seed divergence files for the diff
   # jobs. Failed jobs without their marker (toolchain/apt flakes, build or
   # unit-test failures, job-level timeouts — a possible hang) are collected
   # under a single "Fuzz CI: infrastructure or build failure" issue instead
@@ -279,21 +276,21 @@ jobs:
       actions: read # download this run's failure artifacts for the excerpt
     steps:
       # No checkout: the job needs nothing from the repo, and gh targets it
-      # via -R. Each artifact lands in its own subdirectory of artifacts/.
+      # via -R. Artifacts usually land in per-name subdirectories of
+      # artifacts/ — but not always; see the layout note in the filing step.
       - name: Download failure artifacts
         continue-on-error: true # a job may have died before its upload step
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
 
-      # upload-artifact v7+ archives by default (`archive: true`; false only
-      # supports a single file), and download-artifact v8 hands the wrapper
-      # zip back as a file instead of extracting it. Left wrapped, the
-      # finding markers below never match and every real finding is
-      # misclassified as an infrastructure failure (#1429, #1584 — the
-      # seed-2788 divergence was filed as "infrastructure or build failure").
-      # Unwrap in place so marker detection sees loose files under either
-      # upload behavior. Extraction only ever writes files for the excerpt
+      # Safety net for archived uploads: should an artifact ever arrive as a
+      # wrapper zip instead of loose files, unwrap it in place so marker
+      # detection sees the files. (This was NOT the cause of the past
+      # misclassifications: the #1584 and #1620 artifact containers held
+      # loose files all along — the real cause was download-artifact v8's
+      # single-artifact layout, handled in the filing step's marker
+      # detection below.) Extraction only ever writes files for the excerpt
       # below — this job still executes nothing from the artifacts.
       - name: Unwrap archived artifacts
         shell: bash
@@ -421,20 +418,35 @@ jobs:
           }
 
           # Finding markers: a real finding always ships in the artifact — the
-          # encoded crash input for the fuzz job, seed-<N>.scm divergences for the
-          # diff jobs. A failed job without its marker is a toolchain/apt flake, a
-          # build or unit-test failure, or a job-level timeout (a possible hang) —
-          # those are reported below under an honest title instead of a finding one.
-          crash=$(find artifacts -type f -path '*fuzz-artifacts-*' -name crash 2>/dev/null | head -1 || true)
+          # encoded crash input for the fuzz job, per-seed divergence files for
+          # the diff jobs. A failed job without its marker is a toolchain/apt
+          # flake, a build or unit-test failure, or a job-level timeout (a
+          # possible hang) — those are reported below under an honest title
+          # instead of a finding one.
+          #
+          # Layout: download-artifact v8 normally extracts each artifact into
+          # artifacts/<artifact-name>/, but when the run produced exactly ONE
+          # artifact it extracts into artifacts/ itself (the action's
+          # `artifacts.length === 1` special case) — and one failed job is the
+          # common case. So never anchor on the artifact-name directory: search
+          # all of artifacts/ for filenames only the owning job can produce
+          # (seed-*.kaappi.* vs seed-*.{vm,nat}.* keeps the two diff jobs'
+          # files apart even without directories), and derive each excerpt
+          # directory from the file that matched. Anchoring on the directory
+          # name is exactly how the seed-2788 (#1584) and seed-10294 (#1620)
+          # divergences got misfiled as "infrastructure or build failure".
+          crash=$(find artifacts -type f -path '*/.zig-cache/f/crash' 2>/dev/null | sort | head -1 || true)
           if [ -n "$crash" ]; then
             fuzz_dir="${crash%/.zig-cache/f/crash}"
           else
             # No crash, but a test-phase failure still uploads fuzz-run.log.
-            fuzz_dir=$(find artifacts -maxdepth 1 -type d -name 'fuzz-artifacts-*' 2>/dev/null | sort | head -1 || true)
-            fuzz_dir="${fuzz_dir:-artifacts/fuzz-artifacts-missing}"
+            fuzz_log=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort | head -1 || true)
+            fuzz_dir=$(dirname "${fuzz_log:-artifacts/fuzz-artifacts-missing/fuzz-run.log}")
           fi
-          native_marker=$(find artifacts/native-diff-divergences -name 'seed-*.scm' 2>/dev/null | head -1 || true)
-          oracle_marker=$(find artifacts/oracle-diff-divergences -name 'seed-*.scm' 2>/dev/null | head -1 || true)
+          native_marker=$(find artifacts -type f \( -name 'seed-*.vm.*' -o -name 'seed-*.nat.*' \) 2>/dev/null | sort | head -1 || true)
+          native_dir=$(dirname "${native_marker:-artifacts/native-diff-divergences/absent}")
+          oracle_marker=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sort | head -1 || true)
+          oracle_dir=$(dirname "${oracle_marker:-artifacts/oracle-diff-divergences/absent}")
 
           check_job "$RESULT_FUZZ" fuzz \
             'Fuzz CI: bounded fuzzing found a crash' \
@@ -443,12 +455,12 @@ jobs:
 
           check_job "$RESULT_NATIVE" native-diff \
             'Fuzz CI: VM vs native backend divergence' \
-            "$native_marker" artifacts/native-diff-divergences \
+            "$native_marker" "$native_dir" \
             'A generated program behaved differently on the bytecode VM vs the LLVM native backend. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{vm,nat}.{out,err}` and `seed-<N>.compile.log`. The seed base is printed near the top of the job log; the same seed always regenerates the same program: `bash tests/fuzz/native-diff.sh <count> <base>`.'
 
           check_job "$RESULT_ORACLE" oracle-diff \
             'Fuzz CI: Kaappi vs Chibi oracle divergence' \
-            "$oracle_marker" artifacts/oracle-diff-divergences \
+            "$oracle_marker" "$oracle_dir" \
             'Kaappi and Chibi Scheme disagreed on a portable-subset program. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{kaappi,chibi}.{out,err}`; `oracle-version.txt` records the oracle version. Triage protocol (Kaappi bug / oracle bug / generator leak) is in the header of `tests/fuzz/oracle-diff.sh`. Replay: `bash tests/fuzz/oracle-diff.sh <count> <base>`.'
 
           if [ -n "$infra_jobs" ]; then
