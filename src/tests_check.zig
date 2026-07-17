@@ -57,12 +57,28 @@ const Harness = struct {
         }
         return null;
     }
+
+    /// Print every collected finding. Wired into failures so an unexpected
+    /// finding (a failed import, a stray compile error) identifies itself
+    /// instead of surfacing as a bare lint miscount (#1627).
+    fn dump(self: *Harness, source: []const u8) void {
+        std.debug.print("collected findings for: {s}\n", .{source});
+        if (self.ctx.findings.items.len == 0) {
+            std.debug.print("  (none)\n", .{});
+            return;
+        }
+        for (self.ctx.findings.items) |f| {
+            var cbuf: [Code.render_width]u8 = undefined;
+            std.debug.print("  {s} at {d}:{d}: {s}\n", .{ f.code.render(&cbuf), f.span.line, f.span.col, f.message });
+        }
+    }
 };
 
 fn expectCounts(source: []const u8, arity: usize, type_mismatch: usize, unbound: usize) !void {
     var h: Harness = .{};
     try h.run(source);
     defer h.deinit();
+    errdefer h.dump(source);
     testing.expectEqual(arity, h.count(.primitive_arity_mismatch)) catch |e| {
         std.debug.print("arity mismatch count wrong for: {s}\n", .{source});
         return e;
@@ -73,6 +89,13 @@ fn expectCounts(source: []const u8, arity: usize, type_mismatch: usize, unbound:
     };
     testing.expectEqual(unbound, h.count(.unknown_toplevel_variable)) catch |e| {
         std.debug.print("unbound count wrong for: {s}\n", .{source});
+        return e;
+    };
+    // Nothing beyond the expected lint findings: an extra finding here is a
+    // broken precondition (a failed import, a stray compile error), which must
+    // fail as itself — not hide until it perturbs a lint count (#1627).
+    testing.expectEqual(arity + type_mismatch + unbound, h.total()) catch |e| {
+        std.debug.print("unexpected extra findings for: {s}\n", .{source});
         return e;
     };
 }
@@ -175,12 +198,47 @@ test "invariant: calls synthesized by a macro are not linted" {
 }
 
 test "invariant: an imported macro use is not linted as a call" {
-    // `test-error`'s argument is a deliberate error the guard catches; the
-    // program is valid, so `check` must not reject it.
+    // `swallow`'s argument is a deliberate error the macro discards; the
+    // program is valid, so `check` must not reject it. The macro arrives
+    // through `import` — registered by importBinding at import time, a
+    // different path from the in-file `define-syntax` test above. The library
+    // is defined in-source so the import resolves from the registry and the
+    // test never touches the filesystem (#1627); the on-disk `.sld` variant
+    // follows below.
     try expectCounts(
+        \\(define-library (t macros)
+        \\  (export swallow)
+        \\  (begin (define-syntax swallow (syntax-rules () ((_ e) 'ok)))))
+        \\(import (t macros))
+        \\(swallow (car 1 2))
+    , 0, 0, 0);
+}
+
+test "invariant: a macro imported from an .sld file is not linted as a call" {
+    // The on-disk variant of the test above: `(chibi test)` goes through the
+    // real .sld search + load path, and `test-error`'s argument is a
+    // deliberate error the guard catches. CWD-DEPENDENT: unit-test VMs have
+    // no lib_paths, so resolution probes "" and "lib/" relative to the
+    // process cwd — this test needs the repo root (lib/chibi/test.sld) as
+    // cwd. The macro probe turns any resolution/load hiccup into a loud
+    // import failure instead of a baffling lint miscount (#1627).
+    const source =
         \\(import (chibi test))
         \\(test-error (apply +))
-    , 0, 0, 0);
+    ;
+    var h: Harness = .{};
+    try h.run(source);
+    defer h.deinit();
+    errdefer h.dump(source);
+    if (!h.tc.vm.macros.contains("test-error")) {
+        std.debug.print(
+            "import failed: (chibi test) did not provide the test-error macro — " ++
+                ".sld resolution is cwd-relative and needs lib/chibi/test.sld under the cwd (#1627)\n",
+            .{},
+        );
+        return error.ImportFailed;
+    }
+    try testing.expectEqual(@as(usize, 0), h.total());
 }
 
 // ── Recursion into bodies (calls inside standard forms still checked) ───────
