@@ -187,16 +187,13 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
     defer _ = platform.unlink(tmp_buf[0..ll_path.len :0]);
     try emitLlvmFile(vm, path, ll_path);
 
-    const out_path = output_path orelse blk: {
-        if (std.mem.endsWith(u8, path, ".scm")) {
-            break :blk path[0 .. path.len - 4];
-        }
-        break :blk path;
-    };
+    const out_path = output_path orelse try deriveOutputPath(allocator, path);
+    const should_free = output_path == null;
+    defer if (should_free) allocator.free(out_path);
     timings.setOutput(out_path); // kaappi#1515
 
     const lib_dir = findLibDir(allocator) orelse {
-        writeStderr("Cannot find libkaappi_rt.a. Build it with: zig build lib\n");
+        writeStderr("Cannot find " ++ platform.rt_lib_name ++ ". Build it with: zig build lib\n");
         return error.RuntimeLibraryNotFound;
     };
 
@@ -226,6 +223,15 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
     }
     writeStderr("No C compiler found. Install zig, clang, or gcc.\n");
     return error.NoCCompilerFound;
+}
+
+/// Default output path for `kaappi compile <path>` with no `-o`: the source
+/// name minus any `.scm` suffix, plus the platform executable suffix —
+/// `foo.scm` → `foo` on POSIX, `foo.exe` on Windows, where PATH lookup and
+/// double-click need the extension (#1610). Caller frees.
+fn deriveOutputPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    const base = if (std.mem.endsWith(u8, path, ".scm")) path[0 .. path.len - 4] else path;
+    return std.fmt.allocPrint(allocator, "{s}{s}", .{ base, platform.exe_suffix });
 }
 
 fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
@@ -307,11 +313,41 @@ fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void 
 }
 
 fn checkLibDir(allocator: std.mem.Allocator, dir: []const u8) bool {
-    const path = std.fmt.allocPrintSentinel(allocator, "{s}/libkaappi_rt.a", .{dir}, 0) catch return false;
+    const path = std.fmt.allocPrintSentinel(allocator, "{s}/" ++ platform.rt_lib_name, .{dir}, 0) catch return false;
     defer allocator.free(path);
     const fd = platform.openRead(path) catch return false;
     _ = platform.close(fd);
     return true;
+}
+
+test "deriveOutputPath strips .scm and appends the platform exe suffix" {
+    const a = std.testing.allocator;
+    const derived = try deriveOutputPath(a, "dir/foo.scm");
+    defer a.free(derived);
+    try std.testing.expectEqualStrings("dir/foo" ++ platform.exe_suffix, derived);
+
+    const noext = try deriveOutputPath(a, "prog");
+    defer a.free(noext);
+    try std.testing.expectEqualStrings("prog" ++ platform.exe_suffix, noext);
+}
+
+test "checkLibDir looks for the platform-named runtime archive" {
+    const a = std.testing.allocator;
+    const dir = try std.fmt.allocPrint(a, "{s}/kaappi-nctest-{d}", .{ platform.tempDir(), platform.getPid() });
+    defer a.free(dir);
+    const dir_z = try a.dupeZ(u8, dir);
+    defer a.free(dir_z);
+    try std.testing.expect(platform.mkdir(dir_z, 0o700) == 0);
+    defer _ = platform.rmdir(dir_z);
+
+    try std.testing.expect(!checkLibDir(a, dir));
+
+    const lib_path = try std.fmt.allocPrintSentinel(a, "{s}/" ++ platform.rt_lib_name, .{dir}, 0);
+    defer a.free(lib_path);
+    const fd = try platform.openWriteTrunc(lib_path, 0o600);
+    _ = platform.close(fd);
+    defer _ = platform.unlink(lib_path);
+    try std.testing.expect(checkLibDir(a, dir));
 }
 
 fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, out_path: []const u8, lib_flag: []const u8, is_zig: bool) bool {
@@ -366,7 +402,15 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     argc += 1;
     argv_buf[argc] = "-lm";
     argc += 1;
-    if (comptime !platform.is_windows) {
+    if (comptime platform.is_windows) {
+        // The runtime lib's fd-readiness backends (#1608) call Winsock via
+        // `extern "ws2_32"` declarations. Zig applies that link dependency
+        // only when it links the final binary itself; a foreign `zig cc`
+        // link of kaappi_rt.lib never sees it, so the import lib must be
+        // named explicitly (#1610).
+        argv_buf[argc] = "-lws2_32";
+        argc += 1;
+    } else {
         argv_buf[argc] = "-lpthread";
         argc += 1;
     }

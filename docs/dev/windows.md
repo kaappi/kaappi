@@ -195,6 +195,41 @@ Scheme tests that exercise POSIX-only functionality gate themselves:
   (else #f))
 ```
 
+## Native backend (`kaappi compile`)
+
+The full pipeline — emit LLVM IR, discover the runtime archive, link with
+the first C compiler on PATH, run the native binary — works on the box
+and is exercised end-to-end by `tests/e2e/run-e2e.ps1` (the PowerShell
+port of run-e2e.sh's parity phase): all 37 `tests/e2e/programs` compile
+natively and match the interpreter's output, and `kaappi doctor`'s
+smoke-link passes. Verified on Windows 11 ARM64 (build 26100) with a Zig
+master toolchain as the linker (#1610); with the 0.16.0 toolchain,
+`zig cc` on the box access-violates like every native toolchain use
+(#1613), so end users get this at the 0.17.0 bump.
+
+Windows-specific pieces of the path (#1610):
+
+* The runtime archive is `kaappi_rt.lib` (Zig's COFF naming), not
+  `libkaappi_rt.a` — `platform.rt_lib_name` carries the platform
+  spelling, and the `findLibDir`/doctor probes and messages use it. The
+  search order is unchanged: `KAAPPI_LIB_DIR`, `<exe>/../lib`,
+  `zig-out/lib`, `/usr/local/lib`.
+* `kaappi compile foo.scm` derives `foo.exe` (PATH lookup and
+  double-click need the extension); an explicit `-o name` is used as
+  given.
+* The emitted module triple is `aarch64-pc-windows-gnu` — the gnu
+  (MinGW) ABI the runtime lib is built with and the ABI `zig cc` targets
+  on a box without MSVC.
+* The link line adds `-lws2_32` and drops `-lpthread`: the fd-readiness
+  backends call Winsock through `extern "ws2_32"` declarations, which
+  Zig links automatically only when it builds the final binary itself —
+  a foreign `zig cc` link of the static archive must name the import lib
+  explicitly. The equivalent manual link is:
+
+  ```
+  zig cc -w -O2 out.ll -o prog.exe -L<libdir> -lkaappi_rt -lc -lm -lws2_32
+  ```
+
 ## Testing on a Windows machine
 
 CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
@@ -237,7 +272,9 @@ suites double as the socket-readiness backend's coverage, and their
 "#1608:" tests run the same park/wake patterns over real CRT `_pipe`
 pairs, covering the polled pipe backend (stage 2). The
 POSIX-permission/FIFO/uid tests and the dup2-based fd-recycle reactor
-test skip.
+test skip. With a fixed (master) toolchain on the box, the
+native-backend parity suite `tests/e2e/run-e2e.ps1` passes too (#1610,
+see "Native backend" above).
 
 ## Releasing
 
@@ -260,11 +297,12 @@ the github-release skill's Step 10.
 ## Known gaps / follow-ups
 
 * Native compilation on Windows ARM64 crashes in the Zig 0.16.0
-  toolchain (`zig build`/`zig build-exe` access-violate on any project,
-  #1613) — all builds must cross-compile, and `kaappi compile` on the
-  box (#1610) is blocked on the same upstream fix. Fixed upstream
-  (ziglang#31865; Zig master works on the box, verified 2026-07-17);
-  both unblock at the 0.17.0 toolchain bump.
+  toolchain (`zig build`/`zig build-exe`/`zig cc` access-violate on any
+  project, #1613) — all builds must cross-compile, and `kaappi compile`
+  needs a fixed toolchain on the box for its link step (verified
+  end-to-end with Zig master, see "Native backend" above). Fixed
+  upstream (ziglang#31865); everything unblocks at the 0.17.0 toolchain
+  bump.
 * The shell-based suites — errors, compile, test-runner, pipeline,
   doctor, fmt, cache, timings, the smoke `.sh` scripts, sandbox, and
   robustness — don't run on Windows (#1612).
@@ -272,8 +310,6 @@ the github-release skill's Step 10.
   everything else — see Deliberate degradations above); lifting that
   needs a Windows build story for the C-FFI packages, which today are
   Makefiles producing `.dylib`/`.so` against POSIX headers.
-* `kaappi compile` links with `zig cc` when Zig is installed on the box;
-  untested beyond the doctor's smoke-link probe.
 * Console reads are byte-oriented ANSI/UTF-8; typing non-ASCII at the
   plain REPL depends on the console's UTF-8 code page (set at startup).
 * Long paths (> 260 chars) need the system long-path opt-in.

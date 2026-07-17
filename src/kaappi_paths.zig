@@ -64,8 +64,8 @@ fn siblingLibDir(exe_path: []const u8, buf: []u8) ?[]const u8 {
 /// the shared layout for both a `zig build` tree (`zig-out/bin/kaappi` +
 /// `zig-out/lib/`) and an installed release (`<prefix>/bin/kaappi` +
 /// `<prefix>/lib/`), so a from-source binary run from any directory can
-/// still find `libkaappi_rt.a` or the portable-library `.sld` sources it
-/// was built alongside.
+/// still find the runtime archive (`libkaappi_rt.a`; `kaappi_rt.lib` on
+/// Windows) or the portable-library `.sld` sources it was built alongside.
 ///
 /// Returns null if the platform has no self-exe-path lookup, the
 /// executable isn't nested at least two directories deep, or the resulting
