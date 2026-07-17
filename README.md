@@ -92,6 +92,9 @@ powers the [playground](https://kaappi-lang.org/playground/).
 The Windows port (`zig build -Dtarget=aarch64-windows`) covers the full
 interpreter — REPL (plain line editing, no history/completion), fibers,
 channels, OS threads, FFI (`LoadLibrary`), and the `kaappi test` runner.
+thottam installs packages on Windows too (with Git for Windows on PATH);
+only manifests with a `build:` command are refused — the C-FFI packages'
+Makefiles target POSIX.
 Platform differences: fd readiness is socket-only — socket-backed ports
 get reactor-driven non-blocking fiber I/O (WSAEventSelect), while pipe
 and file ports keep blocking reads (timers and cross-thread wakeups
