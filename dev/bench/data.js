@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784274118284,
+  "lastUpdate": 1784274988273,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "542e3a93f7f174f09cd4751e1f649fa96841ae44",
-          "message": "Fuzzing roadmap Phase 3: VM vs LLVM native backend differential harness (#1408)\n\n* Fuzzing roadmap Phase 3: VM vs LLVM native backend differential harness\n\nCrash-only fuzzing and the opt-vs-no-opt oracle both run everything on the\nbytecode VM; nothing diffed the LLVM native backend against it, even though\ndiffing two evaluation paths of the same language is the highest-yield\ncorrectness oracle available (Midtgaard et al., ICFP 2017) and known\nregressions (#1376) prove the bug surface exists.\n\nThe pieces, and why each exists:\n\n- src/fuzz_gen_native.zig: a native-compilable-subset generator mode. The\n  backend falls back to kaappi_eval for forms it cannot compile, so an\n  unrestricted program degrades the diff to VM-vs-VM. The subset encodes\n  the backend's structural rules learned from llvm_emit_lambda.zig:\n  function bodies reference only their own parameters and primitives\n  (anything else is a free variable that rejects native compilation),\n  global defines use literal or lambda values (compound inits route\n  through kaappi_eval), computed set! only inside lexical scopes, no\n  lambdas inside let (#827 capture check), no set! inside inline-lambda\n  bodies (#819 blanket scan), and every top-level form void-valued with\n  explicit (write ...) output — the VM echoes non-void top-level values\n  but native binaries do not.\n\n- zig build fuzz-gen (src/fuzz_gen_main.zig): seeds must be replayable\n  from a shell script, so the generator gets a standalone driver binary.\n  Installed only by its own step, so it stays out of releases.\n\n- tests/fuzz/native-diff.sh: generate + interpret + compile-and-link +\n  run per seed (~1 s, dominated by linking), so this is an offline batch,\n  not a std.testing.fuzz target. Both-nonzero exits match without\n  comparing stdout (the VM continues past top-level errors, native halts\n  at the first). The script probes the toolchain with a trivial program\n  because kaappi compile reports link failures on stderr but exits 0.\n\n- Gates: tests_native.zig asserts fixed-seed programs emit no unexpected\n  kaappi_eval calls AND that every defined function gets a named native\n  definition (the eval count alone cannot see a rejected function — its\n  define-time eval is emitted either way); tests_fuzz.zig asserts the\n  programs evaluate cleanly (measured 100% over 300 seeds).\n\n- fuzz.yml native-diff job: 300 programs nightly, seed base rotates per\n  run (printed and replayable), divergences uploaded as artifacts.\n\nFirst 500-seed batch found a real miscompilation: the closure tiers'\nfree-variable analysis does not descend into let/let*, so a lambda that\ncaptures an enclosing binding only through a let is compiled as closed and\nthe reference becomes a global lookup — an undefined-variable exit, or a\nsilently wrong value if a same-named global exists. Filed as #1407 (5 of\n500 seeds hit it); the nightly native-diff job is expected red until it is\nfixed.\n\nCloses #1395\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Harden native-diff exit classification, timeouts, and artifacts (review)\n\nReview on #1408 found three holes in the harness, all fixed here:\n\n- Both-nonzero exits were accepted as a match unconditionally, so a\n  native segfault (exit 139) against an ordinary VM error (exit 1) was\n  invisible — the loudest class of native-backend bug this oracle exists\n  for. Any exit >= 128 (death by signal) is now a divergence even when\n  both sides errored; ordinary-error matching applies only to 1..127.\n\n- The per-seed `kaappi compile` ran unbounded, so a hung linker on one\n  seed stalled the whole batch instead of being classified. Compilation\n  now has its own 60 s timeout (longer than the 10 s execution budget —\n  it forks the system linker), a timed-out compile is reported as a\n  divergence, and the startup probe gets a generous budget while warming\n  the compiler-rt cache so per-seed compiles fit the tighter limit.\n\n- save_divergence could attach a previous seed's nat.out/nat.err on the\n  compile-failure path (those files are only written after a successful\n  compile). All per-seed transients are cleared at the top of each\n  iteration.\n\nAlso from the same review: the generator's stdout loop now follows\nreporting.writeToFd's errno handling (EINTR retry, hard exit on failure —\na silently truncated program must never be diffed as a real seed), both\nfuzz workflow jobs set persist-credentials: false on checkout since they\nexecute fuzzer-generated programs, and the comparison-rules documentation\nin the script header and docs/dev/fuzzing.md matches the implementation.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T12:47:08Z",
-          "tree_id": "0113bf7508d9fda1fd28db30d65e00aa3d9bc44f",
-          "url": "https://github.com/kaappi/kaappi/commit/542e3a93f7f174f09cd4751e1f649fa96841ae44"
-        },
-        "date": 1783689461614,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.427994,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.186839,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.993993,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.460898,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013131,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.339204,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512454,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07173,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.619108,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.931074,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.853122,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.047647,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.605648,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.762759,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043781,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.026754,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8c0251b94d9ac86dd86d0bf1e50d3c8b9453d0a6",
+          "message": "Normalize heap-Value creation to makePointer(&x.header) (#1622)\n\nA heap Value's payload was the *struct* address at ~100 call sites but\nthe *header field* address in newer code (fiber, reactor, srfi18,\nshared_channel) — two conventions that only agree while Zig's auto\nlayout happens to keep `header` at byte offset 0, which it promises for\nno field: adding two bools to Port once moved its header to offset 48,\nsilently corrupting every port Value (#1608 review).\n\nMake the header-address convention universal and compiler-enforced:\nmakePointer now takes *Object instead of *anyopaque, so the only natural\nspelling is makePointer(&x.header) and passing a struct pointer is a\ncompile error rather than latent corruption. All 122 call sites are\nmigrated (99 struct-pointer sites converted, 23 already-correct sites\nlose their now-redundant @ptrCast), which lets heap structs gain and\nreorder fields freely — as Fiber, whose header already sits at a nonzero\noffset, always could.\n\nThe stopgap comptime layout guard from #1608 (assert header offset 0 for\nall 36 types.zig heap types) is deleted along with Port.sock_state's\npacking constraint, replaced by a round-trip test on a deliberately\nreorder-prone struct and updated heap-type docs.\n\nCloses #1618\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T07:25:39Z",
+          "tree_id": "864f2797dd46e0715ac9a0f9a0ed57f87e4a9be5",
+          "url": "https://github.com/kaappi/kaappi/commit/8c0251b94d9ac86dd86d0bf1e50d3c8b9453d0a6"
+        },
+        "date": 1784274986860,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.867284,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.093807,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.868841,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.121927,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006363,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052492,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469411,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.064347,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.452722,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.769259,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.454408,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.404092,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.683355,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.963864,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041057,
             "unit": "seconds"
           }
         ]
