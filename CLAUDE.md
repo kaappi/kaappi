@@ -113,6 +113,8 @@ run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
 (kaappi.exe, thottam.exe, kaappi-lsp.exe); syscall-level platform
 differences live in `src/platform.zig` (see `docs/dev/windows.md` for the
 port's architecture, degradations, and how to test on a Windows machine).
+Porting to a new OS or CPU architecture: `docs/dev/porting.md` (porting
+surfaces, degradation ladder, staged checklists).
 
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
 fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
