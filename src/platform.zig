@@ -679,6 +679,13 @@ pub const path_list_sep: u8 = if (is_windows) ';' else ':';
 /// Suffix an executable candidate needs on this platform ("" on POSIX).
 pub const exe_suffix: []const u8 = if (is_windows) ".exe" else "";
 
+/// File name `zig build lib` gives the native-backend runtime static
+/// library on this platform: Zig names COFF archives `<name>.lib`, all
+/// others `lib<name>.a`. `-lkaappi_rt` resolves either spelling, but the
+/// existence probes (native_compiler.checkLibDir, doctor) must look for
+/// the name that is actually on disk (#1610).
+pub const rt_lib_name: []const u8 = if (is_windows) "kaappi_rt.lib" else "libkaappi_rt.a";
+
 /// Longest path (bytes, incl. NUL) the canonicalization buffers hold.
 pub const PATH_MAX: usize = if (is_windows) 4096 else std.posix.PATH_MAX;
 

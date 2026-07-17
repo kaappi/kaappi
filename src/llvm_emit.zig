@@ -1347,15 +1347,21 @@ pub const LLVMEmitter = struct {
     fn emitPreamble(self: *LLVMEmitter) EmitError!void {
         const arch = @import("builtin").cpu.arch;
         const os = @import("builtin").os.tag;
+        // The gnu (MinGW) Windows ABI matches how the runtime lib is built and
+        // how `zig cc` links on a box without MSVC (#1610). Clang would
+        // override a mismatched module triple with the driver's, but only
+        // with a warning that -w hides — emit the right one to begin with.
         const triple = switch (arch) {
             .aarch64 => switch (os) {
                 .macos => "aarch64-apple-macosx",
                 .linux => "aarch64-unknown-linux-gnu",
+                .windows => "aarch64-pc-windows-gnu",
                 else => "aarch64-unknown-unknown",
             },
             .x86_64 => switch (os) {
                 .macos => "x86_64-apple-macosx",
                 .linux => "x86_64-unknown-linux-gnu",
+                .windows => "x86_64-pc-windows-gnu",
                 else => "x86_64-unknown-unknown",
             },
             else => "unknown-unknown-unknown",

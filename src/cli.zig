@@ -384,7 +384,7 @@ pub fn printUsage() void {
             "  --completions <sh> Output completion script (bash, zsh, fish)\n" ++
             "\n" ++
             "Environment variables:\n" ++
-            "  KAAPPI_LIB_DIR     Directory containing libkaappi_rt.a (for compile)\n" ++
+            "  KAAPPI_LIB_DIR     Directory containing " ++ platform.rt_lib_name ++ " (for compile)\n" ++
             "\n" ++
             "With no file argument, starts an interactive REPL.\n",
     );

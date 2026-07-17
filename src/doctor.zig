@@ -38,6 +38,11 @@ pub const USAGE_ERROR_EXIT: u8 = 2;
 /// The build's target triple and optimize mode are comptime-known, so they are
 /// module constants shared by the human table, the JSON meta, and the tests.
 const target_triple = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ "-" ++ @tagName(builtin.abi);
+
+/// Platform spelling of the native-backend runtime archive (`libkaappi_rt.a`;
+/// `kaappi_rt.lib` on Windows) — the messages below must name the file the
+/// user would actually see on disk (#1610).
+const rt_lib = platform.rt_lib_name;
 const build_mode = @tagName(builtin.mode);
 
 // ── Findings model ───────────────────────────────────────────────────────────
@@ -352,8 +357,8 @@ fn collectNativeBackend(r: *Report) void {
         r.add("native-backend", "c-compiler", .warn, "none of zig, cc, clang, gcc found on PATH", "install zig (recommended), clang, or gcc to compile native binaries");
     }
 
-    // `libkaappi_rt.a` lookup across the four documented locations, in the order
-    // native_compiler.findLibDir consults them.
+    // Runtime-archive lookup across the four documented locations, in the
+    // order native_compiler.findLibDir consults them.
     var archive_dir: ?[]const u8 = null;
 
     // An explicit KAAPPI_LIB_DIR that does not resolve is a definite
@@ -362,12 +367,12 @@ fn collectNativeBackend(r: *Report) void {
     if (platform.getenv("KAAPPI_LIB_DIR")) |env| {
         const dir = std.mem.sliceTo(env, 0);
         if (!dirExists(a, dir)) {
-            r.add("native-backend", "KAAPPI_LIB_DIR", .fail, r.fmt("{s} (directory does not exist)", .{dir}), "point KAAPPI_LIB_DIR at a directory containing libkaappi_rt.a, or unset it to use the default search");
+            r.add("native-backend", "KAAPPI_LIB_DIR", .fail, r.fmt("{s} (directory does not exist)", .{dir}), "point KAAPPI_LIB_DIR at a directory containing " ++ rt_lib ++ ", or unset it to use the default search");
         } else if (hasArchive(a, dir)) {
             archive_dir = dir;
-            r.add("native-backend", "KAAPPI_LIB_DIR", .pass, r.fmt("{s} (contains libkaappi_rt.a)", .{dir}), null);
+            r.add("native-backend", "KAAPPI_LIB_DIR", .pass, r.fmt("{s} (contains " ++ rt_lib ++ ")", .{dir}), null);
         } else {
-            r.add("native-backend", "KAAPPI_LIB_DIR", .fail, r.fmt("{s} (exists but has no libkaappi_rt.a)", .{dir}), "place libkaappi_rt.a in that directory, or unset KAAPPI_LIB_DIR to use the default search");
+            r.add("native-backend", "KAAPPI_LIB_DIR", .fail, r.fmt("{s} (exists but has no " ++ rt_lib ++ ")", .{dir}), "place " ++ rt_lib ++ " in that directory, or unset KAAPPI_LIB_DIR to use the default search");
         }
     }
 
@@ -388,9 +393,9 @@ fn collectNativeBackend(r: *Report) void {
     }
 
     if (archive_dir) |dir| {
-        r.add("native-backend", "libkaappi_rt.a", .pass, r.fmt("found in {s}", .{dir}), null);
+        r.add("native-backend", rt_lib, .pass, r.fmt("found in {s}", .{dir}), null);
     } else {
-        r.add("native-backend", "libkaappi_rt.a", .warn, "not found in KAAPPI_LIB_DIR, <exe>/../lib, zig-out/lib, or /usr/local/lib", "run 'zig build lib' in a source checkout, or install a release build that ships libkaappi_rt.a");
+        r.add("native-backend", rt_lib, .warn, "not found in KAAPPI_LIB_DIR, <exe>/../lib, zig-out/lib, or /usr/local/lib", "run 'zig build lib' in a source checkout, or install a release build that ships " ++ rt_lib);
     }
 
     // Smoke link: prove the discovered compiler can actually link a program
@@ -398,7 +403,7 @@ fn collectNativeBackend(r: *Report) void {
     if (found_cc and archive_dir != null) {
         smokeLink(r, archive_dir.?);
     } else {
-        r.add("native-backend", "smoke-link", .pass, "skipped (needs both a C compiler and libkaappi_rt.a)", null);
+        r.add("native-backend", "smoke-link", .pass, "skipped (needs both a C compiler and " ++ rt_lib ++ ")", null);
     }
 }
 
@@ -475,9 +480,9 @@ fn collectFfi(r: *Report) void {
 // ── Smoke link ───────────────────────────────────────────────────────────────
 
 /// Compile and link a tiny C program that references one leaf runtime export
-/// (`kaappi_fixnum_add`) against `libkaappi_rt.a`. A successful link proves the
-/// C compiler works and the archive is well-formed and resolvable — the exact
-/// path `kaappi compile` takes. The program is never executed.
+/// (`kaappi_fixnum_add`) against the runtime archive. A successful link proves
+/// the C compiler works and the archive is well-formed and resolvable — the
+/// exact path `kaappi compile` takes. The program is never executed.
 fn smokeLink(r: *Report, lib_dir: []const u8) void {
     // Never fork a compiler from within the unit-test binary: `probeAll` runs
     // this path, and tests must stay hermetic and fast. The shell test exercises
@@ -553,7 +558,9 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
     push(&argv, &argc, a, "-lkaappi_rt");
     push(&argv, &argc, a, "-lc");
     push(&argv, &argc, a, "-lm");
-    if (comptime !platform.is_windows) push(&argv, &argc, a, "-lpthread");
+    // Windows: the runtime archive calls Winsock (#1608) and a foreign link
+    // must name the import lib itself — mirrors native_compiler.tryLink (#1610).
+    if (comptime platform.is_windows) push(&argv, &argc, a, "-lws2_32") else push(&argv, &argc, a, "-lpthread");
     argv[argc] = null;
 
     const link_ok = blk: {
@@ -591,9 +598,9 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
         break :blk exited and code == 0;
     };
     if (link_ok) {
-        r.add("native-backend", "smoke-link", .pass, r.fmt("linked a test program against libkaappi_rt.a in {s}", .{lib_dir}), null);
+        r.add("native-backend", "smoke-link", .pass, r.fmt("linked a test program against " ++ rt_lib ++ " in {s}", .{lib_dir}), null);
     } else {
-        r.add("native-backend", "smoke-link", .warn, "link against libkaappi_rt.a failed", "run 'kaappi compile <file.scm>' to see the linker error");
+        r.add("native-backend", "smoke-link", .warn, "link against " ++ rt_lib ++ " failed", "run 'kaappi compile <file.scm>' to see the linker error");
     }
 }
 
@@ -617,7 +624,7 @@ fn fileExists(a: std.mem.Allocator, path: []const u8) bool {
 }
 
 fn hasArchive(a: std.mem.Allocator, dir: []const u8) bool {
-    const path = std.fmt.allocPrint(a, "{s}/libkaappi_rt.a", .{dir}) catch return false;
+    const path = std.fmt.allocPrint(a, "{s}/" ++ rt_lib, .{dir}) catch return false;
     return fileExists(a, path);
 }
 
