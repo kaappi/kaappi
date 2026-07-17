@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784288099766,
+  "lastUpdate": 1784293043147,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "51128e3c283b839a7ac1e6f0d16a16d3a5538f1f",
-          "message": "Bump the github-actions group with 2 updates (#1416)\n\nBumps the github-actions group with 2 updates: [codecov/codecov-action](https://github.com/codecov/codecov-action) and [actions/cache](https://github.com/actions/cache).\n\n\nUpdates `codecov/codecov-action` from 5.5.5 to 7.0.0\n- [Release notes](https://github.com/codecov/codecov-action/releases)\n- [Changelog](https://github.com/codecov/codecov-action/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/codecov/codecov-action/compare/0fb7174895f61a3b6b78fc075e0cd60383518dac...fb8b3582c8e4def4969c97caa2f19720cb33a72f)\n\nUpdates `actions/cache` from 4.3.0 to 6.1.0\n- [Release notes](https://github.com/actions/cache/releases)\n- [Changelog](https://github.com/actions/cache/blob/main/RELEASES.md)\n- [Commits](https://github.com/actions/cache/compare/0057852bfaa89a56745cba8c7296529d2fc39830...55cc8345863c7cc4c66a329aec7e433d2d1c52a9)\n\n---\nupdated-dependencies:\n- dependency-name: codecov/codecov-action\n  dependency-version: 7.0.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: github-actions\n- dependency-name: actions/cache\n  dependency-version: 6.1.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-07-10T22:03:59+05:30",
-          "tree_id": "6085da6f1991a4e85d27cb347ba4c7338622ab5d",
-          "url": "https://github.com/kaappi/kaappi/commit/51128e3c283b839a7ac1e6f0d16a16d3a5538f1f"
-        },
-        "date": 1783702834351,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.366575,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.80611,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.014503,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.434886,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013193,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338884,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506759,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069901,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.509531,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.947059,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.754261,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.041762,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.590679,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.742085,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042929,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036891,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04fdfdc635071089886b7c209c6e2d9accced98c",
+          "message": "Run the shell-based test suites on Windows (#1612) (#1630)\n\n* Run the shell-based test suites on Windows (#1612)\n\nThe bash-driven suites (errors, compile, test-runner, pipeline, doctor,\nfmt, cache, timings, the smoke .sh scripts, sandbox, robustness) had\nnever executed on Windows — exactly the surface most likely to differ:\nexit codes, error formats, path handling, subcommand output. Verified on\nthe reference Windows 11 ARM64 VM under Git Bash (34 pass, 0 fail,\n15 skip) and wired into the windows-arm-test CI job.\n\nThe first sweep caught two real runtime bugs, both fixed here:\n\n* The CRT's preopened fds 0/1/2 stayed in text mode, so every \\n reached\n  pipes as \\r\\n — piped output differed byte-for-byte from POSIX (files\n  already open O_BINARY for exactly this reason). platform.initConsole\n  (console UTF-8 + VT mode) also turned out to be dead code, never\n  called since the port landed. The new platform.initStandardStreams,\n  called first in all three binaries' mains, flips stdout/stderr to\n  binary unconditionally, flips stdin only when it is not the\n  interactive console (the plain REPL's line reader relies on console\n  text mode), and performs the console setup for real. In kaappi-lsp\n  this also protects Content-Length framing.\n* kaappi test --changed/--list-affected discovery used std.fs.path.join\n  (the runtime's one platform-separator join), so discovered paths\n  carried '\\' and never matched the '/'-spelled import-graph and\n  git-diff paths.\n\nTheir regression tests are the suites themselves, now in CI on Windows:\nrepl-multiple-values.sh and test-runner/changed.sh each fail without the\ncorresponding fix.\n\ntests/scheme/shell-common.sh is the shell analogue of the .scm tests'\ncond-expand (windows ...) gate: skip_on_windows exits 77 (reported as\nSKIP by run-all.sh and CI), plus native_path (the C:/... spelling kaappi\nitself prints) and rt_lib_name (kaappi_rt.lib vs libkaappi_rt.a). The\ncompile/ suite self-skips — each script rebuilds with a native zig,\nwhich #1613 breaks until the 0.17.0 bump — as does\nprofile-json-escaping.sh, whose planted \"/\\ filename characters Windows\nforbids. The remaining drivers needed only spelling-level fixes\n(/dev/stdin arguments → real stdin, abort() exit 3 vs died-by-signal,\nplatform archive names, autocrlf-hermetic git fixture), all\nbehavior-identical on POSIX: the full POSIX suite stays green\n(1871 pass, 0 fail).\n\nCloses #1612.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Guard the CI shell-suite loop against the runner's implicit bash -e\n\nGitHub's `shell: bash` runs steps with -e, so the plain `out=$(...)`\nassignment aborted the whole step at the first skipping script's\nexit 77 (the VM harness ran without -e, masking this). Capture the\nstatus with `|| status=$?` instead.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T12:28:39Z",
+          "tree_id": "05986e572abb483271fa418c7a8acf3218cfecf3",
+          "url": "https://github.com/kaappi/kaappi/commit/04fdfdc635071089886b7c209c6e2d9accced98c"
+        },
+        "date": 1784293041379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.379536,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.300813,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.928544,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.417168,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006462,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054003,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504934,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068543,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.399567,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.935896,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.58259,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434284,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.825291,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.72015,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044224,
             "unit": "seconds"
           }
         ]
