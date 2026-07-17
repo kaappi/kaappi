@@ -50,17 +50,20 @@ see. Paths are normalized to `/` at the boundaries that produce them
 accepts forward slashes everywhere the runtime passes paths, and every
 internal path split/join is written for `/`.
 
-## Fd readiness: sockets only (#1608 stage 1)
+## Fd readiness: sockets and pipes (#1608)
 
-Fiber I/O suspension works on **sockets**; pipes and files keep blocking
-reads. Win32 has no unified readiness API for arbitrary handles, so the
-split follows what the platform can express:
+Fiber I/O suspension works on **sockets** (stage 1, event-driven) and
+**pipes** (stage 2, polled); files keep blocking reads — which is not a
+degradation at all, see below. Win32 has no unified readiness API for
+arbitrary handles, so each kind uses what the platform can express. The
+one-time `fdKind` probe (platform_win_pipe.zig) classifies a port's fd on
+first touch: `GetFileType` separates disk files out, and `isSocketFd`'s
+kernel-verified gates split PIPE-typed handles into sockets and pipes.
 
 * **Socket ports.** A socket enters the port layer as a CRT fd created
   with `_open_osfhandle((intptr_t)sock, 0)` — the bridge contract for
-  kaappi-net-style FFI code and `fd->port`. `maybeSetNonblocking`'s
-  one-time `isSocketFd` probe (platform_win_sock.zig) marks the port
-  `sock_state.is_socket` on first touch, so reads/writes route through
+  kaappi-net-style FFI code and `fd->port`. The probe marks the port
+  `fd_state.is_socket`, so reads/writes route through
   `platform.sockRecv`/`sockSend` from the start — CRT `_read`/`_write`
   cannot operate on (overlapped) SOCKET handles at all — and once a
   scheduler exists the port also flips non-blocking via `FIONBIO`, whose
@@ -80,11 +83,36 @@ split follows what the platform can express:
   a kernel-verified `ioctlsocket(FIONREAD)` round-trip, so a file or
   pipe recycling a dead socket's handle value can never be
   misclassified as a socket.
-* **Pipe and file ports.** CRT fds for pipes/files have no would-block
-  mode, so these ports never flip non-blocking, never EAGAIN, and never
-  reach the reactor — single-fiber blocking I/O, the WASI probe-fail
-  shape. Lifting this needs a completion-based (IOCP/overlapped) rework
-  of the retry protocol, deliberately deferred (#1608 stage 2).
+* **Pipe ports** (anonymous or named, e.g. an fd from CRT `_pipe` bridged
+  via `fd->port`) get *polled* readiness (platform_win_pipe.zig). Pipe
+  fds have no would-block mode, so under a scheduler the port enters
+  emulated non-blocking mode: `nonblocking` is set with no OS-level flip,
+  and reads/writes route through `pipeRead`/`pipeWrite`, whose
+  non-destructive pre-checks synthesize the EAGAIN the shared protocol
+  expects — `PeekNamedPipe` gates reads, and
+  `NtQueryInformationFile(FilePipeLocalInformation).WriteQuotaAvailable`
+  (the same query libuv uses for non-overlapped pipe writes) gates
+  writes, clamping each write to the space known to be free so the
+  blocking CRT write underneath can never actually block. The reactor
+  answers "when is it ready again" by re-running the same checks: while
+  any pipe interest is armed, the backend bounds its wait at a 10 ms poll
+  quantum and sweeps `pipePollReady` — the same latency order as the
+  ~15 ms OS timer granularity that already bounds this backend, paid only
+  while a fiber is actually parked on a pipe. Any check failure (broken
+  pipe, wrong-direction end) reports ready so the retried syscall
+  surfaces the real EOF/error; a failed write-quota query falls back to
+  the plain blocking write (the pre-stage-2 behavior, never a wrong
+  result). Sequential programs never set the flag: their pipe ports keep
+  plain blocking `_read`/`_write` and the exact pre-stage-2 syscall
+  profile.
+* **File ports** stay fully blocking — deliberately and permanently,
+  because that is the cross-platform baseline, not a Windows gap: POSIX
+  has no readiness for regular files either (`O_NONBLOCK` is a no-op on
+  them; epoll rejects them with EPERM, kqueue reports them always-ready),
+  so the kqueue/epoll builds also block the OS thread for the duration of
+  a disk read. Only a true async-file-I/O model (io_uring-class) would
+  change this, on every platform alike — out of scope for the KEP-0001
+  readiness model.
 * **Timers and cross-thread wakeups** are unaffected either way: the
   same backend serves `thread-sleep!` and timed channel/mutex waits
   (`WaitForMultipleObjects` bounded by the nearest deadline) and the
@@ -94,6 +122,30 @@ split follows what the platform can express:
 
 Fibers, channels (including capacity-0 rendezvous), SRFI-18 OS threads,
 and cross-thread SharedChannel promotion all work on top of this.
+
+### Why polling, not IOCP (#1608 stage 2 evaluation)
+
+The issue's stage-2 question — do pipes/files justify a completion-based
+(IOCP/overlapped) rework of the park-and-retry protocol? — resolved to
+**no**, on three grounds:
+
+1. **IOCP cannot serve the fds the port layer actually sees.** Overlapped
+   I/O requires `FILE_FLAG_OVERLAPPED` at handle creation, and the pipe
+   fds that reach the runtime — CRT `_pipe`, inherited descriptors,
+   foreign FFI code wrapping `CreatePipe` handles — are synchronous
+   handles without it. The only general completion design is a blocking
+   worker-thread pool (libuv's fallback for non-overlapped pipes), a new
+   subsystem whose issued-read semantics also break the retry protocol's
+   guarantees: a worker that has consumed bytes when the waiting fiber is
+   terminated or the port closed loses data that the park-and-retry
+   model, which never reads until readiness is known, cannot lose.
+2. **Files gain nothing from any of it** — POSIX offers no regular-file
+   readiness either (see above), so there is no behavior gap to close.
+3. **Pipes don't need completion.** The polled design above keeps the
+   protocol byte-for-byte, reuses the backend's existing per-wait sweep
+   shape, and its 10 ms worst-case wake latency sits inside the latency
+   envelope the platform's own timer granularity already imposes — and
+   the quantum is paid only while a pipe waiter exists.
 
 ## Other deliberate degradations
 
@@ -158,8 +210,10 @@ fixture DLL that `windows-cross` cross-compiles into the same artifact
 (`zig cc -target aarch64-windows-gnu -shared`). What CI can't run yet —
 the shell-based suites (#1612) and interactive surfaces like the REPL —
 is verified against a real Windows 11 ARM64 machine (e.g. a UTM VM with
-ssh). The unit-test binary compiles with the same target flag and runs
-on the box:
+ssh). Before any decisive run on the box, `kaappi cache clear` — dirty
+builds at the same commit share bytecode-cache ids with different code.
+The unit-test binary compiles with the same target flag and runs on the
+box:
 
 ```bash
 zig build test -Dtarget=aarch64-windows       # compiles; foreign run steps skip cleanly
@@ -179,7 +233,9 @@ continuations,hygiene,srfi,ffi,audit}` file — the same set the
 suites (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`)
 run on Windows too: testing_helpers' cross-platform fd pairs substitute
 loopback TCP socket pairs for the POSIX pipes/socketpairs, so those
-suites double as the socket-readiness backend's coverage (#1608). The
+suites double as the socket-readiness backend's coverage, and their
+"#1608:" tests run the same park/wake patterns over real CRT `_pipe`
+pairs, covering the polled pipe backend (stage 2). The
 POSIX-permission/FIFO/uid tests and the dup2-based fd-recycle reactor
 test skip.
 
@@ -203,10 +259,6 @@ the github-release skill's Step 10.
 
 ## Known gaps / follow-ups
 
-* Fiber I/O suspension on **pipes and files** still blocks the OS thread
-  (#1608 stage 2): CRT fds for those have no would-block mode, so lifting
-  it means a completion-based (IOCP/overlapped) rework of the
-  park-and-retry protocol. Sockets are done (stage 1, above).
 * Native compilation on Windows ARM64 crashes in the Zig 0.16.0
   toolchain (`zig build`/`zig build-exe` access-violate on any project,
   #1613) — all builds must cross-compile, and `kaappi compile` on the

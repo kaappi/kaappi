@@ -27,11 +27,13 @@ test {
     _ = @import("tests_native_gate.zig");
     // The fd-readiness suites run everywhere: their fds come from
     // testing_helpers' cross-platform pairs — pipes/socketpairs on POSIX,
-    // loopback socket pairs on Windows, where fd readiness is socket-only
-    // (#1608) and these suites are the WSAEventSelect backend's coverage.
+    // loopback socket pairs on Windows, where these suites cover the
+    // WSAEventSelect socket backend, and their "#1608:" pipe-pair tests
+    // cover the polled pipe backend (stage 2).
     _ = @import("tests_reactor.zig");
     _ = @import("tests_scheduler.zig");
     _ = @import("tests_port_io.zig");
     _ = @import("tests_diagnostics.zig");
     _ = @import("tests_spans.zig");
+    _ = @import("tests_platform.zig");
 }

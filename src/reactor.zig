@@ -6,7 +6,7 @@
 //! became runnable (fd readiness or timer expiry). Wired into the
 //! scheduler in KEP-0001 Phase 2 (fiber.zig's runSchedulerStep). Backends:
 //! kqueue (macOS/BSD), epoll (Linux), poll_oneoff (WASI, Phase 4),
-//! WSAEventSelect (Windows, sockets only — #1608). See
+//! WSAEventSelect + polled pipes (Windows — #1608). See
 //! https://github.com/kaappi/keps/blob/main/keps/0001-event-loop-reactor.md
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -891,35 +891,50 @@ const WasiPollBackend = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Windows event backend (#1608 stage 1: socket readiness)
+// Windows event backend (#1608: socket + pipe readiness)
 //
-// Fd readiness on Windows is socket-only. Win32 has no unified readiness
-// API for arbitrary handles — pipes and files have no would-block mode at
-// the CRT layer, so their ports never flip non-blocking, never EAGAIN,
-// and never reach register() (single-fiber blocking I/O, the WASI
-// probe-fail shape). Sockets do: maybeSetNonblocking's isSocketFd probe
-// flips them via FIONBIO, their reads/writes EAGAIN through
-// sockRecv/sockSend, and this backend supplies the wakeup.
+// Win32 has no unified readiness API for arbitrary handles, so this
+// backend is two mechanisms behind one wait:
 //
-// The wakeup is WSAEventSelect wired into the pre-existing event wait:
-// every armed socket posts its network-event records to one shared
-// manual-reset event (`sock_event`), and wait() blocks on exactly two
-// handles — the auto-reset notify event (KEP-0002 cross-thread ring,
-// unchanged) and `sock_event` — bounded by the nearest timer deadline.
-// After any wakeup a sweep WSAEnumNetworkEvents-es every armed socket and
-// maps the records onto ReadyEvents (FD_READ/FD_ACCEPT → readable,
-// FD_WRITE/FD_CONNECT → writable, FD_CLOSE → both, the epoll HUP
-// policy). Sharing one event avoids the 64-handle
-// WaitForMultipleObjects ceiling outright; the O(armed) sweep mirrors
-// WasiPollBackend's per-wait rebuild.
+// * Sockets (stage 1) get event-driven readiness. maybeSetNonblocking's
+//   fdKind probe flips them via FIONBIO, their reads/writes EAGAIN
+//   through sockRecv/sockSend, and every armed socket posts its
+//   network-event records via WSAEventSelect to one shared manual-reset
+//   event (`sock_event`). wait() blocks on exactly two handles — the
+//   auto-reset notify event (KEP-0002 cross-thread ring, unchanged) and
+//   `sock_event` — bounded by the nearest timer deadline; after any
+//   wakeup a sweep WSAEnumNetworkEvents-es every armed socket and maps
+//   the records onto ReadyEvents (FD_READ/FD_ACCEPT → readable,
+//   FD_WRITE/FD_CONNECT → writable, FD_CLOSE → both, the epoll HUP
+//   policy). Sharing one event avoids the 64-handle
+//   WaitForMultipleObjects ceiling outright; the O(armed) sweep mirrors
+//   WasiPollBackend's per-wait rebuild.
 //
-// FD_WRITE and FD_CLOSE are edge-recorded, and (re)issuing WSAEventSelect
-// clears the socket's pending records — so a condition that became true
-// before arm() would be missed entirely (the classic WSAEventSelect
-// races: send hit WSAEWOULDBLOCK, the peer drained the buffer, *then* the
-// fiber parked). arm() therefore takes a 0-timeout select() snapshot
-// right after arming and stashes it as pre-ready state that the next
-// wait() reports without blocking.
+//   FD_WRITE and FD_CLOSE are edge-recorded, and (re)issuing
+//   WSAEventSelect clears the socket's pending records — so a condition
+//   that became true before arm() would be missed entirely (the classic
+//   WSAEventSelect races: send hit WSAEWOULDBLOCK, the peer drained the
+//   buffer, *then* the fiber parked). arm() therefore takes a 0-timeout
+//   select() snapshot right after arming and stashes it as pre-ready
+//   state that the next wait() reports without blocking.
+//
+// * Pipes (stage 2) get *polled* readiness. Pipe handles are not
+//   waitable readiness objects and carry no would-block mode; completion
+//   I/O is off the table too (CRT/inherited anonymous pipes lack
+//   FILE_FLAG_OVERLAPPED — see platform_win_pipe.zig). What they do
+//   offer is non-destructive state queries, so a pipe port EAGAINs
+//   through pipeRead/pipeWrite's peek/quota pre-checks, and while any
+//   pipe interest is armed wait() bounds its block at
+//   `pipe_poll_quantum_ns` and re-runs the same checks (pipePollReady)
+//   in its sweep — level-triggered by construction, so none of the
+//   edge-record races above apply and no pre-ready snapshot is needed.
+//   The quantum is the same order as the ~15 ms OS timer granularity
+//   that already bounds this backend's timers, and it is paid only
+//   while a fiber is actually parked on a pipe.
+//
+// Files stay fully blocking — which is the POSIX baseline as well
+// (O_NONBLOCK is a no-op on regular files; epoll rejects them), so
+// there is no cross-platform behavior gap to lift for them.
 // ---------------------------------------------------------------------------
 
 const WindowsEventBackend = struct {
@@ -935,8 +950,16 @@ const WindowsEventBackend = struct {
     /// fd → armed socket state; the userspace registry the sweep walks
     /// (kernel knotes' stand-in, like WasiPollBackend.interests).
     sockets: std.AutoHashMap(i32, SockReg),
+    /// fd → armed pipe interest (#1608 stage 2). No kernel object backs
+    /// these; while non-empty, wait() bounds its block at the poll
+    /// quantum and re-checks each entry (pipePollReady) in its sweep. A
+    /// reported direction disarms itself (the WasiPollBackend ONESHOT
+    /// emulation), so entries exist only while a fiber is parked and the
+    /// quantum is never paid otherwise.
+    pipes: std.AutoHashMap(i32, PipeReg),
     ready: std.ArrayList(ReadyEvent) = .empty,
-    /// Sweep scratch: fds whose socket died under the registration.
+    /// Sweep scratch: fds whose socket died under the registration, and
+    /// pipe fds whose armed interest was fully consumed this sweep.
     dead: std.ArrayList(i32) = .empty,
     /// Whether any armed socket carries an unreported pre-ready snapshot;
     /// makes the next wait() a 0-timeout collect instead of a block.
@@ -951,6 +974,15 @@ const WindowsEventBackend = struct {
         pre_write: bool = false,
     };
 
+    const PipeReg = struct { want_read: bool, want_write: bool };
+
+    /// Wait-timeout cap while any pipe interest is armed. Pipe readiness
+    /// on Windows is polled (header comment); this is the cadence — the
+    /// same order as the OS scheduler's ~15 ms timer granularity that
+    /// already bounds this backend, so pipe waits join the platform's
+    /// existing latency envelope rather than adding a new one.
+    const pipe_poll_quantum_ms: u32 = 10;
+
     fn init(allocator: std.mem.Allocator) !WindowsEventBackend {
         const ev = platform.win.CreateEventW(null, 0, 0, null) orelse return error.Unexpected;
         const sock_ev = platform.win.CreateEventW(null, 1, 0, null) orelse {
@@ -962,6 +994,7 @@ const WindowsEventBackend = struct {
             .sock_event = sock_ev,
             .allocator = allocator,
             .sockets = std.AutoHashMap(i32, SockReg).init(allocator),
+            .pipes = std.AutoHashMap(i32, PipeReg).init(allocator),
         };
     }
 
@@ -982,21 +1015,31 @@ const WindowsEventBackend = struct {
         }
         _ = platform.win.CloseHandle(self.sock_event);
         self.sockets.deinit();
+        self.pipes.deinit();
         self.ready.deinit(self.allocator);
         self.dead.deinit(self.allocator);
     }
 
-    /// Arms readiness interest for the socket behind `fd`. Both reactor
-    /// call sites pass the fd's complete desired state, and WSAEventSelect
-    /// replaces the previous mask wholesale — epoll's CTL_MOD shape, so
-    /// `first_time` is irrelevant. The SOCKET is re-derived from the fd on
-    /// every arm, which also self-heals fd-number recycling over a stale
-    /// registration (the epoll ENOENT-retry concern). Fails cleanly on a
-    /// non-socket fd (WSAEventSelect: WSAENOTSOCK) — waitForFd turns that
-    /// into a diagnosable registration error; port-layer callers never get
-    /// here for non-sockets because only sockets ever EAGAIN.
+    /// Arms readiness interest for the socket or pipe behind `fd`. Both
+    /// reactor call sites pass the fd's complete desired state, and both
+    /// mechanisms replace the previous interest wholesale — epoll's
+    /// CTL_MOD shape, so `first_time` is irrelevant. The fd's kind and
+    /// its SOCKET are re-derived on every arm, which also self-heals
+    /// fd-number recycling over a stale registration (the epoll
+    /// ENOENT-retry concern), including a recycle that changes the fd's
+    /// kind — each path drops the other registry's entry. Fails cleanly
+    /// on a non-socket, non-pipe fd (WSAEventSelect: WSAENOTSOCK) —
+    /// waitForFd turns that into a diagnosable registration error;
+    /// port-layer callers never get here for files because file ports
+    /// never EAGAIN.
     fn arm(self: *WindowsEventBackend, fd: i32, wants_read: bool, wants_write: bool, _: bool) !void {
         platform.ensureWinsock();
+        if (platform.fdKind(fd) == .pipe) {
+            _ = self.sockets.remove(fd);
+            try self.pipes.put(fd, .{ .want_read = wants_read, .want_write = wants_write });
+            return;
+        }
+        _ = self.pipes.remove(fd);
         const sock = platform.sockFromFd(fd) orelse return error.Unexpected;
 
         // Reserve the map slot before touching the kernel so an OOM can't
@@ -1026,6 +1069,9 @@ const WindowsEventBackend = struct {
             // are irrelevant since the registry entry is dropped either way.
             _ = platform.win.WSAEventSelect(kv.value.sock, null, 0);
         }
+        // Pipes have no kernel arming to cancel — dropping the entry is
+        // the whole disarm.
+        _ = self.pipes.remove(fd);
     }
 
     fn wait(self: *WindowsEventBackend, timeout_ns: ?u64) ![]const ReadyEvent {
@@ -1035,6 +1081,9 @@ const WindowsEventBackend = struct {
             const ceil_ms = (ns +| 999_999) / 1_000_000;
             break :blk @intCast(@min(ceil_ms, platform.win.INFINITE - 1));
         } else platform.win.INFINITE;
+        // Armed pipe interest has no kernel wakeup — bound the block at
+        // the poll quantum so the sweep below re-checks it (#1608 stage 2).
+        if (self.pipes.count() > 0) ms = @min(ms, pipe_poll_quantum_ms);
         // Unreported pre-ready state turns the block into a collect pass.
         if (self.any_pre_ready) ms = 0;
 
@@ -1055,8 +1104,9 @@ const WindowsEventBackend = struct {
         // WasiPollBackend guard with their own ensure-capacity calls.
         self.ready.clearRetainingCapacity();
         self.dead.clearRetainingCapacity();
-        try self.ready.ensureTotalCapacity(self.allocator, self.sockets.count());
-        try self.dead.ensureTotalCapacity(self.allocator, self.sockets.count());
+        const max_events = self.sockets.count() + self.pipes.count();
+        try self.ready.ensureTotalCapacity(self.allocator, max_events);
+        try self.dead.ensureTotalCapacity(self.allocator, max_events);
         self.any_pre_ready = false;
 
         var it = self.sockets.iterator();
@@ -1089,6 +1139,26 @@ const WindowsEventBackend = struct {
             }
         }
         for (self.dead.items) |fd| _ = self.sockets.remove(fd);
+
+        // Pipe sweep (#1608 stage 2): polled, level-triggered readiness —
+        // each pass re-derives the fd's current state, so there are no
+        // event records to lose and no pre-ready snapshots to keep. A
+        // reported direction disarms itself (the WasiPollBackend ONESHOT
+        // emulation: armed ⇔ a fiber is parked holds by construction);
+        // Reactor.poll re-arms for whatever waiters remain after a fire.
+        self.dead.clearRetainingCapacity();
+        var pit = self.pipes.iterator();
+        while (pit.next()) |entry| {
+            const fd = entry.key_ptr.*;
+            const reg = entry.value_ptr;
+            const r = platform.pipePollReady(fd, reg.want_read, reg.want_write);
+            if (!r.readable and !r.writable) continue;
+            self.ready.appendAssumeCapacity(.{ .fd = fd, .readable = r.readable, .writable = r.writable });
+            if (r.readable) reg.want_read = false;
+            if (r.writable) reg.want_write = false;
+            if (!reg.want_read and !reg.want_write) self.dead.appendAssumeCapacity(fd);
+        }
+        for (self.dead.items) |fd| _ = self.pipes.remove(fd);
         // Timer expiry is decided by the reactor against clockNs()
         // (popExpiredTimers); a notify set wake_pending before SetEvent.
         return self.ready.items;

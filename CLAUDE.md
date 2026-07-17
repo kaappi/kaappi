@@ -506,11 +506,15 @@ flip is the host-capability probe: `fd_fdstat_set_flags(NONBLOCK)` failing
 registers an fd and the reactor degrades to CLOCK-only `poll_oneoff` waits —
 timers and `thread-sleep!` (the one SRFI-18 primitive registered on WASM,
 as a global; the `(srfi 18)` library itself stays native-only) always work.
-On Windows the probe is `isSocketFd` (#1608): socket-backed ports (CRT fds
+On Windows the probe is `fdKind` (#1608): socket-backed ports (CRT fds
 wrapping a SOCKET via `_open_osfhandle`) flip via `FIONBIO` and read/write
 through `platform.sockRecv/sockSend`, with WSAEventSelect readiness in the
-reactor; pipe/file ports stay blocking (no would-block mode at the CRT
-layer — IOCP rework is #1608 stage 2).
+reactor; pipe ports enter *emulated* non-blocking mode (no OS flip exists) —
+`platform.pipeRead/pipeWrite`'s peek/write-quota pre-checks synthesize the
+EAGAIN and the reactor re-polls the same checks on a 10 ms quantum, paid
+only while a pipe waiter exists; file ports stay blocking, which is the
+POSIX baseline too (no OS has regular-file readiness — see
+`docs/dev/windows.md` for why IOCP was rejected).
 Ports on fd > 2 buffer writes in `port.write_buf` until
 `flush-output-port`, `close-port`, a read on the same port, or the 8 KiB
 high-water mark; `close-port` flushes, wakes fibers parked on the fd

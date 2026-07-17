@@ -542,18 +542,26 @@ pub const Port = struct {
     write_buf: ?[]u8 = null,
     write_buf_start: usize = 0,
     write_buf_len: usize = 0,
-    /// Windows-only socket-port state (#1608); always defaults elsewhere.
-    sock_state: packed struct(u8) {
-        /// maybeSetNonblocking's socket probe already ran for this port,
-        /// whatever its outcome — the probe is a getsockopt syscall and
+    /// Windows-only fd-kind state (#1608); always defaults elsewhere.
+    fd_state: packed struct(u8) {
+        /// maybeSetNonblocking's fd-kind probe already ran for this port,
+        /// whatever its outcome — the probe is a handful of syscalls and
         /// must not repeat on every read of an ordinary file port.
         probe_done: bool = false,
-        /// `fd` wraps a SOCKET (established by the isSocketFd probe), so
+        /// `fd` wraps a SOCKET (fdKind probe, #1608 stage 1), so
         /// reads/writes must route through platform.sockRecv/sockSend —
         /// CRT _read/_write cannot operate on (overlapped) SOCKET handles
         /// at all, blocking or not.
         is_socket: bool = false,
-        _pad: u6 = 0,
+        /// `fd` wraps a non-socket pipe end (#1608 stage 2). Under a
+        /// scheduler the port enters *emulated* non-blocking mode
+        /// (`nonblocking` set with no OS-level flip): reads/writes route
+        /// through platform.pipeRead/pipeWrite, whose peek/quota
+        /// pre-checks synthesize the EAGAIN that parks the fiber, and the
+        /// reactor re-runs the same checks on a poll cadence for the
+        /// wakeup.
+        is_pipe: bool = false,
+        _pad: u5 = 0,
     } = .{},
 };
 
