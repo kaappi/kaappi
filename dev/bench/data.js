@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784237398489,
+  "lastUpdate": 1784249871952,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ea008c6b5bc484d6a64beb46cbedad18fca849f9",
-          "message": "Fuzzing roadmap Phase 1: seed corpora, token target, scheduled CI job (#1398)\n\n* Add fuzz seed corpora and a token-vocabulary fuzz target (#1389, #1391)\n\nThe four fuzz targets started from nothing: no seed corpus, and\nbyte-oriented Smith inputs that rarely got past the lexer, so the\ncompiler, VM, and GC were barely exercised.\n\nCorpus entries for std.testing.fuzz are serialized Smith decision\nstreams, not raw inputs — a seed() helper encodes source text as\n<4-byte LE length><bytes> and rejects seeds that exceed the target's\nbuffer at compile time. Each target gets a curated corpus: lexical\nvariety for the reader, one expression per core form for the compiler,\nsmall self-contained programs for eval, and a checked-in valid .sbc\nfixture (plus truncated/bit-flipped variants) for the bytecode loader.\nThe fixture's compiler-version hash is patched at comptime so releases\ndon't stale it; a sanity test fails when a format VERSION bump does.\nThe fixture needs a .gitignore exception: *.sbc normally means a local\ncompile cache.\n\nThe new \"fuzz tokens\" target mutates token sequences instead of bytes\n(Salls et al., USENIX Security 2021): 76% of its inputs get past the\nfirst readDatum vs 33% for random bytes, without being confined to\ngrammatically valid programs.\n\nThe shared eval harness silences fd 1 while evaluating: the test\nbinary's stdout is the build-runner IPC pipe, and a generated\n(display ...) call would deadlock the run.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add scheduled bounded fuzzing job to CI (#1390)\n\nThe fuzz targets were never run in fuzzing mode — no --fuzz invocation\nexisted anywhere, so each target only ever executed once with a fixed\nseed under plain zig build test.\n\nfuzz.yml runs a bounded pass daily at 02:47 UTC (away from the 05:17\necosystem nightly) in two variants: default, and -Dgc-stress=true with\na smaller budget, which converts latent GC rooting bugs into immediate\nfailures. Limits are per fuzz test and sized from measured local rates\n(the eval-based targets build a full VM per input at ~20-50 ms).\n\nZig 0.16's bounded fuzz mode does not propagate a fuzz-found crash into\nthe build's exit code — verified with a locally planted panic — so the\njob treats .zig-cache/f/crash (the encoded crashing input) as the\nauthoritative failure marker, fails the run, and uploads it with the\nlogs.\n\ndocs/dev/fuzzing.md is the operating runbook: running locally, the CI\njob, and the failure workflow (minimise, regression test, corpus entry).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1398 review: sandboxed eval harness, workflow hardening\n\nevalOne now uses the sandboxed registration path (registerSandboxed +\nregisterSandboxedLibraries + sandbox_mode), so fuzz inputs that reach\nfilesystem, process, FFI, or thread forms get an ordinary undefined-\nvariable error instead of touching the host — including (exit), which\nwould have killed the fuzz worker. It also clears the GC threadlocal on\nteardown instead of leaving it pointing at a dead stack frame.\n\nThe workflow passes dispatch inputs via env (never interpolated into\nBash source), sets pipefail explicitly (shell: bash already implied it,\nbut explicit survives someone removing that line), removes a stale\ncrash marker before each run, and persists the fuzzer's corpus and\ncoverage across runs with a rolling actions/cache key — saved only on\nsuccess so crash state never leaks into the next run.\n\nRunbook: document the token target's u64 decision-stream encoding for\ncrash reproduction, the corpus persistence, and two wording fixes.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T06:23:25Z",
-          "tree_id": "db94295e6fb146599be58a14a151342db3138496",
-          "url": "https://github.com/kaappi/kaappi/commit/ea008c6b5bc484d6a64beb46cbedad18fca849f9"
-        },
-        "date": 1783666386909,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.939807,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.763901,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.955306,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.291141,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012575,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.316102,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477444,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067816,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.895503,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.85224,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.182146,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.96539,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.899045,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.996521,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04127,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040612,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4036bb127823d2590ef5e1a45d719f7838cb689e",
+          "message": "Run the FFI Scheme suite on Windows (#1611) (#1616)\n\nThe suite could not run there: (ffi-open #f) probed only the exe's\nempty export table, tests opened C libraries by POSIX name, and the\nuint64-range fixture only built as .dylib/.so.\n\n- platform.zig: give the dlOpen(null) process handle POSIX\n  dlopen(NULL) semantics — dlSym now probes every loaded module via\n  K32EnumProcessModules, so CRT symbols resolve from ucrtbase.dll.\n- tests: cond-expand ucrtbase for libm (no libm.dll), llabs/int64 for\n  labs/long (LLP64), and the CRT's _byteswap_ulong for ws2_32's htonl;\n  declare qsort with its true size_t signature everywhere; teach\n  uint64-range.scm the repo-relative fixture path.\n- CI: windows-cross cross-compiles libu64test.dll into the artifact;\n  windows-arm-test stages it and runs the ffi suite; run-all.sh builds\n  the host fixture when zig is on PATH, so uint64-range.scm stops\n  silently skipping on every platform.\n\nVerified on a Windows 11 ARM64 VM: all 14 ffi files pass (the fixture\nDLL loads, callbacks round-trip through qsort) and the unit suite is\n1050/0 including the new dlSym regression test. POSIX: full local\nsuite 1871/0.\n\nCloses #1611.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T05:59:00+05:30",
+          "tree_id": "6ac7d67e253752660762a9908631049683a1b273",
+          "url": "https://github.com/kaappi/kaappi/commit/4036bb127823d2590ef5e1a45d719f7838cb689e"
+        },
+        "date": 1784249871044,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.040444,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.642348,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.925987,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.43101,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006768,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053062,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512187,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0686,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.2454,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986695,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.521478,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471555,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.743944,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.836093,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044636,
             "unit": "seconds"
           }
         ]
