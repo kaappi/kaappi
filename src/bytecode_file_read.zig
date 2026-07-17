@@ -149,7 +149,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         bf.TAG_FUNCTION => {
             const idx = try r.readU32();
             if (idx >= all_funcs.len) return BytecodeError.CorruptedFile;
-            return types.makePointer(@ptrCast(all_funcs[idx]));
+            return types.makePointer(&all_funcs[idx].header);
         },
         bf.TAG_PAIR => {
             const car_val = try readConstant(r, gc, all_funcs, depth + 1);
@@ -386,7 +386,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     defer if (!keep_roots) gc.extra_roots.shrinkRetainingCapacity(roots_base);
     for (0..func_count) |i| {
         all_funcs[i] = gc.allocFunction() catch return BytecodeError.OutOfMemory;
-        gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch return BytecodeError.OutOfMemory;
+        gc.extra_roots.append(allocator, types.makePointer(&all_funcs[i].header)) catch return BytecodeError.OutOfMemory;
     }
 
     for (0..func_count) |i| {

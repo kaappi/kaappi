@@ -85,7 +85,7 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
 
     // The round-tripped bytecode executes and returns each constant.
     for (loaded.funcs[0..loaded.top_level_count], want) |func, w| {
-        var fv = types.makePointer(@ptrCast(func));
+        var fv = types.makePointer(&func.header);
         gc.pushRoot(&fv);
         defer gc.popRoot();
         const r = try vm.execute(func);
@@ -103,7 +103,7 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
 
     // ...and they remain executable after the collection.
     for (loaded.funcs[0..loaded.top_level_count], want) |func, w| {
-        var fv = types.makePointer(@ptrCast(func));
+        var fv = types.makePointer(&func.header);
         gc.pushRoot(&fv);
         defer gc.popRoot();
         const r = try vm.execute(func);
@@ -158,7 +158,7 @@ fn expectSbcEquivalence(source: []const u8) !void {
     // Phase 4: execute deserialized functions and compare final result
     var result: types.Value = types.VOID;
     for (loaded.funcs[0..loaded.top_level_count]) |func| {
-        var fv = types.makePointer(@ptrCast(func));
+        var fv = types.makePointer(&func.header);
         gc2.pushRoot(&fv);
         defer gc2.popRoot();
         result = try vm2.execute(func);

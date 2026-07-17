@@ -100,7 +100,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            if (isYoungPointer(gc, types.makePointer(@ptrCast(ri.record_type)))) return true;
+            if (isYoungPointer(gc, types.makePointer(&ri.record_type.header))) return true;
             for (ri.fields) |field| {
                 if (isYoungPointer(gc, field)) return true;
             }
@@ -116,7 +116,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .closure => {
             const cls = obj.as(Closure);
-            if (isYoungPointer(gc, types.makePointer(@ptrCast(cls.func)))) return true;
+            if (isYoungPointer(gc, types.makePointer(&cls.func.header))) return true;
             for (cls.upvalues) |uv| {
                 if (isYoungPointer(gc, uv)) return true;
             }
@@ -155,10 +155,10 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             }
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    if (isYoungPointer(gc, types.makePointer(@ptrCast(cls)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(&cls.header))) return true;
                 }
                 if (frame.native) |nf| {
-                    if (isYoungPointer(gc, types.makePointer(@ptrCast(nf)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(&nf.header))) return true;
                 }
             }
             for (cont.handlers[0..cont.handler_count]) |handler| {
@@ -197,10 +197,10 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             if (isYoungPointer(gc, fiber.continuation_value)) return true;
             for (fiber.frames[0..fiber.frame_count]) |f| {
                 if (f.closure) |cls| {
-                    if (isYoungPointer(gc, types.makePointer(@ptrCast(cls)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(&cls.header))) return true;
                 }
                 if (f.native) |nf| {
-                    if (isYoungPointer(gc, types.makePointer(@ptrCast(nf)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(&nf.header))) return true;
                 }
                 const window = f.frameWindow();
                 const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
@@ -375,7 +375,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .closure => {
             const cls = obj.as(Closure);
-            markValue(gc, types.makePointer(@ptrCast(cls.func)));
+            markValue(gc, types.makePointer(&cls.func.header));
             for (cls.upvalues) |uv| markValue(gc, uv);
         },
         .hash_table => {
@@ -391,7 +391,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            markValue(gc, types.makePointer(@ptrCast(ri.record_type)));
+            markValue(gc, types.makePointer(&ri.record_type.header));
             for (ri.fields) |field| markValue(gc, field);
         },
         .promise => {
@@ -421,8 +421,8 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             const cont = obj.as(Continuation);
             for (cont.registers) |reg| markValue(gc, reg);
             for (cont.frames[0..cont.frame_count]) |frame| {
-                if (frame.closure) |cls| markValue(gc, types.makePointer(@ptrCast(cls)));
-                if (frame.native) |nf| markValue(gc, types.makePointer(@ptrCast(nf)));
+                if (frame.closure) |cls| markValue(gc, types.makePointer(&cls.header));
+                if (frame.native) |nf| markValue(gc, types.makePointer(&nf.header));
             }
             for (cont.handlers[0..cont.handler_count]) |handler| markValue(gc, handler.handler);
             for (cont.wind_records[0..cont.wind_count]) |wr| {
@@ -592,7 +592,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .pair => unreachable,
         .closure => {
             const cls = obj.as(Closure);
-            worklist.append(gc.allocator, types.makePointer(@ptrCast(cls.func))) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, types.makePointer(&cls.func.header)) catch @panic("GC mark: worklist OOM");
             for (cls.upvalues) |uv| {
                 worklist.append(gc.allocator, uv) catch @panic("GC mark: worklist OOM");
             }
@@ -632,7 +632,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .record_type => {},
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            worklist.append(gc.allocator, types.makePointer(@ptrCast(ri.record_type))) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, types.makePointer(&ri.record_type.header)) catch @panic("GC mark: worklist OOM");
             for (ri.fields) |field| {
                 worklist.append(gc.allocator, field) catch @panic("GC mark: worklist OOM");
             }
@@ -644,10 +644,10 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             }
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    worklist.append(gc.allocator, types.makePointer(@ptrCast(cls))) catch @panic("GC mark: worklist OOM");
+                    worklist.append(gc.allocator, types.makePointer(&cls.header)) catch @panic("GC mark: worklist OOM");
                 }
                 if (frame.native) |nf| {
-                    worklist.append(gc.allocator, types.makePointer(@ptrCast(nf))) catch @panic("GC mark: worklist OOM");
+                    worklist.append(gc.allocator, types.makePointer(&nf.header)) catch @panic("GC mark: worklist OOM");
                 }
             }
             for (cont.handlers[0..cont.handler_count]) |handler| {

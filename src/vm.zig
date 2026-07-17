@@ -59,8 +59,8 @@ fn markVMRoots(gc: *memory.GC) void {
     if (vm.gc != gc) return; // only mark the VM that owns this GC
 
     for (vm.frames[0..vm.frame_count]) |f| {
-        if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));
-        if (f.native) |nf| gc.markValue(types.makePointer(@ptrCast(nf)));
+        if (f.closure) |cls| gc.markValue(types.makePointer(&cls.header));
+        if (f.native) |nf| gc.markValue(types.makePointer(&nf.header));
         const window = f.frameWindow();
         const end: usize = @min(@as(usize, f.base) + window, vm.registers.len);
         var r: usize = f.base;

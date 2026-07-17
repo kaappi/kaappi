@@ -351,10 +351,10 @@ pub const Reactor = struct {
     pub fn markRoots(self: *Reactor, gc: *memory.GC) void {
         var it = self.regs.valueIterator();
         while (it.next()) |reg| {
-            for (reg.read_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
-            for (reg.write_waiters.items) |f| gc.markValue(types.makePointer(@ptrCast(&f.header)));
+            for (reg.read_waiters.items) |f| gc.markValue(types.makePointer(&f.header));
+            for (reg.write_waiters.items) |f| gc.markValue(types.makePointer(&f.header));
         }
-        for (self.timers.items) |entry| gc.markValue(types.makePointer(@ptrCast(&entry.fiber.header)));
+        for (self.timers.items) |entry| gc.markValue(types.makePointer(&entry.fiber.header));
     }
 
     /// Blocks up to `timeout_ns` (or the nearest timer deadline, whichever

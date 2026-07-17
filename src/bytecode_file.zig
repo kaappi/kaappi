@@ -229,7 +229,7 @@ test "bytecode round-trip: various constant types" {
     const func = try gc.allocFunction();
     // Root the function: the constant allocations below can collect, and an
     // unrooted func would be swept while we are still appending into it.
-    var func_root = types.makePointer(@ptrCast(func));
+    var func_root = types.makePointer(&func.header);
     gc.pushRoot(&func_root);
     defer gc.popRoot();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
@@ -326,7 +326,7 @@ test "bytecode round-trip: nested functions" {
     parent_func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
     parent_func.code.append(allocator, 0) catch unreachable; // src high
     parent_func.code.append(allocator, 0) catch unreachable; // src low
-    parent_func.constants.append(allocator, types.makePointer(@ptrCast(child_func))) catch unreachable;
+    parent_func.constants.append(allocator, types.makePointer(&child_func.header)) catch unreachable;
     parent_func.arity = 0;
     parent_func.locals_count = 1;
 
@@ -506,7 +506,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const func = try gc.allocFunction();
     // Root the function: the constant allocations below can collect, and an
     // unrooted func would be swept while we are still appending into it.
-    var func_root = types.makePointer(@ptrCast(func));
+    var func_root = types.makePointer(&func.header);
     gc.pushRoot(&func_root);
     defer gc.popRoot();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;

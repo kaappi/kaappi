@@ -359,7 +359,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
         const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
         for (loaded.funcs[0..top_count]) |func| {
-            var func_val = types.makePointer(@ptrCast(func));
+            var func_val = types.makePointer(&func.header);
             vm.gc.pushRoot(&func_val);
             const result = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
@@ -660,7 +660,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             crash.noteStage(.executing);
             for (loaded.funcs[0..top_count]) |func| {
-                var func_val = types.makePointer(@ptrCast(func));
+                var func_val = types.makePointer(&func.header);
                 vm.gc.pushRoot(&func_val);
                 timings.begin(.execute);
                 const exec_result = vm.execute(func);
@@ -739,9 +739,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         };
 
         compiled_funcs.append(allocator, func) catch return error.OutOfMemory;
-        vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch return error.OutOfMemory;
+        vm.gc.extra_roots.append(allocator, types.makePointer(&func.header)) catch return error.OutOfMemory;
 
-        var func_val = types.makePointer(@ptrCast(func));
+        var func_val = types.makePointer(&func.header);
         vm.gc.pushRoot(&func_val);
 
         crash.noteStage(.executing);
@@ -863,7 +863,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
             return;
         };
 
-        var func_val = types.makePointer(@ptrCast(func));
+        var func_val = types.makePointer(&func.header);
         vm.gc.pushRoot(&func_val);
 
         crash.noteStage(.executing);

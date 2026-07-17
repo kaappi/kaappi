@@ -41,7 +41,7 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
     const ctx = try fiber_mod.ensureScheduler(vm);
 
     const fiber = ctx.sched.spawnFiber(proc) catch return PrimitiveError.OutOfMemory;
-    return types.makePointer(@ptrCast(&fiber.header));
+    return types.makePointer(&fiber.header);
 }
 
 fn yieldFn(_: []const Value) PrimitiveError!Value {

@@ -95,7 +95,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-        define_expr = types.makePointer(@ptrCast(func));
+        define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| return err;
     }
@@ -130,7 +130,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-        define_expr = types.makePointer(@ptrCast(func));
+        define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| return err;
     }
@@ -167,7 +167,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-            define_expr = types.makePointer(@ptrCast(func));
+            define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;
         }
@@ -203,7 +203,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-            define_expr = types.makePointer(@ptrCast(func));
+            define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;
         }

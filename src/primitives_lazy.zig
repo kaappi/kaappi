@@ -79,8 +79,8 @@ fn promiseMerge(args: []const Value) PrimitiveError!Value {
     outer.value = inner.value;
     gc.writeBarrier(&outer.header, inner.value);
     inner.forced = true;
-    inner.value = types.makePointer(@ptrCast(outer));
-    gc.writeBarrier(&inner.header, types.makePointer(@ptrCast(outer)));
+    inner.value = types.makePointer(&outer.header);
+    gc.writeBarrier(&inner.header, types.makePointer(&outer.header));
     outer.forcing = false;
     return types.VOID;
 }

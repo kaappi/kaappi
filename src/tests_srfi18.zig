@@ -123,7 +123,7 @@ test "abandonFiberMutexes marks owned mutex abandoned" {
     // fiber's owned-mutexes list, so under -Dgc-stress=true the fiber and
     // mutex must survive allocMutex's collection.
     const fiber = try gc.allocFiber(types.VOID, 0);
-    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    var fiber_val = types.makePointer(&fiber.header);
     gc.pushRoot(&fiber_val);
     defer gc.popRoot();
     var m_val = try gc.allocMutex(types.VOID);
@@ -152,11 +152,11 @@ test "abandonFiberMutexes skips mutex owned by different fiber" {
     defer vm.deinit();
 
     const fiber_a = try gc.allocFiber(types.VOID, 0);
-    var fiber_a_val = types.makePointer(@ptrCast(&fiber_a.header));
+    var fiber_a_val = types.makePointer(&fiber_a.header);
     gc.pushRoot(&fiber_a_val);
     defer gc.popRoot();
     const fiber_b = try gc.allocFiber(types.VOID, 1);
-    var fiber_b_val = types.makePointer(@ptrCast(&fiber_b.header));
+    var fiber_b_val = types.makePointer(&fiber_b.header);
     gc.pushRoot(&fiber_b_val);
     defer gc.popRoot();
     var m_val = try gc.allocMutex(types.VOID);
@@ -185,7 +185,7 @@ test "abandonFiberMutexes skips unlocked mutex" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    var fiber_val = types.makePointer(&fiber.header);
     gc.pushRoot(&fiber_val);
     defer gc.popRoot();
     var m_val = try gc.allocMutex(types.VOID);
@@ -209,7 +209,7 @@ test "abandonFiberMutexes handles multiple mutexes" {
     defer vm.deinit();
 
     const fiber = try gc.allocFiber(types.VOID, 0);
-    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    var fiber_val = types.makePointer(&fiber.header);
     // Root everything across the following allocations: under -Dgc-stress=true
     // each allocMutex collects, and an unrooted fiber/mutex local is swept.
     gc.pushRoot(&fiber_val);
@@ -270,7 +270,7 @@ test "abandonFiberMutexes abandons a mutex from another GC heap (#1458)" {
     const m = types.toMutex(m_val);
 
     const fiber = try child_gc.allocFiber(types.VOID, 0);
-    var fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    var fiber_val = types.makePointer(&fiber.header);
     child_gc.pushRoot(&fiber_val);
     defer child_gc.popRoot();
 

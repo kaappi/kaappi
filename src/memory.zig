@@ -252,7 +252,7 @@ pub const GC = struct {
             .cdr = cdr_val,
         };
         self.finishAlloc(&pair.header, @sizeOf(Pair));
-        return types.makePointer(@ptrCast(pair));
+        return types.makePointer(&pair.header);
     }
 
     pub fn allocSymbol(self: *GC, name: []const u8) !Value {
@@ -304,7 +304,7 @@ pub const GC = struct {
             self.trackObject(&sym.header);
         }
 
-        const val = types.makePointer(@ptrCast(sym));
+        const val = types.makePointer(&sym.header);
         try sym_table.put(owned_name, val);
         return val;
     }
@@ -322,7 +322,7 @@ pub const GC = struct {
             .len = data.len,
         };
         self.finishAlloc(&str.header, @sizeOf(SchemeString) + data.len);
-        return types.makePointer(@ptrCast(str));
+        return types.makePointer(&str.header);
     }
 
     pub fn allocFunction(self: *GC) !*Function {
@@ -338,7 +338,7 @@ pub const GC = struct {
     }
 
     pub fn allocClosure(self: *GC, func: *Function) !Value {
-        self.rootArgs1(types.makePointer(@ptrCast(func)));
+        self.rootArgs1(types.makePointer(&func.header));
         try self.maybeCollect();
         self.clearArgRoots();
         const upvalue_count = func.upvalue_count;
@@ -353,7 +353,7 @@ pub const GC = struct {
             .upvalues = upvalues,
         };
         self.finishAlloc(&cls.header, @sizeOf(Closure) + @as(usize, upvalue_count) * @sizeOf(Value));
-        return types.makePointer(@ptrCast(cls));
+        return types.makePointer(&cls.header);
     }
 
     pub fn allocNativeFn(self: *GC, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !Value {
@@ -365,7 +365,7 @@ pub const GC = struct {
             .arity = arity,
         };
         self.finishAlloc(&nf.header, @sizeOf(NativeFn));
-        return types.makePointer(@ptrCast(nf));
+        return types.makePointer(&nf.header);
     }
 
     pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
@@ -387,7 +387,7 @@ pub const GC = struct {
             .name = name,
         };
         self.finishAlloc(&nc.header, @sizeOf(types.NativeClosure) + upvalues.len * @sizeOf(Value));
-        return types.makePointer(@ptrCast(nc));
+        return types.makePointer(&nc.header);
     }
 
     pub fn allocFlonum(self: *GC, value: f64) !Value {
@@ -412,7 +412,7 @@ pub const GC = struct {
             .data = owned,
         };
         self.finishAlloc(&vec.header, @sizeOf(Vector) + data.len * @sizeOf(Value));
-        return types.makePointer(@ptrCast(vec));
+        return types.makePointer(&vec.header);
     }
 
     pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
@@ -428,7 +428,7 @@ pub const GC = struct {
             .data = data,
         };
         self.finishAlloc(&vec.header, @sizeOf(Vector) + size * @sizeOf(Value));
-        return types.makePointer(@ptrCast(vec));
+        return types.makePointer(&vec.header);
     }
 
     pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
@@ -452,7 +452,7 @@ pub const GC = struct {
             .code = code,
         };
         self.finishAlloc(&err.header, @sizeOf(types.ErrorObject));
-        return types.makePointer(@ptrCast(err));
+        return types.makePointer(&err.header);
     }
 
     pub fn allocTransformer(self: *GC, literals: []const Value, patterns: []const Value, templates: []const Value) !Value {
@@ -473,7 +473,7 @@ pub const GC = struct {
             .num_rules = num_rules,
         };
         self.finishAlloc(&tx.header, @sizeOf(Transformer) + (literals.len + patterns.len + templates.len) * @sizeOf(Value));
-        return types.makePointer(@ptrCast(tx));
+        return types.makePointer(&tx.header);
     }
 
     pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
@@ -488,7 +488,7 @@ pub const GC = struct {
             .num_fields = num_fields,
         };
         self.finishAlloc(&rt.header, @sizeOf(RecordType) + name.len);
-        return types.makePointer(@ptrCast(rt));
+        return types.makePointer(&rt.header);
     }
 
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
@@ -503,7 +503,7 @@ pub const GC = struct {
                 fields[i] = types.UNDEFINED;
             }
         }
-        self.rootArgs1(types.makePointer(@ptrCast(record_type)));
+        self.rootArgs1(types.makePointer(&record_type.header));
         const saved_slice_roots = self.slice_roots;
         self.slice_roots = fields;
         defer self.slice_roots = saved_slice_roots;
@@ -516,7 +516,7 @@ pub const GC = struct {
             .fields = fields,
         };
         self.finishAlloc(&ri.header, @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value));
-        return types.makePointer(@ptrCast(ri));
+        return types.makePointer(&ri.header);
     }
 
     pub fn allocPort(self: *GC, fd: platform.fd_t, is_input: bool, is_output: bool, name: []const u8, owns_name: bool) !Value {
@@ -539,7 +539,7 @@ pub const GC = struct {
             .string_out_cap = 0,
         };
         self.finishAlloc(&port.header, @sizeOf(Port));
-        return types.makePointer(@ptrCast(port));
+        return types.makePointer(&port.header);
     }
 
     pub fn allocStringInputPort(self: *GC, data: []const u8) !Value {
@@ -562,7 +562,7 @@ pub const GC = struct {
             .string_pos = 0,
         };
         self.finishAlloc(&port.header, @sizeOf(Port) + data.len);
-        return types.makePointer(@ptrCast(port));
+        return types.makePointer(&port.header);
     }
 
     pub fn allocStringOutputPort(self: *GC) !Value {
@@ -586,7 +586,7 @@ pub const GC = struct {
             .string_out_cap = initial_cap,
         };
         self.finishAlloc(&port.header, @sizeOf(Port) + initial_cap);
-        return types.makePointer(@ptrCast(port));
+        return types.makePointer(&port.header);
     }
 
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
@@ -600,7 +600,7 @@ pub const GC = struct {
             .data = owned,
         };
         self.finishAlloc(&bv.header, @sizeOf(Bytevector) + data.len);
-        return types.makePointer(@ptrCast(bv));
+        return types.makePointer(&bv.header);
     }
 
     pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
@@ -614,7 +614,7 @@ pub const GC = struct {
             .data = data,
         };
         self.finishAlloc(&bv.header, @sizeOf(Bytevector) + size);
-        return types.makePointer(@ptrCast(bv));
+        return types.makePointer(&bv.header);
     }
 
     /// Lever D (kaappi#1472): a bytevector whose bytes are BORROWED from a
@@ -636,7 +636,7 @@ pub const GC = struct {
         // The bytes live in the SharedBuffer, not this heap: count only the
         // struct, so the per-heap footprint reflects lever D's whole point.
         self.finishAlloc(&bv.header, @sizeOf(Bytevector));
-        return types.makePointer(@ptrCast(bv));
+        return types.makePointer(&bv.header);
     }
 
     /// Lever D copy-on-write (kaappi#1472): if `bv` borrows a shared immutable
@@ -669,7 +669,7 @@ pub const GC = struct {
             .value = value,
         };
         self.finishAlloc(&p.header, @sizeOf(Promise));
-        return types.makePointer(@ptrCast(p));
+        return types.makePointer(&p.header);
     }
 
     pub fn allocContinuation(
@@ -742,7 +742,7 @@ pub const GC = struct {
             frames.len * @sizeOf(SavedFrame) +
             handlers.len * @sizeOf(SavedHandler) +
             wind_records.len * @sizeOf(WindRecord));
-        return types.makePointer(@ptrCast(cont));
+        return types.makePointer(&cont.header);
     }
 
     /// Allocate an escape continuation (call/ec). Unlike a full continuation,
@@ -778,7 +778,7 @@ pub const GC = struct {
             .target_handler_count = target_handler_count,
         };
         self.finishAlloc(&cont.header, @sizeOf(Continuation));
-        return types.makePointer(@ptrCast(cont));
+        return types.makePointer(&cont.header);
     }
 
     pub fn allocComplex(self: *GC, real: f64, imag: f64) !Value {
@@ -796,7 +796,7 @@ pub const GC = struct {
             .exact_imag = exact_imag,
         };
         self.finishAlloc(&c.header, @sizeOf(types.Complex));
-        return types.makePointer(@ptrCast(c));
+        return types.makePointer(&c.header);
     }
 
     pub fn allocParameter(self: *GC, init_value: Value, converter: Value) !Value {
@@ -810,7 +810,7 @@ pub const GC = struct {
             .converter = converter,
         };
         self.finishAlloc(&p.header, @sizeOf(types.ParameterObject));
-        return types.makePointer(@ptrCast(p));
+        return types.makePointer(&p.header);
     }
 
     pub fn allocFfiLibrary(self: *GC, handle: ?*anyopaque, name: []const u8) !Value {
@@ -825,7 +825,7 @@ pub const GC = struct {
             .name = owned_name,
         };
         self.finishAlloc(&lib.header, @sizeOf(FfiLibrary) + name.len);
-        return types.makePointer(@ptrCast(lib));
+        return types.makePointer(&lib.header);
     }
 
     pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, library: Value, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
@@ -848,7 +848,7 @@ pub const GC = struct {
             .param_count = @intCast(param_types.len),
         };
         self.finishAlloc(&ffi_fn.header, @sizeOf(FfiFunction) + name.len + param_types.len * @sizeOf(FfiType));
-        return types.makePointer(@ptrCast(ffi_fn));
+        return types.makePointer(&ffi_fn.header);
     }
 
     pub fn allocFfiCallback(self: *GC, closure: Value, slot_index: u8, fn_ptr: *anyopaque) !Value {
@@ -864,7 +864,7 @@ pub const GC = struct {
             .active = true,
         };
         self.finishAlloc(&cb.header, @sizeOf(FfiCallback));
-        return types.makePointer(@ptrCast(cb));
+        return types.makePointer(&cb.header);
     }
 
     pub fn allocRandomSource(self: *GC, seed: u64) !Value {
@@ -875,7 +875,7 @@ pub const GC = struct {
             .prng = std.Random.DefaultPrng.init(seed),
         };
         self.finishAlloc(&rs.header, @sizeOf(RandomSource));
-        return types.makePointer(@ptrCast(rs));
+        return types.makePointer(&rs.header);
     }
 
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
@@ -928,7 +928,7 @@ pub const GC = struct {
             .tail = types.NIL,
         };
         self.finishAlloc(&ch.header, @sizeOf(types.Channel));
-        return types.makePointer(@ptrCast(ch));
+        return types.makePointer(&ch.header);
     }
 
     /// KEP-0002 §6: a bounded channel, `(make-channel capacity)`. Separate
@@ -945,7 +945,7 @@ pub const GC = struct {
             .capacity = capacity,
         };
         self.finishAlloc(&ch.header, @sizeOf(types.Channel));
-        return types.makePointer(@ptrCast(ch));
+        return types.makePointer(&ch.header);
     }
 
     /// A promoted-channel stub: a new counted reference to an existing
@@ -962,7 +962,7 @@ pub const GC = struct {
             .shared = shared,
         };
         self.finishAlloc(&ch.header, @sizeOf(types.Channel));
-        return types.makePointer(@ptrCast(ch));
+        return types.makePointer(&ch.header);
     }
 
     pub fn allocMutex(self: *GC, name: Value) !Value {
@@ -979,7 +979,7 @@ pub const GC = struct {
             .specific = types.VOID,
         };
         self.finishAlloc(&m.header, @sizeOf(types.Mutex));
-        return types.makePointer(@ptrCast(m));
+        return types.makePointer(&m.header);
     }
 
     pub fn allocConditionVariable(self: *GC, name: Value) !Value {
@@ -993,7 +993,7 @@ pub const GC = struct {
             .specific = types.VOID,
         };
         self.finishAlloc(&cv.header, @sizeOf(types.ConditionVariable));
-        return types.makePointer(@ptrCast(cv));
+        return types.makePointer(&cv.header);
     }
 
     pub fn allocSrfi18Time(self: *GC, seconds: i64, nanoseconds: i64, time_type: types.TimeType) !Value {
@@ -1006,7 +1006,7 @@ pub const GC = struct {
             .time_type = time_type,
         };
         self.finishAlloc(&t.header, @sizeOf(types.Srfi18Time));
-        return types.makePointer(@ptrCast(t));
+        return types.makePointer(&t.header);
     }
 
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
@@ -1032,7 +1032,7 @@ pub const GC = struct {
             .hash_fn = 0,
         };
         self.finishAlloc(&ht.header, @sizeOf(HashTable) + cap * @sizeOf(HashEntry));
-        return types.makePointer(@ptrCast(ht));
+        return types.makePointer(&ht.header);
     }
 
     pub fn allocBignumFromI64(self: *GC, n: i64) !Value {
@@ -1049,7 +1049,7 @@ pub const GC = struct {
             .positive = n >= 0,
         };
         self.finishAlloc(&bn.header, @sizeOf(Bignum) + @sizeOf(u64));
-        return types.makePointer(@ptrCast(bn));
+        return types.makePointer(&bn.header);
     }
 
     pub fn allocBignumFromLimbs(self: *GC, limbs: []const u64, len: usize, positive: bool) !Value {
@@ -1070,7 +1070,7 @@ pub const GC = struct {
             .positive = positive,
         };
         self.finishAlloc(&bn.header, @sizeOf(Bignum) + limbs.len * @sizeOf(u64));
-        return types.makePointer(@ptrCast(bn));
+        return types.makePointer(&bn.header);
     }
 
     pub fn allocRational(self: *GC, num: Value, den: Value) !Value {
@@ -1084,7 +1084,7 @@ pub const GC = struct {
             .denominator = den,
         };
         self.finishAlloc(&rat.header, @sizeOf(Rational));
-        return types.makePointer(@ptrCast(rat));
+        return types.makePointer(&rat.header);
     }
 
     pub fn allocFileInfo(self: *GC, info: struct {
@@ -1123,7 +1123,7 @@ pub const GC = struct {
             .file_type = info.file_type,
         };
         self.finishAlloc(&fi.header, @sizeOf(types.FileInfo));
-        return types.makePointer(@ptrCast(fi));
+        return types.makePointer(&fi.header);
     }
 
     pub fn allocUserInfo(self: *GC, name: []const u8, uid: u32, gid: u32, home_dir: []const u8, shell: []const u8, full_name: []const u8) !Value {
@@ -1148,7 +1148,7 @@ pub const GC = struct {
             .full_name = gecos_copy,
         };
         self.finishAlloc(&ui.header, @sizeOf(types.UserInfo) + name.len + home_dir.len + shell.len + full_name.len);
-        return types.makePointer(@ptrCast(ui));
+        return types.makePointer(&ui.header);
     }
 
     pub fn allocGroupInfo(self: *GC, name: []const u8, gid: u32) !Value {
@@ -1163,7 +1163,7 @@ pub const GC = struct {
             .gid = gid,
         };
         self.finishAlloc(&gi.header, @sizeOf(types.GroupInfo) + name.len);
-        return types.makePointer(@ptrCast(gi));
+        return types.makePointer(&gi.header);
     }
 
     pub fn allocEnvironment(self: *GC, env_map: *std.StringHashMap(Value), owned: bool, immutable: bool) !Value {
@@ -1176,7 +1176,7 @@ pub const GC = struct {
             .immutable = immutable,
         };
         self.finishAlloc(&se.header, @sizeOf(types.SchemeEnvironment));
-        return types.makePointer(@ptrCast(se));
+        return types.makePointer(&se.header);
     }
 
     pub fn allocDirectoryObject(self: *GC, dir: *anyopaque, include_dotfiles: bool) !Value {
@@ -1188,7 +1188,7 @@ pub const GC = struct {
             .include_dotfiles = include_dotfiles,
         };
         self.finishAlloc(&d.header, @sizeOf(types.DirectoryObject));
-        return types.makePointer(@ptrCast(d));
+        return types.makePointer(&d.header);
     }
 
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
@@ -1206,7 +1206,7 @@ pub const GC = struct {
             .values = owned,
         };
         self.finishAlloc(&mv.header, @sizeOf(MultipleValues) + values.len * @sizeOf(Value));
-        return types.makePointer(@ptrCast(mv));
+        return types.makePointer(&mv.header);
     }
 
     // -- Convenience: build a proper list from a slice

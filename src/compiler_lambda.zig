@@ -14,7 +14,7 @@ pub fn emitClosureEpilogue(self: *Compiler, child: *Compiler, target_reg: u16) C
             try self.markLocalBoxedBySlot(uv.index);
         }
     }
-    const func_val = types.makePointer(@ptrCast(child.func));
+    const func_val = types.makePointer(&child.func.header);
     const idx = try self.addConstant(func_val);
     try self.emitOp(.closure);
     try self.emitU16(target_reg);

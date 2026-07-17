@@ -62,8 +62,7 @@ need the GC instance:
 ```zig
 fn myAllocProc(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.TypeError;
-    const result = gc.allocPair(args[0], args[1]) catch return PrimitiveError.OutOfMemory;
-    return types.makePointer(@ptrCast(result));
+    return gc.allocPair(args[0], args[1]) catch return PrimitiveError.OutOfMemory;
 }
 ```
 
@@ -195,8 +194,8 @@ Slots 35-63 are available.
 
 ### 2. Define the struct
 
-In `src/types.zig`, define the struct. The first field **must** be the `Object`
-header:
+In `src/types.zig`, define the struct with an `Object` header, declared
+first by convention:
 
 ```zig
 pub const MyType = struct {
@@ -205,6 +204,12 @@ pub const MyType = struct {
     name: []const u8,
 };
 ```
+
+Layout is otherwise free — Zig's auto layout may place `header` at a
+nonzero byte offset, and that's fine. Heap Values always carry the address
+of the `header` field: build them with `types.makePointer(&x.header)` (its
+`*Object` parameter makes passing the struct pointer a compile error) and
+recover the struct with `Object.as()`, never a direct cast (#1618).
 
 ### 3. Add the allocator
 
@@ -278,7 +283,7 @@ var second = try gc.allocPair(c, d);  // GC might run here!
 // `first` might now be a dangling pointer
 
 // SAFE: root `first` before the second allocation
-var first_val = types.makePointer(@ptrCast(try gc.allocPair(a, b)));
+var first_val = try gc.allocPair(a, b);
 gc.pushRoot(&first_val);
 var second = try gc.allocPair(c, d);  // GC runs, but first_val is rooted
 gc.popRoot();
@@ -298,7 +303,7 @@ gc.popRoot();
    function in a closure internally, which allocates:
 
    ```zig
-   var func_val = types.makePointer(@ptrCast(func));
+   var func_val = types.makePointer(&func.header);
    gc.pushRoot(&func_val);
    const result = vm.execute(func) catch |err| {
        gc.popRoot();

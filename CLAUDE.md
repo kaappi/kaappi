@@ -346,14 +346,13 @@ re-export, IR tests, and tail position handling.
 ## How to add a new heap type
 
 1. Add tag to `ObjectTag` enum in `src/types.zig` (slots 35+ available, enum is u6 with 64 slots).
-2. Add the struct with `header: Object` as first field, and add it to the
-   heap-type layout guard (comptime block at the bottom of `types.zig`).
-   Declaring `header` first does NOT guarantee it lands at byte offset 0 —
-   Zig may reorder auto-struct fields, and most `makePointer` sites cast
-   the struct pointer, so a displaced header silently corrupts every Value
-   of that type. The guard turns that into a compile error; if it fires
-   (also when merely adding fields to an existing heap type), rearrange or
-   repack the new fields until the offset is 0 again (see `Port.sock_state`).
+2. Add the struct with `header: Object` as the first-declared field
+   (convention only — Zig's auto layout may still place it at a nonzero
+   byte offset, and that's fine). Heap Values always carry the address of
+   the `header` field: build them with `makePointer(&x.header)` — the
+   `*Object` parameter type makes passing the struct pointer a compile
+   error — and recover the struct with `Object.as()`/`@fieldParentPtr`,
+   never a direct cast.
 3. Add `allocXxx` in `src/memory.zig`.
 4. Handle in `markValue` (trace contained Values) and `freeObject` (free owned memory).
 5. Add display in `src/printer.zig`.
