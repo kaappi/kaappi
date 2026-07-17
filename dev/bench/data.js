@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784280769526,
+  "lastUpdate": 1784286414622,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e04a2ea1f501388b8b6dc2696dcda40498b5c299",
-          "message": "Harden GitHub Actions: pin actions by SHA and disable persisted checkout credentials (#1413)\n\n* Harden GitHub Actions: pin actions by SHA, disable persisted credentials\n\nMutable tags like @v7 let a compromised upstream repoint what our\nworkflows execute with our tokens and secrets; a full commit SHA cannot\nbe repointed. Persisted checkout credentials sit in git config where\nevery later step (including fuzzer-generated programs and benchmark\nruns) can read them, and no step in this repo relies on them: gh uses\nGH_TOKEN, github-action-benchmark and action-gh-release authenticate\nthrough their explicit token inputs.\n\n- Pin all 10 distinct actions across the 5 workflows to full commit\n  SHAs, each with a comment naming the resolved version.\n- Set persist-credentials: false on all 17 checkout steps (fuzz.yml\n  already had it from #1398).\n- Add a top-level contents: read permissions block to post-release.yml,\n  which previously inherited the repository default token scope.\n- Add .github/dependabot.yml (weekly, grouped) so pins are bumped with\n  the version comments kept in sync instead of going stale.\n- Document the conventions in docs/dev/github-actions.md.\n\nCloses #1400\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Repin PR benchmark action to the v1 tag, not the shadowing v1 branch\n\nkaappi/github-action-pull-request-benchmark has both a v1 tag (master\ntip, posts PR comments) and a stale v1 branch (v1.4.0, posts commit\ncomments requiring contents: write). The Actions runner resolves @v1 to\nthe tag, but the commits/<ref> API endpoint used to resolve the pin\nreturned the branch head, so the first pin captured the wrong code and\nthe comment step failed with \"Resource not accessible by integration\".\n\nPin the tag's commit instead, and fix the resolution recipe in\ndocs/dev/github-actions.md to use refs/tags (with annotated-tag\npeeling), which cannot be shadowed by a branch.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T21:26:54+05:30",
-          "tree_id": "5d1699beaf4eb6582d268aee88ad9214dd47444e",
-          "url": "https://github.com/kaappi/kaappi/commit/e04a2ea1f501388b8b6dc2696dcda40498b5c299"
-        },
-        "date": 1783700460840,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.37484,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.086216,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.997703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.428406,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012902,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338997,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509711,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070272,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.481729,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.949904,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.766212,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.037736,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.638949,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.681068,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042861,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043744,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "283d5f1356852e6e91bad342894b5697e49a119d",
+          "message": "Windows native backend: kaappi compile verified end-to-end (#1610) (#1626)\n\nkaappi compile had never produced a running native binary on a Windows\nmachine; doing so surfaced four defects, three of which the issue\npredicted:\n\n- The runtime-archive probes (native_compiler.checkLibDir, doctor's\n  hasArchive) looked for libkaappi_rt.a, but Zig names COFF archives\n  kaappi_rt.lib, so discovery always failed on Windows. A new\n  platform.rt_lib_name carries the platform spelling; the probes, the\n  compile error message, doctor's messages, and --help all use it.\n- kaappi compile foo.scm derived \"foo\" as the output; PowerShell/cmd\n  PATH lookup and double-click need the extension, so the derived name\n  now appends platform.exe_suffix (foo.exe on Windows, unchanged\n  elsewhere). Explicit -o stays as given.\n- The emitted LLVM module triple fell to aarch64-unknown-unknown on\n  Windows; it is now aarch64/x86_64-pc-windows-gnu, matching the gnu\n  ABI the runtime lib is built with (clang's driver-triple override\n  hid this, but only behind the -w the link line passes).\n- New find: linking failed with undefined Winsock symbols. The\n  fd-readiness backends (#1608) call ws2_32 via extern \"ws2_32\"\n  declarations, which Zig links automatically only when it drives the\n  final link itself - a foreign zig cc link of the static archive\n  needs -lws2_32 explicitly. tryLink and doctor's smokeLink add it in\n  place of -lpthread on Windows; the previously-failing doctor\n  smoke-link now passes.\n\nVerified on the Windows 11 ARM64 box (build 26100) with a Zig master\ntoolchain as linker (0.16.0's zig cc access-violates natively, #1613):\ntests/e2e/run-e2e.ps1 - a new PowerShell port of run-e2e.sh's parity\nphase, kept for the post-0.17.0-bump retest - passes 38/38 (all 37\nprograms match the interpreter, incl. closures, self/mutual tail\ncalls, call/cc, macros; plus the derived-.exe check). KAAPPI_LIB_DIR\nand exe-relative lib discovery and the missing-lib error were\nexercised individually. macOS e2e suite stays 37/37; unit suite green\nnatively and as the aarch64-windows compile gate.\n\nCloses #1610\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T16:04:13+05:30",
+          "tree_id": "e1515b82ffd914c06970e34c5400472922482b33",
+          "url": "https://github.com/kaappi/kaappi/commit/283d5f1356852e6e91bad342894b5697e49a119d"
+        },
+        "date": 1784286413461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.038667,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.252273,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.914616,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.359723,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006816,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053408,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50541,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068173,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.231081,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.95928,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.525965,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.468803,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.748907,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.835667,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044754,
             "unit": "seconds"
           }
         ]
