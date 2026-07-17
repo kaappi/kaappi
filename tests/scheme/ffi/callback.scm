@@ -34,7 +34,9 @@
         (- va vb)))
     '(pointer pointer) 'int))
 
-(define c-qsort (ffi-fn lib "qsort" '(pointer long long pointer) 'void))
+;; qsort's true signature: void qsort(void *, size_t, size_t, cmp).
+;; size_t (not long) matters on Windows, where long is only 32 bits.
+(define c-qsort (ffi-fn lib "qsort" '(pointer size_t size_t pointer) 'void))
 (c-qsort base-ptr 5 4 int-cmp)
 
 ;; Verify sorted order

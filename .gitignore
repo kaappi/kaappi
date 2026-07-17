@@ -7,6 +7,10 @@ zig-out/
 test_*.o
 *.dylib
 *.so
+# zig cc -shared for windows drops these next to the .dll
+*.dll
+*.pdb
+tests/scheme/ffi/fixtures/u64test.lib
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

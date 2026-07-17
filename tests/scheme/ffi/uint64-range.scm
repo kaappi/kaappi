@@ -2,9 +2,14 @@
 ;; not be rejected.  The return direction already handled the full unsigned
 ;; range; the argument side was forcing values through a signed i64 path.
 ;;
-;; Requires fixtures/libu64test.{dylib,so} — compile with:
+;; Requires fixtures/libu64test.{dylib,so,dll} — compile with:
 ;;   zig cc -dynamiclib fixtures/u64test.c -o fixtures/libu64test.dylib  (macOS)
 ;;   zig cc -shared -fPIC fixtures/u64test.c -o fixtures/libu64test.so   (Linux)
+;;   zig cc -target aarch64-windows-gnu -shared fixtures/u64test.c \
+;;     -o fixtures/libu64test.dll   (Windows — cross-compiled, zig cannot
+;;                                   run natively on ARM64 Windows, #1613)
+;; run-all.sh builds the host fixture automatically when zig is on PATH;
+;; CI cross-compiles the .dll in the windows-cross job.
 
 (import (scheme base) (scheme write))
 
@@ -21,9 +26,15 @@
         (display " got ") (write got)
         (newline))))
 
-(define lib
+(define (try-open path)
   (guard (exn (#t #f))
-    (ffi-open "./fixtures/libu64test")))
+    (ffi-open path)))
+
+;; The fixture path depends on the working directory: ./fixtures when run
+;; from this directory, the repo-relative path when run via run-all.sh or CI.
+(define lib
+  (or (try-open "./fixtures/libu64test")
+      (try-open "tests/scheme/ffi/fixtures/libu64test")))
 
 (when (not lib)
   (display "SKIP: libu64test not found (compile fixtures/u64test.c first)")

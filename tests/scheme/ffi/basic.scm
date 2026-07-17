@@ -23,7 +23,9 @@
         (display " got ") (write got)
         (newline))))
 
-(define libm (ffi-open "libm"))
+;; The C math functions live in libm on POSIX; on Windows the CRT
+;; (ucrtbase.dll) hosts them — there is no libm.dll.
+(define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
 (define c-sqrt (ffi-fn libm "sqrt" '(double) 'double))
 (define c-ceil (ffi-fn libm "ceil" '(double) 'double))
 (define c-pow (ffi-fn libm "pow" '(double double) 'double))

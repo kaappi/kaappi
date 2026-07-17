@@ -17,7 +17,9 @@
         (display " got ") (write got)
         (newline))))
 
-(define libm (ffi-open "libm"))
+;; libm on POSIX; on Windows the CRT (ucrtbase.dll) hosts the math
+;; functions — there is no libm.dll.
+(define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
 (define c-sqrt (ffi-fn libm "sqrt" '(double) 'double))
 
 ;; Verify the function works before close

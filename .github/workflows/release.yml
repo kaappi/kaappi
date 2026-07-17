@@ -45,9 +45,11 @@ jobs:
           # verified on real Windows 11 ARM64 hardware (docs/dev/windows.md)
           # since GitHub has no ARM64 Windows runners. The gnu-ABI static
           # lib is emitted as kaappi_rt.lib on this target. strip: false —
-          # a stripped kaappi.exe access-violates at startup on ARM64
-          # Windows (toolchain issue, see docs/dev/windows.md); thottam is
-          # unaffected but the row ships both unstripped for consistency.
+          # under strip, Zig 0.16.0's LLVM miscompiles threadlocal access
+          # on aarch64-windows (#1607, upstream ziglang#31865), so a
+          # stripped kaappi.exe access-violates at startup; re-enable at
+          # the toolchain bump (#1613). thottam is unaffected but ships
+          # unstripped for consistency.
           - os: ubuntu-latest
             target: aarch64-windows
             artifact: kaappi-aarch64-windows.exe
