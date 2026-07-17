@@ -233,8 +233,8 @@ pub const FiberScheduler = struct {
     /// descendant about to block unboundedly must check this first, or it
     /// wedges the whole thread on an event that may never come while the
     /// ancestor sits ready to proceed (#1625). Matching by fiber identity
-    /// (not "skip the top entry") keeps the answer right even if the
-    /// caller's own push was dropped by OOM.
+    /// (not "skip the top entry") keeps the check independent of the
+    /// list's push/pop bookkeeping.
     pub fn anyAncestorWaitResolved(self: *FiberScheduler, me: *Fiber) bool {
         for (self.driving_waits.items) |w| {
             if (w.fiber != me and (w.fiber.timed_out or w.is_done(w.ctx))) return true;
@@ -1298,26 +1298,24 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     // Publish this drive's wait so nested drives can evaluate it (#1625) —
     // see driving_waits' doc comment. `ctx` is this frame's parameter, so
     // the pointer stays valid for exactly the extent the entry is stacked.
-    // An OOM here just leaves the entry out: descendants lose the ancestor
-    // check for this drive (worst case the pre-#1625 behavior), which is
-    // strictly better than failing the wait itself.
+    // Unlike the ready ring or waiter_index, this list is a correctness
+    // registry with no fallback: an entry silently dropped on OOM would
+    // re-open the #1625 wedge for this drive's descendants. Fail the wait
+    // loudly instead — callers already handle OutOfMemory from inside the
+    // loop (saveCurrentFiber's growth, parkOnReactor's poll), and a clean
+    // error beats a silent hang at death's door.
     const erased = struct {
         fn isDone(p: *const anyopaque) bool {
             const c: *const Ctx = @ptrCast(@alignCast(p));
             return c.isDone();
         }
     };
-    const enrolled = blk: {
-        sched.driving_waits.append(vm.gc.allocator, .{
-            .fiber = me,
-            .ctx = @ptrCast(&ctx),
-            .is_done = &erased.isDone,
-        }) catch break :blk false;
-        break :blk true;
-    };
-    defer if (enrolled) {
-        _ = sched.driving_waits.pop();
-    };
+    sched.driving_waits.append(vm.gc.allocator, .{
+        .fiber = me,
+        .ctx = @ptrCast(&ctx),
+        .is_done = &erased.isDone,
+    }) catch return VMError.OutOfMemory;
+    defer _ = sched.driving_waits.pop();
 
     while (!ctx.isDone() and !me.timed_out) {
         const next_idx = sched.scheduleForDispatch() orelse {
