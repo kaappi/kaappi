@@ -23,7 +23,9 @@
     (display "FAIL: ") (display name) (display " should have raised error")
     (newline)))
 
-(define libm (ffi-open "libm"))
+;; abs resolves through libm's dependency chain on POSIX; on Windows the
+;; CRT (ucrtbase.dll) exports it directly — there is no libm.dll.
+(define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
 (define c-abs (ffi-fn libm "abs" '(int) 'int))
 
 ;; Valid in-range call

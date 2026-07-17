@@ -177,6 +177,11 @@ jobs:
           cp zig-out/bin/kaappi.exe zig-out/bin/thottam.exe zig-out/bin/kaappi-lsp.exe win-stage/
           cp "$(ls -t .zig-cache/o/*/unit-tests.exe | head -1)" win-stage/
 
+      - name: Cross-compile FFI test fixture
+        # uint64-range.scm dlopens this; windows-arm-test drops it into
+        # tests/scheme/ffi/fixtures/ — that job has no toolchain (#1613).
+        run: zig cc -target aarch64-windows-gnu -shared tests/scheme/ffi/fixtures/u64test.c -o win-stage/libu64test.dll
+
       - name: Upload binaries for windows-arm-test
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -187,11 +192,12 @@ jobs:
   # Execute the suite on real Windows ARM64 via GitHub's hosted
   # windows-11-arm runners (free for public repos): the unit suite, the
   # R7RS suite, and the .scm suites verified on the port's reference VM
-  # (docs/dev/windows.md). The binaries come cross-compiled from
+  # (docs/dev/windows.md), including the FFI suite (#1611) against the
+  # cross-compiled fixture DLL. The binaries come cross-compiled from
   # windows-cross — Zig 0.16.0 cannot compile natively on Windows ARM64
   # (zig build/build-exe access-violate on any project, #1613) — so this
   # job installs no toolchain and only executes. The shell-based suites
-  # (#1612) and the FFI suite (#1611) are not runnable on Windows yet.
+  # (#1612) are not runnable on Windows yet.
   windows-arm-test:
     needs: windows-cross
     runs-on: windows-11-arm
@@ -223,6 +229,12 @@ jobs:
           for z in bin/*.zip; do tar -xf "$z" -C bin && rm -f "$z"; done
           ls -l bin
 
+      - name: Stage FFI test fixture
+        # uint64-range.scm opens tests/scheme/ffi/fixtures/libu64test
+        # relative to the repo root this job runs the suites from.
+        shell: bash
+        run: cp bin/libu64test.dll tests/scheme/ffi/fixtures/
+
       - name: Create tmp directories
         # Tests write scratch files under /tmp/..., which kaappi.exe
         # resolves to \tmp on the current drive (docs/dev/windows.md).
@@ -244,7 +256,7 @@ jobs:
         shell: bash
         run: |
           fail=0
-          for dir in smoke compliance continuations hygiene srfi audit; do
+          for dir in smoke compliance continuations hygiene srfi ffi audit; do
             for f in tests/scheme/$dir/*.scm; do
               if bin/kaappi.exe "$f" > out.log 2>&1; then
                 echo "  PASS  $f"

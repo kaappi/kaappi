@@ -79,6 +79,16 @@ and cross-thread SharedChannel promotion all work on top of this.
   C. `normalizeType` (ffi.zig) routes it through the 32-bit `.int`
   marshaling class there; `int64`/`uint64`/`size_t` use the 64-bit
   carrier (`i64`) everywhere.
+* **`(ffi-open #f)` sees the whole process.** The process self-handle
+  gets POSIX `dlopen(NULL)` semantics: `dlSym` (platform.zig) probes
+  every loaded module in load order via `K32EnumProcessModules`, so CRT
+  symbols (`abs`, `qsort`, `strlen`, …) resolve even though they live in
+  `ucrtbase.dll` rather than the exe — `GetProcAddress` on the exe module
+  alone would find nothing (mingw exes export no symbols). Named opens
+  probe a `.dll` suffix (`dl_suffixes`); there is no `libm.dll`, so tests
+  that need the math functions `cond-expand` to `(ffi-open "ucrtbase")`
+  on Windows. FFI callbacks (comptime Zig trampolines, `callconv(.c)`)
+  work unchanged — the qsort-with-Scheme-comparator tests pass.
 * **thottam** builds and runs (`list`, `verify`, `--help`); `install`/
   `remove`/`update` print a clear unsupported error — the install
   pipeline shells out to POSIX userland (`cp -R`, `find`, `sh -c`) that
@@ -108,11 +118,13 @@ suite, and the VM-verified `.scm` suites on GitHub's hosted
 `windows-11-arm` runners on every PR. The execution job installs no
 toolchain — it downloads the binaries `windows-cross` built as an
 artifact, because native compilation on Windows ARM64 is broken in the
-Zig 0.16.0 toolchain itself (#1613). What CI can't run yet — the
-shell-based suites (#1612), the FFI suite (#1611), and interactive
-surfaces like the REPL — is verified against a real Windows 11 ARM64
-machine (e.g. a UTM VM with ssh). The unit-test binary compiles with the
-same target flag and runs on the box:
+Zig 0.16.0 toolchain itself (#1613). The FFI suite runs against a
+fixture DLL that `windows-cross` cross-compiles into the same artifact
+(`zig cc -target aarch64-windows-gnu -shared`). What CI can't run yet —
+the shell-based suites (#1612) and interactive surfaces like the REPL —
+is verified against a real Windows 11 ARM64 machine (e.g. a UTM VM with
+ssh). The unit-test binary compiles with the same target flag and runs
+on the box:
 
 ```bash
 zig build test -Dtarget=aarch64-windows       # compiles; foreign run steps skip cleanly
@@ -125,11 +137,11 @@ Two environment notes for the suite:
   `/tmp/...`, which Windows resolves to `\tmp` on the current drive.
 * Run from a writable directory; a few tests create files in the CWD.
 
-Verified on Windows 11 ARM64 (build 26100): full unit suite (1037 pass,
-14 skipped — the skips are POSIX-permission/FIFO/uid tests), the complete
+Verified on Windows 11 ARM64 (build 26100): full unit suite (1050 pass,
+10 skipped — the skips are POSIX-permission/FIFO/uid tests), the complete
 R7RS suite, and every `tests/scheme/{smoke,compliance,continuations,
-hygiene,srfi,audit}` file — the same set the `windows-arm-test` CI job
-now runs on every PR. The fd-readiness unit suites
+hygiene,srfi,ffi,audit}` file — the same set the `windows-arm-test` CI
+job now runs on every PR. The fd-readiness unit suites
 (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`) are
 excluded on Windows by `vm_tests.zig` — they test POSIX pipe readiness
 that cannot exist under the no-non-blocking design.
@@ -167,9 +179,6 @@ the github-release skill's Step 10.
   box (#1610) is blocked on the same upstream fix. Fixed upstream
   (ziglang#31865; Zig master works on the box, verified 2026-07-17);
   both unblock at the 0.17.0 toolchain bump.
-* The FFI Scheme suite (`tests/scheme/ffi/`) doesn't run on Windows:
-  POSIX library names (`"libm"`), unverified `(ffi-open #f)` semantics,
-  and a `.dylib`/`.so`-only fixture (#1611).
 * The shell-based suites — errors, compile, test-runner, pipeline,
   doctor, fmt, cache, timings, the smoke `.sh` scripts, sandbox, and
   robustness — don't run on Windows (#1612).
