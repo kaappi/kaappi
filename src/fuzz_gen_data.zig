@@ -35,12 +35,12 @@ const real_round_ops = gen_mod.real_round_ops;
 const acc_modulus = gen_mod.acc_modulus;
 
 const char_lits = [_][]const u8{ "#\\a", "#\\b", "#\\z", "#\\0", "#\\space", "#\\newline", "#\\x3BB" };
-const string_lits = [_]struct { text: []const u8, len: u16 }{
-    .{ .text = "\"\"", .len = 0 },
-    .{ .text = "\"abc\"", .len = 3 },
-    .{ .text = "\"fuzz\"", .len = 4 },
-    .{ .text = "\"aλb\"", .len = 3 }, // multi-byte codepoint: UTF-8 index paths
-    .{ .text = "\"x y!\"", .len = 5 },
+const string_lits = [_]gen_mod.StrLit{
+    gen_mod.strLit("\"\""),
+    gen_mod.strLit("\"abc\""),
+    gen_mod.strLit("\"fuzz\""),
+    gen_mod.strLit("\"aλb\""), // multi-byte codepoint: UTF-8 index paths
+    gen_mod.strLit("\"x y!\""),
 };
 const flonum_lits = [_][]const u8{ "0.5", "-1.5", "2.25", "3.5", "-0.25", "100.0", "0.0" };
 const flonum_divisors = [_][]const u8{ "2.0", "4.0", "-8.0", "0.5" };

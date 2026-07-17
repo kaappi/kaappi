@@ -594,6 +594,39 @@ test "portable-subset generator: programs evaluate without error" {
     try std.testing.expect(ok * 100 >= total * 90);
 }
 
+// Pinned finding seeds (#1620): each reproduced a generator leak outside
+// the total-by-construction subset — a program that raises. Reverting the
+// fix restores the seed's decision-stream mapping and with it the erroneous
+// program, so each seed re-detects its specific bug. Add future oracle-diff
+// finding seeds here after fixing them.
+//
+//   10294 — genLetMut emitted the mutation statement's index/value
+//     sub-expressions before registering the fresh binding, so the picker
+//     could reference an outer same-named int that the new binding shadows:
+//     (let ((c (make-bytevector 1 92))) (bytevector-u8-set! c (modulo c 1) ...) ...)
+//     where the index's `c` is the bytevector — a type error, caught by the
+//     Chibi oracle as an exit-class divergence.
+//   216, 10104 — the "x y!" pool literal recorded len 5 (actually 4), so
+//     derived indices (string-set! at 4, (modulo i 15) on an appended
+//     length-12 string) landed out of range. Invisible to the oracle: both
+//     sides raise identically. Found by a post-fix 4000-seed totality scan.
+test "portable-subset generator: pinned finding seeds stay total (#1620)" {
+    for ([_]u64{ 10294, 216, 10104 }) |seed_n| {
+        const src = try fuzz_gen.generatePortableSeeded(seed_n, std.testing.allocator);
+        defer std.testing.allocator.free(src);
+        errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed_n, src });
+        var out = evalNormalized(src, true, std.testing.allocator);
+        defer out.deinit(std.testing.allocator);
+        switch (out) {
+            .value => {},
+            .compile_error, .runtime_error => return error.PortableProgramRaised,
+            // Deadline/heap pressure on a loaded machine is not a generator
+            // leak; the 60-seed gate above carries the throughput signal.
+            .resource_limit, .harness_unavailable => return error.SkipZigTest,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Differential oracle: optimized vs unoptimized evaluation (Tier 3, #1394)
 //

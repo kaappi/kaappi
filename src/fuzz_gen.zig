@@ -68,6 +68,28 @@ const pattern_names = [_][]const u8{ "p", "q", "r" };
 
 pub const symbol_names = [_][]const u8{ "alpha", "beta", "boom", "zed" };
 
+/// String literal pool entry: the source text (with quotes) plus its length
+/// in codepoints — the unit every string index and length primitive uses.
+pub const StrLit = struct { text: []const u8, len: u16 };
+
+/// Build a pool entry with the length derived from the text at comptime. A
+/// hand-maintained count is a generator leak waiting to happen: "x y!" was
+/// recorded as len 5 (actually 4), so every index the generators derived
+/// from it — `(string-ref s 4)`, `(modulo i 5)` — could land out of range,
+/// making erroneous programs the oracle can't flag because both sides raise
+/// identically (#1620).
+pub fn strLit(comptime text: []const u8) StrLit {
+    comptime {
+        std.debug.assert(text.len >= 2 and text[0] == '"' and text[text.len - 1] == '"');
+        const inner = text[1 .. text.len - 1];
+        // Escape sequences would need their own length rules; the pools are
+        // escape-free, so reject rather than miscount.
+        std.debug.assert(std.mem.indexOfScalar(u8, inner, '\\') == null);
+        const n = std.unicode.utf8CountCodepoints(inner) catch unreachable;
+        return .{ .text = text, .len = n };
+    }
+}
+
 // Public: also referenced by the expression generators in fuzz_gen_expr.zig.
 pub const arith_ops = [_][]const u8{ "+", "-", "*", "min", "max" };
 pub const div_ops = [_][]const u8{ "quotient", "remainder", "modulo" };

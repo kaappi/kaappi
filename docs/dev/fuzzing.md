@@ -146,15 +146,19 @@ issue by the trailing `report` job — one open issue per job, labeled
 first divergent program plus both sides' output, or the fuzzer transcript
 tail), and replay instructions. A finding-titled issue is only filed when
 the finding marker is actually present in the uploaded artifacts (the
-encoded crash input for the fuzz job, `seed-<N>.scm` divergences for the
+encoded crash input for the fuzz job, per-seed divergence files for the
 diff jobs); failed jobs without their marker — toolchain flakes, build or
 unit-test failures, job-level timeouts (a possible hang) — are collected
 under a single shared issue titled `Fuzz CI: infrastructure or build
-failure` instead. Because `upload-artifact` archives multi-file artifacts
-into a wrapper zip that `download-artifact` hands back un-extracted, the
-report job unwraps any `*.zip` under `artifacts/` before marker detection
-— skipping that step misclassifies every real finding as an
-infrastructure failure (#1429, #1584). While an issue stays open, repeat failures append
+failure` instead. Marker detection must not assume where inside
+`artifacts/` a file lands: `download-artifact` normally extracts each
+artifact into its own named subdirectory, but a run with exactly one
+artifact (one failed job — the common case) is extracted into `artifacts/`
+itself, so the report job searches the whole tree for filenames only the
+owning job can produce (`seed-*.kaappi.*` vs `seed-*.{vm,nat}.*`) —
+anchoring on the directory name is how the seed-2788 and seed-10294
+divergences were misfiled as infrastructure failures (#1584, #1620). While
+an issue stays open, repeat failures append
 comments to it instead of opening duplicates. Issues are never
 auto-closed: seed bases rotate nightly, so a later green run does not
 mean a finding is fixed — close the issue once the input is minimised
