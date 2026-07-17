@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784293043147,
+  "lastUpdate": 1784294894175,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "24fa6651ac6ec6fe439f2bb9eaaa1d5ab4286c29",
-          "message": "Exit non-zero on every kaappi compile / --emit-llvm failure (#1417)\n\nkaappi compile printed diagnostics for a missing libkaappi_rt.a, a\nmissing C compiler, or a failing linker, but then exited 0 with no\noutput binary, so exit-code-checking callers (CI, differential fuzz\nharnesses) treated the failure as success. Missing input files were\nworse: silent and exit 0.\n\ncompileNative and emitLlvmFile now return errors on every failure\npath, which mainInner already turns into exit code 1. A failed link\nis also reported as \"Linking failed\" instead of the misleading \"No C\ncompiler found\" when a compiler was present, and the temp .ll file\nis cleaned up on failure too.\n\nThe exit-code.sh regression suite gains hermetic coverage for all of\nthese: missing/unreadable input for both compile and --emit-llvm, a\nmissing runtime library (isolated binary copy so every lookup\nmisses), a missing C compiler (empty PATH dir), and a failing linker\n(stub cc that always exits 1). All seven new assertions fail against\na pre-fix build.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T22:04:35+05:30",
-          "tree_id": "e2086b2fc78fc49eeb70122be3e9248ab9e5b5db",
-          "url": "https://github.com/kaappi/kaappi/commit/24fa6651ac6ec6fe439f2bb9eaaa1d5ab4286c29"
-        },
-        "date": 1783703006225,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.3646,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.86548,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.031767,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.506604,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012953,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338368,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.518956,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070173,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.490573,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.9822,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.734262,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.044079,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.576265,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.764439,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043917,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044224,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "fee98e0af031c5bbeb42c9c23bd750629b2ab72c",
+          "message": "Release v0.16.0",
+          "timestamp": "2026-07-17T18:23:20+05:30",
+          "tree_id": "331f61b07355fe5d2eead3f6c8bcf450879409f3",
+          "url": "https://github.com/kaappi/kaappi/commit/fee98e0af031c5bbeb42c9c23bd750629b2ab72c"
+        },
+        "date": 1784294892101,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.372166,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.702784,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.934027,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.403512,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006618,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054114,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509293,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069413,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.409859,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.046359,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.613332,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.44369,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.845576,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.711131,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043075,
             "unit": "seconds"
           }
         ]
