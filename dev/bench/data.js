@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784249871952,
+  "lastUpdate": 1784257700506,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3f25edbc8c4d3c65493fb87aab00d18ad08a7b20",
-          "message": "Disable the gc-stress fuzz variant pending #1401 (#1402)\n\nThe variant's first execution (workflow_dispatch run 29073769556) found\nthat ~440 of 690 unit tests crash under -Dgc-stress=true on both x86_64\nLinux and aarch64 macOS, instrumented or not. Since `zig build test\n--fuzz` runs the whole suite before fuzzing, the variant can never pass;\nits job hung after the test-phase failures until the 55-minute timeout.\n\nThe default variant is unaffected (green in ~4 minutes on the same run).\nRe-enable gc-stress once the suite is stress-clean.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T13:20:53+05:30",
-          "tree_id": "d2f38750f16775c80bfaec801c5cba711e70310d",
-          "url": "https://github.com/kaappi/kaappi/commit/3f25edbc8c4d3c65493fb87aab00d18ad08a7b20"
-        },
-        "date": 1783671365811,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.103022,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.794009,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.05224,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.424674,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014333,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.37645,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.516556,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067974,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.5665,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981941,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.713461,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.164854,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.415765,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.861985,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044867,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044636,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae970816acc54bc74110b53d60c84b288a256510",
+          "message": "Windows: port thottam package installation (#1609) (#1617)\n\n* Windows: port thottam package installation (#1609)\n\nthottam's install/remove/update were gated on Windows because the\ninstall pipeline shelled out to POSIX userland. Replace those shell-outs\nwith shim-based helpers so the pipeline runs identically everywhere and\nlift the gate:\n\n- new src/thottam_fs.zig: makeDirRecursive (mkdir -p), touchFile,\n  copyFile, copyTree (cp -R src/. dst/ merge semantics), removeTree\n  (rm -rf; retries through makeWritable for git's read-only object\n  files, which block _wunlink on Windows), and collectFilesWithSuffix\n  (the find call sites). Symlinks are never traversed.\n- platform.zig: lstatPath (no-follow stat; FindFirstFileW reports\n  reparse points on Windows), makeWritable/makeReadOnly (_wchmod /\n  chmod), is_symlink on StatInfo.\n- thottam.zig: dylib_ext is .dll on Windows; a manifest `build:` line\n  is refused on Windows with a clear error (every ecosystem build: is a\n  POSIX Makefile; pure-Scheme packages install fine); HOME falls back\n  to USERPROFILE (also in kaappi_paths.getHome, so installed libraries\n  are importable from plain pwsh/cmd shells).\n- thottam.zig now aggregates its sibling modules' tests; the existing\n  thottam_proc/state/semver tests were silently absent from the test\n  binary (Zig only collects tests from files referenced by a test\n  block). The proc test's std.c.getpid usage did not compile for\n  Windows; it now uses the platform shim.\n- CI: windows-arm-test runs thottam-tests.exe plus an install/remove\n  integration test of kaappi-json — removal deletes a real git clone,\n  the read-only hazard above.\n\nCloses #1609\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: fail installs on copy errors, tighten symlink handling\n\n- copyTree skips symlinks entirely (old cp -R duplicated links, never\n  read through them; a package-controlled link must not copy content\n  from outside the tree), and copyFile unlinks a destination symlink\n  before writing so a write can't land outside the lib dir.\n- Library/dylib copy failures now fail the install (exit 1) instead of\n  warning: a partial copy was previously recorded as installed+locked.\n  A missing/unreadable pkg dir still means \"no native libraries\".\n- Windows CI integration step also exercises `thottam update`.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Guard copy destinations against pre-existing symlinks\n\nremoveIfLink now backs every destination the copy pipeline writes or\nrecurses into: a planted link at a destination child (file or dir/\njunction) is removed — with failure propagated, never ignored — before\nany content is created through it. The merge root itself stays\nuntouched: a user may legitimately symlink ~/.kaappi/lib, and cp\nfollows a symlinked destination directory the same way.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* removeIfLink: retry read-only file symlinks; test dst file-link replace\n\nDeleteFile honors READONLY on the link object itself, so the file\nbranch goes through unlinkRetry like every other unlink (RemoveDirectory\nignores READONLY on directory objects, so the junction branch stays\ndirect). The copyTree symlink test now also covers a pre-planted\ndestination *file* link: replaced by a real file, old target untouched.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T08:10:13+05:30",
+          "tree_id": "8c28dbcd323d3ec3f0131a49e39d8a6cecab78cb",
+          "url": "https://github.com/kaappi/kaappi/commit/ae970816acc54bc74110b53d60c84b288a256510"
+        },
+        "date": 1784257699031,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.056795,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.255279,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.948359,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.461813,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006798,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052863,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512316,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068773,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.267328,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.985634,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.51356,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.479241,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.741576,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.918805,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046294,
             "unit": "seconds"
           }
         ]
