@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784270745034,
+  "lastUpdate": 1784270752199,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "64c327b2532c140bfc651261e79d4449ededb863",
-          "message": "Record the AFL++ analysis in the fuzzing feasibility note (#1404)\n\nSecond recurring tool question after Fuzzilli, so it gets the same\ntreatment: a section mapping AFL++'s feature set onto what Phase 1\n(#1398) built and what the tiered plan covers — persistent mode is the\nin-process vm.eval harness, dictionaries are the token target, grammar\nmutators are Tier 2's Smith generator. The blocker is instrumentation:\nafl-cc cannot compile Zig, leaving only the slow QEMU/FRIDA modes or\nthe SanitizerCoverage work already scoped and deferred for Fuzzilli.\n\nThe one AFL-shaped niche — CMPLOG against the .sbc loader's binary\nformat — is noted as a deferred complement alongside the Fuzzilli fork\nand Fuzz4All.\n\nAlso annotate the Gaps section with the items Phase 1 closed, so the\nnote no longer contradicts the sections that reference that work.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T14:35:49+05:30",
-          "tree_id": "c2fa8ead65951801dcc0eb084b49e9ed49634196",
-          "url": "https://github.com/kaappi/kaappi/commit/64c327b2532c140bfc651261e79d4449ededb863"
-        },
-        "date": 1783676018184,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.344013,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.862316,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.052046,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.518759,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013029,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338394,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508276,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070282,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.650081,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.980104,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.754219,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.038043,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.560173,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.706858,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043526,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044934,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "347432b586c99823b0c34ef3b0252e15cc90ee9b",
+          "message": "Add skip-issues argument to /parallel-issues skill\n\nAccepts an optional second comma-separated argument of issue numbers\nto exclude from analysis, e.g. `/parallel-issues label1 7898,7845`.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T11:46:23+05:30",
+          "tree_id": "3ce363fe2923fc0645fa8845d71df32ff7e62421",
+          "url": "https://github.com/kaappi/kaappi/commit/347432b586c99823b0c34ef3b0252e15cc90ee9b"
+        },
+        "date": 1784270751364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.293725,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.371626,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.879266,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.39343,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006203,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052552,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500625,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069233,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.357352,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.93222,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.542779,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.424188,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.826308,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.662019,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044265,
             "unit": "seconds"
           }
         ]
