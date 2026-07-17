@@ -324,7 +324,10 @@ jobs:
           for dir in smoke errors compile test-runner pipeline doctor fmt cache timings sandbox robustness; do
             for s in tests/scheme/$dir/*.sh; do
               [ -e "$s" ] || continue
-              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1); status=$?
+              # `|| status=$?`: the runner's `shell: bash` implies -e, which
+              # would otherwise abort the whole step on the first SKIP (77).
+              status=0
+              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1) || status=$?
               if [ "$status" -eq 0 ]; then
                 echo "  PASS  $s"
               elif [ "$status" -eq 77 ]; then
