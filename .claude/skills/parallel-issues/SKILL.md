@@ -1,12 +1,18 @@
 ---
 name: parallel-issues
-description: Group open GitHub issues into parallel sets for concurrent Claude Code sessions. Use when the user asks to batch issues, plan parallel work, triage open issues for parallel fixing, or create issue sets. Accepts an optional label (or multiple comma-separated labels) to restrict which issues are considered.
-argument-hint: "[label[,label,...]]"
+description: Group open GitHub issues into parallel sets for concurrent Claude Code sessions. Use when the user asks to batch issues, plan parallel work, triage open issues for parallel fixing, or create issue sets. Accepts an optional label (or multiple comma-separated labels) to restrict which issues are considered, and an optional second argument of comma-separated issue numbers to skip.
+argument-hint: "[label[,label,...]] [skip-number[,skip-number,...]]"
 ---
 
 # Parallel Issue Sets
 
-Optional labels may be passed as a comma-separated argument: `$ARGUMENTS`
+Arguments: `$ARGUMENTS`
+
+The first argument (if present) is a comma-separated list of labels to filter by.
+The second argument (if present) is a comma-separated list of issue numbers to
+skip entirely — they won't appear in any set and won't be fetched or analyzed.
+Parse the skip list before querying GitHub and exclude those numbers from all
+subsequent steps.
 
 Look up open GitHub issues with:
 
