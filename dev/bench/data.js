@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784286414622,
+  "lastUpdate": 1784288099766,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3fa6b12ebcbf90c8cbc1592bfdcf102202c19d54",
-          "message": "Return exact results from sqrt for rational and bignum perfect squares (#1415)\n\n(sqrt 9/4) returned inexact 1.5 even though the exact result 3/2 is\nrepresentable, and (sqrt <bignum perfect square>) returned a flonum that\ncan even be wrong in the last digit (f64 rounding). R7RS 6.2.6 encourages\nexact results for exact arguments when representable, and Chez, Chibi,\nGauche, and Guile all return 3/2 for (sqrt 9/4).\n\nExtract the integer square root logic (fixnum fast path + bignum Newton\niteration) from exact-integer-sqrt into a shared isqrtNonNegative helper,\nand use it in sqrt: a non-negative exact integer whose root has zero\nremainder returns the exact root, and an exact rational returns an exact\nrational when both numerator and denominator are perfect squares. All\nother cases (mixed squares, negatives, inexact arguments) keep the\nexisting inexact/complex behavior.\n\nFixes #1412\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T21:30:55+05:30",
-          "tree_id": "acf54202690ebb1a11b3a5d3d5849e812fc9c37a",
-          "url": "https://github.com/kaappi/kaappi/commit/3fa6b12ebcbf90c8cbc1592bfdcf102202c19d54"
-        },
-        "date": 1783701521024,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.135815,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.854814,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.040495,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.421609,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014318,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.375897,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512645,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068527,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.622387,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.989845,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.712994,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.165434,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.430766,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.864038,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045053,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044754,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19ff254a1b1bf476ee533106f710d36fda27f1ff",
+          "message": "Unwind an idle in-place I/O drive pinned over a resolved wait (#1625) (#1628)\n\n* Unwind an idle in-place I/O drive pinned over a resolved wait\n\nA guard-wrapped blocking read in a spawned fiber cannot park-and-retry:\nthe guard's call/ec + with-exception-handler natives are re-entrant Zig\nframes, so waitForFd takes drive mode and runs the scheduler in place.\nWhen that drive went idle, parkOnReactor polled unbounded on the fiber's\nown fd — hasRunnableFibers counts the fiber's .io_waiting and the fd\nkeeps the reactor non-empty, so the generic deadlock escape never fires.\nAn enclosing drive whose wait had already resolved (a fiber-join whose\ntarget completed, an expired thread-sleep!) stayed pinned beneath those\nnative frames forever: the whole OS thread wedged in kevent (#1625).\n\nThe reported \"parked fiber redispatched by a later join\" was a misread\nof the same stack: the hang is the pre-parking join itself — a\nguard-wrapped reader never survives in a parked state past the eval\nthat dispatches it, because it drives instead of parking.\n\nFix: every runSchedulerStep drive publishes its wait in a type-erased\nper-scheduler stack (driving_waits), so a nested drive can evaluate\nwhether an ancestor's condition is satisfied or timed out — resolutions\nnothing else announces, since a driving fiber is never .waiting and no\nwake path targets it. At the idle point (runnable siblings always get\ndispatched first), a wait that opted in (IoWait only) breaks off, and\nwaitForFd surfaces that as a catchable \"port I/O abandoned\" error: the\nre-entrant frames that made parking impossible are exception plumbing,\nso an ordinary raise is exactly the unwind they handle. Join, channel,\nmutex, and condvar drives are unaffected — with no fd of their own they\nalready fall out through parkOnReactor's deadlock check — and pure\nsleeps still run their full duration.\n\nCloses #1625\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Propagate OOM from the driving_waits push instead of degrading\n\nReview follow-up (PR #1628): unlike the ready ring or waiter_index,\nwhose OOM degradation is backed by correctness-preserving fallback\nscans, driving_waits is a correctness registry with no fallback — an\nentry silently dropped on OOM would re-open the #1625 wedge for the\ndrive's descendants as a silent hang. runSchedulerStep already\npropagates OutOfMemory mid-drive (saveCurrentFiber's growth,\nparkOnReactor's poll), so failing the wait loudly is the established,\nalready-handled path, and it simplifies the enrollment to a plain\nappend + defer pop.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T11:06:41Z",
+          "tree_id": "9d2655f12e977e592f32362c8798c9482ae2a277",
+          "url": "https://github.com/kaappi/kaappi/commit/19ff254a1b1bf476ee533106f710d36fda27f1ff"
+        },
+        "date": 1784288098335,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.134708,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.092447,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.714191,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.41331,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005285,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041086,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.394881,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053104,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.564591,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.528671,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.171751,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.371494,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.345181,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.513331,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036891,
             "unit": "seconds"
           }
         ]
