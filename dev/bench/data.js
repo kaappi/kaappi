@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784275843445,
+  "lastUpdate": 1784280769526,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9a9230d10e232e35e9020e0b40cbef52a7de01f6",
-          "message": "Fix nested syntax-rules substitution and template let ellipsis bindings (#1411)\n\n* Fix nested syntax-rules substitution and template let ellipsis bindings\n\nTwo expander bugs broke Alex Shinn's portable match and any macro using\nthe classic Kiselyov/Campbell let-syntax identifier/ellipsis detection\ntricks:\n\n1. R7RS template semantics substitute pattern variables everywhere in\n   the template, including nested syntax-rules patterns and literals —\n   that substitution is what makes the \"is this an identifier?\" trick\n   work. The expander instead filtered colliding outer bindings out of\n   nested syntax-rules forms (instantiateNestedSyntaxRules), leaving\n   the outer pattern variable behind as an inner catch-all pattern\n   variable, so probes matched everything. Remove the special case;\n   ordinary substitution plus hygiene renaming does the right thing.\n\n2. instantiateLetBindings had no ellipsis handling, so the common\n   template shape (let ((var value) ...) . body) failed to expand.\n   Delegate repetitions to instantiateEllipsis (including\n   ((var value) ... ...) depth-2 flattening per R7RS 4.3.2) and resume\n   let-binding processing after the ellipsis tokens.\n\nEven where such macros worked, expansion was pathologically slow:\nevery pattern-match attempt and ellipsis repetition safety-filled a\n~1MB [128]Binding buffer (8KB ellipsis_values per entry), and the\ncompiler's post-expansion set!-target scan (#1250 Part B) recursively\nre-expanded nested macro uses, making depth-N macro towers quadratic.\nHoist the binding buffers and write fields explicitly; expand macros\nonly in the top-level pre-scan — each nested use is scanned when\ncompilation actually expands it. A macro-expansion stress test that\ndid not finish in 5 minutes now completes in ~43s.\n\nAlso give library-load failures precise error names: reader failures\nsurface as LibrarySourceReadError instead of a vague InvalidSyntax,\nand compile failures of library body forms record the underlying\nerror name in the error detail.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address #1411 review: inner ellipses, binder hygiene, error propagation\n\nFixes the findings from PR review:\n\n- Preserve a generated nested syntax-rules transformer's own ellipses.\n  Inside a nested syntax-rules template, an ellipsis whose element\n  references no outer list binding belongs to the inner macro; the\n  outer instantiation expanded it to zero repetitions (this also\n  affected main via the old filtering path, which recursed with plain\n  instantiateTemplate). New NESTED_SR_FLAG context bit, set for the\n  subtree when a syntax-rules head is encountered.\n\n- Keep binding-position hygiene for repeated template-introduced let\n  binders. The ellipsis path in instantiateLetBindings instantiated\n  each (var init) repetition generically, so a binder named after a\n  global procedure (e.g. exp) skipped the binding-position rename and\n  captured use-site references to the builtin. New LET_PAIR_FLAG tags\n  the repetition element; instantiateTemplate splits it var/init with\n  the binding flag applied to the var.\n\n- Skip unreferenced list bindings in instantiateEllipsis' sub-binding\n  loop. With two ellipsis groups of different lengths in one template,\n  the unreferenced group's ellipsis_values was indexed past its own\n  count — an uninitialized read, and a potential garbage-pointer\n  dereference in the depth>1 branch.\n\n- Propagate OutOfMemory from library body compilation instead of\n  mapping it to InvalidSyntax (and thus \"library not found\").\n\n- Hoist the intro_scope flag bits to file-scope constants and mask\n  context flags in renameForHygiene so the same template identifier\n  renames consistently inside and outside those contexts.\n\nAdds 6 regression assertions (file now has 25).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T15:00:45Z",
-          "tree_id": "4e4ec988a7d6a6d9b486e3d71ee24223f7e69a7b",
-          "url": "https://github.com/kaappi/kaappi/commit/9a9230d10e232e35e9020e0b40cbef52a7de01f6"
-        },
-        "date": 1783697502788,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.376576,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.669135,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.041231,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.432499,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013491,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.342045,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512072,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070165,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.766828,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.961634,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.790902,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.047601,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.59336,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765727,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044039,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045411,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd3a8360bd5db137a02578913d665c8b91091008",
+          "message": "Windows pipe readiness: polled backend lifts the blocking-pipe degradation (#1608 stage 2) (#1623)\n\n* Windows pipe readiness: polled backend lifts the blocking-pipe degradation (#1608 stage 2)\n\nResolves the #1608 stage-2 question — do pipes/files justify a\ncompletion-based (IOCP/overlapped) rework of the park-and-retry\nprotocol? — with a no, and ships the design that fits instead:\n\n- IOCP cannot serve the pipe fds the port layer actually sees: CRT\n  _pipe/inherited/CreatePipe handles lack FILE_FLAG_OVERLAPPED, so the\n  only general completion design is a blocking worker pool whose\n  issued-read semantics can lose data on cancellation — something the\n  never-read-until-ready model structurally cannot.\n- Regular files gain nothing on any OS: POSIX has no regular-file\n  readiness either (O_NONBLOCK is a no-op, epoll rejects them), so\n  blocking file reads are the cross-platform baseline, not a Windows\n  gap.\n- Pipes need only readiness, and Windows can express it by polling:\n  PeekNamedPipe answers read-readiness, and\n  NtQueryInformationFile(FilePipeLocalInformation).WriteQuotaAvailable\n  answers write-readiness (libuv's own non-overlapped-pipe query).\n\nA pipe port under a scheduler now enters emulated non-blocking mode\n(port.nonblocking set with no OS-level flip): pipeRead/pipeWrite\npre-check peek/quota and synthesize the EAGAIN the shared protocol\nexpects — writes clamp to the known-free space so the blocking CRT\nwrite underneath can never block — and the WindowsEventBackend bounds\nits wait at a 10 ms quantum while pipe interest is armed, re-running\nthe same checks in its sweep (level-triggered, so none of\nWSAEventSelect's edge-record races apply; the quantum is paid only\nwhile a pipe waiter exists). Sequential programs keep plain blocking\npipe I/O and their exact syscall profile.\n\nThe Port fd-kind byte becomes fd_state (probe_done/is_socket/is_pipe),\nclassified once per port by the new platform.fdKind. New OS-pipe-pair\ntests (testing_helpers.makePipeFdPair) run the park/wake, write-full,\nsequential-blocking, and close-wake patterns over real pipes on every\nplatform — on Windows they are the new backend's coverage and would\nhave deadlocked before this change.\n\nVerified: macOS full unit suite + R7RS + the new suites under\n-Dgc-stress=true; Windows 11 ARM64 VM unit suite 1115 passed / 0\nfailed (15 skips) and R7RS 0 fail; wasm32-wasi and x86_64-linux\ncross-builds.\n\nCloses #1608\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address #1623 review round: finalizer quota gate, file-size policy, test hardening\n\n- gc_collect freeObject flush: route emulated-non-blocking pipe ports\n  through pipeWrite. The flush's contract is \"a would-block drops the\n  remainder\", but plain _write on a full Windows pipe blocks — and a GC\n  sweep can never park — so an abandoned port with pending output and a\n  full pipe would hang the whole OS thread. Regression test constructs\n  exactly that port and collects it.\n- platform.zig back under the 1500-line policy (1419): the kernel32/ntdll\n  pipe externs move into platform_win_pipe.zig (their only consumer —\n  unlike the ws2_32 slice, which stays in platform.win because reactor\n  and testing_helpers share it), and the inline tests move to a new\n  tests_platform.zig (appendQuotedArg/buildCommandLineW now pub for it).\n- Park/wake tests prove the reader reached .io_waiting before the peer\n  fiber is spawned, so a lucky schedule can't pass them without the\n  parked-pipe path; raw setup writes are asserted so a setup failure\n  fails loudly instead of hanging the blocking read.\n- platform_win_pipe.zig documents MSDN's multithreaded-PeekNamedPipe\n  caveat and why it sits outside the runtime's ports-never-cross-threads\n  model.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T09:03:40Z",
+          "tree_id": "1bd76a5ce26249541aab4401cb1e109434ce06ff",
+          "url": "https://github.com/kaappi/kaappi/commit/dd3a8360bd5db137a02578913d665c8b91091008"
+        },
+        "date": 1784280768362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.376888,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.868321,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920529,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.439789,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006378,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054204,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50379,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070348,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.484386,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.965277,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.576172,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435615,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.85032,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.692865,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043744,
             "unit": "seconds"
           }
         ]
