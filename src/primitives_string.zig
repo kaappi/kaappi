@@ -137,6 +137,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
     var fill_buf: [4]u8 = undefined;
     const fill_len = std.unicode.utf8Encode(fill_cp, &fill_buf) catch return primitives.typeError("make-string", "valid character", args[1]);
     const total_bytes = count * fill_len;
+    if (total_bytes > memory.GC.max_payload_bytes) return PrimitiveError.OutOfMemory;
     const buf = gc.allocator.alloc(u8, total_bytes) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(buf);
     for (0..count) |i| {

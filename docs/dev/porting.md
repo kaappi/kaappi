@@ -1,11 +1,14 @@
 # Porting to a new OS or CPU architecture
 
 How Kaappi's existing platform support is structured, and staged checklists
-for bringing up a new operating system or a new CPU architecture. The three
+for bringing up a new operating system or a new CPU architecture. The four
 completed ports are the reference material: **Windows aarch64** (#1606,
 #1608, #1609 — the OS-port exemplar, documented in [windows.md](windows.md)),
-**wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar), and
-**riscv64-linux** (the CPU-architecture exemplar, tested under QEMU).
+**wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar),
+**riscv64-linux** (the CPU-architecture exemplar, tested under QEMU), and
+**FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
+already works and the job is verifying it, documented in
+[freebsd.md](freebsd.md)).
 
 ## Current support matrix
 
@@ -16,6 +19,7 @@ completed ports are the reference material: **Windows aarch64** (#1606,
 | Linux | aarch64 | native | same | `test` (ubuntu-24.04-arm) | yes |
 | Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode | `riscv64-test` | yes |
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
+| FreeBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM FreeBSD VM (x86_64); verified on a real 15.1 aarch64 box | `freebsd-test` | yes (both arches) |
 | WASI | wasm32 | cross-compiled (`zig build wasm`) | smoke + timer + parallel-pool under wasmtime | `wasm` | yes (`kaappi.wasm`) |
 
 Everything builds from any host — Zig cross-compiles all rows; no target
@@ -49,7 +53,7 @@ What a port actually touches, in dependency order:
 | Surface | File(s) | What it is |
 |---------|---------|------------|
 | Syscall shim | `src/platform.zig` (+ `platform_win_sock.zig`) | The single boundary for every OS call: fd-based read/write/open/close, stat, directory iteration, env vars, clocks, sleep, console setup, terminal width, self-exe path, `dlopen`/`dlsym` (FFI), process spawn, temp dir, random seed. POSIX targets forward to `std.posix`/`std.c`; non-POSIX targets reimplement the same integer-fd surface. |
-| Reactor backend | `src/reactor.zig` | Per-OS-thread readiness multiplexer. `Backend` is an exhaustive `switch (builtin.os.tag)` — kqueue (Apple platforms), epoll (Linux), `poll_oneoff` (WASI), WSAEventSelect (Windows) — with `else => @compileError`. **This is the one hard compile gate a new OS hits**: even a FreeBSD port, where `KqueueBackend` is already the right code, must add its tag to the switch arms. Also per-OS: `NotifierBackend`, `ThreadNotifier.notify` (cross-thread wakeup: `EVFILT_USER` / eventfd / `SetEvent`), and `releaseNotifier`'s close path. The timer heap is portable userspace. |
+| Reactor backend | `src/reactor.zig` | Per-OS-thread readiness multiplexer. `Backend` is an exhaustive `switch (builtin.os.tag)` — kqueue (Apple platforms, FreeBSD), epoll (Linux), `poll_oneoff` (WASI), WSAEventSelect (Windows) — with `else => @compileError`. **This is the one hard compile gate a new OS hits**: even the FreeBSD port, where `KqueueBackend` was already the right code, had to add its tag to the switch arms (a NetBSD port would hit the same). Also per-OS: `NotifierBackend`, `ThreadNotifier.notify` (cross-thread wakeup: `EVFILT_USER` / eventfd / `SetEvent`), and `releaseNotifier`'s close path. The timer heap is portable userspace. |
 | Non-blocking probe | `src/primitives_io.zig` (`maybeSetNonblocking`) | Per-OS strategy for flipping port fds to would-block mode, and the degradation trigger when the OS can't (see "the degradation ladder"). |
 | Feature identifiers | `src/types.zig` (`platform_features`) | The `cond-expand` table. Exactly one OS-class identifier per build (`posix` or `windows` today); capability identifiers (`kaappi-threads`, …) dropped where unsupported. `kaappi features`, `(features)`, and `cond-expand` all read this one table. |
 | Library/primitive gates | `src/primitives.zig` (`Lib.wasmAvailable`, `PrimSpec.wasm`), `src/library.zig` | Which built-in libraries and individual primitives register on a constrained target. |
@@ -372,6 +376,12 @@ Hard-won specifics worth re-reading before starting (fuller detail in
   silently; force binary I/O and convert path encodings inside the shim.
 * **Decide handle ownership once.** Double-close across two API layers
   (CRT fd vs SOCKET) is a TOCTOU that only fires under thread churn.
+* **Never rely on malloc refusal for graceful errors.** Overcommitting
+  kernels (FreeBSD's default) reserve absurd allocation requests and
+  kill the process only when page commit catches up — the FreeBSD port
+  turned the out-of-memory diagnostic's own example into an OOM-killer
+  crash until the runtime learned to bound single payloads itself
+  (`GC.max_payload_bytes`, memory.zig; see freebsd.md).
 * **Emulation changes timing, not correctness — write gates
   accordingly.** Wall-clock bounds flake under QEMU (#1573);
   `emulated_target` exists so tests can bound by instruction count.

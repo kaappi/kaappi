@@ -105,3 +105,20 @@ test "dlSym on the dlOpen(null) process handle finds CRT symbols (#1611)" {
     _ = platform.dlError();
     try std.testing.expect(platform.dlSym(proc, "abs") != null);
 }
+
+test "getExePath resolves the running test binary to an absolute path" {
+    // Per-OS lookup (kaappi_paths.zig): /proc/self/exe on Linux,
+    // _NSGetExecutablePath on macOS, GetModuleFileNameW on Windows,
+    // sysctl kern.proc.pathname on FreeBSD. Every platform this suite
+    // executes on must resolve the test binary itself; only WASI (which
+    // never runs unit tests) legitimately returns null.
+    if (comptime is_wasm) return error.SkipZigTest;
+    const paths = @import("kaappi_paths.zig");
+    var buf: [4096]u8 = undefined;
+    const p = paths.getExePath(&buf) orelse return error.TestUnexpectedResult;
+    if (is_windows) {
+        try std.testing.expect(p.len > 2 and p[1] == ':');
+    } else {
+        try std.testing.expect(p.len > 0 and p[0] == '/');
+    }
+}

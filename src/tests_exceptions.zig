@@ -15,6 +15,15 @@ test "guard basic catch" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
+test "absurd payload requests raise catchable errors on every OS (FreeBSD overcommit)" {
+    // Overcommitting kernels (FreeBSD's default) reserve a 100 TB malloc
+    // happily and die at the zero-fill; the GC's max_payload_bytes cap
+    // must fail these before touching the OS (docs/dev/freebsd.md).
+    try th.expectEvalTrue("(guard (e (#t #t)) (make-bytevector 100000000000000) #f)");
+    try th.expectEvalTrue("(guard (e (#t #t)) (make-vector 100000000000000) #f)");
+    try th.expectEvalTrue("(guard (e (#t #t)) (make-string 100000000000000) #f)");
+}
+
 test "guard with error-object" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

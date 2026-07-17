@@ -14,7 +14,7 @@
 | `r7rs/` | Full R7RS suite (1,391 tests, `chibi test`) | yes (special) |
 | `errors/` | Error message format, exit code, and reader error regression tests | yes |
 | `bench/` | Micro-benchmarks (no assertions, timing only) | no |
-| `compile/` | Native compiler regression tests | no |
+| `compile/` | Native compiler regression tests | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
 | `robustness/` | Stress tests | no |
 | `sandbox/` | Sandbox isolation tests | no |
@@ -84,7 +84,12 @@ Bash on Windows — see `docs/dev/windows.md`). Conventions:
   This is the shell analogue of the `cond-expand (windows ...)` gate
   above. `shell-common.sh` also provides `is_windows`, `native_path`
   (the C:/-style path spelling kaappi itself prints, for output
-  assertions), and `rt_lib_name` (`libkaappi_rt.a` / `kaappi_rt.lib`).
+  assertions), `rt_lib_name` (`libkaappi_rt.a` / `kaappi_rt.lib`),
+  `skip_without_zig` (skip when the script itself must rebuild with a
+  Zig toolchain — boxes running cross-compiled binaries have none, see
+  `docs/dev/freebsd.md`), and `ensure_runtime_lib` (freshen
+  `libkaappi_rt.a` with zig when present, else accept a prebuilt
+  archive so `kaappi compile` tests still run).
 - Don't bake POSIX-only spellings into assertions: kaappi prints native
   paths, the runtime archive name is per-platform, and a Windows abort
   exits 3 rather than dying by signal (see `errors/crash-handler.sh`).

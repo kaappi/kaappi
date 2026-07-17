@@ -415,7 +415,21 @@ pub const GC = struct {
         return types.makePointer(&vec.header);
     }
 
+    /// Upper bound for a single payload allocation (vector/bytevector/
+    /// string data), checked before asking the OS. Overcommitting
+    /// kernels (FreeBSD's default) will reserve an absurd request — a
+    /// 100 TB make-bytevector "succeeds" and the zero-fill then commits
+    /// pages until the kernel's OOM killer ends the process — so malloc
+    /// refusal cannot be the graceful heap-exhausted error path
+    /// (docs/dev/freebsd.md). 1 TiB is far beyond any real
+    /// mark-and-sweep heap while leaving every legitimate allocation
+    /// untouched. (On 32-bit targets usize can't express the limit;
+    /// clamping makes the guard a no-op there, which is correct — the
+    /// address space itself is the cap.)
+    pub const max_payload_bytes: usize = @min(1 << 40, std.math.maxInt(usize));
+
     pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
+        if (size > max_payload_bytes / @sizeOf(Value)) return error.OutOfMemory;
         self.rootArgs1(fill);
         try self.maybeCollect();
         self.clearArgRoots();
@@ -604,6 +618,7 @@ pub const GC = struct {
     }
 
     pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
+        if (size > max_payload_bytes) return error.OutOfMemory;
         try self.maybeCollect();
         const data = try self.allocator.alloc(u8, size);
         errdefer self.allocator.free(data);

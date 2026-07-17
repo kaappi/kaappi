@@ -104,6 +104,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | CI tested (QEMU) |
 | Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
+| FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
 | WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
@@ -113,6 +114,8 @@ run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
 (kaappi.exe, thottam.exe, kaappi-lsp.exe); syscall-level platform
 differences live in `src/platform.zig` (see `docs/dev/windows.md` for the
 port's architecture, degradations, and how to test on a Windows machine).
+`zig build -Dtarget=aarch64-freebsd` (or `x86_64-freebsd`) cross-compiles
+for FreeBSD — a full-POSIX port with no degradations (`docs/dev/freebsd.md`).
 Porting to a new OS or CPU architecture: `docs/dev/porting.md` (porting
 surfaces, degradation ladder, staged checklists).
 

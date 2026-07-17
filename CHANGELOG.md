@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### FreeBSD platform support
+- **FreeBSD target (x86_64, aarch64)** — `zig build -Dtarget=<arch>-freebsd` cross-compiles all three binaries (releases ship both arches). A full-POSIX port with no runtime degradations: kqueue-backed fiber I/O (the macOS reactor backend, shared), SRFI-18 OS threads, complete SRFI-170, FFI via `dlopen`, the full linenoise REPL, and thottam including `build:` manifests. Self-exe lookup uses `sysctl kern.proc.pathname`. Verified on real FreeBSD 15.1 aarch64 hardware: full unit, R7RS, and `run-all.sh` suites, plus the native backend (`kaappi compile`) linking with the base system `cc` — no Zig toolchain needed on the box. CI runs the suites in a KVM FreeBSD VM. See `docs/dev/freebsd.md`
+
+### Fixed
+- **Out-of-memory errors are now deterministic across kernels** — a single vector/bytevector/string payload allocation is capped at 1 TiB (`GC.max_payload_bytes`) and raises the catchable out-of-memory error before asking the OS. Previously the graceful error relied on `malloc` refusing absurd requests, which overcommitting kernels (FreeBSD's default) don't do — `(make-bytevector 100000000000000)` was OOM-killed by the kernel instead of raising
+
 ## [0.16.0] - 2026-07-17
 
 ### Added

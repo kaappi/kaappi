@@ -41,6 +41,24 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # Cross-compiled from Linux (Zig bundles FreeBSD 14+ libc).
+          # Execution is verified by CI's freebsd-test VM job (x86_64)
+          # and on the port's aarch64 reference machine
+          # (docs/dev/freebsd.md).
+          - os: ubuntu-latest
+            target: x86_64-freebsd
+            artifact: kaappi-x86_64-freebsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
+          - os: ubuntu-latest
+            target: aarch64-freebsd
+            artifact: kaappi-aarch64-freebsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           # Cross-compiled via Zig's bundled mingw-w64; execution is
           # verified on real Windows 11 ARM64 hardware (docs/dev/windows.md)
           # since GitHub has no ARM64 Windows runners. The gnu-ABI static

@@ -16,6 +16,7 @@ set -euo pipefail
 # windows-arm-test job deliberately installs none.
 . "$(dirname "$0")/../shell-common.sh"
 skip_on_windows "compile suite needs a native Zig toolchain on this machine (kaappi#1613)"
+skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 
 KAAPPI="${1:-zig-out/bin/kaappi}"
 
