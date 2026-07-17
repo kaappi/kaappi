@@ -46,8 +46,8 @@ Skip issues that can't be handed to an independent fix session:
 - **Issues with an open linked PR** — a fix is already in flight; a second
   session would duplicate it. Add `--search "-linked:pr"` to filter these
   server-side when in doubt.
-- **Not-actionable issues** — labels like blocked, question, discussion,
-  wontfix, duplicate.
+- **Not-actionable issues** — labels like blocked, blocked-upstream,
+  question, discussion, wontfix, duplicate.
 
 ## Dependency analysis
 
