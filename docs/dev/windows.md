@@ -59,22 +59,27 @@ split follows what the platform can express:
 * **Socket ports.** A socket enters the port layer as a CRT fd created
   with `_open_osfhandle((intptr_t)sock, 0)` — the bridge contract for
   kaappi-net-style FFI code and `fd->port`. `maybeSetNonblocking`'s
-  one-time `isSocketFd` probe (GetFileType cross-check + getsockopt
-  `SO_TYPE`) marks the port `sock_state.is_socket` on first touch, so
-  reads/writes route through `platform.sockRecv`/`sockSend` from the
-  start — CRT `_read`/`_write` cannot operate on (overlapped) SOCKET
-  handles at all — and once a scheduler exists the port also flips
-  non-blocking via `FIONBIO`, whose `WSAEWOULDBLOCK → EAGAIN` errno
-  mapping drives the shared park-and-retry protocol unchanged. The
-  reactor backend (`WindowsEventBackend`, reactor.zig) arms
-  `WSAEventSelect` on a single shared manual-reset event and sweeps
-  `WSAEnumNetworkEvents` after each wakeup; a 0-timeout `select()` probe
-  right after each arm closes the documented WSAEventSelect races
-  (`FD_WRITE`/`FD_CLOSE` are edge-recorded, and re-issuing
-  `WSAEventSelect` clears pending records). `platform.close` tries
-  `closesocket` before `_close` on every fd: a socket closed by bare
-  CloseHandle leaks ws2_32's per-handle state, which then falsely claims
-  whatever file later recycles that handle value is a socket.
+  one-time `isSocketFd` probe (platform_win_sock.zig) marks the port
+  `sock_state.is_socket` on first touch, so reads/writes route through
+  `platform.sockRecv`/`sockSend` from the start — CRT `_read`/`_write`
+  cannot operate on (overlapped) SOCKET handles at all — and once a
+  scheduler exists the port also flips non-blocking via `FIONBIO`, whose
+  `WSAEWOULDBLOCK → EAGAIN` errno mapping drives the shared
+  park-and-retry protocol unchanged. The reactor backend
+  (`WindowsEventBackend`, reactor.zig) arms `WSAEventSelect` on a single
+  shared manual-reset event and sweeps `WSAEnumNetworkEvents` after each
+  wakeup; a 0-timeout `select()` probe right after each arm closes the
+  documented WSAEventSelect races (`FD_WRITE`/`FD_CLOSE` are
+  edge-recorded, and re-issuing `WSAEventSelect` clears pending
+  records). Ownership stays single-owner: the CRT owns the handle, so
+  `platform.close` is plain `_close` even for sockets (kernel teardown
+  is identical; a paired `closesocket` would double-close the handle
+  value — a TOCTOU against other threads' allocations). The stale
+  ws2_32 bookkeeping that leaves behind is neutralized in the probe:
+  `isSocketFd` requires GetFileType == PIPE, getsockopt(`SO_TYPE`), and
+  a kernel-verified `ioctlsocket(FIONREAD)` round-trip, so a file or
+  pipe recycling a dead socket's handle value can never be
+  misclassified as a socket.
 * **Pipe and file ports.** CRT fds for pipes/files have no would-block
   mode, so these ports never flip non-blocking, never EAGAIN, and never
   reach the reactor — single-fiber blocking I/O, the WASI probe-fail

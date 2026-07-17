@@ -161,6 +161,8 @@ pub const win = if (is_windows) struct {
     pub const SO_TYPE: c_int = 0x1008;
     /// ioctlsocket command: FIONBIO (_IOW('f', 126, u_long)).
     pub const FIONBIO: c_long = @bitCast(@as(u32, 0x8004667E));
+    /// ioctlsocket command: FIONREAD (_IOR('f', 127, u_long)).
+    pub const FIONREAD: c_long = @bitCast(@as(u32, 0x4004667F));
 
     pub const WSAEINTR: c_int = 10004;
     pub const WSAEWOULDBLOCK: c_int = 10035;
@@ -312,19 +314,20 @@ pub fn read(fd: fd_t, buf: [*]u8, len: usize) isize {
 
 pub fn close(fd: fd_t) void {
     if (comptime is_windows) {
-        // Try closesocket first, unconditionally: a socket must NOT be
-        // closed by CloseHandle alone (_close's mechanism) — ws2_32's
-        // user-mode per-handle state is never told, and once the OS
-        // recycles the handle value for an ordinary file, that stale
-        // entry makes getsockopt falsely claim the file is a socket
-        // (observed: silently dropped writes on a file port whose fd
-        // recycled a socket's, #1608). On a non-socket fd closesocket
-        // returns WSAENOTSOCK without touching the handle; on a socket
-        // it both frees the ws2_32 state and closes the handle, leaving
-        // _close to release the CRT fd slot (its CloseHandle failing
-        // benignly).
-        const h = win._get_osfhandle(fd);
-        if (h != -1 and h != -2) _ = win.closesocket(@bitCast(h));
+        // _close alone, even for socket-backed fds: the CRT owns the
+        // handle (_open_osfhandle transferred it), and a closesocket
+        // paired with _close would close the same handle value twice —
+        // a TOCTOU where another thread's allocation can receive the
+        // value between the two calls and get its handle closed out
+        // from under it. CloseHandle (what _close performs) does tear
+        // the socket down at the kernel (AFD) level — peers observe
+        // FD_CLOSE/EOF normally — but ws2_32's user-mode per-handle
+        // bookkeeping is never told, so a stale entry survives until a
+        // future socket() reuses that handle value. That staleness is
+        // neutralized where it would bite: isSocketFd only trusts
+        // ws2_32 after a kernel-verified round-trip (see its comment),
+        // so a file or pipe that recycles a dead socket's handle value
+        // can never be misclassified as a socket (#1608).
         _ = win._close(fd);
         return;
     }
@@ -353,161 +356,23 @@ pub fn dup(fd: fd_t) fd_t {
 }
 
 // ---------------------------------------------------------------------------
-// Windows sockets (#1608 stage 1: socket readiness).
-//
-// The runtime's contract on Windows: a socket enters the port layer as a
-// CRT fd created with `_open_osfhandle((intptr_t)sock, 0)` — the fd both
-// closes uniformly through platform.close (which handles the
-// closesocket/_close split; see its comment) and recovers its SOCKET via
-// `_get_osfhandle` for the calls below. CRT `_read`/`_write` cannot
-// operate on SOCKET handles at all (sockets are OVERLAPPED by default,
-// which plain ReadFile/WriteFile rejects), so socket ports read and
-// write through sockRecv/sockSend instead — blocking or not — which
-// translate Winsock errors onto the CRT errno values the shared port
-// paths already check (EAGAIN/EINTR). Everything here is a comptime
-// no-op off Windows.
+// Windows sockets (#1608 stage 1: socket readiness) live in
+// platform_win_sock.zig — the natural seam once this file crossed the
+// 1500-line policy. Re-exported here so this file stays the single public
+// platform surface (`platform.sockRecv`, ...); the raw ws2_32/kernel32
+// externs remain in `win` above, which reactor.zig, testing_helpers, and
+// the socket module itself share.
 // ---------------------------------------------------------------------------
 
-var winsock_ready = std.atomic.Value(bool).init(false);
-var winsock_mutex: std.atomic.Mutex = .unlocked;
-
-/// Idempotent, thread-safe WSAStartup. Never paired with WSACleanup — the
-/// socket layer lives for the process, the same lifetime discipline as the
-/// CRT fd table itself. The spinlock (the symbol_mutex pattern) only ever
-/// spins on the one-time first call racing another thread.
-pub fn ensureWinsock() void {
-    if (comptime !is_windows) return;
-    if (winsock_ready.load(.acquire)) return;
-    while (!winsock_mutex.tryLock()) std.atomic.spinLoopHint();
-    defer winsock_mutex.unlock();
-    if (winsock_ready.load(.acquire)) return;
-    var data: win.WSAData = undefined;
-    _ = win.WSAStartup(0x0202, &data);
-    winsock_ready.store(true, .release);
-}
-
-/// The SOCKET behind a CRT fd, or null if the fd is invalid/unassociated.
-/// Callers must have established that the fd wraps a socket (isSocketFd)
-/// before treating the handle as one.
-pub fn sockFromFd(fd: fd_t) ?win.SOCKET {
-    const h = win._get_osfhandle(fd);
-    // -1 is INVALID_HANDLE_VALUE (bad fd), -2 the CRT's "fd has no
-    // associated stream" marker.
-    if (h == -1 or h == -2) return null;
-    return @bitCast(h);
-}
-
-/// Whether the CRT fd wraps a SOCKET: GetFileType must report PIPE (what
-/// sockets report; disk files report DISK) AND getsockopt(SO_TYPE) must
-/// succeed — non-sockets fail WSAENOTSOCK. This is the port layer's
-/// one-time readiness capability check (maybeSetNonblocking), the Windows
-/// analogue of WASI's fd_fdstat_set_flags probe. The GetFileType
-/// cross-check is load-bearing, not belt-and-braces: ws2_32 keys its
-/// per-socket state by handle value, so a socket closed behind its back
-/// (CloseHandle without closesocket — e.g. by foreign FFI code) leaves a
-/// stale entry that makes getsockopt "succeed" for whatever ordinary file
-/// later recycles that handle value (#1608). platform.close prevents the
-/// runtime itself from creating such entries.
-pub fn isSocketFd(fd: fd_t) bool {
-    if (comptime !is_windows) return false;
-    ensureWinsock();
-    const raw = win._get_osfhandle(fd);
-    if (raw == -1 or raw == -2) return false;
-    const handle: win.HANDLE = @ptrFromInt(@as(usize, @bitCast(raw)));
-    if (win.GetFileType(handle) != win.FILE_TYPE_PIPE) return false;
-    const sock: win.SOCKET = @bitCast(raw);
-    var sotype: c_int = 0;
-    var optlen: c_int = @sizeOf(c_int);
-    return win.getsockopt(sock, win.SOL_SOCKET, win.SO_TYPE, @ptrCast(&sotype), &optlen) == 0;
-}
-
-/// Flips the socket behind `fd` to non-blocking (FIONBIO). Returns false
-/// if the fd is not a live socket.
-pub fn setSockNonblockingFd(fd: fd_t) bool {
-    if (comptime !is_windows) return false;
-    ensureWinsock();
-    const sock = sockFromFd(fd) orelse return false;
-    var one: c_ulong = 1;
-    return win.ioctlsocket(sock, win.FIONBIO, &one) == 0;
-}
-
-/// Winsock error → CRT errno value, covering what the shared port paths
-/// distinguish (AGAIN parks the fiber, INTR retries); everything else only
-/// needs to be recognizably "some other error".
-fn crtErrnoFromWsa(wsa_err: c_int) c_int {
-    const e: E = switch (wsa_err) {
-        win.WSAEWOULDBLOCK => .AGAIN,
-        win.WSAEINTR => .INTR,
-        win.WSAECONNRESET, win.WSAECONNABORTED, win.WSAENETRESET => .CONNRESET,
-        win.WSAESHUTDOWN => .PIPE,
-        win.WSAENOTSOCK => .BADF,
-        else => .IO,
-    };
-    return @intFromEnum(e);
-}
-
-/// read(2)-shaped recv() on the socket behind a CRT fd: returns bytes read,
-/// 0 at orderly shutdown (EOF), or -1 with the CRT errno set so
-/// platform.errno() reports .AGAIN/.INTR exactly like a POSIX socket read.
-pub fn sockRecv(fd: fd_t, buf: [*]u8, len: usize) isize {
-    if (comptime !is_windows) return -1;
-    const sock = sockFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
-        return -1;
-    };
-    const n: c_int = @intCast(@min(len, std.math.maxInt(c_int)));
-    const rc = win.recv(sock, buf, n, 0);
-    if (rc == win.SOCKET_ERROR) {
-        win._errno().* = crtErrnoFromWsa(win.WSAGetLastError());
-        return -1;
-    }
-    return rc;
-}
-
-/// write(2)-shaped send() on the socket behind a CRT fd; error contract as
-/// sockRecv.
-pub fn sockSend(fd: fd_t, buf: [*]const u8, len: usize) isize {
-    if (comptime !is_windows) return -1;
-    const sock = sockFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
-        return -1;
-    };
-    const n: c_int = @intCast(@min(len, std.math.maxInt(c_int)));
-    const rc = win.send(sock, buf, n, 0);
-    if (rc == win.SOCKET_ERROR) {
-        win._errno().* = crtErrnoFromWsa(win.WSAGetLastError());
-        return -1;
-    }
-    return rc;
-}
-
-pub const SockReadiness = struct { readable: bool = false, writable: bool = false };
-
-/// 0-timeout select() snapshot of the socket's current readiness in the
-/// requested directions. An exceptional condition — or select() itself
-/// failing on a dead socket — reports every requested direction ready:
-/// a spurious wake is always safe under the park-and-retry protocol (the
-/// retried syscall surfaces the real outcome), a missed one hangs forever.
-pub fn sockPollReady(sock: win.SOCKET, want_read: bool, want_write: bool) SockReadiness {
-    var rset: win.FdSet = .{ .count = 1, .array = undefined };
-    rset.array[0] = sock;
-    var wset = rset;
-    var xset = rset;
-    var tv: win.Timeval = .{ .sec = 0, .usec = 0 };
-    const rc = win.select(
-        0, // nfds is ignored on Windows
-        if (want_read) &rset else null,
-        if (want_write) &wset else null,
-        &xset,
-        &tv,
-    );
-    if (rc == win.SOCKET_ERROR) return .{ .readable = want_read, .writable = want_write };
-    const broken = xset.count > 0;
-    return .{
-        .readable = want_read and (broken or rset.count > 0),
-        .writable = want_write and (broken or wset.count > 0),
-    };
-}
+const win_sock = @import("platform_win_sock.zig");
+pub const ensureWinsock = win_sock.ensureWinsock;
+pub const sockFromFd = win_sock.sockFromFd;
+pub const isSocketFd = win_sock.isSocketFd;
+pub const setSockNonblockingFd = win_sock.setSockNonblockingFd;
+pub const sockRecv = win_sock.sockRecv;
+pub const sockSend = win_sock.sockSend;
+pub const SockReadiness = win_sock.SockReadiness;
+pub const sockPollReady = win_sock.sockPollReady;
 
 // ---------------------------------------------------------------------------
 // open — semantic wrappers instead of a flags struct: std.posix.O's layout

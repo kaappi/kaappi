@@ -970,6 +970,16 @@ const WindowsEventBackend = struct {
     }
 
     fn deinit(self: *WindowsEventBackend) void {
+        // Disarm every still-registered socket before its event handle
+        // goes away: an armed WSAEventSelect association may outlive the
+        // Reactor (a port closed only after scheduler teardown), and
+        // while AFD holds its own reference on the event object, leaving
+        // a live mask pointed at a handle this thread no longer owns has
+        // no upside. Best-effort — the socket may already be closed.
+        var it = self.sockets.iterator();
+        while (it.next()) |entry| {
+            _ = platform.win.WSAEventSelect(entry.value_ptr.sock, null, 0);
+        }
         _ = platform.win.CloseHandle(self.sock_event);
         self.sockets.deinit();
         self.ready.deinit(self.allocator);

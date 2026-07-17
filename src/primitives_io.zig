@@ -219,8 +219,8 @@ pub fn maybeSetNonblocking(port: *types.Port) void {
 
 /// The port's fd byte source: read(2) everywhere except a Windows socket
 /// port, which must recv() on the underlying SOCKET — CRT _read cannot
-/// operate on (overlapped) SOCKET handles at all (platform.zig's
-/// Windows-sockets section). Same return/errno contract as platform.read.
+/// operate on (overlapped) SOCKET handles at all (platform_win_sock.zig).
+/// Same return/errno contract as platform.read.
 fn portFdRead(port: *types.Port, buf: [*]u8, len: usize) isize {
     if (comptime platform.is_windows) {
         if (port.sock_state.is_socket) return platform.sockRecv(port.fd, buf, len);
