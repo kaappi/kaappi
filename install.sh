@@ -15,18 +15,20 @@ detect_platform() {
     arch=$(uname -m)
 
     case "$os" in
-        Darwin) os="macos" ;;
-        Linux)  os="linux" ;;
+        Darwin)  os="macos" ;;
+        Linux)   os="linux" ;;
+        FreeBSD) os="freebsd" ;;
         *)
             echo "error: unsupported OS: $os"
-            echo "Kaappi supports macOS and Linux. See https://github.com/$REPO"
+            echo "Kaappi supports macOS, Linux, and FreeBSD. See https://github.com/$REPO"
             exit 1
             ;;
     esac
 
     case "$arch" in
         arm64|aarch64) arch="aarch64" ;;
-        x86_64)        arch="x86_64" ;;
+        # FreeBSD reports x86_64 as amd64 (uname -m).
+        x86_64|amd64)  arch="x86_64" ;;
         riscv64)       arch="riscv64" ;;
         *)
             echo "error: unsupported architecture: $arch"

@@ -141,7 +141,7 @@ Note: `src/main.zig` and `src/thottam.zig` read the version from
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), plus kaappi.wasm (wasm32-wasi)
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, plus kaappi.wasm (wasm32-wasi)
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -201,6 +201,22 @@ ssh win11 "C:\tmp\kaappi-vX.Y.Z.exe features"
 
 Verify: version matches, script prints `3`, and `features` shows `windows`
 (not `posix`) with target `aarch64-windows-gnu`. See `docs/dev/windows.md`.
+
+The FreeBSD artifacts are likewise checksum-covered but have **no CI
+acceptance leg** — GitHub hosts no FreeBSD runners. Smoke-test the
+aarch64 binary on the `ssh freebsd` box (the port's reference machine):
+
+```bash
+TAG=vX.Y.Z
+ssh freebsd "fetch -qo /tmp/kaappi-$TAG https://github.com/kaappi/kaappi/releases/download/$TAG/kaappi-aarch64-freebsd && chmod +x /tmp/kaappi-$TAG"
+ssh freebsd "/tmp/kaappi-$TAG --version"
+ssh freebsd "echo '(display (+ 1 2)) (newline)' | /tmp/kaappi-$TAG"
+ssh freebsd "/tmp/kaappi-$TAG features"
+```
+
+Verify: version matches, script prints `3`, and `features` shows `posix`
++ `kaappi-threads` with target `aarch64-freebsd-none`. See
+`docs/dev/freebsd.md`.
 
 ## Step 11: Update docs site (playground WASM + version)
 
