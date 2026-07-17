@@ -84,6 +84,7 @@ zig build test                       # run the unit tests
 | Linux | aarch64 | yes | yes | LLVM backend |
 | Linux | riscv64 | yes | yes | LLVM backend |
 | Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
+| FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
@@ -102,6 +103,12 @@ always work) — and the POSIX-only slice of SRFI-170 (uid/gid, symlinks,
 chmod/umask, user/group info) raises a catchable file error.
 `cond-expand` distinguishes the platforms: Windows builds expose the
 `windows` feature identifier instead of `posix`.
+
+The FreeBSD port (`zig build -Dtarget=x86_64-freebsd` or
+`aarch64-freebsd`) is full POSIX with no degradations: kqueue-backed
+fiber I/O, OS threads, complete SRFI-170, the full linenoise REPL, and
+thottam with `build:` support. `kaappi compile` links native binaries
+with the base system's `cc` — no extra toolchain needed.
 
 ## A taste of Kaappi
 

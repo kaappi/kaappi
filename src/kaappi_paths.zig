@@ -111,6 +111,17 @@ pub fn getExePath(buf: []u8) ?[]const u8 {
         return buf[0..len];
     }
 
+    if (comptime @import("builtin").os.tag == .freebsd) {
+        // procfs is typically not mounted on FreeBSD; the kernel resolves
+        // the canonical executable path via sysctl kern.proc.pathname
+        // (pid -1 = calling process), so no realpath pass is needed.
+        var mib = [4]c_int{ std.c.CTL.KERN, std.c.KERN.PROC, std.c.KERN.PROC_PATHNAME, -1 };
+        var len: usize = buf.len;
+        if (std.c.sysctl(&mib, mib.len, buf.ptr, &len, null, 0) != 0) return null;
+        if (len <= 1) return null;
+        return buf[0 .. len - 1]; // len counts the terminating NUL
+    }
+
     return null;
 }
 

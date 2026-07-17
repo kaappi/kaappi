@@ -29,7 +29,7 @@ pub const Interest = enum { read, write };
 const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
 
 const Backend = switch (builtin.os.tag) {
-    .macos, .ios, .tvos, .watchos, .visionos => KqueueBackend,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd => KqueueBackend,
     .linux => EpollBackend,
     .wasi => WasiPollBackend,
     .windows => WindowsEventBackend,
@@ -91,7 +91,7 @@ pub const ThreadNotifier = struct {
         self.wake_pending.store(true, .release);
         if (!self.alive.load(.acquire)) return;
         switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos => {
+            .macos, .ios, .tvos, .watchos, .visionos, .freebsd => {
                 var triggers = [1]std.c.Kevent{.{
                     .ident = 0,
                     .filter = std.c.EVFILT.USER,
@@ -132,7 +132,7 @@ pub const ThreadNotifier = struct {
 /// Reactor is constructed (see Reactor.init / each backend's
 /// `notifierBackend`).
 const NotifierBackend = switch (builtin.os.tag) {
-    .macos, .ios, .tvos, .watchos, .visionos => struct { kq: i32 },
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd => struct { kq: i32 },
     .linux => struct { fd: i32 },
     .wasi => struct {},
     .windows => struct { event: platform.win.HANDLE },
@@ -167,7 +167,7 @@ pub fn retainNotifier(n: *ThreadNotifier) void {
 pub fn releaseNotifier(n: *ThreadNotifier) void {
     if (n.refcount.fetchSub(1, .acq_rel) == 1) {
         switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos => _ = platform.close(n.backend.kq),
+            .macos, .ios, .tvos, .watchos, .visionos, .freebsd => _ = platform.close(n.backend.kq),
             .linux => _ = platform.close(n.backend.fd),
             .wasi => {},
             // Shared with the backend's wait — closed only here, exactly
@@ -441,13 +441,18 @@ pub const Reactor = struct {
 };
 
 // ---------------------------------------------------------------------------
-// kqueue backend (macOS/Apple platforms)
+// kqueue backend (macOS/Apple platforms, FreeBSD)
 // ---------------------------------------------------------------------------
 
 const KqueueBackend = struct {
     kq: i32,
     raw: [max_events_per_poll]std.c.Kevent = undefined,
     ready: [max_events_per_poll]ReadyEvent = undefined,
+
+    /// EV_EOF is 0x8000 on every kqueue OS (sys/event.h), but this Zig's
+    /// freebsd std.c.EV binding omits the constant — fall back to the
+    /// literal there.
+    const EV_EOF: u16 = if (@hasDecl(std.c.EV, "EOF")) std.c.EV.EOF else 0x8000;
 
     /// Owns no allocations — the allocator is part of the uniform
     /// three-backend init signature (WasiPollBackend needs it). Also
@@ -565,7 +570,7 @@ const KqueueBackend = struct {
             // before this event was posted; nothing further to do here.
             if (kev.filter == std.c.EVFILT.USER) continue;
             const fd: i32 = @intCast(kev.ident);
-            const broken = (kev.flags & std.c.EV.EOF) != 0;
+            const broken = (kev.flags & EV_EOF) != 0;
             const is_read = kev.filter == std.c.EVFILT.READ;
             for (self.ready[0..count]) |*re| {
                 if (re.fd == fd) {

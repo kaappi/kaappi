@@ -40,3 +40,30 @@ native_path() {
 rt_lib_name() {
     if is_windows; then echo "kaappi_rt.lib"; else echo "libkaappi_rt.a"; fi
 }
+
+# skip_without_zig <reason>: exit 77 (SKIP) when no Zig toolchain is on
+# PATH. For scripts whose test itself rebuilds with zig (e.g. the
+# -Dbundle standalone-binary tests). Boxes that run cross-compiled
+# binaries with no toolchain installed — the FreeBSD reference machine
+# (docs/dev/freebsd.md) — skip these instead of dying at `zig: not
+# found`.
+skip_without_zig() {
+    if ! command -v zig > /dev/null 2>&1; then
+        echo "SKIP: $1"
+        exit 77
+    fi
+}
+
+# ensure_runtime_lib <repo-dir>: freshen the native runtime archive via
+# `zig build lib` when a toolchain is present. Without one, accept an
+# already-built archive (cross-compiled and copied to the box) so the
+# `kaappi compile` + C-compiler part of the test still runs; skip-77
+# only when neither exists.
+ensure_runtime_lib() {
+    if command -v zig > /dev/null 2>&1; then
+        (cd "$1" && zig build lib > /dev/null 2>&1)
+    elif [ ! -f "$1/zig-out/lib/$(rt_lib_name)" ]; then
+        echo "SKIP: no zig toolchain and no prebuilt zig-out/lib/$(rt_lib_name)"
+        exit 77
+    fi
+}

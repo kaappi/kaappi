@@ -138,6 +138,66 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+  # FreeBSD: cross-compile the binaries and test executables from Linux
+  # (guarding the cross-compilation path release.yml ships with), then
+  # boot a FreeBSD VM via KVM on the same runner — GitHub hosts no
+  # FreeBSD runners — and execute the unit suite, the thottam suite, and
+  # the full Scheme suite inside it. Same build-anywhere/execute-on-target
+  # idea as windows-cross → windows-arm-test, collapsed into one job
+  # because the VM shares the workspace (no artifact handoff needed).
+  # The VM tracks the oldest supported release line (Zig's bundled
+  # FreeBSD libc floor is 14.0); the port's reference machine runs
+  # 15.1 aarch64 (docs/dev/freebsd.md).
+  freebsd-test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: freebsd
+
+      - name: Build (cross-compile for x86_64-freebsd)
+        run: zig build -Dtarget=x86_64-freebsd
+
+      - name: Compile unit tests (x86_64-freebsd)
+        # skip_foreign_checks makes this compile-and-skip on the Linux
+        # host; the binaries are executed inside the VM below. ls -t picks
+        # the binaries this run compiled — the restored Zig cache can hold
+        # stale ones from earlier runs.
+        run: |
+          zig build test -Dtarget=x86_64-freebsd
+          cp "$(ls -t .zig-cache/o/*/unit-tests | head -1)" ./unit-tests-freebsd
+          cp "$(ls -t .zig-cache/o/*/thottam-tests | head -1)" ./thottam-tests-freebsd
+
+      - name: Trim workspace for VM sync
+        # The VM step rsyncs the whole workspace into the guest; the Zig
+        # cache is by far its largest tree and nothing in the VM needs it.
+        run: rm -rf .zig-cache
+
+      - name: Run test suites (FreeBSD VM)
+        uses: vmactions/freebsd-vm@5a72679103d223925653750faa878a143340fbd0 # v1
+        with:
+          release: "14.3"
+          usesh: true
+          sync: rsync
+          copyback: false
+          # bash: run-all.sh; python3 + git: the errors/ and test-runner/
+          # suites validate JSON output and build throwaway git repos.
+          prepare: pkg install -y bash python3 git
+          run: |
+            set -e
+            ./unit-tests-freebsd
+            ./thottam-tests-freebsd
+            cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
+            bash tests/scheme/run-all.sh
+
   # Cross-compile the Windows aarch64 binaries and the unit-test binary
   # from Linux. Compile-only by design: this guards the cross-compilation
   # path release.yml ships with, independent of the Windows runner image.

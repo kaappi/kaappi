@@ -24,8 +24,8 @@ KAAPPI="${1:-zig-out/bin/kaappi}"
 KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-# Build interpreter + runtime library
-(cd "$REPO_DIR" && zig build lib > /dev/null 2>&1)
+# Freshen the runtime library (prebuilt archive suffices without zig)
+ensure_runtime_lib "$REPO_DIR"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
