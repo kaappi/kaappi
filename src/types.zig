@@ -534,6 +534,23 @@ pub const Port = struct {
     write_buf: ?[]u8 = null,
     write_buf_start: usize = 0,
     write_buf_len: usize = 0,
+    /// Windows-only socket-port state (#1608); always defaults elsewhere.
+    /// One u8-backed field rather than two bools: this struct's auto
+    /// layout keeps `header` at offset 0 with a single byte added here,
+    /// but reorders `header` away from 0 with two — see the heap-type
+    /// layout guard at the bottom of this file.
+    sock_state: packed struct(u8) {
+        /// maybeSetNonblocking's socket probe already ran for this port,
+        /// whatever its outcome — the probe is a getsockopt syscall and
+        /// must not repeat on every read of an ordinary file port.
+        probe_done: bool = false,
+        /// `fd` wraps a SOCKET (established by the isSocketFd probe), so
+        /// reads/writes must route through platform.sockRecv/sockSend —
+        /// CRT _read/_write cannot operate on (overlapped) SOCKET handles
+        /// at all, blocking or not.
+        is_socket: bool = false,
+        _pad: u6 = 0,
+    } = .{},
 };
 
 // ---------------------------------------------------------------------------
@@ -1363,4 +1380,41 @@ else
 test "nil is not a pointer" {
     try std.testing.expect(!isPointer(NIL));
     try std.testing.expect(isNil(NIL));
+}
+
+// ---------------------------------------------------------------------------
+// Heap-type layout guard.
+//
+// A heap Value's 48-bit payload is produced by `makePointer(@ptrCast(x))`
+// at most allocation sites — the *struct* address — while `toObject(v)`
+// reads it as a `*Object` and `Object.as()` treats it as the address of
+// the `header` *field*. Those three agree only while `header` sits at
+// byte offset 0, and Zig's auto struct layout does NOT promise that for
+// any field, first-declared or not: adding two `bool`s to Port once moved
+// its header to offset 48 with no other change, silently turning every
+// port Value into garbage (#1608 review). This guard turns any such
+// layout shift into a compile error; if it fires for a type you just
+// edited, rearrange or repack the new fields (e.g. Port.sock_state packs
+// two flags into one u8 precisely for this) until the offset is 0 again.
+// Fiber (fiber.zig) is deliberately absent: its header already sits at a
+// nonzero offset, which is safe because every Fiber-to-Value site spells
+// makePointer(@ptrCast(&fiber.header)) — the convention Object.as()
+// documents. Migrating the remaining struct-pointer call sites to that
+// convention (making this guard unnecessary) is tracked as a follow-up.
+comptime {
+    const heap_types = [_]type{
+        Pair,              Symbol,         SchemeString, Closure,           NativeFn,
+        NativeClosure,     Vector,         Bytevector,   Port,              RecordType,
+        Function,          Flonum,         Transformer,  ErrorObject,       RecordInstance,
+        Continuation,      MultipleValues, Complex,      Promise,           ParameterObject,
+        FfiLibrary,        FfiFunction,    FfiCallback,  HashTable,         Bignum,
+        Rational,          FileInfo,       UserInfo,     GroupInfo,         DirectoryObject,
+        RandomSource,      Channel,        Mutex,        ConditionVariable, Srfi18Time,
+        SchemeEnvironment,
+    };
+    for (heap_types) |T| {
+        if (@offsetOf(T, "header") != 0) {
+            @compileError("heap type " ++ @typeName(T) ++ ": auto layout moved `header` off byte offset 0; rearrange/repack its fields (see the layout-guard comment in types.zig)");
+        }
+    }
 }

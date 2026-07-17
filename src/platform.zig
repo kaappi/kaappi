@@ -10,11 +10,14 @@
 //! and calls the wide CRT entry points so non-ASCII paths work regardless
 //! of the active ANSI code page.
 //!
-//! Two deliberate degradations on Windows (mirroring the WASI port):
-//! ports never flip to O_NONBLOCK (no fcntl), so fiber I/O suspension
-//! degrades to blocking reads exactly like the WASI probe-fail path; and
-//! the reactor uses a timer+event backend (reactor.zig) instead of fd
-//! readiness. Sequential programs and timer-driven fibers are unaffected.
+//! Fd readiness on Windows is socket-only (#1608 stage 1): ports whose
+//! CRT fd wraps a SOCKET (isSocketFd probe) flip to non-blocking via
+//! FIONBIO and get reactor-driven fiber suspension through WSAEventSelect
+//! (reactor.zig's WindowsEventBackend), reading/writing through
+//! sockRecv/sockSend. Pipes and files have no would-block mode at the CRT
+//! layer, so their fiber I/O still degrades to blocking reads — the same
+//! shape as a WASI host whose NONBLOCK probe fails. Sequential programs
+//! and timer-driven fibers are unaffected either way.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -141,6 +144,70 @@ pub const win = if (is_windows) struct {
     pub extern "kernel32" fn FindFirstFileW(path: [*:0]const u16, data: *Win32FindDataW) callconv(.winapi) HANDLE;
     pub extern "kernel32" fn FindNextFileW(h: HANDLE, data: *Win32FindDataW) callconv(.winapi) c_int;
     pub extern "kernel32" fn FindClose(h: HANDLE) callconv(.winapi) c_int;
+    pub extern "kernel32" fn WaitForMultipleObjects(count: u32, handles: [*]const HANDLE, wait_all: c_int, ms: u32) callconv(.winapi) u32;
+    pub extern "kernel32" fn ResetEvent(h: HANDLE) callconv(.winapi) c_int;
+
+    // --- ws2_32 (Winsock): the socket-readiness slice of #1608. SOCKETs
+    // reach the runtime as CRT fds (`_open_osfhandle`); these calls operate
+    // on the underlying SOCKET recovered via `_get_osfhandle`. ---
+    pub const SOCKET = usize;
+    pub const INVALID_SOCKET: SOCKET = ~@as(SOCKET, 0);
+    pub const SOCKET_ERROR: c_int = -1;
+
+    // WSAEventSelect network-event mask bits and their WSANETWORKEVENTS
+    // iErrorCode indices (winsock2.h).
+    pub const FD_READ: c_long = 0x01;
+    pub const FD_WRITE: c_long = 0x02;
+    pub const FD_OOB: c_long = 0x04;
+    pub const FD_ACCEPT: c_long = 0x08;
+    pub const FD_CONNECT: c_long = 0x10;
+    pub const FD_CLOSE: c_long = 0x20;
+
+    pub const SOL_SOCKET: c_int = 0xFFFF;
+    pub const SO_TYPE: c_int = 0x1008;
+    /// ioctlsocket command: FIONBIO (_IOW('f', 126, u_long)).
+    pub const FIONBIO: c_long = @bitCast(@as(u32, 0x8004667E));
+    /// ioctlsocket command: FIONREAD (_IOR('f', 127, u_long)).
+    pub const FIONREAD: c_long = @bitCast(@as(u32, 0x4004667F));
+
+    pub const WSAEINTR: c_int = 10004;
+    pub const WSAEWOULDBLOCK: c_int = 10035;
+    pub const WSAENOTSOCK: c_int = 10038;
+    pub const WSAENETRESET: c_int = 10052;
+    pub const WSAECONNABORTED: c_int = 10053;
+    pub const WSAECONNRESET: c_int = 10054;
+    pub const WSAESHUTDOWN: c_int = 10058;
+
+    /// WSADATA is only ever written by WSAStartup and never read back by
+    /// the runtime; an opaque, generously sized buffer avoids reproducing
+    /// its per-arch layout (~400 bytes on 64-bit).
+    pub const WSAData = extern struct { opaque_bytes: [512]u8 align(8) };
+
+    pub const WSANetworkEvents = extern struct {
+        network_events: c_long,
+        error_codes: [10]c_int,
+    };
+
+    /// Single-socket fd_set: the runtime only ever selects one socket at a
+    /// time (the post-arm readiness probe), so the 64-slot winsock2.h
+    /// layout is declared but never filled past count = 1.
+    pub const FdSet = extern struct { count: c_uint, array: [64]SOCKET };
+    pub const Timeval = extern struct { sec: c_long, usec: c_long };
+
+    pub const FILE_TYPE_DISK: u32 = 0x1;
+    pub const FILE_TYPE_PIPE: u32 = 0x3;
+    pub extern "kernel32" fn GetFileType(h: HANDLE) callconv(.winapi) u32;
+
+    pub extern "ws2_32" fn WSAStartup(version: u16, data: *WSAData) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn closesocket(s: SOCKET) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn WSAGetLastError() callconv(.winapi) c_int;
+    pub extern "ws2_32" fn WSAEventSelect(s: SOCKET, event: ?HANDLE, events: c_long) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn WSAEnumNetworkEvents(s: SOCKET, event: ?HANDLE, ne: *WSANetworkEvents) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn recv(s: SOCKET, buf: [*]u8, len: c_int, flags: c_int) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn send(s: SOCKET, buf: [*]const u8, len: c_int, flags: c_int) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn ioctlsocket(s: SOCKET, cmd: c_long, argp: *c_ulong) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn getsockopt(s: SOCKET, level: c_int, optname: c_int, optval: [*]u8, optlen: *c_int) callconv(.winapi) c_int;
+    pub extern "ws2_32" fn select(nfds: c_int, readfds: ?*FdSet, writefds: ?*FdSet, exceptfds: ?*FdSet, timeout: ?*const Timeval) callconv(.winapi) c_int;
 
     pub const FileTime = extern struct { lo: u32, hi: u32 };
     pub const Win32FindDataW = extern struct {
@@ -254,6 +321,20 @@ pub fn read(fd: fd_t, buf: [*]u8, len: usize) isize {
 
 pub fn close(fd: fd_t) void {
     if (comptime is_windows) {
+        // _close alone, even for socket-backed fds: the CRT owns the
+        // handle (_open_osfhandle transferred it), and a closesocket
+        // paired with _close would close the same handle value twice —
+        // a TOCTOU where another thread's allocation can receive the
+        // value between the two calls and get its handle closed out
+        // from under it. CloseHandle (what _close performs) does tear
+        // the socket down at the kernel (AFD) level — peers observe
+        // FD_CLOSE/EOF normally — but ws2_32's user-mode per-handle
+        // bookkeeping is never told, so a stale entry survives until a
+        // future socket() reuses that handle value. That staleness is
+        // neutralized where it would bite: isSocketFd only trusts
+        // ws2_32 after a kernel-verified round-trip (see its comment),
+        // so a file or pipe that recycles a dead socket's handle value
+        // can never be misclassified as a socket (#1608).
         _ = win._close(fd);
         return;
     }
@@ -280,6 +361,25 @@ pub fn dup(fd: fd_t) fd_t {
     if (comptime is_windows) return win._dup(fd);
     return std.c.dup(fd);
 }
+
+// ---------------------------------------------------------------------------
+// Windows sockets (#1608 stage 1: socket readiness) live in
+// platform_win_sock.zig — the natural seam once this file crossed the
+// 1500-line policy. Re-exported here so this file stays the single public
+// platform surface (`platform.sockRecv`, ...); the raw ws2_32/kernel32
+// externs remain in `win` above, which reactor.zig, testing_helpers, and
+// the socket module itself share.
+// ---------------------------------------------------------------------------
+
+const win_sock = @import("platform_win_sock.zig");
+pub const ensureWinsock = win_sock.ensureWinsock;
+pub const sockFromFd = win_sock.sockFromFd;
+pub const isSocketFd = win_sock.isSocketFd;
+pub const setSockNonblockingFd = win_sock.setSockNonblockingFd;
+pub const sockRecv = win_sock.sockRecv;
+pub const sockSend = win_sock.sockSend;
+pub const SockReadiness = win_sock.SockReadiness;
+pub const sockPollReady = win_sock.sockPollReady;
 
 // ---------------------------------------------------------------------------
 // open — semantic wrappers instead of a flags struct: std.posix.O's layout

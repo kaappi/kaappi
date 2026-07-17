@@ -39,7 +39,9 @@ shim behind that surface:
   clock), console UTF-8 + VT mode, `GetModuleFileNameW` (self-exe path),
   `CreateProcessW` (process spawning with correct argument quoting),
   `LoadLibraryW`/`GetProcAddress` (FFI), `FindFirstFileW` (directory
-  iteration), and an auto-reset event for the reactor.
+  iteration), Win32 events for the reactor, and the ws2_32 slice behind
+  socket readiness (`WSAEventSelect`, `recv`/`send`, `ioctlsocket` —
+  see "Fd readiness" below).
 
 Files are always opened `O_BINARY` — the CRT's default text mode would
 rewrite `\n`/`\r\n` and treat `^Z` as EOF, which R7RS ports must never
@@ -48,26 +50,52 @@ see. Paths are normalized to `/` at the boundaries that produce them
 accepts forward slashes everywhere the runtime passes paths, and every
 internal path split/join is written for `/`.
 
-## Deliberate degradations
+## Fd readiness: sockets only (#1608 stage 1)
 
-Both mirror the WASI port's established shape:
+Fiber I/O suspension works on **sockets**; pipes and files keep blocking
+reads. Win32 has no unified readiness API for arbitrary handles, so the
+split follows what the platform can express:
 
-* **No non-blocking ports.** CRT fds have no `O_NONBLOCK`, so
-  `maybeSetNonblocking` (primitives_io.zig) is a comptime no-op — the
-  permanent analogue of the WASI probe-fail path. No read ever EAGAINs,
-  nothing registers an fd with the reactor, and fiber I/O degrades to
-  single-fiber blocking exactly as on a WASI host without
-  `fd_fdstat_set_flags`.
-* **Timer/notify-only reactor.** `WindowsEventBackend` (reactor.zig) is
-  one auto-reset Win32 event: `WaitForSingleObject` bounded by the
-  nearest timer deadline serves `thread-sleep!` and timed channel/mutex
-  waits, and `SetEvent` is the KEP-0002 cross-thread notify ring. The
-  fd-`arm` path returns an error — unreachable by construction since no
-  port ever goes non-blocking. Timer granularity is the OS scheduler's
-  (~15 ms), coarser than kqueue/epoll.
+* **Socket ports.** A socket enters the port layer as a CRT fd created
+  with `_open_osfhandle((intptr_t)sock, 0)` — the bridge contract for
+  kaappi-net-style FFI code and `fd->port`. `maybeSetNonblocking`'s
+  one-time `isSocketFd` probe (platform_win_sock.zig) marks the port
+  `sock_state.is_socket` on first touch, so reads/writes route through
+  `platform.sockRecv`/`sockSend` from the start — CRT `_read`/`_write`
+  cannot operate on (overlapped) SOCKET handles at all — and once a
+  scheduler exists the port also flips non-blocking via `FIONBIO`, whose
+  `WSAEWOULDBLOCK → EAGAIN` errno mapping drives the shared
+  park-and-retry protocol unchanged. The reactor backend
+  (`WindowsEventBackend`, reactor.zig) arms `WSAEventSelect` on a single
+  shared manual-reset event and sweeps `WSAEnumNetworkEvents` after each
+  wakeup; a 0-timeout `select()` probe right after each arm closes the
+  documented WSAEventSelect races (`FD_WRITE`/`FD_CLOSE` are
+  edge-recorded, and re-issuing `WSAEventSelect` clears pending
+  records). Ownership stays single-owner: the CRT owns the handle, so
+  `platform.close` is plain `_close` even for sockets (kernel teardown
+  is identical; a paired `closesocket` would double-close the handle
+  value — a TOCTOU against other threads' allocations). The stale
+  ws2_32 bookkeeping that leaves behind is neutralized in the probe:
+  `isSocketFd` requires GetFileType == PIPE, getsockopt(`SO_TYPE`), and
+  a kernel-verified `ioctlsocket(FIONREAD)` round-trip, so a file or
+  pipe recycling a dead socket's handle value can never be
+  misclassified as a socket.
+* **Pipe and file ports.** CRT fds for pipes/files have no would-block
+  mode, so these ports never flip non-blocking, never EAGAIN, and never
+  reach the reactor — single-fiber blocking I/O, the WASI probe-fail
+  shape. Lifting this needs a completion-based (IOCP/overlapped) rework
+  of the retry protocol, deliberately deferred (#1608 stage 2).
+* **Timers and cross-thread wakeups** are unaffected either way: the
+  same backend serves `thread-sleep!` and timed channel/mutex waits
+  (`WaitForMultipleObjects` bounded by the nearest deadline) and the
+  KEP-0002 notify ring (`SetEvent` on the auto-reset notify event).
+  Timer granularity is the OS scheduler's (~15 ms), coarser than
+  kqueue/epoll.
 
 Fibers, channels (including capacity-0 rendezvous), SRFI-18 OS threads,
 and cross-thread SharedChannel promotion all work on top of this.
+
+## Other deliberate degradations
 
 * **POSIX-only SRFI-170 raises.** uid/gid, `user-info`/`group-info`,
   symlinks, hard links, FIFOs, `set-file-mode`, `umask`, `nice`,
@@ -144,14 +172,16 @@ Two environment notes for the suite:
   `/tmp/...`, which Windows resolves to `\tmp` on the current drive.
 * Run from a writable directory; a few tests create files in the CWD.
 
-Verified on Windows 11 ARM64 (build 26100): full unit suite (1050 pass,
-10 skipped — the skips are POSIX-permission/FIFO/uid tests), the complete
-R7RS suite, and every `tests/scheme/{smoke,compliance,continuations,
-hygiene,srfi,ffi,audit}` file — the same set the `windows-arm-test` CI
-job now runs on every PR. The fd-readiness unit suites
-(`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`) are
-excluded on Windows by `vm_tests.zig` — they test POSIX pipe readiness
-that cannot exist under the no-non-blocking design.
+Verified on Windows 11 ARM64 (build 26100): full unit suite, the
+complete R7RS suite, and every `tests/scheme/{smoke,compliance,
+continuations,hygiene,srfi,ffi,audit}` file — the same set the
+`windows-arm-test` CI job now runs on every PR. The fd-readiness unit
+suites (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`)
+run on Windows too: testing_helpers' cross-platform fd pairs substitute
+loopback TCP socket pairs for the POSIX pipes/socketpairs, so those
+suites double as the socket-readiness backend's coverage (#1608). The
+POSIX-permission/FIFO/uid tests and the dup2-based fd-recycle reactor
+test skip.
 
 ## Releasing
 
@@ -173,13 +203,10 @@ the github-release skill's Step 10.
 
 ## Known gaps / follow-ups
 
-* Fiber I/O suspension needs a real Windows readiness backend (IOCP or
-  overlapped I/O) to lift the blocking-port degradation.
-* The reactor's timer/notify paths have no Windows unit coverage: the
-  suites that exercise them directly sit in the excluded fd-readiness
-  files. Splitting the portable timer/notify tests out so they run on
-  Windows is tracked with the readiness-backend work; runtime coverage
-  today comes via the SRFI-18/fiber suites and the VM verification.
+* Fiber I/O suspension on **pipes and files** still blocks the OS thread
+  (#1608 stage 2): CRT fds for those have no would-block mode, so lifting
+  it means a completion-based (IOCP/overlapped) rework of the
+  park-and-retry protocol. Sockets are done (stage 1, above).
 * Native compilation on Windows ARM64 crashes in the Zig 0.16.0
   toolchain (`zig build`/`zig build-exe` access-violate on any project,
   #1613) — all builds must cross-compile, and `kaappi compile` on the

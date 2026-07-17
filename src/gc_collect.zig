@@ -963,7 +963,13 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 if (port.write_buf) |wb| {
                     var start = port.write_buf_start;
                     while (start < port.write_buf_len) {
-                        const rc = platform.write(port.fd, wb.ptr + start, port.write_buf_len - start);
+                        // A Windows socket port must send() — CRT _write
+                        // cannot operate on a SOCKET handle (#1608).
+                        const remaining = port.write_buf_len - start;
+                        const rc = if (platform.is_windows and port.sock_state.is_socket)
+                            platform.sockSend(port.fd, wb.ptr + start, remaining)
+                        else
+                            platform.write(port.fd, wb.ptr + start, remaining);
                         if (rc < 0 and platform.errno(rc) == .INTR) continue;
                         if (rc <= 0) break;
                         start += @as(usize, @intCast(rc));

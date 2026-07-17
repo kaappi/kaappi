@@ -25,15 +25,13 @@ test {
     _ = @import("tests_native.zig");
     _ = @import("tests_native_dispatch.zig");
     _ = @import("tests_native_gate.zig");
-    // fd-readiness suites are POSIX-only by design: Windows ports never
-    // flip to non-blocking (platform.zig), so the reactor there is
-    // timer/notify-only and these suites' pipe plumbing has nothing to
-    // exercise.
-    if (comptime @import("platform.zig").is_windows == false) {
-        _ = @import("tests_reactor.zig");
-        _ = @import("tests_scheduler.zig");
-        _ = @import("tests_port_io.zig");
-    }
+    // The fd-readiness suites run everywhere: their fds come from
+    // testing_helpers' cross-platform pairs — pipes/socketpairs on POSIX,
+    // loopback socket pairs on Windows, where fd readiness is socket-only
+    // (#1608) and these suites are the WSAEventSelect backend's coverage.
+    _ = @import("tests_reactor.zig");
+    _ = @import("tests_scheduler.zig");
+    _ = @import("tests_port_io.zig");
     _ = @import("tests_diagnostics.zig");
     _ = @import("tests_spans.zig");
 }
