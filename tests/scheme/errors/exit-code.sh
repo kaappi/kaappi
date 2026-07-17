@@ -141,10 +141,12 @@ else
     fi
 fi
 
-# Missing C compiler / failing linker: a dummy libkaappi_rt.a satisfies the
+# Missing C compiler / failing linker: a dummy runtime archive satisfies the
 # library lookup, and PATH controls what compiler the link step can find.
+# Both platform spellings are written so the lookup succeeds everywhere
+# (libkaappi_rt.a on POSIX, kaappi_rt.lib on Windows — platform.rt_lib_name).
 mkdir -p "$TMPDIR_TESTS/fakelib" "$TMPDIR_TESTS/emptypath" "$TMPDIR_TESTS/fakecc"
-touch "$TMPDIR_TESTS/fakelib/libkaappi_rt.a"
+touch "$TMPDIR_TESTS/fakelib/libkaappi_rt.a" "$TMPDIR_TESTS/fakelib/kaappi_rt.lib"
 printf '#!/bin/sh\nexit 1\n' > "$TMPDIR_TESTS/fakecc/cc"
 chmod +x "$TMPDIR_TESTS/fakecc/cc"
 assert_exit_code "compile without C compiler exits 1" 1 \

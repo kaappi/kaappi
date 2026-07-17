@@ -7,9 +7,12 @@
 
 set -uo pipefail
 
+. "$(dirname "$0")/../shell-common.sh"
+
 KAAPPI="${1:-${KAAPPI:-zig-out/bin/kaappi}}"
 PASS=0
 FAIL=0
+RTLIB="$(rt_lib_name)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -67,12 +70,13 @@ assert_contains "bogus dir reports FAIL"       "FAIL" env KAAPPI_LIB_DIR="$BOGUS
 assert_contains "bogus json is ok:false"       '"ok":false'      env KAAPPI_LIB_DIR="$BOGUS" "$KAAPPI" doctor --json
 assert_contains "bogus json status is fail"    '"status":"fail"' env KAAPPI_LIB_DIR="$BOGUS" "$KAAPPI" doctor --json
 
-# A directory that exists but has no libkaappi_rt.a is equally a FAIL: the
-# explicit override resolves to a place with no runtime library.
+# A directory that exists but has no runtime archive is equally a FAIL: the
+# explicit override resolves to a place with no runtime library. The archive's
+# name is the platform spelling (libkaappi_rt.a / kaappi_rt.lib).
 EMPTY="$TMP/empty-lib-dir"
 mkdir -p "$EMPTY"
 assert_exit    "empty KAAPPI_LIB_DIR exits 1"  1 env KAAPPI_LIB_DIR="$EMPTY" "$KAAPPI" doctor
-assert_contains "empty dir suggests a fix"     "libkaappi_rt.a" env KAAPPI_LIB_DIR="$EMPTY" "$KAAPPI" doctor
+assert_contains "empty dir suggests a fix"     "$RTLIB" env KAAPPI_LIB_DIR="$EMPTY" "$KAAPPI" doctor
 
 # Usage handling.
 assert_exit    "--help exits 0"                0 "$KAAPPI" doctor --help

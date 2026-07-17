@@ -861,7 +861,11 @@ fn discoverDir(allocator: std.mem.Allocator, dir_path: []const u8, out: *std.Arr
     while (dir.next()) |name| {
         if (name.len == 0 or name[0] == '.') continue; // skip . .. and dotfiles
 
-        const full = try std.fs.path.join(allocator, &.{ dir_path, name });
+        // '/' join, not std.fs.path.join: every internal path in the runtime
+        // (and the git-diff paths the affected-test graph compares against)
+        // uses '/', which Win32 accepts everywhere — a '\' here would make
+        // discovered paths miss the graph on Windows (kaappi#1612).
+        const full = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, name });
         var keep = false;
         defer if (!keep) allocator.free(full);
 

@@ -14,6 +14,8 @@
 
 set -uo pipefail   # NOT -e: --panic-test aborts (nonzero) by design.
 
+. "$(dirname "$0")/../shell-common.sh"
+
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 
 pass=0
@@ -32,9 +34,14 @@ ok() { [[ "$1" -eq 0 ]] && echo 0 || echo 1; }
 out="$("$KAAPPI" --panic-test 2>&1)"
 status=$?
 
-# abort() dies by signal → shell status is 128+signo (134 for SIGABRT). Assert
-# "died by signal" rather than a specific number so it stays portable.
-check "aborts (died by signal, not a clean exit)" "$(ok "$([[ $status -ge 128 ]] && echo 0 || echo 1)")"
+# abort() dies by signal → shell status is 128+signo (134 for SIGABRT) on
+# POSIX; the Windows CRT maps abort() to exit code 3. Assert "the abort path,
+# not a clean exit" per platform rather than a specific signal number.
+if is_windows; then
+    check "aborts (Windows CRT abort exit code 3)" "$(ok "$([[ $status -eq 3 ]] && echo 0 || echo 1)")"
+else
+    check "aborts (died by signal, not a clean exit)" "$(ok "$([[ $status -ge 128 ]] && echo 0 || echo 1)")"
+fi
 
 grep -qF "kaappi internal error — this is a bug in kaappi, not in your program." <<<"$out"
 check "banner identity line" $?

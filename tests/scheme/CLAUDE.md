@@ -65,6 +65,30 @@ KAAPPI_TEST_TIMEOUT=120 bash tests/scheme/run-all.sh
 KAAPPI_TEST_SKIP="callcc-bench.scm" bash tests/scheme/run-all.sh
 ```
 
+## Shell test scripts (`*.sh`)
+
+Suite directories may also hold bash drivers; `run-all.sh` runs them via
+`run_shell_suite` (and the `windows-arm-test` CI job runs them under Git
+Bash on Windows — see `docs/dev/windows.md`). Conventions:
+
+- Accept the binary as `${KAAPPI:-zig-out/bin/kaappi}` or `${1:-...}` —
+  runners pass both.
+- Exit 0 = pass, anything else = fail, **exit 77 = skip** (the automake
+  convention). To skip on Windows, source the shared helper and gate:
+
+  ```bash
+  . "$(dirname "$0")/../shell-common.sh"
+  skip_on_windows "why the premise cannot hold on Windows"
+  ```
+
+  This is the shell analogue of the `cond-expand (windows ...)` gate
+  above. `shell-common.sh` also provides `is_windows`, `native_path`
+  (the C:/-style path spelling kaappi itself prints, for output
+  assertions), and `rt_lib_name` (`libkaappi_rt.a` / `kaappi_rt.lib`).
+- Don't bake POSIX-only spellings into assertions: kaappi prints native
+  paths, the runtime archive name is per-platform, and a Windows abort
+  exits 3 rather than dying by signal (see `errors/crash-handler.sh`).
+
 ## Quirks
 
 - `run-all.sh` parses R7RS suite output with awk — don't change its output format.

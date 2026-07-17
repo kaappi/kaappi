@@ -14,6 +14,13 @@
 
 set -euo pipefail
 
+# Native-compile regression tests rebuild the runtime archive (zig build lib)
+# or the interpreter itself on this machine; Windows ARM64 has no working
+# native Zig toolchain until the 0.17.0 bump (kaappi#1613), and CI's
+# windows-arm-test job deliberately installs none.
+. "$(dirname "$0")/../shell-common.sh"
+skip_on_windows "compile suite needs a native Zig toolchain on this machine (kaappi#1613)"
+
 KAAPPI="${1:-zig-out/bin/kaappi}"
 KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"

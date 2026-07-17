@@ -45,10 +45,23 @@ shim behind that surface:
 
 Files are always opened `O_BINARY` — the CRT's default text mode would
 rewrite `\n`/`\r\n` and treat `^Z` as EOF, which R7RS ports must never
-see. Paths are normalized to `/` at the boundaries that produce them
-(argv script path, `GetModuleFileNameW`, `getcwd`, `_wfullpath`): Win32
-accepts forward slashes everywhere the runtime passes paths, and every
-internal path split/join is written for `/`.
+see. The preopened standard fds get the same treatment at startup
+(`platform.initStandardStreams`, called first thing in every binary's
+main): stdout/stderr flip to binary unconditionally — piped output is
+byte-identical to POSIX, and the console still renders bare `\n`
+correctly (newline auto-return is independent of the CRT fd mode) —
+while stdin flips only when it is *not* the interactive console, whose
+line input relies on text mode (`\r\n` → `\n`, ^Z+Enter = EOF) for the
+plain REPL. The same call switches the console to UTF-8 both ways and
+enables VT processing. In kaappi-lsp this is also what keeps the
+length-framed wire format intact: text-mode `\n`→`\r\n` rewriting on
+fd 1 would corrupt `Content-Length` framing. Paths are normalized to
+`/` at the boundaries that produce them (argv script path,
+`GetModuleFileNameW`, `getcwd`, `_wfullpath`): Win32 accepts forward
+slashes everywhere the runtime passes paths, and every internal path
+split/join is written for `/` (a `std.fs.path.join`, which uses `\` on
+Windows, is a bug — it broke `kaappi test --changed` suite discovery,
+#1612).
 
 ## Fd readiness: sockets and pipes (#1608)
 
@@ -236,14 +249,33 @@ CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
 binaries and the test exes from Linux, guarding the path release.yml
 ships with, and `windows-arm-test` executes the unit suite, the thottam
 suite plus a real package install/remove integration test, the R7RS
-suite, and the VM-verified `.scm` suites on GitHub's hosted
-`windows-11-arm` runners on every PR. The execution job installs no
-toolchain — it downloads the binaries `windows-cross` built as an
-artifact, because native compilation on Windows ARM64 is broken in the
-Zig 0.16.0 toolchain itself (#1613). The FFI suite runs against a
-fixture DLL that `windows-cross` cross-compiles into the same artifact
-(`zig cc -target aarch64-windows-gnu -shared`). What CI can't run yet —
-the shell-based suites (#1612) and interactive surfaces like the REPL —
+suite, the VM-verified `.scm` suites, and the shell-based suites (#1612)
+on GitHub's hosted `windows-11-arm` runners on every PR. The execution
+job installs no toolchain — it downloads the binaries `windows-cross`
+built as an artifact, because native compilation on Windows ARM64 is
+broken in the Zig 0.16.0 toolchain itself (#1613). The FFI suite runs
+against a fixture DLL that `windows-cross` cross-compiles into the same
+artifact (`zig cc -target aarch64-windows-gnu -shared`).
+
+The shell-based drivers (errors, test-runner, pipeline, doctor, fmt,
+cache, timings, the smoke `.sh` scripts, sandbox, robustness) run under
+the runner's Git Bash, whose MSYS userland supplies bash, coreutils,
+git, and — via a CI shim when the image only exposes `python` — python3.
+A driver whose premise cannot hold on Windows sources
+`tests/scheme/shell-common.sh` and calls `skip_on_windows <reason>`,
+exiting 77 (the shell analogue of the `cond-expand (windows ...)` gate
+the `.scm` tests use); run-all.sh and the CI loop report those as SKIP.
+Today that is the `compile/` suite (each script rebuilds the runtime
+archive or interpreter with a native `zig` on the box — #1613, so the
+gates lift work at the 0.17.0 toolchain bump) and
+`profile-json-escaping.sh` (it plants `"`/`\` in a real directory name,
+which Windows filenames cannot contain). shell-common.sh also carries
+the portability helpers the drivers need on Windows: `native_path` (the
+C:/-style spelling the binary itself prints, via `cygpath -m` — MSYS
+`/tmp/...` paths never appear in kaappi's own output) and `rt_lib_name`
+(`kaappi_rt.lib` vs `libkaappi_rt.a`).
+
+What CI still can't run — interactive surfaces like the console REPL —
 is verified against a real Windows 11 ARM64 machine (e.g. a UTM VM with
 ssh). Before any decisive run on the box, `kaappi cache clear` — dirty
 builds at the same commit share bytecode-cache ids with different code.
@@ -262,9 +294,11 @@ Two environment notes for the suite:
 * Run from a writable directory; a few tests create files in the CWD.
 
 Verified on Windows 11 ARM64 (build 26100): full unit suite, the
-complete R7RS suite, and every `tests/scheme/{smoke,compliance,
-continuations,hygiene,srfi,ffi,audit}` file — the same set the
-`windows-arm-test` CI job now runs on every PR. The fd-readiness unit
+complete R7RS suite, every `tests/scheme/{smoke,compliance,
+continuations,hygiene,srfi,ffi,audit}` file, and the shell-based
+suites under Git Bash (34 pass, 15 skip: the 14 `compile/` gates plus
+`profile-json-escaping.sh`) — the same set the `windows-arm-test` CI
+job now runs on every PR. The fd-readiness unit
 suites (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`)
 run on Windows too: testing_helpers' cross-platform fd pairs substitute
 loopback TCP socket pairs for the POSIX pipes/socketpairs, so those
@@ -303,9 +337,11 @@ the github-release skill's Step 10.
   end-to-end with Zig master, see "Native backend" above). Fixed
   upstream (ziglang#31865); everything unblocks at the 0.17.0 toolchain
   bump.
-* The shell-based suites — errors, compile, test-runner, pipeline,
-  doctor, fmt, cache, timings, the smoke `.sh` scripts, sandbox, and
-  robustness — don't run on Windows (#1612).
+* The `compile/` shell suite self-skips on Windows: every script
+  rebuilds the runtime archive or the interpreter with a native `zig`
+  on the box, which #1613 breaks. The `skip_on_windows` gates
+  (tests/scheme/shell-common.sh) lift work at the 0.17.0 toolchain
+  bump. (The rest of the shell-based suites run in CI — #1612.)
 * thottam refuses manifests with a `build:` command (#1609 ported
   everything else — see Deliberate degradations above); lifting that
   needs a Windows build story for the C-FFI packages, which today are

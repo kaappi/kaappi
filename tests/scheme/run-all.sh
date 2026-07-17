@@ -140,6 +140,11 @@ run_shell_suite() {
         if [[ $status -eq 0 ]]; then
             echo "  PASS  $test_script"
             PASS=$((PASS + 1))
+        elif [[ $status -eq 77 ]]; then
+            # Exit 77 = SKIP (shell-common.sh skip_on_windows): the script's
+            # premise cannot hold on this platform.
+            echo "  SKIP  $test_script"
+            SKIPPED=$((SKIPPED + 1))
         else
             echo "  FAIL  $test_script"
             cat "$TMPOUT"
