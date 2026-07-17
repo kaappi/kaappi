@@ -814,6 +814,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     };
     const allocator = if (@import("builtin").mode == .Debug) da.allocator() else std.heap.c_allocator;
 
+    platform.initStandardStreams();
     initColor();
 
     var args = platform.argsIterate(init.args);

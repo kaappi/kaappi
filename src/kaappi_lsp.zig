@@ -762,6 +762,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
     _ = init;
     const allocator = std.heap.c_allocator;
 
+    // Byte-faithful stdio (Windows): the LSP wire format is length-framed,
+    // so CRT text-mode \n→\r\n rewriting on fd 1 would corrupt framing.
+    platform.initStandardStreams();
+
     log("kaappi-lsp v" ++ version ++ " starting\n");
 
     documents = std.StringHashMap([]const u8).init(allocator);

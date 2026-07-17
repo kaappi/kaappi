@@ -77,7 +77,9 @@ for k in ("initial_frame_capacity", "initial_register_capacity", "gc_initial_thr
 
 prog = ('(import (scheme base)) '
         '(for-each (lambda (f) (display f) (newline)) (features))')
-lang = subprocess.run([KAAPPI, "/dev/stdin"], input=prog, capture_output=True, text=True)
+# Program fed on stdin with no file argument (the runStdin path): works on
+# every platform, unlike a /dev/stdin pseudo-file argument.
+lang = subprocess.run([KAAPPI], input=prog, capture_output=True, text=True)
 lang_features = [ln for ln in lang.stdout.splitlines() if ln]
 # Same members (cond-expand resolves against this exact set) AND same order
 # (both iterate the one `types.platform_features` array).
@@ -88,7 +90,7 @@ check(feats == lang_features,
 # Every advertised feature is genuinely recognized by cond-expand.
 for f in feats:
     src = f'(import (scheme base) (scheme write)) (cond-expand ({f} (display "y")) (else (display "n")))'
-    r = subprocess.run([KAAPPI, "/dev/stdin"], input=src, capture_output=True, text=True)
+    r = subprocess.run([KAAPPI], input=src, capture_output=True, text=True)
     check(r.stdout.strip() == "y", f"cond-expand recognizes {f!r}", r.stdout)
 
 # --- Error handling -------------------------------------------------------

@@ -52,6 +52,7 @@ pub const win = if (is_windows) struct {
     pub extern "c" fn _read(fd: c_int, buf: [*]u8, count: c_uint) c_int;
     pub extern "c" fn _close(fd: c_int) c_int;
     pub extern "c" fn _isatty(fd: c_int) c_int;
+    pub extern "c" fn _setmode(fd: c_int, mode: c_int) c_int;
     pub extern "c" fn _wopen(path: [*:0]const u16, oflag: c_int, ...) c_int;
     pub extern "c" fn _pipe(fds: *[2]c_int, size: c_uint, mode: c_int) c_int;
     pub extern "c" fn _dup(fd: c_int) c_int;
@@ -1067,11 +1068,26 @@ pub fn realTime() RealTime {
 // console / terminal
 // ---------------------------------------------------------------------------
 
-/// One-time console setup. Windows: switch the console to UTF-8 in both
-/// directions and enable VT (ANSI escape) processing so colored
-/// diagnostics and the REPL prompt render. No-op elsewhere.
-pub fn initConsole() void {
+/// One-time standard-stream setup, called at the top of every binary's
+/// main. Windows only (no-op elsewhere):
+///
+/// * Put the CRT's preopened fds in binary mode. They default to text
+///   mode, which rewrites `\n` to `\r\n` on write and strips `\r` /
+///   treats ^Z as EOF on read — translations R7RS ports must never see
+///   (files already open O_BINARY for the same reason, kaappi#1612).
+///   The interactive console keeps rendering bare `\n` correctly (the
+///   console's newline auto-return is independent of the CRT fd mode).
+///   stdin is flipped only when it is NOT the interactive console: the
+///   plain REPL's line reader relies on console text-mode input
+///   (`\r\n` → `\n`, ^Z+Enter = EOF), while piped/redirected stdin gets
+///   the byte-faithful POSIX behavior tests observe.
+/// * Switch the console to UTF-8 in both directions and enable VT (ANSI
+///   escape) processing so colored diagnostics and the REPL prompt render.
+pub fn initStandardStreams() void {
     if (comptime !is_windows) return;
+    _ = win._setmode(1, win.O_BINARY);
+    _ = win._setmode(2, win.O_BINARY);
+    if (!isatty(0)) _ = win._setmode(0, win.O_BINARY);
     _ = win.SetConsoleOutputCP(65001);
     _ = win.SetConsoleCP(65001);
     inline for (.{ win.STD_OUTPUT_HANDLE, win.STD_ERROR_HANDLE }) |which| {

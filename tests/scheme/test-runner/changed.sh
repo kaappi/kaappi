@@ -99,6 +99,10 @@ EOF
 git -C "$FIX" init -q
 git -C "$FIX" config user.email test@example.com
 git -C "$FIX" config user.name test
+# Hermetic line endings: a host git with core.autocrlf=true (the Git for
+# Windows default) would rewrite the fixtures on checkout and leave every
+# file permanently diff-dirty, breaking the "nothing changed" steps.
+git -C "$FIX" config core.autocrlf false
 git -C "$FIX" add -A
 git -C "$FIX" commit -qm init
 

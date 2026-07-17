@@ -2,6 +2,12 @@
 # Regression test for issue #292: profile JSON output must escape string values
 set -e
 
+. "$(dirname "$0")/../shell-common.sh"
+
+# The test plants JSON-special characters ('"', '\') in a real directory
+# name; Windows forbids both in filenames, so the premise cannot hold there.
+skip_on_windows "profile-json-escaping: Windows filenames cannot contain JSON-special characters"
+
 KAAPPI="${KAAPPI:-./zig-out/bin/kaappi}"
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TEST"' EXIT

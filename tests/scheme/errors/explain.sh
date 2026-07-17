@@ -39,11 +39,11 @@ def explain(*args):
     return subprocess.run([KAAPPI, "explain", *args], capture_output=True, text=True)
 
 def emitted_code(src, timeout_ms=None):
-    """Run src through the interpreter, return the first KP code it emits."""
+    """Run src through the interpreter (program fed on stdin — portable,
+    unlike a /dev/stdin pseudo-file argument), return the first KP code."""
     args = [KAAPPI, "--diagnostics=json"]
     if timeout_ms is not None:
         args += ["--timeout", str(timeout_ms)]
-    args.append("/dev/stdin")
     p = subprocess.run(args, input=src, capture_output=True, text=True, timeout=30)
     m = CODE_RE.search(p.stderr) or CODE_RE.search(p.stdout)
     return m.group(1) if m else None

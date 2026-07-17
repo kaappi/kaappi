@@ -133,6 +133,7 @@ fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
 const DESIRED_STACK: usize = 64 * 1024 * 1024; // 64 MB
 
 pub fn main(init: std.process.Init.Minimal) !void {
+    platform.initStandardStreams();
     if (comptime !is_wasm) {
         // The compiler's recursive descent needs more than the default 8 MB
         // stack for deeply nested Scheme forms (e.g. cond chains that desugar

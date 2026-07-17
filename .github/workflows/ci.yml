@@ -193,13 +193,14 @@ jobs:
   # Execute the suite on real Windows ARM64 via GitHub's hosted
   # windows-11-arm runners (free for public repos): the unit suite, the
   # thottam suite + install/remove integration (#1609), the R7RS suite,
-  # and the .scm suites verified on the port's reference VM
+  # the .scm suites verified on the port's reference VM
   # (docs/dev/windows.md), including the FFI suite (#1611) against the
-  # cross-compiled fixture DLL. The binaries come cross-compiled from
+  # cross-compiled fixture DLL, and the shell-based suites (#1612) under
+  # the runner's Git Bash. The binaries come cross-compiled from
   # windows-cross — Zig 0.16.0 cannot compile natively on Windows ARM64
   # (zig build/build-exe access-violate on any project, #1613) — so this
-  # job installs no toolchain and only executes. The shell-based suites
-  # (#1612) are not runnable on Windows yet.
+  # job installs no toolchain and only executes; the compile/ suite
+  # (which rebuilds with zig on the box) self-skips for the same reason.
   windows-arm-test:
     needs: windows-cross
     runs-on: windows-11-arm
@@ -297,6 +298,44 @@ jobs:
             done
           done
           rm -f out.log
+          exit $fail
+
+      - name: Shell suites (#1612)
+        # The bash-driven drivers, under the runner's Git Bash. Exit 77 =
+        # SKIP (tests/scheme/shell-common.sh): a script whose premise cannot
+        # hold on Windows — the compile/ suite needs a native Zig toolchain
+        # (#1613) — reports itself instead of failing. KAAPPI_HOME is
+        # isolated like run-all.sh does, so suites never touch a real cache.
+        shell: bash
+        run: |
+          # Some drivers validate JSON with python3; the arm image ships
+          # Python as `python`, so shim python3 when the name is missing.
+          # ($HOME, not $RUNNER_TEMP: a Windows-spelled dir in bash's PATH
+          # would not resolve for bash's own lookup.)
+          if ! command -v python3 >/dev/null 2>&1; then
+            mkdir -p "$HOME/.pyshim"
+            printf '#!/bin/sh\nexec python "$@"\n' > "$HOME/.pyshim/python3"
+            chmod +x "$HOME/.pyshim/python3"
+            export PATH="$HOME/.pyshim:$PATH"
+          fi
+          export KAAPPI=bin/kaappi.exe
+          export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
+          fail=0
+          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings sandbox robustness; do
+            for s in tests/scheme/$dir/*.sh; do
+              [ -e "$s" ] || continue
+              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1); status=$?
+              if [ "$status" -eq 0 ]; then
+                echo "  PASS  $s"
+              elif [ "$status" -eq 77 ]; then
+                echo "  SKIP  $s"
+              else
+                echo "  FAIL  $s (exit $status)"
+                printf '%s\n' "$out"
+                fail=1
+              fi
+            done
+          done
           exit $fail
 
   wasm:

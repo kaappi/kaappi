@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+. "$(dirname "$0")/../shell-common.sh"
+
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 PASS=0
 FAIL=0
@@ -113,11 +115,14 @@ assert_no_crash "splicing" "(display \`(a ,@(list 1 2 3) b))"
 # --- Corrupted .sbc file ---
 echo
 echo "-- Corrupted .sbc --"
+# The path is embedded in Scheme source, so it must be the spelling the
+# binary can open (on Windows the shell's /tmp/... is not).
 TMPFILE=$(mktemp /tmp/kaappi-corrupt-XXXXXX.sbc)
+TMPFILE_NATIVE=$(native_path "$TMPFILE")
 echo "NOT_A_VALID_SBC_FILE" > "$TMPFILE"
-assert_error "corrupted .sbc (text)" "(load \"$TMPFILE\")"
+assert_error "corrupted .sbc (text)" "(load \"$TMPFILE_NATIVE\")"
 printf '\x00\x01\x02\x03\x80\x81\xff\xfe\x00\x00\x00\x00\x00\x00\x00\x00' > "$TMPFILE"
-assert_error "corrupted .sbc (binary)" "(load \"$TMPFILE\")"
+assert_error "corrupted .sbc (binary)" "(load \"$TMPFILE_NATIVE\")"
 rm -f "$TMPFILE"
 
 echo

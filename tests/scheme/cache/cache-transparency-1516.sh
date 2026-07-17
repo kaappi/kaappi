@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+. "$(dirname "$0")/../shell-common.sh"
+
 KAAPPI="${1:-zig-out/bin/kaappi}"
 PASS=0
 FAIL=0
@@ -57,10 +59,11 @@ check "status on empty cache reports 0 entries" "0 entries" "$out"
 run1="$("$KAAPPI" "$PROG")"
 check "program runs (MISS)" "81" "$run1"
 
-# 3. status now lists one current entry naming the source.
+# 3. status now lists one current entry naming the source. The recorded
+# path is the native spelling (on Windows C:/..., not the shell's /tmp/...).
 out="$("$KAAPPI" cache status)"
 check "status lists 1 entry" "1 entry" "$out"
-check "status names the source path" "$PROG" "$out"
+check "status names the source path" "$(native_path "$PROG")" "$out"
 check "status marks the entry current" "current" "$out"
 
 # 4. Re-run (HIT) — identical result, no crash.
