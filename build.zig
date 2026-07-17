@@ -192,6 +192,13 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
         .linkage = .static,
     });
+    // The archive is consumed by whatever C compiler `kaappi compile`
+    // finds — often the system cc, not `zig cc` (the FreeBSD port's
+    // whole native-backend story, docs/dev/freebsd.md). Bundle Zig's
+    // compiler-rt so Zig-internal references like x86's
+    // __zig_probe_stack resolve inside the archive itself instead of
+    // failing the link under plain clang/gcc.
+    lib.bundle_compiler_rt = true;
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
 
