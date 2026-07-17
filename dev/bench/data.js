@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784271252839,
+  "lastUpdate": 1784274118284,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1e922abc19a426af8537955cfa1679d92437b8d6",
-          "message": "Harden the --no-ir-opt compile guard from post-merge review of #1405 (#1406)\n\nThree findings from the re-review of PR #1405 after it merged:\n\n- The collision check failed OPEN: an allocation or normalization\n  failure in outputIsBytecodeCache returned \"no collision\", letting an\n  unoptimized cache write proceed. Now any failure counts as a\n  collision — the worst case is a spurious usage error, never a\n  poisoned cache.\n- A symlinked -o (alias.sbc -> prog.sbc) bypassed the lexical path\n  comparison and the write followed the link into the real cache.\n  Symlinked outputs are now refused outright under --no-ir-opt\n  --compile; symlinked parent directories remain undetected (noted in\n  the doc comment).\n- The opt-switch tests and the differential fuzz harness restored\n  ir_mod.optimize_enabled by assigning `true` instead of the saved\n  value, and the optimized baselines assumed it was already enabled.\n  All toggles now save/restore and set their baseline explicitly.\n\nVerified end-to-end: -o through a symlink exits 2 with the usage\nerror; a distinct real file compiles. New unit tests cover the\nsymlink case (via std.testing.tmpDir) and the failing-allocator\nfail-closed path.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T17:28:23+05:30",
-          "tree_id": "bcf36293ee5da7f0ec9459f2a3a8a2f1fb120106",
-          "url": "https://github.com/kaappi/kaappi/commit/1e922abc19a426af8537955cfa1679d92437b8d6"
-        },
-        "date": 1783686488892,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.431016,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.728599,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.978071,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.404993,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013033,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338293,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504838,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069274,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.550643,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.93088,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.78254,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.051257,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.611618,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.77439,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044145,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045081,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2cebe06c293b6d8dfab3ebdc9b37e62426e2611",
+          "message": "Fuzz #1620: fix two generator leaks + report-job misclassification (#1621)\n\n* Fix two portable-generator leaks producing erroneous programs (#1620)\n\nThe nightly oracle-diff batch flagged seed 10294: Kaappi raised where\nChibi returned. The program was erroneous, i.e. a generator leak, not an\nimplementation bug: genLetMut generated the mutation statement's\nindex/value sub-expressions before registering the fresh binding, so the\npicker could reference an outer same-named int that the new binding\nshadows — the emitted reference resolved to the fresh object instead:\n\n  (let ((c (make-bytevector 1 92))) (bytevector-u8-set! c (modulo c 1) ...) ...)\n\nRegister the binding as .reserved before the mutation statement (hiding\nthe outer name, per the letrec precedent) and upgrade it to its real kind\nfor the body result.\n\nA 4000-seed totality scan after that fix surfaced a second, older leak:\nthe \"x y!\" pool literal recorded len 5 (actually 4), so every derived\nindex could land out of range. This one was invisible to the oracle —\nboth sides raise identically on out-of-range indices. Pool lengths are\nnow computed from the text at comptime (strLit), removing the bug class.\n\nVerified: the failed CI batch (seeds 10000..10999) now runs 0 divergent\nagainst the same Chibi 0.12.0 oracle, and seeds 0..2999 all evaluate\ncleanly. Pinned regression seeds cover both leak shapes.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make fuzz report marker detection artifact-layout-agnostic (#1620)\n\nThe seed-10294 oracle divergence was filed as \"Fuzz CI: infrastructure\nor build failure\" even though the oracle-diff job uploaded its finding\nartifact. Root cause: download-artifact v8 extracts each artifact into\nartifacts/<name>/ EXCEPT when the run produced exactly one artifact\n(the action's `artifacts.length === 1` special case) — then contents\nland in artifacts/ itself. One failed job is the common case, so marker\ndetection anchored on artifacts/<name>/ missed real findings whenever\nexactly one job failed.\n\nThis is also what misfiled seed 2788 (#1584): both artifact containers\nheld loose files, so the wrapper-zip theory behind the \"Unwrap archived\nartifacts\" step was a misdiagnosis. The unwrap step stays as a cheap\nsafety net, reframed.\n\nMarker detection now searches all of artifacts/ for filenames only the\nowning job can produce (seed-*.kaappi.* vs seed-*.{vm,nat}.*, and the\n.zig-cache/f/crash path), and derives each excerpt directory from the\nmatched file, so both layouts — and a job dying before upload while\nanother uploads — classify and excerpt correctly.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Correct the wrapper-zip comment in windows-arm-test (#1620)\n\nNamed artifact downloads extract contents into the path directly; the\nunwrap loop is a defensive no-op, not a required step. Keep it, but stop\nciting the misdiagnosed wrapper-zip behavior as fact.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T07:07:47Z",
+          "tree_id": "78246eea83b869a155ed471ac7da4a929138e97b",
+          "url": "https://github.com/kaappi/kaappi/commit/b2cebe06c293b6d8dfab3ebdc9b37e62426e2611"
+        },
+        "date": 1784274116667,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.41522,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.810396,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.492418,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.545995,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004256,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.029234,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.260309,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.036751,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.989664,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.978473,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.868942,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.314688,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.953896,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.270697,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.026754,
             "unit": "seconds"
           }
         ]
