@@ -49,7 +49,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
         }
         const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
         {
-            var func_val = types.makePointer(@ptrCast(func));
+            var func_val = types.makePointer(&func.header);
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
@@ -132,7 +132,7 @@ pub fn compileCachedForm(vm: *VM, source: []const u8) VMError!Value {
     if (reader.hasMore() catch return VMError.CompileError) return VMError.CompileError;
 
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-    const func_val = types.makePointer(@ptrCast(func));
+    const func_val = types.makePointer(&func.header);
     // No GC-triggering allocation runs between the compile above and the
     // rootedSlot below (unrootFunction and rootedSlot only touch the
     // C-allocated extra_roots list), so `func` needs no interim shadow root.
@@ -162,7 +162,7 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
             last = result catch |err| return err;
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, form, &vm.macros, vm.globals) catch return VMError.CompileError;
-            var func_val = types.makePointer(@ptrCast(func));
+            var func_val = types.makePointer(&func.header);
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
@@ -183,7 +183,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     const expr = types.car(rest);
 
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-    var func_val = types.makePointer(@ptrCast(func));
+    var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);

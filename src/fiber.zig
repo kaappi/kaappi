@@ -116,13 +116,6 @@ pub const Fiber = struct {
     owned_mutexes: std.ArrayList(Value) = .empty,
 };
 
-// Fiber is exempt from types.zig's heap-type layout guard: its auto layout
-// already places `header` at a nonzero offset, which is safe here — and
-// only here — because every Fiber-to-Value conversion in the codebase
-// spells `makePointer(@ptrCast(&fiber.header))` (never the struct pointer),
-// matching Object.as()'s @fieldParentPtr. Keep that discipline for any new
-// conversion site.
-
 pub const FiberScheduler = struct {
     /// Growable — no fiber-count ceiling (KEP-0001 Phase 2). Slots are
     /// reused before growing (see addFiber), so long-running spawn/join
@@ -358,7 +351,7 @@ pub const FiberScheduler = struct {
         if (types.isClosure(thunk_val)) {
             closure = types.toObject(thunk_val).as(types.Closure);
         } else {
-            var fiber_root = types.makePointer(@ptrCast(&fiber.header));
+            var fiber_root = types.makePointer(&fiber.header);
             self.vm.gc.pushRoot(&fiber_root);
             const trampoline = try wrapInTrampoline(self.vm.gc, thunk_val);
             self.vm.gc.popRoot();
@@ -368,7 +361,7 @@ pub const FiberScheduler = struct {
         }
 
         @memset(fiber.registers, types.UNDEFINED);
-        fiber.registers[0] = types.makePointer(@ptrCast(closure));
+        fiber.registers[0] = types.makePointer(&closure.header);
         fiber.frames[0] = .{
             .closure = closure,
             .code = closure.func.code.items,
@@ -829,7 +822,7 @@ pub const FiberScheduler = struct {
     }
 
     pub fn wakeWaiters(self: *FiberScheduler, completed_fiber: *Fiber) void {
-        const completed_val = types.makePointer(@ptrCast(&completed_fiber.header));
+        const completed_val = types.makePointer(&completed_fiber.header);
         self.wakeOn(completed_val, .{ .all = true, .result = completed_fiber.result });
     }
 
@@ -915,7 +908,7 @@ pub const FiberScheduler = struct {
     pub fn markRoots(self: *FiberScheduler, gc: *memory.GC) void {
         for (self.fibers.items) |f| {
             if (f) |fiber| {
-                gc.markValue(types.makePointer(@ptrCast(&fiber.header)));
+                gc.markValue(types.makePointer(&fiber.header));
                 if (fiber.status == .running) continue;
                 markFiberState(gc, fiber);
             }
@@ -969,7 +962,7 @@ pub fn ensureScheduler(vm: *VM) VMError!struct { vm: *VM, sched: *FiberScheduler
 /// abandoning one of those would corrupt a lock a live fiber legitimately
 /// holds.
 pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
-    const fiber_val = types.makePointer(@ptrCast(&fiber.header));
+    const fiber_val = types.makePointer(&fiber.header);
     for (fiber.owned_mutexes.items) |m_val| {
         const m = types.toMutex(m_val);
         if (@atomicLoad(bool, &m.locked, .acquire) and m.owner == fiber_val) {
@@ -1288,8 +1281,8 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
     gc.markValue(fiber.specific);
 
     for (fiber.frames[0..fiber.frame_count]) |f| {
-        if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));
-        if (f.native) |nf| gc.markValue(types.makePointer(@ptrCast(nf)));
+        if (f.closure) |cls| gc.markValue(types.makePointer(&cls.header));
+        if (f.native) |nf| gc.markValue(types.makePointer(&nf.header));
     }
     const span = FiberScheduler.liveRegisterSpan(fiber.frames[0..fiber.frame_count], fiber.registers.len);
     for (fiber.registers[0..span]) |r| gc.markValue(r);

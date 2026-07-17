@@ -755,7 +755,7 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     };
     gc.trackObject(&bn.header);
     gc.bytes_allocated += @sizeOf(Bignum) + limbs.len * @sizeOf(u64);
-    return types.makePointer(@ptrCast(bn));
+    return types.makePointer(&bn.header);
 }
 
 // ---------------------------------------------------------------------------

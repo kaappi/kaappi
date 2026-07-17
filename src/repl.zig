@@ -1441,7 +1441,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             break;
         };
 
-        var func_val = types.makePointer(@ptrCast(func));
+        var func_val = types.makePointer(&func.header);
         vm.gc.pushRoot(&func_val);
 
         crash.noteStage(.executing);

@@ -544,7 +544,7 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     // by a remote receive freeing a slot).
     if (vm_mod.vm_instance) |vm| {
         if (vm.scheduler) |sched| {
-            const ch_val = types.makePointer(@ptrCast(&ch.header));
+            const ch_val = types.makePointer(&ch.header);
             // Registers the notifier once, only if something actually
             // matched -- register{Recv,Send}Waiter's own dedup makes
             // calling them once per matching fiber idempotent, but hoisting

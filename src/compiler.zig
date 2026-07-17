@@ -132,7 +132,7 @@ pub const Compiler = struct {
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, types.makePointer(@ptrCast(func))) catch return CompileError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, types.makePointer(&func.header)) catch return CompileError.OutOfMemory;
         return .{
             .gc = gc,
             .func = func,
@@ -150,7 +150,7 @@ pub const Compiler = struct {
     }
 
     pub fn unrootFunction(gc: *memory.GC, func: *types.Function) void {
-        const func_val = types.makePointer(@ptrCast(func));
+        const func_val = types.makePointer(&func.header);
         for (gc.extra_roots.items, 0..) |v, i| {
             if (v == func_val) {
                 _ = gc.extra_roots.orderedRemove(i);
@@ -165,7 +165,7 @@ pub const Compiler = struct {
         func.env_val = parent.lib_env_val;
         func.source_line = parent.func.source_line;
         func.source_name = parent.func.source_name;
-        parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch return CompileError.OutOfMemory;
+        parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(&func.header)) catch return CompileError.OutOfMemory;
         return .{
             .gc = parent.gc,
             .func = func,

@@ -145,7 +145,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         },
         .closure => {
             const cl = obj.as(types.Closure);
-            const func_val = types.makePointer(@ptrCast(cl.func));
+            const func_val = types.makePointer(&cl.func.header);
             const new_func_val = try deepCopyValue(gc, func_val, visited);
             const new_func = types.toObject(new_func_val).as(types.Function);
             const new_val = try gc.allocClosure(new_func);
@@ -159,7 +159,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .function => {
             const func = obj.as(types.Function);
             const new_func = try gc.allocFunction();
-            const new_val = types.makePointer(@ptrCast(new_func));
+            const new_val = types.makePointer(&new_func.header);
             try visited.put(src_ptr, new_val);
             new_func.arity = func.arity;
             new_func.locals_count = func.locals_count;
@@ -287,7 +287,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         },
         .record_instance => {
             const ri = obj.as(types.RecordInstance);
-            const rt_val = types.makePointer(@ptrCast(ri.record_type));
+            const rt_val = types.makePointer(&ri.record_type.header);
             const new_rt_val = try deepCopyValue(gc, rt_val, visited);
             const new_rt = types.toObject(new_rt_val).as(types.RecordType);
             const new_val = try gc.allocRecordInstance(new_rt, &.{});

@@ -294,7 +294,7 @@ fn checkThreadOwner(fiber_val: Value, comptime proc: []const u8) PrimitiveError!
 fn currentThreadFn(_: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     const fiber = ctx.vm.current_fiber orelse return types.VOID;
-    return types.makePointer(@ptrCast(&fiber.header));
+    return types.makePointer(&fiber.header);
 }
 
 fn threadPredFn(args: []const Value) PrimitiveError!Value {
@@ -320,7 +320,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
         gc.writeBarrier(&fiber.header, args[1]);
     }
 
-    return types.makePointer(@ptrCast(&fiber.header));
+    return types.makePointer(&fiber.header);
 }
 
 fn threadNameFn(args: []const Value) PrimitiveError!Value {
@@ -1047,12 +1047,12 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
         if (ctx.vm.current_fiber) |cf| {
-            m.owner = resolveMutexOwner(args, types.makePointer(@ptrCast(&cf.header)));
+            m.owner = resolveMutexOwner(args, types.makePointer(&cf.header));
             if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
             // Only track when *this* fiber became the owner: an explicit
             // owner arg naming another fiber (possibly on another thread)
             // must not append to this fiber's list.
-            if (m.owner == types.makePointer(@ptrCast(&cf.header))) trackOwnedMutex(cf, args[0]);
+            if (m.owner == types.makePointer(&cf.header)) trackOwnedMutex(cf, args[0]);
         } else {
             m.owner = resolveMutexOwner(args, types.VOID);
             if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
@@ -1148,12 +1148,12 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     me.deadline_ns = null;
 
     m.owner = if (owner_arg) |oa|
-        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(@ptrCast(&me.header)))
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(&me.header))
     else
-        types.makePointer(@ptrCast(&me.header));
+        types.makePointer(&me.header);
     if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
     // Track only when `me` itself became the owner (see the fast path).
-    if (m.owner == types.makePointer(@ptrCast(&me.header))) trackOwnedMutex(me, mutex_val);
+    if (m.owner == types.makePointer(&me.header)) trackOwnedMutex(me, mutex_val);
 
     if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
     return types.TRUE;

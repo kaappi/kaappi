@@ -285,7 +285,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
                 }
                 return error.InvalidSyntax;
             };
-            var func_val = types.makePointer(@ptrCast(func));
+            var func_val = types.makePointer(&func.header);
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
@@ -721,7 +721,7 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch {};
     }
-    var func_val = types.makePointer(@ptrCast(func));
+    var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
@@ -1044,7 +1044,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
-    var func_val = types.makePointer(@ptrCast(func));
+    var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
