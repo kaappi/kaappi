@@ -95,8 +95,9 @@ shows "for FreeBSD 14.0"), so 14.x and 15.x are both in range.
 
 ## CI
 
-`freebsd-test` (ci.yml) cross-compiles the binaries and test executables
-for x86_64-freebsd on ubuntu-latest — the compile gate — then boots a
+`freebsd-test` (ci.yml) cross-compiles the binaries, test executables,
+and `libkaappi_rt.a` for x86_64-freebsd on ubuntu-latest — the compile
+gate — then boots a
 FreeBSD 14.3 VM (vmactions/freebsd-vm, KVM-accelerated; GitHub hosts no
 FreeBSD runners) that shares the workspace and executes the unit suite,
 the thottam suite, and `run-all.sh` inside it. One job, no artifact

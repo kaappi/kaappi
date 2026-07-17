@@ -164,7 +164,13 @@ jobs:
           cache-key: freebsd
 
       - name: Build (cross-compile for x86_64-freebsd)
-        run: zig build -Dtarget=x86_64-freebsd
+        # Includes the native runtime archive: inside the VM, the
+        # compile-suite scripts that need no zig themselves (e.g.
+        # native-rebind-stale-call-822.sh) link `kaappi compile` output
+        # against zig-out/lib/libkaappi_rt.a with the base system cc.
+        run: |
+          zig build -Dtarget=x86_64-freebsd
+          zig build lib -Dtarget=x86_64-freebsd
 
       - name: Compile unit tests (x86_64-freebsd)
         # skip_foreign_checks makes this compile-and-skip on the Linux
