@@ -84,18 +84,22 @@ The docs site's `kaappi_version` (`../kaappi.github.io/mkdocs.yml`) is **not**
 bumped here — it lives in a separate repo and tracks the *released* artifact,
 so Step 11's workflow bumps it after the release is published.
 
+Also update the workspace-level `../CLAUDE.md` "Current release" line to
+reflect the new version and date.
+
 ## Step 5: Refresh the built-in procedure count
 
 The docs cite a built-in procedure count that drifts as procedures are added or
-removed. Recompute it from source (unique names passed to `reg(vm, ...)`):
+removed. Recompute it from source (unique `.name` fields in the primitives
+spec structs):
 
 ```bash
-grep -rhoE '\breg\(vm, "[^"]+"' src/*.zig | sed -E 's/.*, "([^"]+)".*/\1/' | sort -u | wc -l
+grep -rn '\.name = "' src/primitives*.zig | sed -E 's/.*\.name = "([^"]+)".*/\1/' | sort -u | wc -l
 ```
 
-Do **not** use the raw `reg(` call count — it double-counts ~47 procedures that
-are re-registered in the sandboxed path (`registerIOSandboxed`, etc.). Unique
-names is the honest number.
+This counts unique procedure names. The sandboxed re-registrations
+(`registerIOSandboxed`, etc.) reuse the same `.name` values, so `sort -u`
+deduplicates them automatically.
 
 Find every doc citing the old count and update any that are stale:
 
@@ -123,11 +127,14 @@ Add the version files, the changelog, and any doc files whose procedure count
 changed in Step 5:
 
 ```bash
-git add src/main.zig src/thottam.zig build.zig.zon CHANGELOG.md
+git add build.zig.zon CHANGELOG.md
 git add README.md CONFORMANCE.md CLAUDE.md docs/dev/  # if the count changed
 git commit -m "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 ```
+
+Note: `src/main.zig` and `src/thottam.zig` read the version from
+`build_options` at build time — they do not need to be staged.
 
 ## Step 8: Push (requires user confirmation)
 
@@ -180,10 +187,20 @@ missing entitlement, broken binary, bad checksum).
 
 The Windows artifacts are covered by the checksum job (it verifies every
 released file) but have **no CI acceptance leg** — GitHub has no ARM64
-Windows runners. To smoke-test them on a real Windows 11 ARM64 machine
-(e.g. the `ssh win11` UTM VM), download `kaappi-aarch64-windows.exe` there
-and run `--version`, a small script, and `kaappi features` (the feature
-list must show `windows`, not `posix`). See `docs/dev/windows.md`.
+Windows runners. Smoke-test on the `ssh win11` UTM VM:
+
+```bash
+# Download the release binary
+ssh win11 "powershell -Command \"Invoke-WebRequest -Uri 'https://github.com/kaappi/kaappi/releases/download/vX.Y.Z/kaappi-aarch64-windows.exe' -OutFile 'C:\tmp\kaappi-vX.Y.Z.exe'\""
+
+# Smoke tests (version, script execution, features)
+ssh win11 "C:\tmp\kaappi-vX.Y.Z.exe --version"
+ssh win11 "echo '(display (+ 1 2)) (newline)' | C:\tmp\kaappi-vX.Y.Z.exe"
+ssh win11 "C:\tmp\kaappi-vX.Y.Z.exe features"
+```
+
+Verify: version matches, script prints `3`, and `features` shows `windows`
+(not `posix`) with target `aarch64-windows-gnu`. See `docs/dev/windows.md`.
 
 ## Step 11: Update docs site (playground WASM + version)
 
@@ -195,9 +212,12 @@ deploys — no local file copy:
 
 ```bash
 gh workflow run update-wasm.yml -R kaappi/kaappi.github.io -f tag=vX.Y.Z
-# wait for GitHub to register the run, then watch it:
-sleep 5
-gh run watch -R kaappi/kaappi.github.io "$(gh run list -R kaappi/kaappi.github.io -w update-wasm.yml -L 1 --json databaseId -q '.[0].databaseId')"
+```
+
+`gh workflow run` returns the run URL directly — watch it:
+
+```bash
+gh run watch -R kaappi/kaappi.github.io <run-id>
 ```
 
 This updates `/playground/`, `/tour/` (shared WASM binary), and the version
