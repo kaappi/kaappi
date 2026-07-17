@@ -7,18 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-17
+
 ### Added
 
-- **Windows socket readiness (#1608 stage 1)** — fiber I/O suspension now works on socket-backed ports on Windows: a port whose CRT fd wraps a SOCKET (the `_open_osfhandle` bridge used by `fd->port`/FFI code) is detected by a one-time kernel-verified probe (platform_win_sock.zig), read/written through `recv`/`send` with `WSAEWOULDBLOCK → EAGAIN` mapping, and flipped non-blocking via `FIONBIO` once a scheduler exists, so a would-block read parks the fiber on the reactor instead of blocking the OS thread. The reactor's `WindowsEventBackend` gains real fd readiness via `WSAEventSelect` on a shared event (with a post-arm `select()` probe closing the documented `FD_WRITE`/`FD_CLOSE` edge-recording races). Pipe and file ports keep blocking reads (no would-block mode at the CRT layer; IOCP/overlapped rework is stage 2). The fd-readiness unit suites (`tests_reactor`, `tests_scheduler`, `tests_port_io`) now run on Windows over loopback TCP socket pairs
-- **Heap-type layout guard** — a comptime check in `types.zig` asserts every heap struct keeps its `header: Object` at byte offset 0, which most `makePointer` call sites silently assume; Zig's auto struct layout may reorder fields, and adding two `bool`s to `Port` was enough to move its header to offset 48 and corrupt every port Value. Layout drift is now a compile error instead of silent memory corruption
+#### Windows platform support
+- **Windows aarch64 target** — `zig build -Dtarget=aarch64-windows` cross-compiles `kaappi.exe`, `thottam.exe`, and `kaappi-lsp.exe` (via Zig's bundled mingw-w64; releases ship `kaappi-aarch64-windows.exe`). The full interpreter works on Windows 11 ARM64 — REPL (plain line editing), fibers, channels (incl. capacity-0 rendezvous), SRFI-18 OS threads, FFI via `LoadLibrary`, and the `kaappi test` runner — verified with the complete unit and R7RS suites on real hardware. The POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a catchable file error, and `cond-expand`/`(features)` expose a `windows` identifier in place of `posix`. See `docs/dev/windows.md` (#1606)
+- **Windows fd readiness** — fiber I/O suspension now works on Windows: socket-backed ports get reactor-driven non-blocking I/O via `WSAEventSelect` (#1608 stage 1), and pipe-backed ports get emulated non-blocking mode via a polled peek/write-quota backend (#1608 stage 2). File ports keep blocking reads (the POSIX baseline — no OS has regular-file readiness). The fd-readiness unit suites (`tests_reactor`, `tests_scheduler`, `tests_port_io`) run on Windows over loopback TCP socket pairs
+- **Windows native backend** — `kaappi compile` verified end-to-end on Windows: `rt_lib_name` probes `kaappi_rt.lib`, emits a derived `.exe` output, and uses the `windows-gnu` triple; 38/38 tests pass via `run-e2e.ps1` (#1610)
+- **thottam on Windows** — `thottam install`/`remove`/`update` work via platform-independent filesystem shim helpers replacing shell-outs on all platforms; `HOME` falls back to `USERPROFILE` (#1609)
+- **Windows CI** — the shell-based test suites (`tests/scheme/run-all.sh` and sub-suites) run on Windows via Git Bash, and the FFI Scheme suite (`tests/scheme/ffi/`) runs with a cross-compiled fixture DLL (#1611, #1612)
 
-- **Windows aarch64 target** — `zig build -Dtarget=aarch64-windows` cross-compiles `kaappi.exe`, `thottam.exe`, and `kaappi-lsp.exe` (via Zig's bundled mingw-w64; releases ship `kaappi-aarch64-windows.exe`). The full interpreter works on Windows 11 ARM64 — REPL (plain line editing), fibers, channels (incl. capacity-0 rendezvous), SRFI-18 OS threads, FFI via `LoadLibrary`, and the `kaappi test` runner — verified with the complete unit and R7RS suites on real hardware. Platform notes: fd readiness is socket-only — socket-backed ports get reactor-driven non-blocking fiber I/O (see the #1608 entry above) while pipe and file ports keep blocking reads (timers and cross-thread wakeups always work) — the POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a catchable file error, and `cond-expand`/`(features)` expose a `windows` identifier in place of `posix`. thottam runs read-only subcommands; `install`/`remove`/`update` are not yet supported on Windows. See `docs/dev/windows.md`
+#### Other
+- **Rendezvous channels** — `(make-channel 0)` creates a capacity-0 channel with true rendezvous semantics (sender blocks until a receiver is ready) on both fiber-local and cross-thread (`SharedChannel`) representations (#1604)
+- **Heap-type layout guard** — a comptime check in `types.zig` asserts every heap struct keeps its `header: Object` at byte offset 0, catching layout drift at compile time instead of silent memory corruption (#1618, #1622)
+- **Porting guide** — `docs/dev/porting.md` documents porting surfaces, the degradation ladder, and staged checklists for adding a new OS or CPU architecture (#1624)
 
 ### Fixed
 
-- `(ffi-open #f)` on Windows now has POSIX `dlopen(NULL)` semantics: symbol lookup on the process handle searches every loaded module, so CRT functions (`abs`, `qsort`, `strlen`, …) resolve from `ucrtbase.dll` — previously it probed only the exe's (empty) export table. The FFI Scheme suite (`tests/scheme/ffi/`, incl. callbacks and a cross-compiled fixture DLL) now runs on Windows in CI and is part of the verified set (#1611)
-- FFI 64-bit integer marshaling now uses a platform-independent `i64` carrier: on LLP64 targets (Windows) C `long` is 32-bit and is routed through the 32-bit marshaling class, while `int64`/`uint64`/`size_t` keep full 64-bit range — previously all four assumed `c_long` was 64-bit (identical behavior on macOS/Linux, where it is)
-- macOS release binaries can now `ffi-open` user-compiled libraries: the hardened-runtime signing entitlements add `com.apple.security.cs.disable-library-validation`, without which dlopen refused every locally-built `.dylib` (kaappi-net, kaappi-pg, kaappi-sqlite, kaappi-crypto) on release binaries while source builds worked (#1587)
+#### Windows
+- `(ffi-open #f)` on Windows now has POSIX `dlopen(NULL)` semantics: symbol lookup on the process handle searches every loaded module, so CRT functions resolve from `ucrtbase.dll` (#1611)
+- FFI 64-bit integer marshaling now uses a platform-independent `i64` carrier: on LLP64 targets (Windows) C `long` is 32-bit and is routed through the 32-bit marshaling class, while `int64`/`uint64`/`size_t` keep full 64-bit range
+
+#### Concurrency
+- An idle in-place I/O drive pinned over a resolved ancestor's wait now unwinds with a catchable "port I/O abandoned" error instead of blocking unboundedly (#1625)
+- GC `referencesYoung` now traces `owned_mutexes` in the fiber arm, preventing young-generation mutexes shared with a fiber from being collected during minor GC (#1605)
+
+#### LLVM native backend
+- Fix native `let` root leak: body-scope roots were not popped on early return (#1585)
+- Fix duplicated fallback effects in transactional `emitLet` (#1586)
+- Fix VM-vs-native divergence for shadowed boxed names (#1590)
+
+#### Other
+- macOS release binaries can now `ffi-open` user-compiled libraries: signing entitlements add `com.apple.security.cs.disable-library-validation` (#1587)
+- `--profile` no longer drops functions promoted to the old GC generation (#1599)
+- Fuzz generator coverage leaks in `genLetMut` ordering and string length (#1620)
+- `tests_check` hardened against silent import-resolution failures (#1627)
 
 ## [0.15.0] - 2026-07-16
 
