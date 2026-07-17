@@ -221,9 +221,10 @@ jobs:
           path: bin
 
       - name: Unwrap archived artifact
-        # upload-artifact v7 archives by default and download-artifact v8
-        # hands the wrapper zip back as a file (same dance as fuzz.yml's
-        # report job). Windows ships bsdtar, which extracts zip.
+        # Safety net only: named downloads extract the artifact contents
+        # into `path` directly (loose files, so this loop normally has
+        # nothing to do — the wrapper-zip belief was a misdiagnosis, #1620).
+        # Windows ships bsdtar, which extracts zip if one ever appears.
         shell: bash
         run: |
           set -euo pipefail
