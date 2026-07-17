@@ -89,10 +89,16 @@ and cross-thread SharedChannel promotion all work on top of this.
   that need the math functions `cond-expand` to `(ffi-open "ucrtbase")`
   on Windows. FFI callbacks (comptime Zig trampolines, `callconv(.c)`)
   work unchanged — the qsort-with-Scheme-comparator tests pass.
-* **thottam** builds and runs (`list`, `verify`, `--help`); `install`/
-  `remove`/`update` print a clear unsupported error — the install
-  pipeline shells out to POSIX userland (`cp -R`, `find`, `sh -c`) that
-  needs reimplementing on the shim first.
+* **thottam `build:` commands are refused.** The package manager itself
+  is fully ported (#1609): install/remove/update/list/verify all work —
+  the install pipeline's file work (recursive copy/remove/walk,
+  `mkdir -p`, `touch`) runs on shim-based helpers (`thottam_fs.zig`)
+  instead of POSIX userland, on every platform. What remains
+  Windows-refused is a manifest's `build:` line: it ran via `/bin/sh -c`
+  and every ecosystem `build:` is a Makefile producing POSIX shared
+  libraries, so thottam errors clearly instead — pure-Scheme packages
+  (most of the ecosystem) have no `build:` line and install fine. Needs
+  Git for Windows on PATH, like every git operation.
 * **REPL** uses a plain prompt + line reader (linenoise is termios-only):
   the full REPL loop — debug commands, multi-line input, themes — works,
   without history/completion/editing.
@@ -112,8 +118,9 @@ Scheme tests that exercise POSIX-only functionality gate themselves:
 ## Testing on a Windows machine
 
 CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
-binaries and the unit-test exe from Linux, guarding the path release.yml
-ships with, and `windows-arm-test` executes the unit suite, the R7RS
+binaries and the test exes from Linux, guarding the path release.yml
+ships with, and `windows-arm-test` executes the unit suite, the thottam
+suite plus a real package install/remove integration test, the R7RS
 suite, and the VM-verified `.scm` suites on GitHub's hosted
 `windows-11-arm` runners on every PR. The execution job installs no
 toolchain — it downloads the binaries `windows-cross` built as an
@@ -182,9 +189,10 @@ the github-release skill's Step 10.
 * The shell-based suites — errors, compile, test-runner, pipeline,
   doctor, fmt, cache, timings, the smoke `.sh` scripts, sandbox, and
   robustness — don't run on Windows (#1612).
-* thottam package installation (replace the POSIX userland calls with
-  shim-based recursive copy/remove/walk; git is already spawned via
-  CreateProcessW and works when Git for Windows is on PATH).
+* thottam refuses manifests with a `build:` command (#1609 ported
+  everything else — see Deliberate degradations above); lifting that
+  needs a Windows build story for the C-FFI packages, which today are
+  Makefiles producing `.dylib`/`.so` against POSIX headers.
 * `kaappi compile` links with `zig cc` when Zig is installed on the box;
   untested beyond the doctor's smoke-link probe.
 * Console reads are byte-oriented ANSI/UTF-8; typing non-ASCII at the

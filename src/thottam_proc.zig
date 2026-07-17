@@ -184,8 +184,7 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
 
     if (!thottam.fileExists(allocator, "/usr/bin/git")) return error.SkipZigTest;
 
-    const base = thottam.getenv("TMPDIR") orelse "/tmp";
-    const repo = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-780-{d}", .{ base, std.c.getpid() });
+    const repo = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-780-{d}", .{ platform.tempDir(), platform.getPid() });
     defer allocator.free(repo);
     defer thottam.removeDir(allocator, repo) catch {};
     thottam.removeDir(allocator, repo) catch {};

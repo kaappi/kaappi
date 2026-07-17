@@ -68,6 +68,12 @@ pub const win = if (is_windows) struct {
     pub extern "c" fn _get_osfhandle(fd: c_int) isize;
     pub extern "c" fn _wfullpath(out: ?[*]u16, path: [*:0]const u16, size: usize) ?[*:0]u16;
     pub extern "c" fn _waccess(path: [*:0]const u16, mode: c_int) c_int;
+    pub extern "c" fn _wchmod(path: [*:0]const u16, mode: c_int) c_int;
+
+    // CRT _wchmod permission bits (sys/stat.h). Windows only honors the
+    // write bit — clearing it sets FILE_ATTRIBUTE_READONLY.
+    pub const S_IREAD: c_int = 0x0100;
+    pub const S_IWRITE: c_int = 0x0080;
 
     /// mingw ucrt `struct _stat64`. Field types (not manual offsets)
     /// reproduce the C layout: 2 bytes of tail padding after st_gid and 4
@@ -150,6 +156,7 @@ pub const win = if (is_windows) struct {
         alternate_file_name: [14]u16,
     };
     pub const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    pub const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
     pub const STD_OUTPUT_HANDLE: u32 = @bitCast(@as(i32, -11));
     pub const STD_ERROR_HANDLE: u32 = @bitCast(@as(i32, -12));
@@ -379,6 +386,10 @@ pub const StatInfo = struct {
     mtime_sec: i64,
     is_dir: bool,
     is_file: bool,
+    /// Only set by lstatPath. POSIX symlinks report neither is_dir nor
+    /// is_file; a Windows directory junction/symlink reports both
+    /// is_symlink and is_dir (remove it with rmdir, never by recursing).
+    is_symlink: bool = false,
 };
 
 pub fn statPath(path: [:0]const u8) ?StatInfo {
@@ -454,8 +465,91 @@ pub fn statFd(fd: fd_t) ?StatInfo {
     };
 }
 
+/// lstat(2) equivalent: like statPath but never follows a symlink (or, on
+/// Windows, a reparse point — junctions and directory symlinks report the
+/// link itself). The recursive walkers (thottam_fs.zig) depend on this to
+/// never traverse out of the tree they were pointed at. Windows uses
+/// FindFirstFileW on the literal path, which reports the reparse point's
+/// own attributes; drive roots ("C:/") are not queryable this way, and the
+/// walkers never ask. WASI has no symlink-aware path here; it degrades to
+/// statPath.
+pub fn lstatPath(path: [:0]const u8) ?StatInfo {
+    if (comptime is_windows) {
+        var wbuf: WPathBuf = undefined;
+        const wpath = widen(&wbuf, path) orelse return null;
+        var data: win.Win32FindDataW = undefined;
+        const h = win.FindFirstFileW(wpath.ptr, &data);
+        if (h == win.INVALID_HANDLE_VALUE) return null;
+        _ = win.FindClose(h);
+        const is_dir = data.attributes & win.FILE_ATTRIBUTE_DIRECTORY != 0;
+        // FILETIME: 100ns ticks since 1601; Unix epoch offset as in realTime.
+        const ticks: i64 = (@as(i64, data.last_write_time.hi) << 32) | @as(i64, data.last_write_time.lo);
+        return .{
+            .size = (@as(u64, data.file_size_high) << 32) | @as(u64, data.file_size_low),
+            .mtime_sec = @divFloor(ticks - 116444736000000000, 10_000_000),
+            .is_dir = is_dir,
+            .is_file = !is_dir,
+            .is_symlink = data.attributes & win.FILE_ATTRIBUTE_REPARSE_POINT != 0,
+        };
+    }
+    if (comptime is_wasm) return statPath(path);
+    if (comptime builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+        var sx: linux.Statx = undefined;
+        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, linux.AT.SYMLINK_NOFOLLOW, linux.STATX.BASIC_STATS, &sx);
+        if (rc > @as(usize, std.math.maxInt(isize))) return null;
+        return .{
+            .size = sx.size,
+            .mtime_sec = sx.mtime.sec,
+            .is_dir = sx.mode & std.posix.S.IFMT == std.posix.S.IFDIR,
+            .is_file = sx.mode & std.posix.S.IFMT == std.posix.S.IFREG,
+            .is_symlink = sx.mode & std.posix.S.IFMT == std.posix.S.IFLNK,
+        };
+    }
+    var st: std.c.Stat = undefined;
+    if (std.c.fstatat(std.posix.AT.FDCWD, path, &st, std.posix.AT.SYMLINK_NOFOLLOW) != 0) return null;
+    return .{
+        .size = @intCast(@max(st.size, 0)),
+        .mtime_sec = @intCast(st.mtime().sec),
+        .is_dir = st.mode & std.posix.S.IFMT == std.posix.S.IFDIR,
+        .is_file = st.mode & std.posix.S.IFMT == std.posix.S.IFREG,
+        .is_symlink = st.mode & std.posix.S.IFMT == std.posix.S.IFLNK,
+    };
+}
+
 pub fn pathExists(path: [:0]const u8) bool {
     return statPath(path) != null;
+}
+
+extern "c" fn chmod(path: [*:0]const u8, mode: std.c.mode_t) c_int;
+
+/// Best-effort "make deletable/traversable": clears the Windows read-only
+/// attribute (git marks pack/object files read-only, which makes _wunlink
+/// fail where POSIX unlink succeeds), chmod u+rwx on POSIX (covers
+/// unwritable directories, whose entries POSIX refuses to unlink). Used on
+/// the retry path of recursive removal; no-op on WASI.
+pub fn makeWritable(path: [:0]const u8) void {
+    if (comptime is_windows) {
+        var wbuf: WPathBuf = undefined;
+        const wpath = widen(&wbuf, path) orelse return;
+        _ = win._wchmod(wpath.ptr, win.S_IREAD | win.S_IWRITE);
+        return;
+    }
+    if (comptime is_wasm) return;
+    _ = chmod(path, 0o700);
+}
+
+/// Inverse of makeWritable, for tests that reproduce git's read-only
+/// object files: sets the Windows read-only attribute / POSIX r-x mode.
+pub fn makeReadOnly(path: [:0]const u8) void {
+    if (comptime is_windows) {
+        var wbuf: WPathBuf = undefined;
+        const wpath = widen(&wbuf, path) orelse return;
+        _ = win._wchmod(wpath.ptr, win.S_IREAD);
+        return;
+    }
+    if (comptime is_wasm) return;
+    _ = chmod(path, 0o555);
 }
 
 /// access(path, W_OK) equivalent.
