@@ -498,7 +498,11 @@ would block (`EAGAIN`) suspend the calling fiber instead of the thread
 (`.io_waiting` + the yield-retry re-execution protocol — callers stash
 partial progress into `port.read_buf` first via
 `primitives_io.propagateReadErr`); the main fiber or one under re-entrant
-native frames drives the scheduler in place instead. Port fds (never 0/1/2)
+native frames drives the scheduler in place instead. An in-place drive that
+goes idle while an *enclosing* drive's wait already resolved or timed out
+(`FiberScheduler.driving_waits`) unwinds with a catchable "port I/O
+abandoned" error rather than blocking unboundedly — the pinned ancestor can
+only proceed once this fiber's native frames unwind (#1625). Port fds (never 0/1/2)
 flip to `O_NONBLOCK` lazily, only once a scheduler exists — sequential
 programs keep blocking fds and their exact syscall profile. On WASI the
 flip is the host-capability probe: `fd_fdstat_set_flags(NONBLOCK)` failing

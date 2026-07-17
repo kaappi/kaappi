@@ -169,6 +169,105 @@ test "closing a port with a parked reader raises a clean error in that fiber" {
     try std.testing.expectEqual(types.TRUE, r);
 }
 
+test "#1625: guard reader's idle drive unwinds instead of wedging a resolved join" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pair = th.makeBidiFdPair();
+    _ = try definePortGlobal(vm, "rp", pair[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pair[1], false, true);
+
+    _ = try vm.eval("(import (kaappi fibers))");
+    _ = try vm.eval(
+        \\(define f (spawn (lambda ()
+        \\  (guard (e (#t (list 'caught (error-object? e) (error-object-message e))))
+        \\    (read-char rp)
+        \\    'not-reached))))
+    );
+    // The #1625 hang: this join's dispatch runs f first (FIFO). Under
+    // guard's re-entrant native frames f cannot park-and-retry, so its
+    // EAGAIN drives the scheduler in place; that drive dispatches the
+    // trivial fiber — resolving THIS join — and then went idle in an
+    // unbounded reactor poll on f's own never-ready fd, pinning the
+    // resolved join beneath f's native frames forever. Fixed, the idle
+    // drive notices the resolved enclosing wait, unwinds f's read with the
+    // catchable "port I/O abandoned" error (guard is exactly the plumbing
+    // that handles it), and the join returns.
+    const joined = try vm.eval("(fiber-join (spawn (lambda () 1)))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(joined));
+
+    const f_val = try vm.eval("f");
+    try std.testing.expectEqual(fiber_mod.FiberStatus.completed, types.toObject(f_val).as(fiber_mod.Fiber).status);
+    const caught = try vm.eval("(and (equal? (car (fiber-join f)) 'caught) (cadr (fiber-join f)))");
+    try std.testing.expectEqual(types.TRUE, caught);
+    // Pin which error unwound the read: the deliberate #1625 abandonment,
+    // not #1184's contentless generic conversion of a stray Yielded.
+    const msg_val = try vm.eval("(caddr (fiber-join f))");
+    const msg = types.toObject(msg_val).as(types.SchemeString);
+    try std.testing.expect(std.mem.startsWith(u8, msg.data[0..msg.len], "port I/O abandoned"));
+
+    // The port survived f's unwinding: still open, still closable.
+    _ = try vm.eval("(fiber-join (spawn (lambda () (close-port rp))))");
+    const closed = try vm.eval("(not (input-port-open? rp))");
+    try std.testing.expectEqual(types.TRUE, closed);
+}
+
+test "#1625: guard reader pinned under an expired thread-sleep! unwinds too" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pair = th.makeBidiFdPair();
+    _ = try definePortGlobal(vm, "rp", pair[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pair[1], false, true);
+
+    _ = try vm.eval("(import (kaappi fibers) (srfi 18))");
+    _ = try vm.eval(
+        \\(define f (spawn (lambda ()
+        \\  (guard (e (#t 'caught))
+        \\    (read-char rp)
+        \\    'not-reached))))
+    );
+    // The timed-out flavor of the same wedge: main's sleep drive dispatches
+    // f, whose EAGAIN drive is then pinned beneath the sleep. The sleep's
+    // timer bounds the reactor poll, so the deadline fires inside f's
+    // drive and flips main to timed_out — a resolution SleepWait's isDone
+    // (constant false) never reports. The ancestor check must read
+    // `timed_out` too, or f's next idle poll is unbounded (no timers left,
+    // only f's own fd) and the sleep never returns.
+    _ = try vm.eval("(thread-sleep! 0.05)");
+    const f_val = try vm.eval("f");
+    try std.testing.expectEqual(fiber_mod.FiberStatus.completed, types.toObject(f_val).as(fiber_mod.Fiber).status);
+    const r = try vm.eval("(eq? (fiber-join f) 'caught)");
+    try std.testing.expectEqual(types.TRUE, r);
+}
+
+test "#1625: same ordering over an OS pipe unwinds identically" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pipe = th.makePipeFdPair();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+
+    _ = try vm.eval("(import (kaappi fibers))");
+    _ = try vm.eval(
+        \\(define f (spawn (lambda ()
+        \\  (guard (e (#t (list 'caught (error-object? e))))
+        \\    (read-char rp)
+        \\    'not-reached))))
+    );
+    const joined = try vm.eval("(fiber-join (spawn (lambda () 1)))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(joined));
+    const r = try vm.eval("(equal? (fiber-join f) '(caught #t))");
+    try std.testing.expectEqual(types.TRUE, r);
+}
+
 test "thread-terminate! pulls a parked reader off the reactor; the fd stays usable" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -717,15 +816,13 @@ test "#1608: closing an OS-pipe port with a parked reader raises a clean error i
         \\    (read-char rp)
         \\    'not-reached))))
     );
-    // Deliberately NOT pre-parked with a dispatch tick before spawning the
-    // closer (unlike the interleave test above): f's guard means its read
-    // runs under re-entrant native frames, and a pre-parked f redispatched
-    // by the later join drives the scheduler into an unbounded poll with
-    // the runnable closer never dispatched — a pre-existing interaction
-    // independent of the pipe backend (repros with socket pairs; #1625).
-    // The FIFO dispatch order below still exercises the parked path
-    // deterministically: at the join, f is dispatched first, parks on the
-    // empty pipe, and only then does its in-place drive dispatch closer.
+    // Closer spawned before the join so both are pending at dispatch time:
+    // FIFO runs f first, its guard means the read blocks under re-entrant
+    // native frames (drive-in-place, not park-and-retry), and the drive
+    // dispatches closer, whose close-port wakes f into the clean "port
+    // closed" raise. The other ordering — f's drive going idle with no
+    // closer yet — used to wedge in an unbounded poll; that path now
+    // unwinds with "port I/O abandoned" and has its own tests (#1625).
     _ = try vm.eval("(define closer (spawn (lambda () (close-port rp))))");
     // The join completing at all is the "nothing hangs" half of the
     // acceptance criterion; the guard result is the "clean error" half.

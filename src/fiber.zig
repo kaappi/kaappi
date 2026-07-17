@@ -173,6 +173,26 @@ pub const FiberScheduler = struct {
     /// giving up the accelerator forever (rather than trying to recover it) is
     /// the responsible trade: worst case is exactly the old behavior.
     waiter_index_degraded: bool,
+    /// #1625: the stack of runSchedulerStep drives currently live on this OS
+    /// thread's Zig call stack, outermost first (each drive pushes on entry,
+    /// pops on exit — strict LIFO). Every entry except the innermost belongs
+    /// to an *ancestor*: a fiber frozen mid-dispatch whose own wait condition
+    /// nothing announces — no wake path fires when a TargetWait's target
+    /// completes for a fiber that is `driving` rather than `.waiting` — so
+    /// the only way a descendant can learn "the wait pinned beneath me has
+    /// resolved and only my unwinding can deliver it" is to evaluate the
+    /// ancestor's own isDone through this type-erased view. Entries reference
+    /// the drive's stack frame (`ctx` points into it) and are only ever read
+    /// while that frame is alive, which the LIFO discipline guarantees.
+    driving_waits: std.ArrayList(DrivingWait),
+
+    /// One live runSchedulerStep drive, with its comptime-typed wait context
+    /// erased so drives over different Ctx types can share one stack.
+    const DrivingWait = struct {
+        fiber: *Fiber,
+        ctx: *const anyopaque,
+        is_done: *const fn (*const anyopaque) bool,
+    };
 
     pub fn init(vm: *VM) FiberScheduler {
         return .{
@@ -187,6 +207,7 @@ pub const FiberScheduler = struct {
             .free_head = 0,
             .waiter_index = std.AutoHashMap(Value, std.ArrayList(usize)).init(vm.gc.allocator),
             .waiter_index_degraded = false,
+            .driving_waits = .empty,
         };
     }
 
@@ -198,6 +219,27 @@ pub const FiberScheduler = struct {
         var it = self.waiter_index.valueIterator();
         while (it.next()) |list| list.deinit(allocator);
         self.waiter_index.deinit();
+        self.driving_waits.deinit(allocator);
+    }
+
+    /// True iff some *other* live drive on this OS thread — always an
+    /// ancestor of the caller's, since drives nest strictly (#1487's
+    /// reasoning) — would exit its loop if control returned to it: its wait
+    /// condition is satisfied, or its timed wait expired (`timed_out` —
+    /// a pure sleep resolves *only* this way, its isDone is constant
+    /// false). Such an ancestor can consume its resolution only when the
+    /// callers above it unwind: it is excluded from dispatch (`driving`),
+    /// its loop is frozen mid-dispatch, and no wake path targets it. A
+    /// descendant about to block unboundedly must check this first, or it
+    /// wedges the whole thread on an event that may never come while the
+    /// ancestor sits ready to proceed (#1625). Matching by fiber identity
+    /// (not "skip the top entry") keeps the check independent of the
+    /// list's push/pop bookkeeping.
+    pub fn anyAncestorWaitResolved(self: *FiberScheduler, me: *Fiber) bool {
+        for (self.driving_waits.items) |w| {
+            if (w.fiber != me and (w.fiber.timed_out or w.is_done(w.ctx))) return true;
+        }
+        return false;
     }
 
     /// Shared lazy-compaction for the FIFO rings (`ready`, `free_slots`):
@@ -1056,6 +1098,18 @@ const IoWait = struct {
     pub fn isDone(self: IoWait) bool {
         return self.me.status != .io_waiting;
     }
+    /// #1625: an fd wait is the one drive whose *own* registration defeats
+    /// the generic idle escape — hasRunnableFibers counts this fiber's
+    /// `.io_waiting` and the fd keeps the reactor non-empty, so
+    /// parkOnReactor never returns false and the poll is unbounded. When an
+    /// ancestor drive has already resolved, blocking anyway wedges it
+    /// forever on an event that may never come; unwinding (waitForFd turns
+    /// the broken-off drive into a catchable error) is the only exit that
+    /// lets the thread proceed. Waits that resolve through in-thread wakes
+    /// (join/channel/mutex/condvar) don't need this: with no fd of their
+    /// own, the same idle state already falls out via parkOnReactor's
+    /// deadlock check, and timed sleeps must run their full duration.
+    pub const unwind_on_resolved_ancestor = true;
 };
 
 /// Blocks the current fiber until `fd` is ready for `interest` (KEP-0001
@@ -1073,7 +1127,12 @@ const IoWait = struct {
 ///   in place — exactly the thread-sleep! pattern — until the reactor
 ///   reports the fd ready or a close-port wake intervenes, then returns so
 ///   the caller retries its syscall. Blocking main on I/O this way keeps
-///   sibling fibers running while preserving blocking-read semantics.
+///   sibling fibers running while preserving blocking-read semantics. One
+///   exception (#1625): if the drive goes idle while an *enclosing* drive's
+///   wait has already resolved (IoWait.unwind_on_resolved_ancestor), it
+///   raises a catchable "port I/O abandoned" error instead of blocking,
+///   because only this fiber's unwinding can let that enclosing wait
+///   proceed.
 pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VMError!void {
     const ctx = try ensureScheduler(vm);
     const me = vm.current_fiber orelse return VMError.InvalidArgument;
@@ -1115,7 +1174,32 @@ pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VME
         me.io_fd = null;
         me.status = .running;
     }
-    _ = try runSchedulerStep(IoWait, .{ .me = me }, vm, ctx.sched, me);
+    const done = try runSchedulerStep(IoWait, .{ .me = me }, vm, ctx.sched, me);
+    // The drive broke off unresolved: IoWait's unwind_on_resolved_ancestor
+    // fired (#1625) — an enclosing dispatch's wait has completed and only
+    // this fiber's unwinding lets it proceed. Returning normally would
+    // retry the syscall, EAGAIN again, and re-enter the same drive: an
+    // unbreakable spin. Raise a catchable error instead; the defer above
+    // has already pulled `me` off the reactor, and the re-entrant frames
+    // that made parking impossible (guard, dynamic-wind) are exception
+    // plumbing — an ordinary raise is exactly the unwind they handle.
+    if (!done) return raiseIoWaitAbandoned(vm);
+}
+
+/// The catchable error a broken-off in-place I/O drive surfaces as (#1625).
+/// A plain ErrorObject like blockOrDeadlock's deadlock errors — this is the
+/// I/O drive's analogue of those: "this wait can no longer be serviced
+/// without wedging the scheduler."
+fn raiseIoWaitAbandoned(vm: *VM) VMError {
+    var msg = vm.gc.allocString(
+        "port I/O abandoned: fiber cannot suspend under re-entrant native frames " ++
+            "(guard, dynamic-wind, callbacks) while an enclosing completed wait needs this thread",
+    ) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&msg);
+    defer vm.gc.popRoot();
+    const err_obj = vm.gc.allocErrorObject(msg, types.NIL) catch return VMError.OutOfMemory;
+    vm.current_exception = err_obj;
+    return VMError.ExceptionRaised;
 }
 
 /// Called when sched.schedule() finds nothing immediately runnable. Blocks
@@ -1211,8 +1295,43 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     me.driving = true;
     defer me.driving = false;
 
+    // Publish this drive's wait so nested drives can evaluate it (#1625) —
+    // see driving_waits' doc comment. `ctx` is this frame's parameter, so
+    // the pointer stays valid for exactly the extent the entry is stacked.
+    // Unlike the ready ring or waiter_index, this list is a correctness
+    // registry with no fallback: an entry silently dropped on OOM would
+    // re-open the #1625 wedge for this drive's descendants. Fail the wait
+    // loudly instead — callers already handle OutOfMemory from inside the
+    // loop (saveCurrentFiber's growth, parkOnReactor's poll), and a clean
+    // error beats a silent hang at death's door.
+    const erased = struct {
+        fn isDone(p: *const anyopaque) bool {
+            const c: *const Ctx = @ptrCast(@alignCast(p));
+            return c.isDone();
+        }
+    };
+    sched.driving_waits.append(vm.gc.allocator, .{
+        .fiber = me,
+        .ctx = @ptrCast(&ctx),
+        .is_done = &erased.isDone,
+    }) catch return VMError.OutOfMemory;
+    defer _ = sched.driving_waits.pop();
+
     while (!ctx.isDone() and !me.timed_out) {
         const next_idx = sched.scheduleForDispatch() orelse {
+            // Nothing dispatchable. Before blocking in the reactor, a wait
+            // that opted in gives up instead when an ancestor drive's
+            // condition has already resolved: that ancestor can only
+            // proceed once we unwind, and blocking here — for I/O waits,
+            // on this fiber's own fd with no bound — would pin it forever
+            // (#1625: a guard-wrapped reader's in-place drive vs. the
+            // enclosing fiber-join whose target already completed). Checked
+            // only at the idle point so runnable siblings still get
+            // dispatched first — one of them may resolve *this* wait, which
+            // is always the better outcome.
+            if (comptime @hasDecl(Ctx, "unwind_on_resolved_ancestor")) {
+                if (sched.anyAncestorWaitResolved(me)) break;
+            }
             if (!(try parkOnReactor(vm, sched, poll_cap_ns))) break;
             continue;
         };
