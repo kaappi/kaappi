@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784295034082,
+  "lastUpdate": 1784305477108,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dd71851272a4a0f6d35ab3537e7dc89750a6bb4d",
-          "message": "Chain nested-lambda captures in the native closure tiers (#1410) (#1419)\n\nThe closure tiers' free-variable analysis treated nested .lambda IR\nnodes as opaque, so a lambda whose only reference to an enclosing\nbinding lived inside an inner lambda was misclassified as a closed\nclosure, and the inner lambda's eval fallback then resolved the capture\nas an (undefined) global at run time.\n\nThree-part fix:\n\n- The analysis descends into nested lambda bodies via the same\n  scope-tracking raw-sexpr walk that #1409 added for let/let*.\n- Tier 1 can chain a capture out of the enclosing closure's %upvalues\n  (not just its %args), so nested captures of any depth stay native\n  with correct per-instance copy semantics.\n- Every eval-fallback boundary (emitLambdaViaEval, emitFormEval, and\n  now emitLetFallback) republishes the full frame - fixed params, the\n  rest parameter, and upvalues - as globals, closing the sibling holes:\n  variadic inner lambdas, rest-parameter captures, and let fallbacks\n  that lost the enclosing params.\n\nAlso hardened on the same paths: an abandoned native let now pops the\nGC roots it had pushed (each execution of that path leaked root-stack\nslots before), a lambda in a let binding init falls back instead of\naborting the whole native compilation, and emitLambdaFunction / tier-1\nemission no longer leak the enclosing scope's upvalues/locals/rest\nstate into nested function emission.\n\nVerified: VM-vs-native differential on ten reproducer shapes, unit +\nScheme + e2e suites, and a 300-seed native-diff fuzz sweep with zero\ndivergences. All new regression tests fail without the fix.\n\nFixes #1410\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T16:49:47Z",
-          "tree_id": "4fd718b76ef4c1b877a51579ee496d5e1ac50971",
-          "url": "https://github.com/kaappi/kaappi/commit/dd71851272a4a0f6d35ab3537e7dc89750a6bb4d"
-        },
-        "date": 1783703980924,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.366782,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.292588,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.015247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.458677,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013259,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338544,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505021,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070105,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.533191,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981104,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.753461,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.043261,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.571334,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.783649,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044184,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042833,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccda40a1210dca6f201cb4761de8de6849cd30bb",
+          "message": "Port Kaappi to FreeBSD (x86_64, aarch64) (#1631)\n\n* Port Kaappi to FreeBSD (x86_64, aarch64)\n\nFreeBSD is the fourth completed OS port and the smallest: a full-POSIX\nplatform whose readiness API is kqueue, so the existing macOS backend\ncarries it unchanged. The port adds the .freebsd tag to reactor.zig's\nfour per-OS switches (plus a guarded EV_EOF constant this Zig's freebsd\nstd.c binding omits), a sysctl kern.proc.pathname self-exe lookup, and\nthe FreeBSD LLVM triples. Everything else — platform shim, thottam,\nREPL, SRFI-170, FFI — already worked through the POSIX paths.\n\nVerified on a real FreeBSD 15.1 aarch64 machine: 1141/1141 unit tests,\nthottam suite, R7RS 1395/0, and the full run-all.sh battery (1869 pass,\n0 fail), including the native backend linking with the base system cc —\nno Zig toolchain on the box.\n\nThe port surfaced one genuine runtime bug: the graceful out-of-memory\nerror relied on malloc refusing absurd requests, but FreeBSD's default\novercommit reserves a 100 TB make-bytevector and the zero-fill then\ncommits pages until the kernel's OOM killer ends the process. The GC\nnow caps single payload allocations at 1 TiB (GC.max_payload_bytes)\nand raises the same catchable error before asking the OS, on every\nkernel.\n\nThe shell suites' zig dependency becomes a capability gate rather than\nan OS gate: skip_without_zig skips the -Dbundle scripts, and\nensure_runtime_lib lets the kaappi-compile scripts run against a\nprebuilt libkaappi_rt.a on toolchain-less machines.\n\nCI gains a freebsd-test job (cross-compile gate on ubuntu-latest, then\nexecution in a KVM FreeBSD 14.3 VM via SHA-pinned vmactions);\nrelease.yml ships both FreeBSD arches. New docs/dev/freebsd.md; all\nsupport matrices updated.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Build libkaappi_rt.a for the FreeBSD CI VM\n\nThe freebsd-test VM run exposed a gap: six compile-suite scripts use\nkaappi compile without invoking zig themselves (so the new\nskip_without_zig/ensure_runtime_lib gates correctly leave them\nrunning), but the job never cross-compiled the runtime archive they\nlink against. On the aarch64 reference box they passed because the\narchive was shipped alongside the binaries. Add `zig build lib` to the\nhost cross-compile step so zig-out/lib/libkaappi_rt.a syncs into the\nVM, matching the reference-machine recipe in docs/dev/freebsd.md.\n\nEverything else in the VM's first flight was green: the 14.3 image\nbooted, unit suite, thottam suite, R7RS 1395/0, and all other .scm\nsuites passed; the six -Dbundle/zig-rebuilding scripts skipped as\ndesigned.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Bundle compiler-rt into libkaappi_rt.a\n\nThe FreeBSD CI VM (x86_64) exposed the next layer after the archive\nwent missing: every `kaappi compile` link failed under the VM's base\nclang because the Zig-built archive references __zig_probe_stack — an\nx86-only, Zig-internal stack-probe symbol no system toolchain provides.\nThe aarch64 reference box never hit it (no stack probing on that arch),\nwhich is why \"base cc suffices\" held there.\n\nSetting bundle_compiler_rt on the static library embeds Zig's\ncompiler-rt (weak symbols, so no duplicate-symbol conflicts with a\nhost runtime), making the archive linkable by whatever C compiler\n`kaappi compile` finds on any platform — the property the FreeBSD\nport's native-backend story depends on. Verified: x86_64-freebsd\narchive now weak-defines __zig_probe_stack; the aarch64 box links and\npasses the compile suite with the bundled archive; the macOS zig-cc\npath is unaffected.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-17T21:18:33+05:30",
+          "tree_id": "2e5497461e7a520553a1e09eded6612318be4ad8",
+          "url": "https://github.com/kaappi/kaappi/commit/ccda40a1210dca6f201cb4761de8de6849cd30bb"
+        },
+        "date": 1784305475646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.044974,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.665438,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.921324,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407167,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006816,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052916,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509563,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06839,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.257779,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984134,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519148,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.474532,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.749032,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.786497,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044622,
             "unit": "seconds"
           }
         ]
