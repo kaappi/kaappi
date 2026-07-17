@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `(ffi-open #f)` on Windows now has POSIX `dlopen(NULL)` semantics: symbol lookup on the process handle searches every loaded module, so CRT functions (`abs`, `qsort`, `strlen`, …) resolve from `ucrtbase.dll` — previously it probed only the exe's (empty) export table. The FFI Scheme suite (`tests/scheme/ffi/`, incl. callbacks and a cross-compiled fixture DLL) now runs on Windows in CI and is part of the verified set (#1611)
 - FFI 64-bit integer marshaling now uses a platform-independent `i64` carrier: on LLP64 targets (Windows) C `long` is 32-bit and is routed through the 32-bit marshaling class, while `int64`/`uint64`/`size_t` keep full 64-bit range — previously all four assumed `c_long` was 64-bit (identical behavior on macOS/Linux, where it is)
 - macOS release binaries can now `ffi-open` user-compiled libraries: the hardened-runtime signing entitlements add `com.apple.security.cs.disable-library-validation`, without which dlopen refused every locally-built `.dylib` (kaappi-net, kaappi-pg, kaappi-sqlite, kaappi-crypto) on release binaries while source builds worked (#1587)
 

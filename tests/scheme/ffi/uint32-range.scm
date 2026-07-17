@@ -18,7 +18,13 @@
 ;; to panic for values > 2^31-1.
 
 (define libc (ffi-open #f))
-(define c-htonl (ffi-fn libc "htonl" '(uint32) 'uint32))
+;; htonl from the process's libc on POSIX; on Windows htonl lives in
+;; ws2_32.dll (not loaded), so use the CRT's _byteswap_ulong — same
+;; uint32 -> uint32 byte swap on this little-endian target.
+(define c-htonl
+  (cond-expand
+    (windows (ffi-fn libc "_byteswap_ulong" '(uint32) 'uint32))
+    (else (ffi-fn libc "htonl" '(uint32) 'uint32))))
 
 ;; Values within i32 range should still work
 (check "htonl(0)" (c-htonl 0) 0)

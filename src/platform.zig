@@ -128,6 +128,10 @@ pub const win = if (is_windows) struct {
     pub extern "kernel32" fn GetModuleHandleW(name: ?[*:0]const u16) callconv(.winapi) ?HANDLE;
     pub extern "kernel32" fn GetProcAddress(mod: HANDLE, name: [*:0]const u8) callconv(.winapi) ?*anyopaque;
     pub extern "kernel32" fn FreeLibrary(mod: HANDLE) callconv(.winapi) c_int;
+    pub extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
+    // Exported from kernel32 since Windows 7 (the psapi.dll re-export era
+    // predates every supported target).
+    pub extern "kernel32" fn K32EnumProcessModules(process: HANDLE, modules: [*]HANDLE, cb: u32, needed: *u32) callconv(.winapi) c_int;
     pub extern "kernel32" fn GetLastError() callconv(.winapi) u32;
     pub extern "kernel32" fn MoveFileExW(old: [*:0]const u16, new: [*:0]const u16, flags: u32) callconv(.winapi) c_int;
     pub const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
@@ -1164,7 +1168,10 @@ var dl_error_buf: [128]u8 = undefined;
 var dl_error_pending: bool = false;
 
 /// dlopen(3). A null path opens the running process (POSIX self-handle /
-/// GetModuleHandleW(null)); dlClose knows not to free that one.
+/// GetModuleHandleW(null)); dlClose knows not to free that one, and on
+/// Windows dlSym gives it dlopen(NULL) semantics by searching every
+/// loaded module — so CRT symbols resolve even though they live in
+/// ucrtbase.dll rather than the exe.
 pub fn dlOpen(path: ?[*:0]const u8) ?*anyopaque {
     if (comptime is_windows) {
         const p = path orelse return win.GetModuleHandleW(null);
@@ -1179,6 +1186,23 @@ pub fn dlOpen(path: ?[*:0]const u8) ?*anyopaque {
 
 pub fn dlSym(handle: *anyopaque, name: [*:0]const u8) ?*anyopaque {
     if (comptime is_windows) {
+        // The process self-handle from dlOpen(null): GetProcAddress on the
+        // exe module alone finds nothing useful — mingw exes export no
+        // symbols, and the CRT lives in ucrtbase.dll — so mirror POSIX
+        // dlsym on the dlopen(NULL) global handle by probing every loaded
+        // module in load order (exe first, like the ELF global scope).
+        if (handle == win.GetModuleHandleW(null)) {
+            var mods: [1024]win.HANDLE = undefined; // enough for any real process
+            var needed: u32 = 0;
+            if (win.K32EnumProcessModules(win.GetCurrentProcess(), &mods, @sizeOf(@TypeOf(mods)), &needed) != 0) {
+                const count = @min(mods.len, needed / @sizeOf(win.HANDLE));
+                for (mods[0..count]) |mod| {
+                    if (win.GetProcAddress(mod, name)) |sym| return sym;
+                }
+            }
+            dl_error_pending = true;
+            return null;
+        }
         const sym = win.GetProcAddress(handle, name);
         if (sym == null) dl_error_pending = true;
         return sym;
@@ -1503,4 +1527,20 @@ test "write to stdout-like sink via openNullSink" {
     const msg = "platform shim probe\n";
     const rc = write(fd, msg.ptr, msg.len);
     try std.testing.expect(rc == @as(isize, @intCast(msg.len)));
+}
+
+test "dlSym on the dlOpen(null) process handle finds CRT symbols (#1611)" {
+    // The (ffi-open #f) contract: the process handle resolves C runtime
+    // symbols — on Windows via the all-loaded-modules search (abs lives in
+    // ucrtbase.dll, never in the exe's export table), on POSIX via dlsym's
+    // global symbol scope.
+    if (comptime is_wasm) return error.SkipZigTest;
+    if (comptime builtin.target.abi.isMusl()) return error.SkipZigTest; // static libc: no dynamic loading
+    const proc = dlOpen(null) orelse return error.TestUnexpectedResult;
+    defer dlClose(proc);
+    try std.testing.expect(dlSym(proc, "abs") != null);
+    // A miss reports failure without poisoning later lookups.
+    try std.testing.expect(dlSym(proc, "kaappi_no_such_symbol_1611") == null);
+    _ = dlError();
+    try std.testing.expect(dlSym(proc, "abs") != null);
 }

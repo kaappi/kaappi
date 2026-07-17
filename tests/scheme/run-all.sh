@@ -158,6 +158,24 @@ run_suite "Compliance tests" tests/scheme/compliance/*.scm
 run_suite "Continuation tests" tests/scheme/continuations/*.scm
 run_suite "Hygiene tests" tests/scheme/hygiene/*.scm
 run_suite "SRFI tests" tests/scheme/srfi/*.scm
+
+# Build the FFI fixture library when a compiler is around so uint64-range.scm
+# exercises real code instead of skipping. Non-fatal: without a fixture the
+# test degrades to its documented SKIP.
+FIXTURE_SRC=tests/scheme/ffi/fixtures/u64test.c
+if command -v zig >/dev/null 2>&1; then
+    case "$(uname)" in
+        Darwin) FIXTURE_LIB=tests/scheme/ffi/fixtures/libu64test.dylib
+                FIXTURE_FLAGS="-dynamiclib" ;;
+        *)      FIXTURE_LIB=tests/scheme/ffi/fixtures/libu64test.so
+                FIXTURE_FLAGS="-shared -fPIC" ;;
+    esac
+    if [[ ! -e "$FIXTURE_LIB" || "$FIXTURE_SRC" -nt "$FIXTURE_LIB" ]]; then
+        # shellcheck disable=SC2086  # FIXTURE_FLAGS is a flag list
+        zig cc $FIXTURE_FLAGS "$FIXTURE_SRC" -o "$FIXTURE_LIB" \
+            || echo "  WARN  could not build $FIXTURE_LIB (uint64-range.scm will skip)"
+    fi
+fi
 run_suite "FFI tests" tests/scheme/ffi/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 run_shell_suite "Error tests" tests/scheme/errors

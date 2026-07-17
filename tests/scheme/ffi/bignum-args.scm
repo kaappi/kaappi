@@ -19,7 +19,13 @@
 
 (define libc (ffi-open #f))
 (define c-abs (ffi-fn libc "abs" '(int) 'int))
-(define c-labs (ffi-fn libc "labs" '(long) 'long))
+;; A 64-bit |x|: labs on LP64 POSIX where C long is 64-bit; Windows is
+;; LLP64 (long is 32-bit, and the FFI range-checks it as such), so the
+;; same coverage comes from llabs via the int64 type.
+(define c-labs
+  (cond-expand
+    (windows (ffi-fn libc "llabs" '(int64) 'int64))
+    (else (ffi-fn libc "labs" '(long) 'long))))
 
 ;; Fixnum args should still work
 (check "abs fixnum positive" (c-abs 42) 42)
