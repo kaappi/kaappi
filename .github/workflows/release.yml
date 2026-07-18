@@ -59,6 +59,26 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # Cross-compiled from Linux. `zig build` marks each binary
+          # PT_OPENBSD_NOBTCFI via the host patcher (build.zig) so it survives
+          # OpenBSD's BTCFI enforcement; the marker is a program header that
+          # stripping preserves. Execution is verified by CI's openbsd-test VM
+          # job (x86_64) and on the aarch64 reference machine
+          # (docs/dev/openbsd.md).
+          - os: ubuntu-latest
+            target: x86_64-openbsd
+            artifact: kaappi-x86_64-openbsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
+          - os: ubuntu-latest
+            target: aarch64-openbsd
+            artifact: kaappi-aarch64-openbsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           # Cross-compiled via Zig's bundled mingw-w64; execution is
           # verified on real Windows 11 ARM64 hardware (docs/dev/windows.md)
           # since GitHub has no ARM64 Windows runners. The gnu-ABI static

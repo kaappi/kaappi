@@ -122,7 +122,88 @@ pub fn getExePath(buf: []u8) ?[]const u8 {
         return buf[0 .. len - 1]; // len counts the terminating NUL
     }
 
+    if (comptime @import("builtin").os.tag == .openbsd) {
+        return openbsdExePath(buf);
+    }
+
     return null;
+}
+
+/// OpenBSD self-exe resolution. Unlike FreeBSD/NetBSD, OpenBSD has no
+/// `KERN_PROC_PATHNAME` — and no procfs — so there is no kernel-canonical
+/// executable path to read. The portable route is the process's own
+/// argv[0] (via `sysctl KERN_PROC_ARGS / KERN_PROC_ARGV`), resolved to an
+/// absolute, canonical path with `realpath`:
+///   - argv[0] containing a '/'  → realpath resolves it (absolute, or
+///     relative to the cwd)
+///   - a bare command name       → search `$PATH` for the first executable
+///     match, then realpath it
+/// Returns null if argv[0] is unavailable or nothing resolves; callers
+/// (exe-relative lib discovery, `kaappi test` worker respawn) degrade to
+/// other lib paths / argv[0], exactly as on a platform with no self-exe
+/// lookup at all.
+fn openbsdExePath(buf: []u8) ?[]const u8 {
+    // KERN_PROC_ARGV returns an array of `char *` (relocated by the kernel
+    // to point within the buffer we pass, NUL-terminated) followed by the
+    // string data; the first pointer is argv[0]. A bounded scratch buffer
+    // covers an ordinary argv — an oversized one returns ENOMEM here and we
+    // degrade to null. Aligned so the pointer array can be read directly.
+    var scratch: [16 * 1024]u8 align(@alignOf(usize)) = undefined;
+    var mib = [4]c_int{
+        std.c.CTL.KERN,
+        std.c.KERN.PROC_ARGS,
+        @intCast(std.c.getpid()),
+        std.c.KERN.PROC_ARGV,
+    };
+    var len: usize = scratch.len;
+    if (std.c.sysctl(&mib, mib.len, &scratch, &len, null, 0) != 0) return null;
+
+    const argv: [*]const ?[*:0]const u8 = @ptrCast(&scratch);
+    const arg0 = argv[0] orelse return null;
+    if (std.mem.sliceTo(arg0, 0).len == 0) return null;
+
+    var real: [std.posix.PATH_MAX]u8 = undefined;
+
+    if (std.mem.indexOfScalar(u8, std.mem.sliceTo(arg0, 0), '/') != null) {
+        // Absolute, or relative to the cwd — realpath handles both.
+        return realpathInto(arg0, &real, buf);
+    }
+
+    // Bare command name: resolve against $PATH, first executable wins.
+    const path_env = platform.getenv("PATH") orelse return null;
+    const path = std.mem.sliceTo(path_env, 0);
+    const name = std.mem.sliceTo(arg0, 0);
+    const X_OK: c_int = 1; // execute permission (POSIX, universal)
+    var it = std.mem.splitScalar(u8, path, ':');
+    var cand: [std.posix.PATH_MAX]u8 = undefined;
+    while (it.next()) |dir| {
+        const d = if (dir.len == 0) "." else dir; // empty PATH entry == cwd
+        const total = d.len + 1 + name.len;
+        if (total + 1 > cand.len) continue;
+        @memcpy(cand[0..d.len], d);
+        cand[d.len] = '/';
+        @memcpy(cand[d.len + 1 ..][0..name.len], name);
+        cand[total] = 0;
+        const cpath = cand[0..total :0];
+        // access(X_OK) also succeeds for a searchable directory, and realpath
+        // would then return that directory — require a regular file so a
+        // $PATH entry that is a directory named like the program is skipped.
+        if (std.c.access(cpath.ptr, X_OK) != 0 or platform.isDir(cpath)) continue;
+        return realpathInto(cpath.ptr, &real, buf);
+    }
+    return null;
+}
+
+/// Canonicalizes a NUL-terminated `path` with `realpath` into `real`, then
+/// copies the result into `buf`. Returns null if realpath fails or the
+/// result doesn't fit. Split out so both the argv[0] and the $PATH branch
+/// of `openbsdExePath` share one copy of the fit/NUL handling.
+fn realpathInto(path: [*:0]const u8, real: *[std.posix.PATH_MAX]u8, buf: []u8) ?[]const u8 {
+    const resolved = std.c.realpath(path, real) orelse return null;
+    const rlen = std.mem.sliceTo(resolved, 0).len;
+    if (rlen == 0 or rlen > buf.len) return null;
+    @memcpy(buf[0..rlen], resolved[0..rlen]);
+    return buf[0..rlen];
 }
 
 pub fn getExeRelativeLibDir(buf: []u8) ?[]const u8 {

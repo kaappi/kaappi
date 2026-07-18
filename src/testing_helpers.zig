@@ -9,6 +9,21 @@ pub const VM = vm_mod.VM;
 pub const VMError = vm_mod.VMError;
 pub const Value = types.Value;
 
+/// Absolute path of a `std.testing.tmpDir` result, resolved with a
+/// path-string `realpath` rather than `Io.Dir.realPathFile`'s fd→path
+/// lookup. That lookup is `error.OperationUnsupported` on OpenBSD (no
+/// `/proc/self/fd`, no `F_GETPATH`), whereas path-string realpath works on
+/// every platform. std.testing places tmp dirs at `.zig-cache/tmp/<sub_path>`
+/// relative to the cwd (see `std.testing.tmpDir`), which realpath
+/// canonicalizes. Caller owns the returned slice.
+pub fn tmpDirRealPathAlloc(tmp: *std.testing.TmpDir, allocator: std.mem.Allocator) ![]const u8 {
+    var rel_buf: [platform.PATH_MAX]u8 = undefined;
+    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var out_buf: [platform.PATH_MAX]u8 = undefined;
+    const resolved = platform.realPath(rel, &out_buf) orelse return error.FileNotFound;
+    return allocator.dupe(u8, resolved);
+}
+
 /// Build a fully bootstrapped VM for a unit test. The VM is heap-allocated
 /// and returned by pointer: `vm_instance` and the GC root marker reach the
 /// VM by address, so it must never move. Returning the struct by value (as

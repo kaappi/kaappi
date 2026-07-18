@@ -9,6 +9,24 @@ set -euo pipefail
 REPO="kaappi/kaappi"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
+# Download URL ($1) to file ($2). Prefers curl (macOS/Linux), then wget, then
+# the BSD base tools: fetch (FreeBSD) and ftp (OpenBSD) both fetch HTTPS from
+# the base system, where curl is not installed.
+download() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$2" "$1"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$2" "$1"
+    elif command -v fetch >/dev/null 2>&1; then
+        fetch -qo "$2" "$1"
+    elif command -v ftp >/dev/null 2>&1; then
+        ftp -o "$2" "$1"
+    else
+        echo "error: need curl, wget, fetch, or ftp to download files" >&2
+        return 1
+    fi
+}
+
 detect_platform() {
     local os arch
     os=$(uname -s)
@@ -18,16 +36,17 @@ detect_platform() {
         Darwin)  os="macos" ;;
         Linux)   os="linux" ;;
         FreeBSD) os="freebsd" ;;
+        OpenBSD) os="openbsd" ;;
         *)
             echo "error: unsupported OS: $os"
-            echo "Kaappi supports macOS, Linux, and FreeBSD. See https://github.com/$REPO"
+            echo "Kaappi supports macOS, Linux, FreeBSD, and OpenBSD. See https://github.com/$REPO"
             exit 1
             ;;
     esac
 
     case "$arch" in
         arm64|aarch64) arch="aarch64" ;;
-        # FreeBSD reports x86_64 as amd64 (uname -m).
+        # FreeBSD and OpenBSD report x86_64 as amd64 (uname -m).
         x86_64|amd64)  arch="x86_64" ;;
         riscv64)       arch="riscv64" ;;
         *)
@@ -40,10 +59,11 @@ detect_platform() {
 }
 
 get_latest_tag() {
-    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep '"tag_name"' \
-        | head -1 \
-        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/'
+    local tmp
+    tmp=$(mktemp)
+    download "https://api.github.com/repos/$REPO/releases/latest" "$tmp" || { rm -f "$tmp"; return 1; }
+    grep '"tag_name"' "$tmp" | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/'
+    rm -f "$tmp"
 }
 
 main() {
@@ -73,10 +93,10 @@ main() {
     tmpdir=$(mktemp -d)
     trap "rm -rf '$tmpdir'" EXIT
 
-    curl -fsSL -o "$tmpdir/kaappi" "$base_url/$kaappi_artifact"
-    curl -fsSL -o "$tmpdir/thottam" "$base_url/$thottam_artifact"
-    curl -fsSL -o "$tmpdir/kaappi-lib.tar.gz" "$base_url/kaappi-lib.tar.gz"
-    curl -fsSL -o "$tmpdir/SHA256SUMS" "$base_url/SHA256SUMS"
+    download "$base_url/$kaappi_artifact" "$tmpdir/kaappi"
+    download "$base_url/$thottam_artifact" "$tmpdir/thottam"
+    download "$base_url/kaappi-lib.tar.gz" "$tmpdir/kaappi-lib.tar.gz"
+    download "$base_url/SHA256SUMS" "$tmpdir/SHA256SUMS"
 
     echo "Verifying checksums..."
     cd "$tmpdir"
@@ -88,8 +108,17 @@ main() {
         sha256sum -c --quiet check.txt
     elif command -v shasum >/dev/null 2>&1; then
         shasum -a 256 -c --quiet check.txt
+    elif command -v sha256 >/dev/null 2>&1; then
+        # OpenBSD/FreeBSD base: sha256 has no coreutils-style -c, so recompute
+        # each file's hash and confirm it appears in SHA256SUMS.
+        for f in kaappi thottam kaappi-lib.tar.gz; do
+            grep -q "$(sha256 -q "$f")" SHA256SUMS \
+                || { echo "error: checksum verification failed for $f" >&2; exit 1; }
+        done
     else
-        echo "warning: neither sha256sum nor shasum found, skipping verification"
+        echo "error: no checksum tool (sha256sum, shasum, or sha256) found;" >&2
+        echo "refusing to install unverified binaries" >&2
+        exit 1
     fi
 
     echo "Installing to $INSTALL_DIR/..."

@@ -23,6 +23,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const is_windows = builtin.os.tag == .windows;
+pub const is_openbsd = builtin.os.tag == .openbsd;
 const is_wasm = builtin.os.tag == .wasi;
 
 /// CRT file descriptor on Windows; kernel fd elsewhere. i32 on every
@@ -822,6 +823,24 @@ pub fn sleepNs(ns: u64) void {
         if (ret == 0) break;
         if (errno(ret) != .INTR) break;
     }
+}
+
+/// Best-effort raise of the soft stack limit to the hard limit, called once
+/// at process startup. OpenBSD's `default` login class caps the soft stack
+/// at 4 MiB — under the 8 MiB macOS/Linux give a main thread, and far under
+/// the interpreter's deep-recursion needs (the macro expander and nested
+/// compile recurse on the machine stack). OpenBSD ignores the ELF
+/// `PT_GNU_STACK` size hint (`build.zig`'s `--stack`) and sizes the main
+/// stack from RLIMIT_STACK, so raising the soft limit to the hard limit
+/// (32 MiB on that class) before any deep recursion lets the on-demand stack
+/// grow that far. OpenBSD-only and best-effort: a no-op on every other
+/// platform — leaving their exact process setup untouched — and silent on any
+/// rlimit failure. See docs/dev/openbsd.md.
+pub fn raiseStackLimitBestEffort() void {
+    if (comptime builtin.os.tag != .openbsd) return;
+    const lim = std.posix.getrlimit(.STACK) catch return;
+    if (lim.cur >= lim.max) return;
+    std.posix.setrlimit(.STACK, .{ .cur = lim.max, .max = lim.max }) catch {};
 }
 
 // ---------------------------------------------------------------------------

@@ -307,7 +307,7 @@ test "cond-expand (library ...) detects an unloaded .sld on the lib path" {
         .sub_path = "condlib/feature.sld",
         .data = "(define-library (condlib feature) (export feature-value) (begin (define feature-value 7)))",
     });
-    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
     defer std.testing.allocator.free(dir_path);
 
     var gc = memory.GC.init(std.testing.allocator);
@@ -371,7 +371,7 @@ test "stale .sbc next to .sld must not drop include-library-declarations exports
         .sub_path = "cachedlib/decls.scm",
         .data = "(export answer)",
     });
-    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
     defer std.testing.allocator.free(dir_path);
 
     // Hand-build a valid .sbc with a matching source hash — exactly what the

@@ -141,7 +141,7 @@ Note: `src/main.zig` and `src/thottam.zig` read the version from
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, plus kaappi.wasm (wasm32-wasi)
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, x86_64-openbsd, aarch64-openbsd, plus kaappi.wasm (wasm32-wasi)
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -217,6 +217,24 @@ ssh freebsd "/tmp/kaappi-$TAG features"
 Verify: version matches, script prints `3`, and `features` shows `posix`
 + `kaappi-threads` with target `aarch64-freebsd-none`. See
 `docs/dev/freebsd.md`.
+
+The OpenBSD artifacts also have **no CI acceptance leg** (GitHub hosts no
+OpenBSD runners; the `openbsd-test` CI job only runs on PRs, not the tag).
+Smoke-test the aarch64 binary on the `ssh openbsd` box (OpenBSD's base `ftp`
+does HTTPS):
+
+```bash
+TAG=vX.Y.Z
+ssh openbsd "ftp -o /tmp/kaappi-$TAG https://github.com/kaappi/kaappi/releases/download/$TAG/kaappi-aarch64-openbsd && chmod +x /tmp/kaappi-$TAG"
+ssh openbsd "/tmp/kaappi-$TAG --version"
+ssh openbsd "echo '(display (+ 1 2)) (newline)' | /tmp/kaappi-$TAG /dev/stdin"
+ssh openbsd "/tmp/kaappi-$TAG features"
+```
+
+Verify: it runs at all (a binary missing the `PT_OPENBSD_NOBTCFI` marker
+would `SIGILL` immediately under BTCFI), version matches, the script prints
+`3`, and `features` shows `posix` + `kaappi-threads` with target
+`aarch64-openbsd-none`. See `docs/dev/openbsd.md`.
 
 ## Step 11: Update docs site (playground WASM + version)
 

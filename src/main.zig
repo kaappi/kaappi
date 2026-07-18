@@ -134,6 +134,11 @@ const DESIRED_STACK: usize = 64 * 1024 * 1024; // 64 MB
 
 pub fn main(init: std.process.Init.Minimal) !void {
     platform.initStandardStreams();
+    // Hardens the fallback path below (and any OpenBSD build): if the worker
+    // thread can't be spawned we run mainInner on the main thread, whose stack
+    // is RLIMIT_STACK-bound — only 4 MiB by default on OpenBSD. No-op
+    // elsewhere. See docs/dev/openbsd.md.
+    platform.raiseStackLimitBestEffort();
     if (comptime !is_wasm) {
         // The compiler's recursive descent needs more than the default 8 MB
         // stack for deeply nested Scheme forms (e.g. cond chains that desugar

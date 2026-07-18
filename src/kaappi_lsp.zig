@@ -766,6 +766,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // so CRT text-mode \n→\r\n rewriting on fd 1 would corrupt framing.
     platform.initStandardStreams();
 
+    // The LSP compiles user code on this (main) thread — unlike the kaappi
+    // binary, which runs on a 64 MB worker thread — so on OpenBSD it must
+    // raise its own 4 MiB default stack limit to avoid overflowing on deeply
+    // nested forms. No-op elsewhere. See docs/dev/openbsd.md.
+    platform.raiseStackLimitBestEffort();
+
     log("kaappi-lsp v" ++ version ++ " starting\n");
 
     documents = std.StringHashMap([]const u8).init(allocator);

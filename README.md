@@ -85,6 +85,7 @@ zig build test                       # run the unit tests
 | Linux | riscv64 | yes | yes | LLVM backend |
 | Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
+| OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
@@ -109,6 +110,15 @@ The FreeBSD port (`zig build -Dtarget=x86_64-freebsd` or
 fiber I/O, OS threads, complete SRFI-170, the full linenoise REPL, and
 thottam with `build:` support. `kaappi compile` links native binaries
 with the base system's `cc` — no extra toolchain needed.
+
+The OpenBSD port (`zig build -Dtarget=x86_64-openbsd` or
+`aarch64-openbsd`) is the same full-POSIX kqueue platform — fiber I/O,
+threads, complete SRFI-170, the full REPL, `build:` support, and native
+compilation with base `cc`. Two accommodations for OpenBSD's hardening,
+both automatic: each binary is marked `PT_OPENBSD_NOBTCFI` at build time
+to opt out of BTCFI enforcement (Zig 0.16 emits no BTI landing pads), and
+the interpreter raises its own stack limit at startup to clear OpenBSD's
+tight 4 MiB default. See [`docs/dev/openbsd.md`](docs/dev/openbsd.md).
 
 ## A taste of Kaappi
 

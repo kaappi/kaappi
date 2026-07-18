@@ -414,6 +414,18 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
         argv_buf[argc] = "-lpthread";
         argc += 1;
     }
+    if (comptime platform.is_openbsd) {
+        // OpenBSD/arm64 enforces BTCFI: an indirect branch must land on a
+        // `bti` instruction. The Zig-built libkaappi_rt.a carries no landing
+        // pads (Zig 0.16 can't emit them), so the linked native binary opts
+        // out via the PT_OPENBSD_NOBTCFI marker that `-z nobtcfi` emits — the
+        // system cc/ld supports the flag natively. Kaappi's own binaries get
+        // the same marker post-link (build.zig). See docs/dev/openbsd.md.
+        argv_buf[argc] = "-z";
+        argc += 1;
+        argv_buf[argc] = "nobtcfi";
+        argc += 1;
+    }
     argv_buf[argc] = null;
 
     const link_ok = blk: {

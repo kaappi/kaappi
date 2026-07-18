@@ -105,6 +105,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | riscv64 | yes | yes | CI tested (QEMU) |
 | Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
 | FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
+| OpenBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-openbsd`; kqueue reactor; binaries auto-marked `PT_OPENBSD_NOBTCFI`; see `docs/dev/openbsd.md` |
 | WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
@@ -116,6 +117,11 @@ differences live in `src/platform.zig` (see `docs/dev/windows.md` for the
 port's architecture, degradations, and how to test on a Windows machine).
 `zig build -Dtarget=aarch64-freebsd` (or `x86_64-freebsd`) cross-compiles
 for FreeBSD — a full-POSIX port with no degradations (`docs/dev/freebsd.md`).
+`zig build -Dtarget=aarch64-openbsd` (or `x86_64-openbsd`) cross-compiles
+for OpenBSD — a kqueue port whose binaries are auto-marked
+`PT_OPENBSD_NOBTCFI` (a post-link patch, `tools/openbsd_nobtcfi.zig`, wired
+into `build.zig`) to survive BTCFI enforcement, since Zig 0.16 emits no BTI
+landing pads (`docs/dev/openbsd.md`).
 Porting to a new OS or CPU architecture: `docs/dev/porting.md` (porting
 surfaces, degradation ladder, staged checklists).
 

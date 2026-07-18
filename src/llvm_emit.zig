@@ -1357,6 +1357,7 @@ pub const LLVMEmitter = struct {
                 .linux => "aarch64-unknown-linux-gnu",
                 .windows => "aarch64-pc-windows-gnu",
                 .freebsd => "aarch64-unknown-freebsd",
+                .openbsd => "aarch64-unknown-openbsd",
                 else => "aarch64-unknown-unknown",
             },
             .x86_64 => switch (os) {
@@ -1364,6 +1365,7 @@ pub const LLVMEmitter = struct {
                 .linux => "x86_64-unknown-linux-gnu",
                 .windows => "x86_64-pc-windows-gnu",
                 .freebsd => "x86_64-unknown-freebsd",
+                .openbsd => "x86_64-unknown-openbsd",
                 else => "x86_64-unknown-unknown",
             },
             else => "unknown-unknown-unknown",

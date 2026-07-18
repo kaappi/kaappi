@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### OpenBSD platform support
+
+- **OpenBSD target (x86_64, aarch64)** — `zig build -Dtarget=<arch>-openbsd` cross-compiles all three binaries (releases ship both arches). A full-POSIX kqueue port — fiber I/O (the macOS/FreeBSD reactor backend, shared), SRFI-18 OS threads, complete SRFI-170, FFI via `dlopen`, the full linenoise REPL, and thottam including `build:` manifests — with two automatic accommodations for OpenBSD's security hardening. **BTCFI:** OpenBSD enforces Branch Target CFI (an indirect branch must hit a `bti` landing pad or the kernel raises `SIGILL`), which Zig 0.16 can't emit, so each Zig-linked binary is marked `PT_OPENBSD_NOBTCFI` post-link (`tools/openbsd_nobtcfi.zig`, wired into `build.zig`) and `kaappi compile` links native output with `-z nobtcfi` — both opting out of enforcement. **Stack limit:** the interpreter raises its own soft stack limit to the hard limit at startup (`platform.raiseStackLimitBestEffort`) to clear OpenBSD's tight 4 MiB default. Self-exe lookup uses `sysctl KERN_PROC_ARGS`/argv[0] resolution (OpenBSD has no `KERN_PROC_PATHNAME`). Verified on real OpenBSD 7.9 aarch64 hardware: full unit suite (1141/1141), thottam, R7RS, and `run-all.sh` batteries, plus the native backend (`kaappi compile`) linking with the base system `cc` — no Zig toolchain on the box. CI runs the suites in a KVM OpenBSD VM. See `docs/dev/openbsd.md`
+
 ## [0.17.0] - 2026-07-18
 
 ### Added
