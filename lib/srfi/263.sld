@@ -18,12 +18,27 @@
 ;;;
 ;;;   Spec-conformance bug fixes (untested by the reference test suite)
 ;;;   * copy: use the mirror's real 'immediate-* reflection messages (the
-;;;     reference sends nonexistent 'get-* messages and crashes), and
+;;;     reference sends nonexistent 'get-* messages and crashes), and always
 ;;;     re-install 'mirror over the copy's own data so it is independent of
-;;;     the original (the reference copy's methods captured the original).
+;;;     the original — including a copy of the parentless root object.
 ;;;   * message-not-understood / ambiguous-message-send: re-dispatch as a
 ;;;     message to the receiver so custom handler slots can intercept, per
 ;;;     the SRFI; the reference applies the bare symbol and cannot override.
+;;;   * Reflection: the mirror's full-ancestor-list / full-slot-list are
+;;;     driven from the mirrored object, not the mirror receiver, so they
+;;;     return the real ancestors/slots (and the receiver's own slots);
+;;;     full-slot-list dedups by getter name (slot is a record, not a pair);
+;;;     the root's set-method-slot! slot records the message name, not the
+;;;     procedure; and the SRFI's has-ancestor mirror message is provided.
+;;;
+;;;   Known limitation (a gap in the finalized SRFI itself, not fixed here)
+;;;   * (resend #f ...) from a method inherited from a non-immediate ancestor
+;;;     loops: resend restarts the lookup skipping only the original receiver,
+;;;     so it re-finds the same ancestor method. A correct fix needs a
+;;;     distinct-origin lookup the SRFI never specified. Resending to an
+;;;     explicit target, and resend from a directly-overriding method, both
+;;;     work. Likewise, ambiguity is detected per distinct procedure, so two
+;;;     parents sharing one procedure object are not flagged ambiguous.
 ;;;
 ;;; SPDX-FileCopyrightText: 2026 Daniel Ziltener
 ;;; SPDX-License-Identifier: MIT
@@ -158,24 +173,30 @@
                       (values 'ambiguous-message-send #f))
                   (values 'message-not-understood #f)))))))))
 
+    ;; Kaappi: collect self plus every ancestor, deduplicated. The reference
+    ;; only includes `self` in the no-parents base case, so full-ancestor-list
+    ;; on a non-root object dropped the object itself; folding (list self) into
+    ;; the union restores the self+ancestors result the reference test expects.
     (define (recursive-ancestor-collector self)
       (let ((parents (get-parent-list ((self 'mirror) '|##srfi-263#obj-data|))))
-        (if (null? parents)
-            (list self)
-            (apply lset-union
-                   eq?
-                   parents
-                   (map recursive-ancestor-collector parents)))))
+        (apply lset-union
+               eq?
+               (list self)
+               (map recursive-ancestor-collector parents))))
 
     (define (recursive-slot-collector self)
-      (let ((parents (recursive-ancestor-collector self)))
+      (let ((classes (recursive-ancestor-collector self)))
         (apply lset-union
+               ;; Kaappi: dedup by getter name. `slot` is a record, not a
+               ;; pair — the reference's (car a) errors once two slot lists
+               ;; are unioned. recursive-ancestor-collector now includes self,
+               ;; so the receiver's own slots are part of full-slot-list.
                (lambda (a b)
-                 (eq? (car a) (car b)))
+                 (eq? (slot-getter a) (slot-getter b)))
                (list)
                (map (lambda (class)
                       (get-slot-list ((class 'mirror) '|##srfi-263#obj-data|)))
-                    parents))))
+                    classes))))
 
     ;;;; Method running
 
@@ -236,7 +257,7 @@
          (lambda (self resend)
            (let-values (((new-mirror new-mirror-data)
                          (derive-object (obj 'mirror) #t)))
-             (populate-mirror new-mirror new-mirror-data obj-data))))
+             (populate-mirror new-mirror new-mirror-data self obj-data))))
         (when mirror?
           (set-method-slot! obj-data 'derive
                             (lambda (self resend)
@@ -245,19 +266,28 @@
                                 new-obj))))
         (values derived-object obj-data)))
 
-    (define (populate-mirror mirror mirror-data obj-data)
+    ;; Kaappi: `owner` is the object being mirrored. The reference passes the
+    ;; mirror receiver (`self`) to the recursive collectors, so full-ancestor-
+    ;; list / full-slot-list walked the parallel mirror hierarchy and returned
+    ;; mirror objects instead of the real ancestors; drive them from `owner`
+    ;; instead. Also installs `has-ancestor`, a mirror message the SRFI lists
+    ;; but the reference omits.
+    (define (populate-mirror mirror mirror-data owner obj-data)
       (map
        (lambda (name proc)
          (set-method-slot! mirror-data name proc))
        '(|##srfi-263#obj-data| immediate-message-alist
                     immediate-ancestor-list full-ancestor-list
-                    immediate-slot-list full-slot-list)
+                    immediate-slot-list full-slot-list has-ancestor)
        (list (lambda (self resend) obj-data)
              (lambda (self resend) (list-copy (get-message-alist obj-data)))
              (lambda (self resend) (list-copy (get-parent-list obj-data)))
-             (lambda (self resend) (recursive-ancestor-collector self))
+             (lambda (self resend) (recursive-ancestor-collector owner))
              (lambda (self resend) (list-copy (get-slot-list obj-data)))
-             (lambda (self resend) (recursive-slot-collector self))))
+             (lambda (self resend) (recursive-slot-collector owner))
+             (lambda (self resend candidate)
+               (and (not (eq? candidate owner))
+                    (and (memq candidate (recursive-ancestor-collector owner)) #t)))))
       mirror)
 
     (define *the-root-object*
@@ -272,12 +302,16 @@
                      (get-message-alist obj-data)))
         (set-slot-list!
          obj-data
-         (append (list (make-slot set-method-slot! #f 'method)) (get-slot-list obj-data)))
+         ;; Kaappi: quote the getter name. The reference stores the
+         ;; set-method-slot! procedure here, so reflection returned a
+         ;; procedure instead of the 'set-method-slot! message name and
+         ;; deletion by that name could not match it.
+         (append (list (make-slot 'set-method-slot! #f 'method)) (get-slot-list obj-data)))
         (set-method-slot!
          obj-data 'mirror
          (lambda (self resend)
            (let-values (((root-mirror mirror-data) (derive-object *the-root-object* #t)))
-             (populate-mirror root-mirror mirror-data obj-data))))
+             (populate-mirror root-mirror mirror-data self obj-data))))
         (set-method-slot!
          obj-data 'derive
          (lambda (self resend)
@@ -306,18 +340,20 @@
              ;; Kaappi: the copied 'mirror method still closes over the
              ;; ORIGINAL's object-data, so set-value-slot!/set-parent-slot! on
              ;; the copy would mutate the original (copies were never
-             ;; independent in the reference). Re-install 'mirror over the
-             ;; copy's own object-data, mirroring derive-object's setup and
-             ;; chaining through the primary parent's mirror.
-             (let ((parents (get-parent-list new-data)))
-               (unless (null? parents)
-                 (let ((primary-parent (car parents)))
-                   (set-method-slot!
-                    new-data 'mirror
-                    (lambda (self resend)
-                      (let-values (((new-mirror new-mirror-data)
-                                    (derive-object (primary-parent 'mirror) #t)))
-                        (populate-mirror new-mirror new-mirror-data new-data)))))))
+             ;; independent in the reference). Always re-install 'mirror over
+             ;; the copy's own object-data — including when the copy has no
+             ;; parents (a copy of *the-root-object*), which otherwise keeps
+             ;; the original's mirror and mutates the global root. Chain the
+             ;; mirror through the primary parent, or the root object itself
+             ;; when the copy is parentless.
+             (let* ((parents (get-parent-list new-data))
+                    (mirror-base (if (null? parents) *the-root-object* (car parents))))
+               (set-method-slot!
+                new-data 'mirror
+                (lambda (self resend)
+                  (let-values (((new-mirror new-mirror-data)
+                                (derive-object (mirror-base 'mirror) #t)))
+                    (populate-mirror new-mirror new-mirror-data self new-data)))))
              (*object* new-data))))
         (set-method-slot!
          obj-data 'delete-slot!

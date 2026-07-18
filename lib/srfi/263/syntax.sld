@@ -1,11 +1,15 @@
 ;;; SRFI 263: Prototype Object System — syntactic sugar
 ;;;
 ;;; Convenience macros over the (srfi 263) message-passing protocol:
-;;; set-method!, derive-object, copy-object, and define-object.
+;;; define-method, derive-object, copy-object, and define-object.
 ;;;
 ;;; Ported to Kaappi from the reference implementation by Daniel Ziltener.
-;;; Kaappi change: the CHICKEN `(void)` in the empty-slots base case is
-;;; written as the R7RS unspecified value (if #f #f).
+;;; Kaappi changes:
+;;;   * The method macro is exported as `define-method`, the name the SRFI 263
+;;;     document specifies. The reference implementation names it `set-method!`;
+;;;     that name is kept as an alias for reference-implementation compatibility.
+;;;   * The CHICKEN `(void)` in the empty-slots base case is written as the
+;;;     R7RS unspecified value (if #f #f).
 ;;;
 ;;; SPDX-FileCopyrightText: 2026 Daniel Ziltener
 ;;; SPDX-License-Identifier: MIT
@@ -13,19 +17,28 @@
 (define-library (srfi 263 syntax)
   (import (scheme base)
           (srfi 263))
-  (export set-method!
+  (export define-method
+          set-method!
           derive-object
           copy-object
           define-object)
   (begin
 
-    (define-syntax set-method!
+    (define-syntax define-method
       (syntax-rules ()
         ((_ (obj message self resend args ...)
             body1 body ...)
          (obj 'set-method-slot! `message
               (lambda (self resend args ...)
                 body1 body ...)))))
+
+    ;; Reference-implementation alias for define-method.
+    (define-syntax set-method!
+      (syntax-rules ()
+        ((_ (obj message self resend args ...)
+            body1 body ...)
+         (define-method (obj message self resend args ...)
+           body1 body ...))))
 
     (define-syntax derive-object
       (syntax-rules ()

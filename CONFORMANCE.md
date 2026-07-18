@@ -79,7 +79,7 @@ Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM a
 
 ### Portable SRFIs (65 libraries)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 263 syntax).
 
 | SRFI | Title |
 |------|-------|
@@ -148,3 +148,8 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 233 | INI files |
 | 235 | Combinators |
 | 263 | Prototype Object System |
+
+SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
+ancestor loops, because `resend` restarts the lookup skipping only the original
+receiver — a distinct-origin lookup the finalized SRFI never specified. Resending
+to an explicit target, and resend from a directly-overriding method, both work.
