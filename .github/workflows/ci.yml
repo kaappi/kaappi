@@ -42,11 +42,14 @@ jobs:
   test:
     needs: format
     runs-on: ${{ matrix.os }}
-    # macOS runners are ~1.5x slower than the Linux ones: unit tests (~6 min)
-    # plus the Scheme suites (~11 min) alone run ~17 min and drift over the
-    # default 20-min cap, so the job is cancelled mid-run (a pre-existing flake
-    # seen on main). Give macOS 30 min, matching the Debug and riscv64 jobs.
-    timeout-minutes: ${{ matrix.timeout || (matrix.os == 'macos-latest' && 30 || 20) }}
+    # Successful runs of every leg sit at 15-23 min (Linux Release legs
+    # 15-18, macOS 18-23), so a 20-min cap leaves only minutes of headroom
+    # and ordinary runner variance cancels healthy runs mid-suite — it hit
+    # macOS ReleaseSafe repeatedly on main and then ubuntu ReleaseFast on
+    # PR #1635. 30 min is the hang-bound the Debug and riscv64 jobs
+    # already use; the timeout exists to catch hangs, not to race the
+    # suite.
+    timeout-minutes: ${{ matrix.timeout || 30 }}
     strategy:
       fail-fast: false
       matrix:
