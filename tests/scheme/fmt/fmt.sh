@@ -89,6 +89,26 @@ assert_exit "write: result is already formatted" 0 "$KAAPPI" fmt --check "$TMP/w
 printf '(a b c\n' > "$TMP/unterminated.scm"
 assert_exit "error: unterminated list exits 1" 1 "$KAAPPI" fmt --check "$TMP/unterminated.scm"
 
+# ── Regression #1652: arguments past the 64th must not be dropped ────────────
+# The CLI once collected script args into a fixed [64] buffer and silently
+# discarded the rest, so a single fmt/--check invocation over a big file list
+# (exactly how xargs drives the corpus below) never touched files 65+.
+
+mkdir -p "$TMP/argcliff"
+cliff_files=()
+for i in $(seq 1 70); do
+    printf '(define x %d)\n' "$i" > "$TMP/argcliff/f$i.scm"
+    cliff_files+=("$TMP/argcliff/f$i.scm")
+done
+printf '(define    y   70)\n' > "$TMP/argcliff/f70.scm" # only unformatted file
+status=0
+"$KAAPPI" fmt --check "${cliff_files[@]}" > "$TMP/argcliff.out" 2>&1 || status=$?
+if [[ "$status" -eq 1 ]] && grep -q "f70.scm" "$TMP/argcliff.out"; then
+    pass "check: file #70 of 70 still checked (#1652)"
+else
+    fail "check: file #70 of 70 still checked (#1652)" "exit $status, output: $(cat "$TMP/argcliff.out")"
+fi
+
 # ── Corpus: zero semantic drift + idempotence over the repo tree ─────────────
 
 corpus_files() {
