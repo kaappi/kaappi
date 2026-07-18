@@ -391,22 +391,26 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    // Library path auto-discovery: script dir + ~/.kaappi/lib
-    var lib_paths: [16][]const u8 = undefined;
+    // Library search path: the explicit --lib-path entries (any count) plus up
+    // to three auto-discovered dirs added below — the script's own directory,
+    // ~/.kaappi/lib, and the exe-relative fallback lib. Sized to hold them all;
+    // the old fixed [16] silently dropped a 17th path (or an auto-discovered dir
+    // once 16 explicit ones existed), same silent-drop shape as #1652 (#1653).
+    // Never freed: vm.lib_paths points in here and is read as late as the
+    // deferred coverage report, so it must live for the whole run — like the
+    // auto-discovered dir strings (klp/elp below) it aliases.
+    const auto_discovered_max = 3;
+    const lib_paths = try allocator.alloc([]const u8, opts.libPaths().len + auto_discovered_max);
     var lib_path_count: usize = 0;
     for (opts.libPaths()) |lp| {
-        if (lib_path_count < 16) {
-            lib_paths[lib_path_count] = lp;
-            lib_path_count += 1;
-        }
+        lib_paths[lib_path_count] = lp;
+        lib_path_count += 1;
     }
 
     if (opts.file_path) |fp| {
         if (std.mem.lastIndexOfScalar(u8, fp, '/')) |pos| {
-            if (lib_path_count < 16) {
-                lib_paths[lib_path_count] = if (pos == 0) fp[0..1] else fp[0..pos];
-                lib_path_count += 1;
-            }
+            lib_paths[lib_path_count] = if (pos == 0) fp[0..1] else fp[0..pos];
+            lib_path_count += 1;
         }
     }
 
@@ -423,10 +427,8 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             break :blk path;
         };
         if (kaappi_lib_path) |klp| {
-            if (lib_path_count < 16) {
-                lib_paths[lib_path_count] = klp;
-                lib_path_count += 1;
-            }
+            lib_paths[lib_path_count] = klp;
+            lib_path_count += 1;
             // The dynamic-linker search path is a POSIX concept; Windows
             // resolves DLLs via PATH and ffi-open's own explicit
             // ~/.kaappi/lib probe, so there is nothing to export there.
@@ -464,10 +466,8 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             break :blk allocator.dupe(u8, elp) catch null;
         };
         if (exe_lib_path) |elp| {
-            if (lib_path_count < 16) {
-                lib_paths[lib_path_count] = elp;
-                lib_path_count += 1;
-            }
+            lib_paths[lib_path_count] = elp;
+            lib_path_count += 1;
         }
     }
 

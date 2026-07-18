@@ -133,8 +133,12 @@ pub const Options = struct {
     sandbox_mode: bool = false,
     no_ir_opt: bool = false,
 
-    lib_path_buf: [16][]const u8 = undefined,
-    lib_path_count: usize = 0,
+    /// Every `--lib-path <dir>` entry, in argv order. Allocated from the same
+    /// immortal c_allocator as script_args_slice: a fixed [16] cap here
+    /// silently dropped every path past the 16th, the same shape as #1652
+    /// (#1653). main.zig folds these into vm.lib_paths alongside the
+    /// auto-discovered dirs.
+    lib_paths_slice: []const []const u8 = &.{},
 
     /// The script path plus every argument after it, in argv order — what a
     /// script's `(command-line)` reports and what multi-file subcommands
@@ -149,7 +153,7 @@ pub const Options = struct {
     pub const Action = enum { run, exit_ok };
 
     pub fn libPaths(self: *const Options) []const []const u8 {
-        return self.lib_path_buf[0..self.lib_path_count];
+        return self.lib_paths_slice;
     }
 
     pub fn scriptArgs(self: *const Options) []const []const u8 {
@@ -186,6 +190,12 @@ pub fn parse(args: std.process.Args) Options {
     var opts: Options = .{};
     var iter = platform.argsIterate(args);
     _ = iter.skip();
+
+    // Grows dynamically (same immortal c_allocator convention as script args):
+    // the old fixed [16] silently dropped a 17th --lib-path (#1653). The
+    // exit_ok flags (--help/--version/--completions) return before the
+    // toOwnedSlice below, leaving lib_paths_slice empty — they never consult it.
+    var lib_paths: std.ArrayList([]const u8) = .empty;
 
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "compile")) {
@@ -260,12 +270,7 @@ pub fn parse(args: std.process.Args) Options {
                     opts.action = .exit_ok;
                     return opts;
                 },
-                .lib_path => {
-                    if (opts.lib_path_count < 16) {
-                        opts.lib_path_buf[opts.lib_path_count] = value.?;
-                        opts.lib_path_count += 1;
-                    }
-                },
+                .lib_path => lib_paths.append(std.heap.c_allocator, value.?) catch oomCollectingArgs(),
                 .compile => opts.compile_mode = true,
                 .emit_llvm => opts.emit_llvm_mode = true,
                 .output => opts.compile_output = value.?,
@@ -299,6 +304,8 @@ pub fn parse(args: std.process.Args) Options {
             break;
         }
     }
+
+    opts.lib_paths_slice = lib_paths.toOwnedSlice(std.heap.c_allocator) catch oomCollectingArgs();
 
     // Collect remaining args after the file path for (command-line).
     // Also check for -o which is valid after the file path for compile modes.
@@ -370,7 +377,7 @@ pub fn printUsage() void {
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++
             "  --version          Show version\n" ++
-            "  --lib-path <path>  Add library search path (up to 16)\n" ++
+            "  --lib-path <path>  Add library search path (repeatable)\n" ++
             "  --compile          Compile file to bytecode (.sbc)\n" ++
             "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
             "  -o <file>          Output path\n" ++
@@ -560,7 +567,7 @@ test "parse: boolean flags" {
 test "parse: value flags" {
     const argv = [_][*:0]const u8{ "kaappi", "--lib-path", "/foo", "--timeout", "5000", "test.scm" };
     const opts = parse(testArgs(&argv));
-    try std.testing.expectEqual(@as(usize, 1), opts.lib_path_count);
+    try std.testing.expectEqual(@as(usize, 1), opts.libPaths().len);
     try std.testing.expectEqualStrings("/foo", opts.libPaths()[0]);
     try std.testing.expectEqual(@as(u64, 5000), opts.timeout_ms.?);
     try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
@@ -690,9 +697,32 @@ test "parse: no args → REPL (no file)" {
 test "parse: multiple lib paths" {
     const argv = [_][*:0]const u8{ "kaappi", "--lib-path", "/a", "--lib-path", "/b", "test.scm" };
     const opts = parse(testArgs(&argv));
-    try std.testing.expectEqual(@as(usize, 2), opts.lib_path_count);
+    try std.testing.expectEqual(@as(usize, 2), opts.libPaths().len);
     try std.testing.expectEqualStrings("/a", opts.libPaths()[0]);
     try std.testing.expectEqualStrings("/b", opts.libPaths()[1]);
+}
+
+test "parse: lib paths past the 16th are kept (#1653)" {
+    // The old fixed [16] buffer silently dropped every --lib-path past it (same
+    // shape as #1652). Build 20 of them and require every one to survive.
+    const argv = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        var a: [42][*:0]const u8 = undefined;
+        a[0] = "kaappi";
+        for (0..20) |i| {
+            a[1 + 2 * i] = "--lib-path";
+            a[2 + 2 * i] = std.fmt.comptimePrint("/lib{d}", .{i});
+        }
+        a[41] = "test.scm";
+        break :blk a;
+    };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(@as(usize, 20), opts.libPaths().len);
+    try std.testing.expectEqualStrings("/lib0", opts.libPaths()[0]);
+    try std.testing.expectEqualStrings("/lib15", opts.libPaths()[15]);
+    try std.testing.expectEqualStrings("/lib16", opts.libPaths()[16]);
+    try std.testing.expectEqualStrings("/lib19", opts.libPaths()[19]);
+    try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
 }
 
 test "parse: no-ir-opt" {
