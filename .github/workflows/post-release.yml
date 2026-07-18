@@ -303,13 +303,13 @@ jobs:
           echo '(display (+ 1 2))' | kaappi | grep -F '3'
 
   summary:
-    needs: [test-checksums, test-macos, test-linux-x86, test-linux-arm, test-wasm, test-install-script]
+    needs: [test-checksums, test-macos, test-linux-x86, test-linux-arm, test-windows-x64, test-wasm, test-install-script]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
-          results="${{ needs.test-checksums.result }} ${{ needs.test-macos.result }} ${{ needs.test-linux-x86.result }} ${{ needs.test-linux-arm.result }} ${{ needs.test-wasm.result }} ${{ needs.test-install-script.result }}"
+          results="${{ needs.test-checksums.result }} ${{ needs.test-macos.result }} ${{ needs.test-linux-x86.result }} ${{ needs.test-linux-arm.result }} ${{ needs.test-windows-x64.result }} ${{ needs.test-wasm.result }} ${{ needs.test-install-script.result }}"
           echo "Job results: $results"
           if echo "$results" | grep -q "failure"; then
             echo "One or more acceptance tests failed"
