@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784396031410,
+  "lastUpdate": 1784406512618,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a840bd6364b105b39002e68a3940dca5e44cf085",
-          "message": "Add configurable REPL syntax highlighting with dark/light presets (#1457)\n\n* Add configurable REPL syntax highlighting with dark/light presets (#1456)\n\nIntroduce ~/.kaappi/config for user preferences, starting with REPL\ntheme configuration. Support NO_COLOR env var, dark/light presets\noptimized for terminal background contrast, per-token color overrides,\nconfigurable prompts, and full R7RS token coverage in the highlighter.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address PR review: fix precedence, validation, and add token tests\n\n- Two-pass config loading: repl.theme applied first, repl.color.*\n  overrides always win regardless of file order\n- NO_COLOR=\"\" no longer disables colors (per no-color.org spec)\n- Color names validated even under NO_COLOR (typos always warn)\n- repl.history-length rejects 0 (linenoise requires >= 1)\n- Prompt length error says \"bytes\" not \"chars\"\n- Default prompt uses shared constant (no manual sync)\n- Add 13 highlighter token tests (#true/#false, #(, #u8(, radix\n  prefixes, ,@, #;, #!, |...|, infnan)\n- Add config tests for NO_COLOR validation and history-length: 0\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix pass-1 theme detection with spaces around colon, suppress test noise\n\n- Pass-1 repl.theme scan now uses colon-splitting (not startsWith),\n  so \"repl.theme : light\" with whitespace around the colon works\n- Suppress stderr warnings during unit tests via comptime is_test\n  guard — tests assert config state, not message text\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-12T01:39:41+05:30",
-          "tree_id": "0ad505a82a970c3d0b2d9aac52580bbb40ad517b",
-          "url": "https://github.com/kaappi/kaappi/commit/a840bd6364b105b39002e68a3940dca5e44cf085"
-        },
-        "date": 1783802100631,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.391201,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.897543,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.918887,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.512568,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006341,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054154,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.529814,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070074,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.428353,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.003532,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.61674,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432101,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.853417,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.726335,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046421,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045216,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5564ae08c473c6929dddd2695dacd719968e48c8",
+          "message": "Add Windows x86_64 (x64) support (#1651)\n\n* Add Windows x86_64 (x64) support\n\nThe platform layer was already OS-gated, so both Windows architectures\nshare the same code; this wires x86_64-windows through CI, releases,\nand docs, verified end-to-end on the Windows 11 reference VM via the\nbuilt-in x64 emulation layer: unit suite 1166/0 (15 skips), thottam\nsuite, R7RS, all 436 .scm suite files, shell suites (34 pass / 15 skip,\nsame profile as aarch64), acceptance.sh 34/34, and the native-backend\ne2e 38/38 with the stock zig-x86_64-windows-0.16.0 as linker. The\naarch64-only toolchain bugs do not apply on x64: #1613 (native builds\naccess-violate) — kaappi builds natively from clean source on the box\n(verified, target x86_64-windows-gnu) — and #1607 (stripped kaappi.exe\ncrashes), so the release row ships stripped like every other platform.\n\nCI: windows-cross becomes an aarch64/x86_64 matrix (now also staging\nkaappi_rt.lib in the artifacts), and a windows-x64-test job executes\nthe same suites as windows-arm-test on windows-latest, then installs\nthe natively-working x64 Zig and runs tests/e2e/run-e2e.ps1 — the\nkaappi compile leg the arm job cannot have until the 0.17.0 bump.\nReleases gain the x86_64-windows row; post-release gains a real\nacceptance leg for it (acceptance.sh under Git Bash on windows-latest).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Gate post-release summary on the new Windows x64 acceptance leg\n\nsummary's needs list and results string enumerate the jobs explicitly;\nwithout test-windows-x64 in both, a failing Windows leg would not fail\nthe workflow.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fix silent truncation of CLI arguments past the 64th (#1652)\n\nOptions collected script args into a fixed [64][]const u8 and dropped\neverything past it with no diagnostic, so `kaappi fmt` over the\n573-file corpus only ever formatted/checked the first 64 files, a\nscript's (command-line) truncated at 64, and `kaappi test` ignored\nsuite paths past the cap. The fmt.sh corpus phases have therefore\nnever validated files 65+ — POSIX xargs fits all 573 paths in one\ninvocation. windows-arm-test on PR #1651 exposed it: GitHub's large\njob environment makes MSYS xargs split the list in two, `fmt` vs\n`fmt --check` argv lengths split at different boundaries, and the\nfiles in the gap were formatted by neither pass but flagged by the\nrecheck.\n\nScript args now grow in a c_allocator-backed slice — the same\nimmortal-argv convention platform.argsIterate uses — with a loud\nusage error on OOM. Regression tests: a 129-argument parse test in\ncli.zig, and a 70-file --check invocation in fmt.sh whose 70th file\nis the only unformatted one.\n\nRunning the corpus in full for the first time surfaced a second\nlatent bug: the fmt CST lexer did not know SRFI 267 raw strings, so\nthe round-trip guard refused srfi267.scm (\"formatting would change\nthe program\"). scanRawString now carves `#\"X\" content \"X\"` exactly\nlike reader_tokens.readRawString, as one verbatim atom; multiline\nraw strings never inline (computeMeasure already breaks on embedded\nnewlines). Covered by new tests_fmt.zig cases including an\nunterminated-raw-string diagnostic.\n\nThe --lib-path cap of 16 has the same silent-drop shape and is\ntracked separately (#1653).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: stale readiness docs, platform facade wording, strict summary gate\n\nThree CodeRabbit findings on PR #1651, all valid:\n\n- src/platform.zig's module header still described fd readiness as\n  socket-only with pipes degrading to blocking reads — stale since the\n  polled pipe backend landed (#1608 stage 2); it now describes the\n  socket/pipe/file split and names the platform_win*.zig helpers.\n- windows.md and CLAUDE.md claimed every syscall-level difference lives\n  in one file; platform.zig is the facade, with the Windows ABI and\n  socket/pipe helpers in platform_win{,_sock,_pipe}.zig.\n- post-release.yml's summary only rejected `failure`, so a cancelled or\n  skipped acceptance leg still reported success; every needed result\n  must now be exactly `success`.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T01:25:38+05:30",
+          "tree_id": "9284fe94a53f47b4381393c144ea99a642071492",
+          "url": "https://github.com/kaappi/kaappi/commit/5564ae08c473c6929dddd2695dacd719968e48c8"
+        },
+        "date": 1784406511620,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.062563,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.651638,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.415552,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00684,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052849,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508402,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067894,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.246658,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.983873,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.515634,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.479972,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.75469,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.909935,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046132,
             "unit": "seconds"
           }
         ]
