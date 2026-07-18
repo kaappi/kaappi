@@ -9,9 +9,9 @@ completed ports are the reference material: **Windows aarch64** (#1606,
 **FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
 already works and the job is verifying it, documented in
 [freebsd.md](freebsd.md)), and **OpenBSD** (the toolchain-hardening exemplar
-— a POSIX/kqueue platform whose security mitigations, BTCFI enforcement and
-tight default resource limits, forced accommodations nothing else needs,
-documented in [openbsd.md](openbsd.md)).
+— a POSIX/kqueue platform whose BTCFI enforcement and tight default resource
+limits forced accommodations that nothing else needs, documented in
+[openbsd.md](openbsd.md)).
 
 ## Current support matrix
 

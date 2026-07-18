@@ -254,6 +254,16 @@ pub fn build(b: *std.Build) void {
         cc_run.step.dependOn(&emit_run.step);
 
         const native_install = b.addInstallBinFile(native_output, "program");
+        if (nobtcfi_tool) |tool| {
+            // `zig cc` rejects `-z nobtcfi`, so the native output — which calls
+            // into the no-landing-pad libkaappi_rt.a — must be marked the same
+            // way installExe marks the Zig-linked binaries, or it SIGILLs under
+            // BTCFI. Patch it in place before install. See docs/dev/openbsd.md.
+            const native_patch = b.addRunArtifact(tool);
+            native_patch.addFileArg(native_output);
+            native_patch.has_side_effects = true;
+            native_install.step.dependOn(&native_patch.step);
+        }
         native_step.dependOn(&native_install.step);
     }
 

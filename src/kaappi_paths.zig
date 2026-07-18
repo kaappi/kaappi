@@ -185,7 +185,10 @@ fn openbsdExePath(buf: []u8) ?[]const u8 {
         @memcpy(cand[d.len + 1 ..][0..name.len], name);
         cand[total] = 0;
         const cpath = cand[0..total :0];
-        if (std.c.access(cpath.ptr, X_OK) != 0) continue;
+        // access(X_OK) also succeeds for a searchable directory, and realpath
+        // would then return that directory — require a regular file so a
+        // $PATH entry that is a directory named like the program is skipped.
+        if (std.c.access(cpath.ptr, X_OK) != 0 or platform.isDir(cpath)) continue;
         return realpathInto(cpath.ptr, &real, buf);
     }
     return null;
