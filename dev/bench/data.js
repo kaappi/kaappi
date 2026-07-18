@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784412675738,
+  "lastUpdate": 1784413844970,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "10137698404f561312614634b2517358b23315c3",
-          "message": "WASI backend: poll_oneoff reactor (KEP-0001 P4) (#1461)\n\n* WASI backend: poll_oneoff reactor (KEP-0001 P4)\n\nReplace the timer-only WASI stopgap in src/reactor.zig with a real\nWasiPollBackend. poll_oneoff is stateless, so the backend keeps the\nkernel's job in userspace: arm() records armed directions per fd, and\nevery wait() rebuilds the subscription list from that map — one\nFD_READ/FD_WRITE subscription per armed direction plus one CLOCK\nsubscription bounding the wait (the mio wasi model). Events map back to\nregistrations by fd via userdata, wake both directions defensively on\nper-subscription errors or HANGUP, and disarm the direction they report\n(ONESHOT parity with kqueue/epoll, per-filter like kqueue). The CLOCK\nsubscription is relative rather than the KEP sketch's ABSTIME: the\nreactor core already reduces the timer heap's nearest deadline to a\nrelative bound in effectiveTimeout(), so ABSTIME would only re-derive\nthe deadline it came from and couple the backend to clockNs()'s clock\ndomain.\n\nFd readiness is best-effort per the KEP's cross-platform section, with\nthe capability probe in maybeSetNonblocking: on WASI it now attempts\nfd_fdstat_set_flags(NONBLOCK), and a refusing host (the playground's\nbrowser shim, which also only accepts single CLOCK-subscription\npoll_oneoff calls) keeps ports on blocking fds — no EAGAIN, no fd\nregistrations, CLOCK-only waits — degrading to single-fiber blocking\nI/O exactly where the host can't do better. The three is_wasm EAGAIN\ngates in primitives_io.zig are gone, so a host that does deliver EAGAIN\nparks the fiber on the reactor like any other platform. (No fd>2 ports\ncan currently exist on WASM — open-input/output-file are native-only —\nso the fd path is dormant there until file/socket ports land.)\n\nTimers become Scheme-visible on WASM by registering thread-sleep!\n(spec .wasm = true), the one SRFI-18 entry point with no OS-thread\ndependency; the (srfi 18) library itself stays native-only. The WASM\nspec table is a comptime-filtered wasm_specs subset, which forces the\nwhole file to compile on wasm32-wasi: threadStartFn's std.Thread.spawn\nmoves behind a comptime is_wasm branch, and the u64 signal_generation\natomics (wasm32 has no 64-bit atomics; the build is single-threaded)\ntake a plain-access branch via loadSignalGeneration/\nbumpSignalGeneration.\n\ntests/wasm/timers.scm runs under wasmtime in the CI wasm job: main-\nfiber sleep duration, zero/negative fast path, deadline ordering across\nfibers, and a sleeping fiber not stalling a runnable sibling. Timing of\nthe run (0.03s CPU over 0.4s wall) confirms the process blocks in\npoll_oneoff during sleeps instead of spinning.\n\nCloses #1442\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Reserve ready capacity before consuming events in WasiPollBackend\n\nReview finding on #1461: the per-event try-append in wait() could fail\n(OOM) after clearInterest already disarmed the direction — the event\nconsumed but never delivered, stranding the parked fiber with no re-arm\nand turning parkOnReactor into a busy spin (isEmpty() still false via\nthe listed waiter, wait() forever returning empty). That is precisely\nthe consumed-but-undelivered invariant Reactor.poll guards with its\nup-front ensureUnusedCapacity; the fixed-array kqueue/epoll backends\nnever had a fallible step there. Reserve nevents entries before the\ntranslation loop (dedup only shrinks the count) and appendAssumeCapacity\ninside it. The remaining fallible allocations (subs build, events\nbuffer) all happen before the poll_oneoff syscall, with interests\nintact.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-12T09:19:00+05:30",
-          "tree_id": "dfcdaf64e53e072ee5cfc0f28f7d2552b0e15a99",
-          "url": "https://github.com/kaappi/kaappi/commit/10137698404f561312614634b2517358b23315c3"
-        },
-        "date": 1783829660551,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.253493,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.998361,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.680273,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.301387,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006315,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045336,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.376227,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054687,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.977187,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.463101,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.301371,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.416558,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.414767,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.857756,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036505,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047858,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12f4bbe0ebd4396d8adfaa4e61deb4bb7cbcd918",
+          "message": "Add Linux s390x and ppc64le support (interpreter tier) (#1657)\n\n* Add Linux s390x and ppc64le support (interpreter tier)\n\nBoth architectures cross-compile with zero runtime code changes and pass\nthe full battery — unit suite, thottam suite, R7RS (1395/1395), and the\ntests/scheme/ suites — under QEMU user-mode and on real-kernel Alpine\nVMs. s390x is the first big-endian target: the endian-explicit .sbc\ncodec round-trips unchanged, so the new s390x-test CI job now guards\nbyte-order correctness permanently. Real-kernel VA layouts confirm the\n48-bit NaN-box pointer precondition empirically (s390x stays below\n2^42; ppc64le below its 2^47 default map window).\n\nThe native LLVM backend stays aarch64/x86_64-only, like riscv64.\ncrash-handler.sh now asserts trace addresses only when Zig's unwinder\nproduced a trace at all — ppc64le prints \"(empty stack trace)\" (no\nframe-walk in Zig 0.16's std there), and the banner cannot retain what\nstd never emits.\n\nCloses #1654\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Align README riscv64 row with porting.md: interpreter only\n\nREADME claimed an LLVM backend for Linux riscv64, but porting.md states\nriscv64 ships interpreter-only and llvm_emit.zig's emitPreamble emits a\nreal target triple only for aarch64/x86_64 — every other arch gets\n\"unknown-unknown-unknown\", which only the -w on the zig cc link lets\nthe driver override with the host triple. Nothing CI-tests native\ncompilation on riscv64, and untested support is not support.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T21:47:20Z",
+          "tree_id": "10f4aab94283e533decf55f83a7abc1afac6144c",
+          "url": "https://github.com/kaappi/kaappi/commit/12f4bbe0ebd4396d8adfaa4e61deb4bb7cbcd918"
+        },
+        "date": 1784413843389,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.212226,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.248772,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.769658,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.620751,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005248,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041644,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.414291,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054004,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.608861,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.613481,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.183585,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.375352,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.346461,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.472234,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037755,
             "unit": "seconds"
           }
         ]
