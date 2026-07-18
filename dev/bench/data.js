@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784318564572,
+  "lastUpdate": 1784343628055,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d67d05fad2120ae9798cb93619ed8ddfabd20677",
-          "message": "Extend the native-subset fuzzer to chained nested-lambda captures (#1424)\n\nSince #1410 (PR #1419) the native closure tiers chain captures through\nnested lambdas and republish the full frame at eval-fallback boundaries,\nbut the generator still restricted inline lambdas to one capture level,\nso the chaining code ran only under hand-written test shapes.\n\n- Inline lambdas may now nest: non-variadic inline-lambda bodies can\n  emit further inline lambdas whose free references reach int parameters\n  of any enclosing level. Chained shapes stay fully native and sit under\n  the VM-vs-native differential oracle permanently.\n- Inline VARIADIC lambdas are emitted occasionally: no closure tier\n  accepts a rest parameter, so each one exercises the emitLambdaViaEval\n  fallback that republishes the enclosing frame (params, rest parameter,\n  upvalues) as globals, at the cost of exactly one kaappi_eval. Their\n  bodies suppress nested lambdas — the body is eval'd as one source\n  string, so a lambda inside it would be interpreted without reaching\n  the emitter, breaking the gate's accounting.\n- set! is banned inside inline-call argument subtrees in function\n  bodies: arguments run between closure creation (which snapshots\n  captured params by value, or republishes them as globals) and the\n  call, so a set! of a captured param there is visible to the VM's\n  location-based capture but not to the native snapshot. That divergence\n  predates this change and was reachable by the old generator; the\n  backend semantics are tracked as #1422.\n\nThe tests_native.zig gate now expects one eval per inline variadic\nlambda on top of one per define — exactly on unoptimized emission\n(dead-branch elimination legitimately deletes variadic lambdas from\nconstant-test branches, which the generator emits on purpose) and as a\nbound under the production pass pipeline. The 2000-seed sweep asserts\nboth new shape families actually occur in the corpus.\n\nVerification: zig build test; a set!-in-argument scan over 2000 seeds is\nclean; bash tests/fuzz/native-diff.sh 300 0 reports 300 compared,\n0 divergent, with organic chained-capture and variadic-inline seeds in\nrange.\n\nFixes #1420.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T23:56:11+05:30",
-          "tree_id": "c7c21bde2551c5b512faf3074684b11480ffd36d",
-          "url": "https://github.com/kaappi/kaappi/commit/d67d05fad2120ae9798cb93619ed8ddfabd20677"
-        },
-        "date": 1783710020039,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.378394,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.996143,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.073381,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.423721,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01327,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.340888,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506148,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070766,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.744696,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.952852,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.772347,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.052583,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.630388,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.751333,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044426,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043561,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a9b3f6dac898cfbffa3eee41363b21d40120b62",
+          "message": "Port Kaappi to OpenBSD (x86_64, aarch64) (#1634)\n\n* Port Kaappi to OpenBSD (x86_64, aarch64)\n\nOpenBSD is the fifth completed OS port: a full-POSIX platform whose\nreadiness API is kqueue, so the existing macOS/FreeBSD reactor backend\ncarries it unchanged. Unlike FreeBSD, OpenBSD's security hardening forces\ntwo accommodations nothing else in the tree needs.\n\nBTCFI. OpenBSD on arm64 enforces Branch Target CFI: an indirect branch\nmust land on a `bti` instruction or the kernel raises SIGILL/ILL_BTCFI.\nZig 0.16 emits no landing pads (no -mbranch-protection, no bti CPU\nfeature), so a Zig-linked binary trapped on its first function-pointer\ncall, before main ran. OpenBSD's own opt-out is `-z nobtcfi`, which emits\na PT_OPENBSD_NOBTCFI program header. `kaappi compile` adds the flag to the\nbase-cc link directly (native_compiler.zig). Zig's CLI rejects the flag,\nso the Zig-linked binaries get the marker post-link: tools/openbsd_nobtcfi.zig\nrepurposes the PT_GNU_STACK header in place (OpenBSD ignores GNU_STACK, and\nthe phdr table has no room to grow before .interp), and build.zig's\ninstallExe runs that host tool on each installed executable for OpenBSD\ntargets — so `zig build -Dtarget=<arch>-openbsd` yields working binaries\ndirectly, with no separate patch step.\n\nResource limits. OpenBSD's default login class caps the main-thread stack\nat 4 MiB (it ignores the ELF stack hint and sizes the stack from\nRLIMIT_STACK) and the data segment at 1.5 GiB. The kaappi binary already\nruns on a 64 MiB worker thread, but kaappi-lsp compiles on the main thread,\nso both mains now call platform.raiseStackLimitBestEffort() (setrlimit\nsoft->hard, OpenBSD-only). The data limit only affects the unit-test\nbinary — std.testing's DebugAllocator never reuses freed address space —\nso CI and the reference recipe raise ulimit -d before running it; the\nshipped C-allocator binaries never accumulate.\n\nOther surfaces: self-exe lookup via sysctl KERN_PROC_ARGS/KERN_PROC_ARGV\nargv[0] resolution (OpenBSD has no KERN_PROC_PATHNAME); the reactor gains\n.openbsd on its four kqueue switches (OpenBSD's std.c bindings are\ncomplete, so no constant fallback); the OpenBSD LLVM triples; and three\nunit tests switch from Io.Dir.realPathFile (fd->path, OperationUnsupported\non OpenBSD) to a path-string realpath helper.\n\nThree shared FFI tests (narrow-range, int-range, type-validation) resolved\n`abs` through a libm handle. abs is a libc function; OpenBSD's dlsym does\nnot chain a dlopen'd libm handle into libc the way Linux/macOS/FreeBSD do,\nso the call returned #f. They now resolve abs from the process/libc handle\n(the null default handle on POSIX, ucrtbase on Windows), keeping genuine\nlibm functions like sqrt in libm.\n\nVerified on a real OpenBSD 7.9 aarch64 machine: 1141/1141 unit tests,\nthottam suite, R7RS 1395/0, the full run-all.sh battery (1869 pass, 0 fail,\n2 skip), all 14 FFI suites, and the native backend (kaappi compile) linking\nwith the base system cc — no Zig toolchain on the box. CI gains an\nopenbsd-test job (cross-compile gate on ubuntu, then execution in a KVM\nOpenBSD 7.9 VM via SHA-pinned vmactions); release.yml ships both arches.\nNew docs/dev/openbsd.md; all support matrices updated.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Link libc for the openbsd_nobtcfi host tool\n\nThe tool uses std.c.pread/pwrite/close, which are libc externs. macOS\nlinks libc implicitly, so `zig build -Dtarget=<arch>-openbsd` built the\nhost patcher fine locally — but the Linux CI host does not, and the\nopenbsd-test job failed at the cross-compile step with \"dependency on\nlibc must be explicitly specified in the build command\". Set\nlink_libc = true on the tool's module so it builds on every build host.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Pass -lc to the openbsd_nobtcfi zig-run sites\n\nCompanion to the build.zig link_libc fix: the CI job and the docs recipe\nalso invoke the tool via `zig run`, which compiles it standalone without\nbuild.zig's settings. `zig run` links libc implicitly on macOS but not on\nthe Linux CI host, so the \"Compile and mark unit tests\" step failed the\nsame way the build step did. Add -lc to both `zig run` invocations.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address PR review: native marker, install.sh on OpenBSD, PATH lookup\n\nFive CodeRabbit findings on the OpenBSD port:\n\n- build.zig: the `zig build native` step links via `zig cc` (which rejects\n  `-z nobtcfi`) and installed the binary unmarked, so an OpenBSD native\n  artifact could SIGILL under BTCFI. Run the nobtcfi host patcher on the\n  native output before install, mirroring installExe.\n- install.sh: detect_platform accepted OpenBSD but the installer hard-coded\n  curl and sha256sum/shasum, none in the OpenBSD/FreeBSD base. Add a\n  download() fallback (curl → wget → fetch → ftp) and OpenBSD/FreeBSD base\n  `sha256` checksum verification.\n- src/kaappi_paths.zig: the OpenBSD argv[0] PATH search accepted any entry\n  passing access(X_OK), which is also true for searchable directories —\n  require a regular file so a $PATH dir named like the program isn't picked.\n- CHANGELOG.md: blank line after the new heading (markdownlint MD022).\n- docs/dev/porting.md: fix the grammar in the OpenBSD exemplar sentence.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T02:27:04Z",
+          "tree_id": "0bc64641f8d6efceedca91385c5d221e301837ef",
+          "url": "https://github.com/kaappi/kaappi/commit/9a9b3f6dac898cfbffa3eee41363b21d40120b62"
+        },
+        "date": 1784343627100,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.053095,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.0851,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.94043,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.405322,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006753,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053037,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50952,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068399,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.281965,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986023,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.513781,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.470158,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.740558,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.834359,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044473,
             "unit": "seconds"
           }
         ]
