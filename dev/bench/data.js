@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784390677337,
+  "lastUpdate": 1784395003877,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "488eaed277814b61e1b2445491869fa7daa60ba2",
-          "message": "Deduplicate the lambda body scan between compiler_ir and compiler_lambda (#1437)\n\n* Deduplicate the lambda body scan between compiler_ir and compiler_lambda (#1432)\n\nExtract the shared R7RS 5.3.2 body-scan logic (globals prescan, define\nname collection, define/define-syntax/define-record-type processing) into\na BodyScan struct and scanBodyDefs() function in compiler_lambda.zig.\nBoth compileLambdaWithIR and compileBodyForms now call the shared helper,\neliminating ~250 lines of near-identical code that previously required\nevery GC-safety or letrec*-semantics fix to be hand-applied twice.\n\nThe IR path's compilation phase also switches from an inline IR pipeline\nto compileExprViaIR + compileExprSequence (functionally identical),\nretaining only the function-name propagation that is specific to it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Use CPU-optimized droplets for the GC stress test skill\n\nSwitch from shared-CPU s-4vcpu-8gb to dedicated c5-4vcpu-8gb (gen 5\nCPU-optimized). The stress suite is single-threaded, so per-core speed\nmatters more than core count. Dedicated cores at full clock speed cut\nwall time from ~2.5h to ~1–1.5h at comparable total cost.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address PR review: errdefer cleanup, VOID init, GC-safety comments\n\n- Make scanBodyDefs failure-atomic: hoist roots_base/beginBodyMacroScope\n  before the prescan and add errdefer so mid-scan errors clean up VOID\n  sentinels, extra_roots, and body macro scope (baijum review).\n- Initialize result register to VOID for macro-only lambda bodies where\n  scan.def_count is 0 and remaining is NIL (CodeRabbit review).\n- Restore the #1010 and #1401 GC-safety comments explaining why\n  def_inits and define-syntax transformers are mirrored into\n  extra_roots (baijum review).\n- Drop unused re-exports from compiler_forms.zig — compiler_ir.zig\n  imports compiler_lambda directly (baijum review).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T10:15:14Z",
-          "tree_id": "d80f4a9e3eccf561ed81eea4a79645f69980f5b8",
-          "url": "https://github.com/kaappi/kaappi/commit/488eaed277814b61e1b2445491869fa7daa60ba2"
-        },
-        "date": 1783766587614,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.532794,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.888423,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.913073,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.472764,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007256,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052585,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500186,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.065884,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.371146,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.909183,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.44571,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.398036,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.902902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.018756,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042146,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045184,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84dd19d26ea8bd72cdfb6be26c47989049527b0d",
+          "message": "Fix two macro-hygiene bugs in let-syntax and named-let expansion (#1648)\n\nBoth surfaced while investigating SRFI 257's matcher (#1644), whose\nheavily macrological reference implementation exercises corners of\nsyntax-rules that most programs never reach. They are general expander\nbugs, independent of that SRFI.\n\n1. let-syntax sibling passed as an argument went undefined. R7RS 4.3.1\n   resolves a transformer's *template* free references at its definition\n   site, where sibling keywords aren't visible, so compileLetSyntax\n   suppressed every sibling during the expansion's compilation. But a\n   sibling handed to a helper macro as an *argument* is a use-site\n   identifier, not a template free reference, and must stay resolvable.\n   Now only siblings a transformer actually free-references in its\n   template are suppressed (collectTransformerFreeRefs).\n\n2. A named let's loop gensym was re-renamed by hygiene. Named let\n   desugars to a __nlet_N_loop gensym during compilation, interleaved\n   with macro expansion; when the recursive (loop ...) call rides\n   through another macro whose template re-emits it, renameForHygiene\n   renamed the already-gensym'd name (__hyg_M___nlet_N_loop), splitting\n   the call from its letrec binding. It now leaves __nlet_ names alone,\n   as it already does for __hyg_ ones (issue #919).\n\nEach fix has a regression test in tests_macros.zig that fails without it.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T22:15:33+05:30",
+          "tree_id": "6d557f7b7e74a4a448ac4872098c7c7972899ba3",
+          "url": "https://github.com/kaappi/kaappi/commit/84dd19d26ea8bd72cdfb6be26c47989049527b0d"
+        },
+        "date": 1784395001577,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.275911,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.650008,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.651755,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.160477,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005669,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041228,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.369334,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053374,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.805071,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.419348,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.266935,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.393306,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.453527,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.916538,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038436,
             "unit": "seconds"
           }
         ]
