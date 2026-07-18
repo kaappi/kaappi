@@ -606,17 +606,19 @@ pub const RandomGen = struct {
         return result;
     }
 
-    fn refill(self: *RandomGen) void {
-        switch (self.kind) {
-            .randomized => platform.osRandomBytes(&self.out),
-            .determinized => std.mem.writeInt(u64, &self.out, self.xoshiroNext(), .little),
+    /// Next pseudorandom byte, or null when a randomized port's OS entropy
+    /// source is unavailable (rather than emitting predictable bytes under a
+    /// cryptographic-quality contract). Determinized ports never fail and
+    /// never return null; a random port never reaches EOF. On a null the
+    /// output block is left un-advanced so a retry re-attempts the refill.
+    pub fn nextByte(self: *RandomGen) ?u8 {
+        if (self.out_pos >= 8) {
+            switch (self.kind) {
+                .randomized => if (!platform.osRandomBytes(&self.out)) return null,
+                .determinized => std.mem.writeInt(u64, &self.out, self.xoshiroNext(), .little),
+            }
+            self.out_pos = 0;
         }
-        self.out_pos = 0;
-    }
-
-    /// Next pseudorandom byte. Never fails: a random port never reaches EOF.
-    pub fn nextByte(self: *RandomGen) u8 {
-        if (self.out_pos >= 8) self.refill();
         const b = self.out[self.out_pos];
         self.out_pos += 1;
         return b;

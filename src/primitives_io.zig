@@ -730,10 +730,16 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
             return byte;
         }
     }
-    // SRFI-271 random port: an inexhaustible byte source, never EOF.
+    // SRFI-271 random port: an inexhaustible byte source, never EOF. A null
+    // means a randomized port could not obtain OS entropy — surface that as an
+    // error rather than a silent EOF or predictable bytes.
     if (port.random_gen) |g| {
         if (!port.is_open) return null;
-        return g.nextByte();
+        return g.nextByte() orelse {
+            if (vm_mod.vm_instance) |vm|
+                vm.setErrorDetail("random port: OS entropy source unavailable", .{});
+            return PrimitiveError.InvalidArgument;
+        };
     }
     // String input port
     if (port.is_string_port) {

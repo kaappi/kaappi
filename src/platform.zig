@@ -735,50 +735,51 @@ pub fn randomSeed64() u64 {
 }
 
 /// Fill `buf` with cryptographic-quality OS entropy: getrandom on Linux,
-/// arc4random_buf on BSD/macOS, RtlGenRandom on Windows. WASM has no OS
-/// entropy source, so it drains randomSeed64 (itself monotonic-clock-backed
-/// there) — best-effort, non-reproducible, but not cryptographic. Any OS
-/// source that short-reads or fails also falls back to this drain, so the
-/// buffer is always fully written.
-pub fn osRandomBytes(buf: []u8) void {
-    if (buf.len == 0) return;
+/// arc4random_buf on BSD/macOS, RtlGenRandom on Windows, random_get on WASI.
+/// Returns true once the whole buffer holds real OS entropy.
+///
+/// Returns false if the OS source genuinely fails, and — deliberately — never
+/// substitutes clock- or PRNG-derived bytes: a caller advertising
+/// cryptographic quality (SRFI-271 randomized ports) must surface the failure
+/// rather than hand out predictable output. In practice arc4random_buf cannot
+/// fail, blocking getrandom only returns short on EINTR (retried here), and
+/// RtlGenRandom / WASI random_get fail only in extreme conditions, so false is
+/// effectively unreachable on a healthy host.
+pub fn osRandomBytes(buf: []u8) bool {
+    if (buf.len == 0) return true;
     if (comptime is_windows) {
         var off: usize = 0;
         while (off < buf.len) {
             const chunk: u32 = @intCast(@min(buf.len - off, @as(usize, std.math.maxInt(u32))));
-            if (SystemFunction036(buf.ptr + off, chunk) == 0) break;
+            if (SystemFunction036(buf.ptr + off, chunk) == 0) return false;
             off += chunk;
         }
-        return fillFromSeed(buf[@min(off, buf.len)..]);
+        return true;
     }
     if (comptime builtin.os.tag == .linux) {
         var off: usize = 0;
         while (off < buf.len) {
             const rc = std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0);
-            const n: isize = @bitCast(rc);
-            if (n <= 0) break;
-            off += @intCast(n);
+            switch (std.os.linux.E.init(rc)) {
+                .SUCCESS => {
+                    if (rc == 0) return false; // no progress, avoid spinning
+                    off += rc;
+                },
+                .INTR => continue,
+                else => return false,
+            }
         }
-        return fillFromSeed(buf[@min(off, buf.len)..]);
+        return true;
     }
-    if (comptime is_wasm) return fillFromSeed(buf);
+    if (comptime is_wasm) {
+        // WASI exposes a real CSPRNG; the browser playground shim backs it
+        // with crypto.getRandomValues.
+        return std.os.wasi.random_get(buf.ptr, buf.len) == .SUCCESS;
+    }
+    // BSD/macOS: arc4random_buf always succeeds.
     const arc4_buf = @extern(*const fn (buf: [*]u8, len: usize) callconv(.c) void, .{ .name = "arc4random_buf" });
     arc4_buf(buf.ptr, buf.len);
-}
-
-/// Fill `buf` from randomSeed64 words. The fallback path for osRandomBytes;
-/// a no-op when `buf` is empty (the OS source already filled everything).
-fn fillFromSeed(buf: []u8) void {
-    var i: usize = 0;
-    while (i < buf.len) {
-        var word = randomSeed64();
-        var j: usize = 0;
-        while (j < 8 and i < buf.len) : (j += 1) {
-            buf[i] = @truncate(word);
-            word >>= 8;
-            i += 1;
-        }
-    }
+    return true;
 }
 
 /// Iterates "NAME=VALUE" environment entries as UTF-8 (each valid until
