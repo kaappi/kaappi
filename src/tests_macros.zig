@@ -753,3 +753,42 @@ test "macro-with-global expansion keeps later argument slots intact (#1396)" {
         \\  (equal? (list (m0) 1 2) '(41 1 2)))
     );
 }
+
+test "let-syntax sibling macro passed as an argument stays resolvable" {
+    // R7RS 4.3.1 says a let-syntax transformer's *template* free references
+    // resolve at the definition site, where sibling keywords aren't visible.
+    // Kaappi suppressed ALL siblings during an expansion's compilation, so a
+    // sibling handed to a helper as an *argument* (a use-site identifier, not
+    // a template reference) vanished: `id` was reported undefined. Now only
+    // siblings a transformer actually free-references in its template are
+    // suppressed. This `(helper macro)` idiom underlies SRFI 257's `classify`
+    // (`classify-nonellipsis-symbol`'s `(b () k ...)`).
+    try th.expectEval(
+        \\(let-syntax ((apply1 (syntax-rules () ((_ m v) (m v))))
+        \\             (id     (syntax-rules () ((_ x) x))))
+        \\  (apply1 id 42))
+    , 42);
+}
+
+test "named-let loop gensym survives re-expansion through a macro" {
+    // A named let desugars during compilation to a __nlet_N_loop gensym,
+    // interleaved with macro expansion. When the (loop ...) call rides through
+    // another macro whose template re-emits it, the hygiene renamer used to
+    // re-rename the already-gensym'd name (__hyg_M___nlet_N_loop), splitting
+    // the recursive call from its letrec binding. renameForHygiene now leaves
+    // __nlet_ gensyms alone, as it already does for __hyg_ ones (issue #919).
+    // Exercised by SRFI 257's ~etc, which loops with the recursive call nested
+    // inside a submatch argument.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax again
+        \\    (syntax-rules ()
+        \\      ((_ call) (let-syntax ((go (syntax-rules () ((_) call)))) (go)))))
+        \\  (define-syntax build
+        \\    (syntax-rules ()
+        \\      ((_ base)
+        \\       (let loop ((n base) (acc 0))
+        \\         (if (= n 0) acc (again (loop (- n 1) (+ acc 1))))))))
+        \\  (build 4))
+    , 4);
+}
