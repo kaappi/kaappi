@@ -116,7 +116,12 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .gid = sx.gid,
         };
     } else {
-        const lstat_fn = @extern(*const fn ([*:0]const u8, *std.c.Stat) callconv(.c) c_int, .{ .name = "lstat" });
+        // NetBSD's plain `lstat` is the pre-6.0 compat symbol filling an
+        // old-layout struct stat (32-bit time fields); the modern symbol is
+        // `__lstat50` (docs/dev/netbsd.md). Everywhere else the plain name
+        // is current.
+        const lstat_name = if (@import("builtin").os.tag == .netbsd) "__lstat50" else "lstat";
+        const lstat_fn = @extern(*const fn ([*:0]const u8, *std.c.Stat) callconv(.c) c_int, .{ .name = lstat_name });
         var stat_buf: std.c.Stat = undefined;
         const r = if (!follow) lstat_fn(path, &stat_buf) else std.c.fstatat(std.posix.AT.FDCWD, path, &stat_buf, 0);
         if (r != 0) return null;
@@ -857,6 +862,19 @@ fn terminalP(args: []const Value) PrimitiveError!Value {
 // User/group database (SRFI-170 §3.6)
 // -------------------------------------------------------------------------
 
+/// NetBSD renamed the getpw* family when time_t widened in 6.0 (struct
+/// passwd carries pw_change/pw_expire): modern code must call
+/// `__getpwnam50`/`__getpwuid50`. The plain symbols Zig's std.c binds are
+/// the compat pair returning the old layout, which a modern `passwd` read
+/// misparses (home dir/shell shifted). getgr* has no time_t and was never
+/// renamed.
+const netbsd_pw = struct {
+    extern "c" fn __getpwnam50(name: [*:0]const u8) ?*std.c.passwd;
+    extern "c" fn __getpwuid50(uid: std.c.uid_t) ?*std.c.passwd;
+};
+const getpwnam_sys = if (@import("builtin").os.tag == .netbsd) netbsd_pw.__getpwnam50 else std.c.getpwnam;
+const getpwuid_sys = if (@import("builtin").os.tag == .netbsd) netbsd_pw.__getpwuid50 else std.c.getpwuid;
+
 fn userInfoFn(args: []const Value) PrimitiveError!Value {
     if (comptime platform.is_windows) return raiseUnsupportedOnWindows("user-info");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -865,13 +883,13 @@ fn userInfoFn(args: []const Value) PrimitiveError!Value {
         const id_val = types.toFixnum(args[0]);
         if (id_val < 0 or id_val > std.math.maxInt(std.c.uid_t)) return primitives.typeError("user-info", "valid user ID", args[0]);
         const uid: std.c.uid_t = @intCast(@as(u64, @bitCast(id_val)));
-        break :blk std.c.getpwuid(uid);
+        break :blk getpwuid_sys(uid);
     } else if (types.isString(args[0])) blk: {
         const name = extractPath(args[0]) orelse return primitives.typeError("user-info", "string or integer", args[0]);
         try validatePathNoNul(name, args[0]);
         const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
         defer gc.allocator.free(name_z);
-        break :blk std.c.getpwnam(name_z);
+        break :blk getpwnam_sys(name_z);
     } else return primitives.typeError("user-info", "string or integer", args[0]);
 
     const p = pw orelse return types.FALSE;

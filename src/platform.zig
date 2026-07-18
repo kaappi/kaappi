@@ -24,6 +24,7 @@ const builtin = @import("builtin");
 
 pub const is_windows = builtin.os.tag == .windows;
 pub const is_openbsd = builtin.os.tag == .openbsd;
+pub const is_netbsd = builtin.os.tag == .netbsd;
 const is_wasm = builtin.os.tag == .wasi;
 
 /// CRT file descriptor on Windows; kernel fd elsewhere. i32 on every
@@ -730,6 +731,20 @@ pub fn isDir(path: [:0]const u8) bool {
 // directory iteration — CRT has no opendir; Windows uses FindFirstFileW.
 // ---------------------------------------------------------------------------
 
+/// NetBSD renamed the readdir family when dirent's layout changed in 3.0
+/// (u64 d_fileno, wider d_namlen): modern code must call `__opendir30` /
+/// `__readdir30`. The plain `opendir`/`readdir` symbols Zig's std.c binds
+/// are the pre-3.0 compat pair, whose entries a modern `dirent` read
+/// misparses — names come back shifted, so directory listings silently
+/// miss every file. (`closedir` was not renamed — no dirent in its
+/// signature.) Bind the versioned pair explicitly on NetBSD.
+const netbsd_dir = struct {
+    extern "c" fn __opendir30(path: [*:0]const u8) ?*std.c.DIR;
+    extern "c" fn __readdir30(dir: *std.c.DIR) ?*std.c.dirent;
+};
+const opendir_sys = if (builtin.os.tag == .netbsd) netbsd_dir.__opendir30 else std.c.opendir;
+const readdir_sys = if (builtin.os.tag == .netbsd) netbsd_dir.__readdir30 else std.c.readdir;
+
 /// Minimal readdir-shaped iterator. Yields every entry including "." and
 /// ".." (exactly like readdir) as UTF-8 names valid until the next call.
 pub const DirIter = struct {
@@ -754,7 +769,7 @@ pub const DirIter = struct {
             st.first_pending = true;
             return .{ .state = st };
         }
-        const dh = std.c.opendir(path) orelse return null;
+        const dh = opendir_sys(path) orelse return null;
         return .{ .state = dh };
     }
 
@@ -769,7 +784,7 @@ pub const DirIter = struct {
             const n = std.unicode.wtf16LeToWtf8(&st.name_buf, wname);
             return st.name_buf[0..n];
         }
-        const ent = std.c.readdir(self.state) orelse return null;
+        const ent = readdir_sys(self.state) orelse return null;
         const name_ptr: [*:0]const u8 = @ptrCast(&ent.name);
         return std.mem.span(name_ptr);
     }
@@ -827,20 +842,40 @@ pub fn sleepNs(ns: u64) void {
 
 /// Best-effort raise of the soft stack limit to the hard limit, called once
 /// at process startup. OpenBSD's `default` login class caps the soft stack
-/// at 4 MiB — under the 8 MiB macOS/Linux give a main thread, and far under
-/// the interpreter's deep-recursion needs (the macro expander and nested
-/// compile recurse on the machine stack). OpenBSD ignores the ELF
-/// `PT_GNU_STACK` size hint (`build.zig`'s `--stack`) and sizes the main
-/// stack from RLIMIT_STACK, so raising the soft limit to the hard limit
-/// (32 MiB on that class) before any deep recursion lets the on-demand stack
-/// grow that far. OpenBSD-only and best-effort: a no-op on every other
-/// platform — leaving their exact process setup untouched — and silent on any
-/// rlimit failure. See docs/dev/openbsd.md.
+/// at 4 MiB and NetBSD's defaults at 8 MiB — under the interpreter's
+/// deep-recursion needs (the macro expander and nested compile recurse on
+/// the machine stack). Both kernels ignore the ELF `PT_GNU_STACK` size hint
+/// (`build.zig`'s `--stack`) and bound the main stack's on-demand growth by
+/// RLIMIT_STACK at fault time, so raising the soft limit to the hard limit
+/// (32 MiB on OpenBSD's default class, 64 MiB on NetBSD's) before any deep
+/// recursion lets the stack grow that far. BSD-only and best-effort: a
+/// no-op on every other platform — leaving their exact process setup
+/// untouched — and silent on any rlimit failure. See docs/dev/openbsd.md
+/// and docs/dev/netbsd.md.
 pub fn raiseStackLimitBestEffort() void {
-    if (comptime builtin.os.tag != .openbsd) return;
+    if (comptime builtin.os.tag != .openbsd and builtin.os.tag != .netbsd) return;
     const lim = std.posix.getrlimit(.STACK) catch return;
     if (lim.cur >= lim.max) return;
     std.posix.setrlimit(.STACK, .{ .cur = lim.max, .max = lim.max }) catch {};
+}
+
+/// NetBSD/aarch64 starts every process with FPCR.FZ|DN set (0x3000000):
+/// denormal operands and results flush to zero and NaN results collapse to
+/// the default NaN. Flush-to-zero breaks IEEE-754 gradual underflow —
+/// Scheme arithmetic visibly loses fl-least-class values (SRFI-144's
+/// `(> fl-least 0.0)` turns false) — so reset the FP control register to
+/// the all-zero IEEE default state every other platform boots with. FPCR
+/// is inherited across pthread_create (verified on NetBSD 10.1), so one
+/// call at process startup, before the interpreter worker or any SRFI-18
+/// thread spawns, corrects every thread. No-op elsewhere: Linux, the BSDs
+/// on x86_64, and macOS all start processes in the IEEE default mode.
+pub fn normalizeFpEnvBestEffort() void {
+    if (comptime builtin.os.tag == .netbsd and builtin.cpu.arch == .aarch64) {
+        asm volatile ("msr fpcr, %[v]"
+            :
+            : [v] "r" (@as(u64, 0)),
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -857,7 +892,18 @@ pub fn getenv(name: [*:0]const u8) ?[*:0]const u8 {
 }
 
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+/// NetBSD renamed unsetenv when its return type changed (void → int,
+/// POSIX alignment): the plain symbol is the void compat version, the
+/// modern one is `__unsetenv13`. We ignore the return either way, but
+/// bind the modern symbol for a correct signature (and to silence
+/// NetBSD ld's .gnu.warning on the compat reference). setenv was never
+/// renamed — the plain symbol is current there.
+const netbsd_env = struct {
+    extern "c" fn __unsetenv13(name: [*:0]const u8) c_int;
+};
+const unsetenv = if (builtin.os.tag == .netbsd) netbsd_env.__unsetenv13 else struct {
+    extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+}.unsetenv;
 
 /// setenv(3) equivalent. Windows CRT has no setenv; _putenv takes a
 /// single "NAME=VALUE" string (which it copies).

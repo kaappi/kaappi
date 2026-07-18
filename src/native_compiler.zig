@@ -16,6 +16,20 @@ const timings = @import("timings.zig");
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
 
+/// C-compiler discovery order for linking the emitted `.ll` — the driver
+/// must be LLVM-based. On most platforms `cc` is clang (macOS, FreeBSD,
+/// OpenBSD) or the fall-through finds a working driver, but NetBSD's base
+/// cc is GCC — which rejects .ll outright — while an LLVM-capable clang
+/// comes from pkgsrc. Probe clang before cc there so the common failure
+/// (no pkgsrc clang yet) reports one clean miss instead of two GCC "file
+/// format not recognized" spews. gcc stays last everywhere as a
+/// deliberate long shot. Shared with doctor.zig so its c-compiler finding
+/// reports the same driver `kaappi compile` will actually pick.
+pub const cc_search_order = if (platform.is_netbsd)
+    [_][]const u8{ "zig", "clang", "cc", "gcc" }
+else
+    [_][]const u8{ "zig", "cc", "clang", "gcc" };
+
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
     const source = file_utils.readWholeFile(allocator, path, 1024 * 1024) catch |err| {
@@ -206,8 +220,7 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
         // success `return` inside the loop too, so the stage is always recorded.
         timings.begin(.link);
         defer timings.end();
-        const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
-        for (compilers) |cc| {
+        for (cc_search_order) |cc| {
             const cc_path = findInPath(allocator, cc) orelse continue;
             defer allocator.free(cc_path);
             found_compiler = true;

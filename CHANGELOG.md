@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### NetBSD platform support
+
+- **NetBSD target (x86_64, aarch64)** — `zig build -Dtarget=<arch>-netbsd` cross-compiles all three binaries (releases ship both arches). A full-POSIX kqueue port — fiber I/O (the shared macOS/FreeBSD/OpenBSD reactor backend), SRFI-18 OS threads, complete SRFI-170, FFI via `dlopen`, the full linenoise REPL, and thottam including `build:` manifests — with two NetBSD-specific corrections. **Versioned libc symbols:** NetBSD hides ABI-changed functions behind renames (`__kevent50`, `__opendir30`/`__readdir30`, `__getpwnam50`/`__getpwuid50`); the plain names Zig's std.c binds are old-ABI compat symbols that silently misparse modern structs (directory listings came back name-shifted, `user-info` fields shuffled), so the runtime binds the versioned names explicitly. **Floating point:** NetBSD/aarch64 boots processes with FPCR flush-to-zero + default-NaN set, which breaks IEEE-754 gradual underflow (SRFI-144's `(> fl-least 0.0)` was false); the runtime resets the FP environment at startup (`platform.normalizeFpEnvBestEffort`), inherited by all threads. Self-exe lookup uses `sysctl {KERN, PROC_ARGS, -1, PROC_PATHNAME}`; the stack-limit raise now covers NetBSD's 8 MiB default; C-compiler discovery prefers clang on NetBSD (base cc is GCC, which cannot consume LLVM IR — the native backend needs pkgsrc clang). Verified on real NetBSD 10.1 aarch64 hardware: full unit suite (1141/1141), thottam, R7RS 1395/0, and the `run-all.sh` battery, plus the native backend linking with pkgsrc clang — no Zig toolchain on the box. CI runs the suites in a KVM NetBSD 10.1 VM; `install.sh` detects NetBSD (via `uname -p` — `uname -m` reports the kernel port, not the CPU). See `docs/dev/netbsd.md`
+
 ## [0.18.0] - 2026-07-18
 
 ### Added

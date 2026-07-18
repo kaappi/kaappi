@@ -27,6 +27,7 @@ const reporting = @import("reporting.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
+const native_compiler = @import("native_compiler.zig");
 
 pub const version = @import("build_options").version;
 
@@ -343,14 +344,21 @@ fn collectPackageManager(r: *Report) void {
 fn collectNativeBackend(r: *Report) void {
     const a = r.allocator();
 
-    // C compiler discovery mirrors native_compiler's search order.
-    const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
+    // C compiler discovery uses native_compiler's own search order, so the
+    // finding names the driver `kaappi compile` will actually pick.
     var found_cc = false;
-    for (compilers) |cc| {
+    for (native_compiler.cc_search_order) |cc| {
         const cc_path = findInPath(a, cc) orelse continue;
         found_cc = true;
-        const note = if (std.mem.eql(u8, cc, "zig")) " (links via 'zig cc')" else "";
-        r.add("native-backend", "c-compiler", .pass, r.fmt("{s}: {s}{s}", .{ cc, cc_path, note }), null);
+        if (platform.is_netbsd and (std.mem.eql(u8, cc, "cc") or std.mem.eql(u8, cc, "gcc"))) {
+            // NetBSD's base cc is GCC, which cannot consume the LLVM IR
+            // kaappi compile emits — a smoke-link of a C program below
+            // still passes, so call the gap out here (docs/dev/netbsd.md).
+            r.add("native-backend", "c-compiler", .warn, r.fmt("{s}: {s} (GCC — cannot compile the LLVM IR `kaappi compile` emits)", .{ cc, cc_path }), "install an LLVM-capable driver: pkgin install clang");
+        } else {
+            const note = if (std.mem.eql(u8, cc, "zig")) " (links via 'zig cc')" else "";
+            r.add("native-backend", "c-compiler", .pass, r.fmt("{s}: {s}{s}", .{ cc, cc_path, note }), null);
+        }
         break;
     }
     if (!found_cc) {

@@ -120,6 +120,16 @@ to opt out of BTCFI enforcement (Zig 0.16 emits no BTI landing pads), and
 the interpreter raises its own stack limit at startup to clear OpenBSD's
 tight 4 MiB default. See [`docs/dev/openbsd.md`](docs/dev/openbsd.md).
 
+The NetBSD port (`zig build -Dtarget=x86_64-netbsd` or `aarch64-netbsd`)
+completes the BSD trio — the same full-POSIX kqueue feature set, verified
+on NetBSD 10.1. The runtime binds NetBSD's versioned libc symbols
+explicitly (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names
+are old-ABI compat symbols that silently misparse modern structs) and
+resets the aarch64 FPCR at startup, which NetBSD boots in flush-to-zero
+mode that would break IEEE gradual underflow. The native backend
+(`kaappi compile`) needs clang from pkgsrc — NetBSD's base `cc` is GCC,
+which can't consume LLVM IR. See [`docs/dev/netbsd.md`](docs/dev/netbsd.md).
+
 ## A taste of Kaappi
 
 ```
