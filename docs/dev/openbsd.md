@@ -141,7 +141,7 @@ zig build test -Dtarget=aarch64-openbsd       # compiles unit-tests / thottam-te
 UNIT=$(ls -t .zig-cache/o/*/unit-tests | head -1)
 THOTTAM=$(ls -t .zig-cache/o/*/thottam-tests | head -1)
 cp "$UNIT" ./unit-tests-openbsd; cp "$THOTTAM" ./thottam-tests-openbsd
-zig run tools/openbsd_nobtcfi.zig -- ./unit-tests-openbsd ./thottam-tests-openbsd
+zig run tools/openbsd_nobtcfi.zig -lc -- ./unit-tests-openbsd ./thottam-tests-openbsd  # -lc: the tool uses libc I/O
 
 # copy repo + binaries + lib + the two patched test binaries to the box, then:
 doas pkg_add -I bash          # run-all.sh needs bash; base system has cc

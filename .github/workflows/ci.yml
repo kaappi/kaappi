@@ -242,7 +242,9 @@ jobs:
           zig build test -Dtarget=x86_64-openbsd
           cp "$(ls -t .zig-cache/o/*/unit-tests | head -1)" ./unit-tests-openbsd
           cp "$(ls -t .zig-cache/o/*/thottam-tests | head -1)" ./thottam-tests-openbsd
-          zig run tools/openbsd_nobtcfi.zig -- ./unit-tests-openbsd ./thottam-tests-openbsd
+          # -lc: the tool uses libc I/O (std.c.pread/pwrite), which `zig run`
+          # links implicitly on macOS but not on this Linux host.
+          zig run tools/openbsd_nobtcfi.zig -lc -- ./unit-tests-openbsd ./thottam-tests-openbsd
 
       - name: Trim workspace for VM sync
         run: rm -rf .zig-cache
