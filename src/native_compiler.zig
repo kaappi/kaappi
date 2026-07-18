@@ -16,6 +16,42 @@ const timings = @import("timings.zig");
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
 
+/// C-compiler discovery order for linking the emitted `.ll` — the driver
+/// must be LLVM-based. On most platforms `cc` is clang (macOS, FreeBSD,
+/// OpenBSD) or the fall-through finds a working driver, but NetBSD's base
+/// cc is GCC — which rejects .ll outright — while an LLVM-capable clang
+/// comes from pkgsrc. Probe clang before cc there so the common failure
+/// (no pkgsrc clang yet) reports one clean miss instead of two GCC "file
+/// format not recognized" spews. gcc stays last everywhere as a
+/// deliberate long shot. Shared with doctor.zig so its c-compiler finding
+/// reports the same driver `kaappi compile` will actually pick.
+pub const cc_search_order = if (platform.is_netbsd)
+    [_][]const u8{ "zig", "clang", "cc", "gcc" }
+else
+    [_][]const u8{ "zig", "cc", "clang", "gcc" };
+
+test "cc_search_order: zig first, gcc last, clang before NetBSD's base GCC" {
+    try std.testing.expectEqualStrings("zig", cc_search_order[0]);
+    try std.testing.expectEqualStrings("gcc", cc_search_order[cc_search_order.len - 1]);
+    var clang_idx: usize = cc_search_order.len;
+    var cc_idx: usize = cc_search_order.len;
+    for (cc_search_order, 0..) |name, i| {
+        if (std.mem.eql(u8, name, "clang")) clang_idx = i;
+        if (std.mem.eql(u8, name, "cc")) cc_idx = i;
+    }
+    try std.testing.expect(clang_idx < cc_search_order.len);
+    try std.testing.expect(cc_idx < cc_search_order.len);
+    if (platform.is_netbsd) {
+        // NetBSD's base cc is GCC, which cannot consume the .ll link
+        // input — an LLVM-capable clang must be probed before it
+        // (docs/dev/netbsd.md). This runs on the NetBSD unit-test leg,
+        // so a reordering regression fails there.
+        try std.testing.expect(clang_idx < cc_idx);
+    } else {
+        try std.testing.expect(cc_idx < clang_idx);
+    }
+}
+
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
     const source = file_utils.readWholeFile(allocator, path, 1024 * 1024) catch |err| {
@@ -206,8 +242,7 @@ pub fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8)
         // success `return` inside the loop too, so the stage is always recorded.
         timings.begin(.link);
         defer timings.end();
-        const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
-        for (compilers) |cc| {
+        for (cc_search_order) |cc| {
             const cc_path = findInPath(allocator, cc) orelse continue;
             defer allocator.free(cc_path);
             found_compiler = true;

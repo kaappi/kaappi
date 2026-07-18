@@ -1,17 +1,21 @@
 # Porting to a new OS or CPU architecture
 
 How Kaappi's existing platform support is structured, and staged checklists
-for bringing up a new operating system or a new CPU architecture. The five
-completed ports are the reference material: **Windows aarch64** (#1606,
-#1608, #1609 — the OS-port exemplar, documented in [windows.md](windows.md)),
+for bringing up a new operating system or a new CPU architecture. The six
+completed ports are the reference material: **Windows aarch64**
+(#1606, #1608, #1609 — the OS-port exemplar, documented in
+[windows.md](windows.md)),
 **wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar),
 **riscv64-linux** (the CPU-architecture exemplar, tested under QEMU),
 **FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
 already works and the job is verifying it, documented in
-[freebsd.md](freebsd.md)), and **OpenBSD** (the toolchain-hardening exemplar
+[freebsd.md](freebsd.md)), **OpenBSD** (the toolchain-hardening exemplar
 — a POSIX/kqueue platform whose BTCFI enforcement and tight default resource
 limits forced accommodations that nothing else needs, documented in
-[openbsd.md](openbsd.md)).
+[openbsd.md](openbsd.md)), and **NetBSD** (the ABI-compatibility exemplar —
+a POSIX/kqueue platform whose versioned libc symbols and non-IEEE aarch64
+FP default produce silent wrong-data bugs rather than crashes, documented
+in [netbsd.md](netbsd.md)).
 
 ## Current support matrix
 
@@ -24,6 +28,7 @@ limits forced accommodations that nothing else needs, documented in
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
 | FreeBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM FreeBSD VM (x86_64); verified on a real 15.1 aarch64 box | `freebsd-test` | yes (both arches) |
 | OpenBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM OpenBSD 7.9 VM (x86_64); verified on a real 7.9 aarch64 box | `openbsd-test` | yes (both arches, `PT_OPENBSD_NOBTCFI`-marked) |
+| NetBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM NetBSD 10.1 VM (x86_64); verified on a real 10.1 aarch64 box | `netbsd-test` | yes (both arches) |
 | WASI | wasm32 | cross-compiled (`zig build wasm`) | smoke + timer + parallel-pool under wasmtime | `wasm` | yes (`kaappi.wasm`) |
 
 Everything builds from any host — Zig cross-compiles all rows; no target
@@ -56,8 +61,8 @@ What a port actually touches, in dependency order:
 
 | Surface | File(s) | What it is |
 |---------|---------|------------|
-| Syscall shim | `src/platform.zig` (+ `platform_win_sock.zig`) | The single boundary for every OS call: fd-based read/write/open/close, stat, directory iteration, env vars, clocks, sleep, console setup, terminal width, self-exe path, `dlopen`/`dlsym` (FFI), process spawn, temp dir, random seed. POSIX targets forward to `std.posix`/`std.c`; non-POSIX targets reimplement the same integer-fd surface. |
-| Reactor backend | `src/reactor.zig` | Per-OS-thread readiness multiplexer. `Backend` is an exhaustive `switch (builtin.os.tag)` — kqueue (Apple platforms, FreeBSD), epoll (Linux), `poll_oneoff` (WASI), WSAEventSelect (Windows) — with `else => @compileError`. **This is the one hard compile gate a new OS hits**: even the FreeBSD port, where `KqueueBackend` was already the right code, had to add its tag to the switch arms (a NetBSD port would hit the same). Also per-OS: `NotifierBackend`, `ThreadNotifier.notify` (cross-thread wakeup: `EVFILT_USER` / eventfd / `SetEvent`), and `releaseNotifier`'s close path. The timer heap is portable userspace. |
+| Syscall shim | `src/platform.zig` (+ `platform_win.zig`, `platform_win_sock.zig`, `platform_win_pipe.zig`) | The single boundary for every OS call: fd-based read/write/open/close, stat, directory iteration, env vars, clocks, sleep, console setup, terminal width, self-exe path, `dlopen`/`dlsym` (FFI), process spawn, temp dir, random seed. POSIX targets forward to `std.posix`/`std.c`; non-POSIX targets reimplement the same integer-fd surface. |
+| Reactor backend | `src/reactor.zig` | Per-OS-thread readiness multiplexer. `Backend` is an exhaustive `switch (builtin.os.tag)` — kqueue (Apple platforms, FreeBSD, OpenBSD, NetBSD), epoll (Linux), `poll_oneoff` (WASI), WSAEventSelect (Windows) — with `else => @compileError`. **This is the one hard compile gate a new OS hits**: every BSD port, where `KqueueBackend` was already the right code, still had to add its tag to the switch arms. Also per-OS: `NotifierBackend`, `ThreadNotifier.notify` (cross-thread wakeup: `EVFILT_USER` / eventfd / `SetEvent`), and `releaseNotifier`'s close path. The timer heap is portable userspace. |
 | Non-blocking probe | `src/primitives_io.zig` (`maybeSetNonblocking`) | Per-OS strategy for flipping port fds to would-block mode, and the degradation trigger when the OS can't (see "the degradation ladder"). |
 | Feature identifiers | `src/types.zig` (`platform_features`) | The `cond-expand` table. Exactly one OS-class identifier per build (`posix` or `windows` today); capability identifiers (`kaappi-threads`, …) dropped where unsupported. `kaappi features`, `(features)`, and `cond-expand` all read this one table. |
 | Library/primitive gates | `src/primitives.zig` (`Lib.wasmAvailable`, `PrimSpec.wasm`), `src/library.zig` | Which built-in libraries and individual primitives register on a constrained target. |
@@ -383,7 +388,29 @@ Hard-won specifics worth re-reading before starting (fuller detail in
   binary — the fix was raising `ulimit -d` for the test run, a harness
   concern the shipped C-allocator binaries never hit). Check `ulimit -a`
   early and separate "the runtime needs this" from "only the test binary
-  does."
+  does." The memory variant: a swapless 4 GiB NetBSD box OOM-killed the
+  unit suite outright (`UVM: killed: out of swap`) — the DebugAllocator's
+  poison-on-free *commits* every freed page, so the suite's footprint is
+  cumulative-allocations, not live-set. Check `swapctl -l` too.
+* **A binary-compatible OS hides ABI breaks behind symbol renames — and
+  the plain name is the trap.** NetBSD keeps every old-ABI function under
+  its original name for old binaries and renames the modern one
+  (`__kevent50`, `__opendir30`, `__getpwnam50`); C code gets the rename
+  from the headers, but a toolchain that declares externs by plain name
+  (Zig's `std.c` in spots) links the compat symbol and misparses modern
+  structs. Nothing crashes: directory listings come back name-shifted,
+  passwd fields come back shuffled — silent wrong data. Audit every
+  `std.c.*` call against `nm --dynamic libc.so` (weak plain symbol beside
+  a `__name<NN>` strong one = versioned) and bind the versioned name
+  explicitly. See [netbsd.md](netbsd.md) for the worked audit.
+* **Don't assume the FP environment starts IEEE-default.** NetBSD/aarch64
+  boots every process with FPCR.FZ|DN set: denormals flush to zero, so
+  SRFI-144's `(> fl-least 0.0)` was *false* — a wrong-answer bug in
+  ordinary arithmetic, invisible until a conformance test probed gradual
+  underflow. The runtime now resets FPCR at startup
+  (`platform.normalizeFpEnvBestEffort`), relying on the (empirically
+  verified) fact that threads inherit the creator's FP state. Probe
+  `fl-least`-class arithmetic early on any new OS/arch pair.
 * **Probe capabilities at runtime, per object.** Comptime OS checks
   can't see host differences (WASI browser shim vs wasmtime; socket vs
   pipe fds behind the same CRT). One-time probes with remembered answers

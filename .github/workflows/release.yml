@@ -79,6 +79,24 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # Cross-compiled from Linux. Execution is verified by CI's
+          # netbsd-test VM job (x86_64) and on the NetBSD 10.1 aarch64
+          # reference machine (docs/dev/netbsd.md). The native backend on
+          # NetBSD needs pkgsrc clang at runtime (base cc is GCC).
+          - os: ubuntu-latest
+            target: x86_64-netbsd
+            artifact: kaappi-x86_64-netbsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
+          - os: ubuntu-latest
+            target: aarch64-netbsd
+            artifact: kaappi-aarch64-netbsd
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           # Cross-compiled via Zig's bundled mingw-w64; execution is
           # verified on real Windows 11 ARM64 hardware (docs/dev/windows.md)
           # since GitHub has no ARM64 Windows runners. The gnu-ABI static
