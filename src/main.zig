@@ -139,6 +139,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // is RLIMIT_STACK-bound — only 4 MiB by default on OpenBSD. No-op
     // elsewhere. See docs/dev/openbsd.md.
     platform.raiseStackLimitBestEffort();
+    // NetBSD/aarch64 boots processes with flush-to-zero set; restore the
+    // IEEE default FP mode before any thread spawns (threads inherit it).
+    platform.normalizeFpEnvBestEffort();
     if (comptime !is_wasm) {
         // The compiler's recursive descent needs more than the default 8 MB
         // stack for deeply nested Scheme forms (e.g. cond chains that desugar

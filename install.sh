@@ -10,8 +10,8 @@ REPO="kaappi/kaappi"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # Download URL ($1) to file ($2). Prefers curl (macOS/Linux), then wget, then
-# the BSD base tools: fetch (FreeBSD) and ftp (OpenBSD) both fetch HTTPS from
-# the base system, where curl is not installed.
+# the BSD base tools: fetch (FreeBSD) and ftp (OpenBSD, NetBSD) all fetch
+# HTTPS from the base system, where curl is not installed.
 download() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL -o "$2" "$1"
@@ -37,9 +37,15 @@ detect_platform() {
         Linux)   os="linux" ;;
         FreeBSD) os="freebsd" ;;
         OpenBSD) os="openbsd" ;;
+        NetBSD)
+            os="netbsd"
+            # NetBSD's uname -m reports the kernel port (evbarm, amd64),
+            # not the CPU; -p gives the machine arch (aarch64, x86_64).
+            arch=$(uname -p)
+            ;;
         *)
             echo "error: unsupported OS: $os"
-            echo "Kaappi supports macOS, Linux, FreeBSD, and OpenBSD. See https://github.com/$REPO"
+            echo "Kaappi supports macOS, Linux, FreeBSD, OpenBSD, and NetBSD. See https://github.com/$REPO"
             exit 1
             ;;
     esac
@@ -109,8 +115,8 @@ main() {
     elif command -v shasum >/dev/null 2>&1; then
         shasum -a 256 -c --quiet check.txt
     elif command -v sha256 >/dev/null 2>&1; then
-        # OpenBSD/FreeBSD base: sha256 has no coreutils-style -c, so recompute
-        # each file's hash and confirm it appears in SHA256SUMS.
+        # OpenBSD/FreeBSD/NetBSD base: sha256 has no coreutils-style -c, so
+        # recompute each file's hash and confirm it appears in SHA256SUMS.
         for f in kaappi thottam kaappi-lib.tar.gz; do
             grep -q "$(sha256 -q "$f")" SHA256SUMS \
                 || { echo "error: checksum verification failed for $f" >&2; exit 1; }

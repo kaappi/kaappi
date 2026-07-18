@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~57k lines, 614 built-in procedures.
+Complete R7RS-small Scheme implementation. Zig 0.16, ~57k lines, 613 built-in procedures.
 
 ## Build
 
@@ -106,6 +106,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
 | FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
 | OpenBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-openbsd`; kqueue reactor; binaries auto-marked `PT_OPENBSD_NOBTCFI`; see `docs/dev/openbsd.md` |
+| NetBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-netbsd`; kqueue reactor; versioned libc symbols bound explicitly; aarch64 FPCR reset at startup; see `docs/dev/netbsd.md` |
 | WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
@@ -122,6 +123,12 @@ for OpenBSD — a kqueue port whose binaries are auto-marked
 `PT_OPENBSD_NOBTCFI` (a post-link patch, `tools/openbsd_nobtcfi.zig`, wired
 into `build.zig`) to survive BTCFI enforcement, since Zig 0.16 emits no BTI
 landing pads (`docs/dev/openbsd.md`).
+`zig build -Dtarget=aarch64-netbsd` (or `x86_64-netbsd`) cross-compiles
+for NetBSD — a kqueue port that binds NetBSD's versioned libc symbols
+explicitly (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names
+are old-ABI compat symbols) and resets the aarch64 FPCR at startup
+(NetBSD boots processes in flush-to-zero mode); the native backend needs
+pkgsrc clang since base cc is GCC (`docs/dev/netbsd.md`).
 Porting to a new OS or CPU architecture: `docs/dev/porting.md` (porting
 surfaces, degradation ladder, staged checklists).
 
@@ -291,7 +298,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
-73 SRFIs supported. 9 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133, 170, 254. 64 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 0, 2, 4, 6, 8, 11, 14, 16, 17, 19, 23, 26, 27, 28, 31, 34, 35, 36, 37, 38, 41, 42, 43, 45, 48, 60, 61, 64, 78, 87, 98, 111, 113, 115, 116, 117, 125, 127, 128, 130, 132, 134, 141, 143, 144, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 197, 210, 219, 222, 227, 232, 233, 235. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians). SRFI-254 (ephemerons and guardians) needs GC integration — its weak-reference marking/resurrection lives in `gc_collect.processWeakRefs`, its heap types (`Ephemeron`, `Guardian`, `TransportCell`) in `types.zig`, its primitives in `primitives_srfi254.zig`, and guardian invocation (a guardian is callable) in `vm_calls.invokeGuardian`. On this non-moving collector `current-hash` is a stable identity hash and transport cell guardians are degenerate (keys never move, so `(tg)` always yields #f).
+74 SRFIs supported. 9 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133, 170, 254. 65 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 0, 2, 4, 6, 8, 11, 14, 16, 17, 19, 23, 26, 27, 28, 31, 34, 35, 36, 37, 38, 41, 42, 43, 45, 48, 60, 61, 64, 78, 87, 98, 111, 113, 115, 116, 117, 125, 127, 128, 130, 132, 134, 141, 143, 144, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 197, 210, 219, 222, 227, 232, 233, 235, 263. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 263 syntax). SRFI-254 (ephemerons and guardians) needs GC integration — its weak-reference marking/resurrection lives in `gc_collect.processWeakRefs`, its heap types (`Ephemeron`, `Guardian`, `TransportCell`) in `types.zig`, its primitives in `primitives_srfi254.zig`, and guardian invocation (a guardian is callable) in `vm_calls.invokeGuardian`. On this non-moving collector `current-hash` is a stable identity hash and transport cell guardians are degenerate (keys never move, so `(tg)` always yields #f).
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
