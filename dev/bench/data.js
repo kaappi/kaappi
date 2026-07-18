@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784373573596,
+  "lastUpdate": 1784376131809,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1f7f3e7c9ab2ce43fde9472ede7b5ffc3ee58603",
-          "message": "Store a persistent mark worklist on the GC struct (#1436)\n\n* Store a persistent mark worklist on the GC struct (#1428)\n\nmarkValue allocated and freed a fresh 8 KB ArrayList on every invocation,\ncausing megabytes of allocator churn per collection. Under gc-stress with\nstd.testing.allocator the metadata retention amplified this to ~19.7 GB RSS.\n\nMove the worklist to a GC struct field so capacity persists across calls.\nA re-entrancy guard lets fiber marking (markFiberState → gc.markValue)\nshare the buffer safely — re-entrant calls push items and return, the\noutermost call owns the drain loop.\n\nRSS on the \"GC stress:\" filter drops from ~19.7 GB to ~1.15 GB.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Cap mark worklist retention at 512 KB after drain\n\nA pathologically wide object (e.g. 10M-element vector) can grow the\nworklist to ~80 MB in a single mark pass. Free the buffer when it\nexceeds 64K entries (512 KB) so it regrows on demand rather than\nretaining peak capacity for the GC's lifetime.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T13:32:42+05:30",
-          "tree_id": "b25ef57f5659ca52f2c5f9e2d850cbf1a4e45b28",
-          "url": "https://github.com/kaappi/kaappi/commit/1f7f3e7c9ab2ce43fde9472ede7b5ffc3ee58603"
-        },
-        "date": 1783758553220,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.363781,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.511535,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.921074,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.382286,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006433,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053919,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509137,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069802,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.382453,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.962269,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.578182,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.426753,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.845681,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.6271,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044506,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044484,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9e3fba2752896b0bf8b2b92f9f5de8897120239",
+          "message": "Implement SRFI 254 (Ephemerons and Guardians) (#1643)\n\n* Implement SRFI 254 (Ephemerons and Guardians)\n\nSRFI 254 exposes three garbage-collector-dependent primitives that cannot be\nwritten portably in standard Scheme: ephemerons (a key/value pair whose value\nis retained only while the key is reachable other than through the value),\nguardians (post-mortem resurrection, the substrate for finalization), and\ntransport cell guardians plus current-hash (a stable identity hash).\n\nEphemerons and object guardians need real GC integration. A new\ngc_collect.processWeakRefs pass runs after strong marking and before sweeping,\nreaching a fixpoint that retains an ephemeron's value once its key is proven\nreachable, breaks the ephemerons whose keys never are (so a value that\nreferences its key still breaks — the case a plain weak-key pair gets wrong),\nand resurrects unreachable guarded objects onto each guardian's ready queue.\nEphemerons are processed before guardians each round so the two structures\ninteract correctly. Only ephemerons and guardians reached during marking are\nprocessed, so unreachable ones are swept normally.\n\nBecause Kaappi's collector is non-moving, current-hash is the stable boxed\nvalue word and transport cell guardians are the degenerate case: a key is\nnever transported, so cells are held strongly and a zero-argument\ntransport-cell-guardian call always returns #f.\n\nA guardian is itself a procedure; invocation is handled by\nvm_calls.invokeGuardian and wired into every call-dispatch site (callValue,\ncallWithArgs, and the inline tail_call/tail_apply paths), mirroring how\nparameter objects are invoked.\n\nBuilt in as (srfi 254) plus the component libraries (srfi 254 ephemerons),\n(srfi 254 guardians), (srfi 254 transport-cell-guardians), and the\n(srfi 254 ephemerons-and-guardians) alias. Adds deterministic GC unit tests\n(tests_srfi254.zig, green under -Dgc-stress) and an end-to-end Scheme\nconformance suite. Closes #1637.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Fix Debug-build test timeout; address review feedback\n\nThe srfi-254.scm conformance test forced collections by allocating ~200k\npairs several times, which blew the 60s per-file timeout under the Debug\nbuild (every allocation is traced). Collapse it to a single ~20k-pair churn\nthat still crosses the 8192-object GC threshold, so every unreachable-key\nephemeron breaks and every unreachable guarded object resurrects in one\ncycle. Runs in ~6s in Debug (was >60s).\n\nAlso from PR review:\n- Correct the stale \"72 SRFIs / 8 built-in\" summary at the top of\n  CONFORMANCE.md to 73 / 9.\n- Add a cross-generational guardian test proving an old guardian's young\n  registered object is resurrected without a write barrier — a minor\n  collection re-traces every reachable guardian, so the old->young edge is\n  seen with an empty remembered set. This documents why guardian\n  registration needs no write barrier.\n- Document, at the guardian keep-case, that a representative is retained\n  strongly on purpose (memory safety on a non-refcounted collector); the\n  bounded cost is an unspecified-order resurrection delay.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T16:59:08+05:30",
+          "tree_id": "67cd9044b18e05b03c13464cc443fe59891ae901",
+          "url": "https://github.com/kaappi/kaappi/commit/c9e3fba2752896b0bf8b2b92f9f5de8897120239"
+        },
+        "date": 1784376129803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.37581,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.190751,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.988613,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.982443,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006375,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05532,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.519086,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069858,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.347848,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.103967,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.586142,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434262,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802991,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702368,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043726,
             "unit": "seconds"
           }
         ]
