@@ -141,6 +141,72 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+  # s390x: interpreter tier like riscv64 (#1654), and the only big-endian
+  # target in the matrix — a permanent canary for byte-order bugs in the
+  # `.sbc` codec and any future serialization. Also validated on a
+  # real-kernel Alpine s390x VM (unit + thottam + R7RS + full Scheme
+  # suites; user VA stays below 2^42, inside the 48-bit NaN-box payload).
+  s390x-test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: s390x
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: s390x
+
+      - name: Build (cross-compile for s390x)
+        run: zig build -Dtarget=s390x-linux
+
+      - name: Unit tests (s390x via QEMU)
+        run: zig build test -Dtarget=s390x-linux
+
+      - name: R7RS test suite (s390x via QEMU)
+        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+  # ppc64le: interpreter tier like riscv64 (#1654). Also validated on a
+  # real-kernel Alpine ppc64le VM (unit + thottam + R7RS + full Scheme
+  # suites; 128 TB = 2^47 default map window fits the NaN-box payload).
+  ppc64le-test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: ppc64le
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: ppc64le
+
+      - name: Build (cross-compile for ppc64le)
+        run: zig build -Dtarget=powerpc64le-linux
+
+      - name: Unit tests (ppc64le via QEMU)
+        run: zig build test -Dtarget=powerpc64le-linux
+
+      - name: R7RS test suite (ppc64le via QEMU)
+        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
   # FreeBSD: cross-compile the binaries and test executables from Linux
   # (guarding the cross-compilation path release.yml ships with), then
   # boot a FreeBSD VM via KVM on the same runner — GitHub hosts no

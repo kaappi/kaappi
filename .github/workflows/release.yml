@@ -41,6 +41,25 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # Interpreter-tier Linux arches like riscv64 (no native
+          # backend). Cross-compiled; execution is verified by CI's
+          # s390x-test/ppc64le-test QEMU jobs and was validated on
+          # real-kernel Alpine VMs (#1654). s390x is the only big-endian
+          # target.
+          - os: ubuntu-latest
+            target: s390x-linux
+            artifact: kaappi-s390x-linux
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
+          - os: ubuntu-latest
+            target: powerpc64le-linux
+            artifact: kaappi-powerpc64le-linux
+            exe_ext: ''
+            lib_src: libkaappi_rt.a
+            lib_ext: .a
+            strip: true
           # Cross-compiled from Linux (Zig bundles FreeBSD 14+ libc).
           # Execution is verified by CI's freebsd-test VM job (x86_64)
           # and on the port's aarch64 reference machine

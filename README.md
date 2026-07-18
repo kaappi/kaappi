@@ -85,7 +85,9 @@ zig build test                       # run the unit tests
 | macOS | aarch64 (Apple Silicon) | yes | yes | LLVM backend |
 | Linux | x86_64 | yes | yes | LLVM backend |
 | Linux | aarch64 | yes | yes | LLVM backend |
-| Linux | riscv64 | yes | yes | LLVM backend |
+| Linux | riscv64 | yes | yes | interpreter only |
+| Linux | s390x (big-endian) | yes | yes | interpreter only |
+| Linux | ppc64le | yes | yes | interpreter only |
 | Windows | aarch64 (ARM64), x86_64 | yes | yes | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |

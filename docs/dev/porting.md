@@ -1,12 +1,15 @@
 # Porting to a new OS or CPU architecture
 
 How Kaappi's existing platform support is structured, and staged checklists
-for bringing up a new operating system or a new CPU architecture. The six
+for bringing up a new operating system or a new CPU architecture. The
 completed ports are the reference material: **Windows aarch64**
 (#1606, #1608, #1609 — the OS-port exemplar, documented in
 [windows.md](windows.md)),
 **wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar),
 **riscv64-linux** (the CPU-architecture exemplar, tested under QEMU),
+**s390x-linux** (the big-endian exemplar — the first byte-order-flipped
+target, which the interpreter passed unmodified; #1654) with its
+little-endian sibling **ppc64le-linux**,
 **FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
 already works and the job is verifying it, documented in
 [freebsd.md](freebsd.md)), **OpenBSD** (the toolchain-hardening exemplar
@@ -25,6 +28,8 @@ in [netbsd.md](netbsd.md)).
 | Linux | x86_64 | native | same as macOS, in Debug/ReleaseSafe/ReleaseFast | `test` (ubuntu-latest) | yes |
 | Linux | aarch64 | native | same | `test` (ubuntu-24.04-arm) | yes |
 | Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode | `riscv64-test` | yes |
+| Linux | s390x | cross-compiled | unit + R7RS under QEMU user-mode; full battery (unit + thottam + R7RS + `tests/scheme/`) on a real-kernel Alpine VM (#1654) | `s390x-test` | yes |
+| Linux | ppc64le | cross-compiled | unit + R7RS under QEMU user-mode; full battery on a real-kernel Alpine VM (#1654) | `ppc64le-test` | yes |
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
 | Windows | x86_64 | cross-compiled or native | same as aarch64 plus the native-backend e2e (`run-e2e.ps1`) on `windows-latest` runners | `windows-cross` + `windows-x64-test` | yes |
 | FreeBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM FreeBSD VM (x86_64); verified on a real 15.1 aarch64 box | `freebsd-test` | yes (both arches) |
@@ -259,8 +264,8 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
 ## Porting to a new CPU architecture
 
 A new architecture on an already-supported OS is much smaller than an OS
-port — riscv64 needed no runtime code changes at all, only build/CI work —
-*provided* the preconditions hold.
+port — riscv64, s390x, and ppc64le each needed no runtime code changes at
+all, only build/CI work — *provided* the preconditions hold.
 
 ### Preconditions (check before anything else)
 
@@ -278,13 +283,21 @@ port — riscv64 needed no runtime code changes at all, only build/CI work —
       that freely returns high addresses (or tags pointer high bits) is
       **blocked** until `makePointer`/`toObject` grow a masking scheme.
       Verify empirically: run the unit suite and check `--gc-stats` on a
-      heap-heavy program early.
-- [ ] **Little-endian.** `.sbc` files, and the NaN-box word itself in
-      memory, are handled through explicit conversions
-      (`littleToNative`), so a big-endian port is *plausible* — but no
-      big-endian target has ever been tested, and untested byte-order
-      code should be assumed broken. Treat big-endian as a real porting
-      project with its own audit, not a checkbox.
+      heap-heavy program early — and check `/proc/self/maps` on a *real*
+      kernel, since QEMU user-mode inherits the host's layout and proves
+      nothing. Verified this way: s390x keeps user VA below 4 TB = 2^42
+      (3-level page tables, upgraded only when a mapping demands more)
+      and ppc64le below its 128 TB = 2^47 default map window (#1654).
+- [ ] **Byte order goes through the codec helpers.** `.sbc` files are
+      canonically little-endian via explicit conversions
+      (`littleToNative`/`nativeToLittle`), and the NaN-box word is only
+      ever manipulated as a u64, never byte-punned. Big-endian is
+      **tested**: s390x passes the unit suite, the R7RS suite, and the
+      `.sbc` cache round-trip unchanged (#1654), and the `s390x-test` CI
+      job guards the invariant on every PR. The obligation this
+      precondition now expresses: new serialization or byte-punning code
+      must use the same explicit-conversion helpers — the s390x job is
+      the canary that catches it if it doesn't.
 - [ ] **f64 hardware or soft-float** with IEEE-754 semantics (flonums
       are NaN-boxed doubles; NaN canonicalization assumes IEEE bit
       patterns).
@@ -321,7 +334,7 @@ port — riscv64 needed no runtime code changes at all, only build/CI work —
 ### Native (LLVM) backend
 
 The interpreter ships without this; the native backend is a separate,
-optional tier (riscv64 ships interpreter-only today).
+optional tier (riscv64, s390x, and ppc64le ship interpreter-only today).
 
 - [ ] Add the triple to `llvm_emit.zig`'s `emitPreamble` switch
       (currently aarch64/x86_64 × macos/linux; everything else emits

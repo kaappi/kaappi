@@ -103,6 +103,8 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | x86_64 | yes | yes | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | CI tested (QEMU) |
+| Linux | s390x (big-endian) | yes | yes | CI tested (QEMU); the byte-order canary (#1654) |
+| Linux | ppc64le | yes | yes | CI tested (QEMU) |
 | Windows | aarch64 (ARM64), x86_64 | yes | yes | `zig build -Dtarget=<arch>-windows`; see `docs/dev/windows.md` |
 | FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
 | OpenBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-openbsd`; kqueue reactor; binaries auto-marked `PT_OPENBSD_NOBTCFI`; see `docs/dev/openbsd.md` |
@@ -112,6 +114,11 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
 `zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries
 run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
+`zig build -Dtarget=s390x-linux` and `-Dtarget=powerpc64le-linux`
+cross-compile the interpreter-tier s390x/ppc64le ports (#1654) — zero
+runtime code changes; s390x is the only big-endian target and serves as
+the permanent byte-order canary in CI; both were validated end-to-end on
+real-kernel Alpine VMs (see `docs/dev/porting.md`).
 `zig build -Dtarget=aarch64-windows` (or `x86_64-windows`) cross-compiles
 the Windows binaries (kaappi.exe, thottam.exe, kaappi-lsp.exe);
 syscall-level platform differences live behind the `src/platform.zig`
