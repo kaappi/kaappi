@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784395003877,
+  "lastUpdate": 1784395259169,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "28f1a3375d388589706fa8323860ae3d95a44d00",
-          "message": "Reactor core: kqueue/epoll backends with a userspace timer heap (KEP-0001 P1) (#1446)\n\n* Add reactor core: kqueue/epoll backends with a userspace timer heap\n\nPhase 1 of KEP-0001 (event-loop reactor for fiber I/O). Adds\nsrc/reactor.zig: a per-OS-thread Reactor with kqueue and epoll backends\nand a shared userspace timer min-heap, so deadline logic is identical\nacross platforms. No scheduler caller yet — that's Phase 2 — so this\nhas no behavior change; it's unit-tested in isolation against real\npipe/socketpair fds in tests_reactor.zig.\n\nImplements the five design decisions already resolved in the KEP:\nwake-all waiter lists per fd direction, epoll ms-granularity timeouts\nwith ceil-rounding (never fire early), ONESHOT arming on both\nbackends, and fd-keyed registration (safe here since no user code runs\nbetween poll() returning and the scheduler's status flips, per the\nper-OS-thread cooperative model).\n\nThe trickiest correctness point is a platform asymmetry: kqueue treats\nread/write as independent filters, so firing one never disturbs the\nother, but epoll's EPOLLONESHOT disarms the *whole* fd registration on\nany fire, including a direction that didn't fire. Reactor.poll\nre-arms the remaining direction after a partial fire (a harmless\nredundant EV_ADD on kqueue); a socketpair-based test exercises this\ndirectly to guard against silently losing a still-parked waiter.\n\nAdds Reactor.removeTimer beyond the KEP's interface sketch — needed by\nPhase 2 to cancel a stale timer entry when a fiber is woken some other\nway before its deadline, so a reused fiber slot can't get a spurious\nwake later.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1446 review feedback\n\nFixes two bugs flagged as should-fix-before-merge:\n\n- KqueueBackend.disarmAll batched both EV_DELETEs into one kevent()\n  call with a zero-length eventlist, so the first ENOENT (expected\n  whenever a direction was never armed) aborted the changelist and\n  left the other filter's knote behind. Verified independently with a\n  standalone C repro. Now issues each delete as its own call.\n- EpollBackend.init used epoll_create1(0), leaking the reactor's fd\n  into every subprocess the core spawns (thottam_proc.zig,\n  native_compiler.zig). Now passes EPOLL.CLOEXEC.\n\nAlso, from the same review:\n\n- Drop the dead Reg.fd field (never read; the hashmap key is the fd\n  source everywhere else).\n- Reserve ready's capacity before draining a fd's waiters in poll(),\n  so a mid-drain allocation failure can't strand the remaining\n  waiters after their ONESHOT event was already consumed.\n- Saturating-add in msFromNs to avoid a theoretical overflow panic on\n  a near-u64::MAX timeout.\n- Document that poll()'s ready list may contain a fiber twice when an\n  fd wake and its timer both land in the same call, for Phase 2 to\n  read.\n- tests_reactor.zig: assert single-byte writes actually land instead\n  of discarding the return value, so a short write fails at the\n  syscall rather than as an unrelated timeout.\n- Add a peer-close test covering the EOF/HUP-to-broken mapping\n  (kqueue EV_EOF, epoll EPOLLHUP|EPOLLERR), previously untested.\n\nFull suite: 746/746 (was 745/745 before the added test). gc-stress:\n740/746, 6 pre-existing skips, 0 failures.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T13:12:28Z",
-          "tree_id": "326498926d101cdd2b4be45b508038102631fd95",
-          "url": "https://github.com/kaappi/kaappi/commit/28f1a3375d388589706fa8323860ae3d95a44d00"
-        },
-        "date": 1783777199422,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335915,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.699178,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.887775,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.439993,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006401,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054148,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50648,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069329,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.56241,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.963116,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592035,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437807,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.811339,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.734325,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04395,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038436,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "38163b7705f7c5b68c5d3a7787bd9eac8a994307",
+          "message": "Implement SRFI 261 (Portable SRFI Library Reference) (#1650)\n\n(srfi srfi-<n>) and (srfi <mnemonic>-<n>) now resolve to (srfi <n>) as\nan import-resolver fallback — no library file, per the spec's nature as\na pure naming convention. The trailing digits are authoritative\n(mnemonics collide by design: vectors-43 vs vectors-133), literal names\nwin when they exist, and sub-library tails pass through. The SRFI 97\ncolon form is deliberately unsupported: its decorative trailing\nidentifiers collide with real R7RS sub-libraries like (srfi 146 hash).\n\nThe rewrite lives at every reference-side resolution surface: import\n(processImportSet, covering library bodies, environment, eval, check,\nLSP), both cond-expand (library ...) entry points, and — path-level —\ntest_selection's import graph, where a 261-form import would otherwise\nlook built-in and silently drop its dep edge from kaappi test --changed.\ndefine-library names stay literal.\n\nA miss on a rewritten name reports the spelling the user wrote plus the\nresolved number; found-but-broken literal files keep their load-error\ndetail (#1010).\n\nCloses #1645\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T16:49:22Z",
+          "tree_id": "a41bca9b1580ce663dd36ade9c134e3cf6e24bc3",
+          "url": "https://github.com/kaappi/kaappi/commit/38163b7705f7c5b68c5d3a7787bd9eac8a994307"
+        },
+        "date": 1784395258246,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.350415,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.882726,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.91643,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.413215,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006335,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053711,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50836,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070862,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.480518,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.940968,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.620845,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432515,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.837134,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.727794,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044929,
             "unit": "seconds"
           }
         ]
