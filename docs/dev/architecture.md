@@ -32,7 +32,7 @@ Source code
 | **Compiler** | `compiler.zig` + 5 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a growable register file and call frame stack (heap-allocated, double-on-overflow), exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 21 `primitives_*.zig` files | 614 built-in procedures organized by domain. |
+| **Primitives** | 21 `primitives_*.zig` files | 613 built-in procedures organized by domain. |
 
 ---
 

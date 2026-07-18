@@ -26,7 +26,7 @@
 ---
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
-— 614 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
+— 613 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
 73 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
