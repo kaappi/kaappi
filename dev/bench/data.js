@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784363089859,
+  "lastUpdate": 1784367236403,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0abf3c34824db0571ad304d30f8505786b5d4835",
-          "message": "Make the unit suite run green under -Dgc-stress=true (#1427)\n\n* Make the unit suite run green under -Dgc-stress=true (#1401)\n\nThe gc-stress build was never green: the test harness itself held the\nVM in a moved-from stack copy, so every collection between bootstrap\nand the first execute() swept the globals being registered, crashing\n~440 of 690 tests and masking a layer of real rooting bugs underneath.\n\nHarness:\n- makeTestVM returns a heap-allocated *VM (heap_owned); vm_instance is\n  registered before registerAll so the root marker sees the globals map\n  while it is being populated. Same bootstrap order in bench and LSP.\n- vm_eval.eval registers the VM on entry so compile-phase allocations\n  mark the right VM's roots in multi-VM tests.\n- New -Dtest-filter build option for narrowing a test run.\n\nRuntime/compiler rooting bugs the harness was masking:\n- GC allocators copy caller slices before maybeCollect() and root Value\n  slices across the collection via the new slice_roots hook; previously\n  e.g. negate/abs freed the source bignum and reused its limbs (the\n  \"@memcpy arguments alias\" crash).\n- maybeCollect's stress branch now honors no_collect/memory_limit\n  deferral like the normal path.\n- Body-local define-syntax transformers live only in compiler-local\n  macro maps the GC cannot see; they are now rooted in extra_roots for\n  the duration of the top-level compile (all four registration sites).\n- emitLlvmFile defers collection across its read -> lower -> emit\n  batch: IR nodes reference sexpr values nothing roots (latent in\n  normal builds for files that cross the GC threshold mid-compile).\n\nTests: root locals held across allocations and eval results held\nacross a second eval; scale loop-heavy churn tests down under stress\n(the 5000-iteration string loop peaked ~19.7 GB RSS under the testing\nallocator and got the suite OOM-killed; the production allocator runs\nthe same loop at 4 MB); skip the 300-capture #809 width test and the\nframe-depth #1253 test on stress builds; the #958 mark-bit scan forces\none full cycle and keeps the parent GC quiescent while the child\nthread's GC still stresses.\n\nRe-enables the gc-stress fuzz variant (fuzz.yml) with a 300-minute\ntimeout — the pre-fuzz unit-test phase dominates wall time (~40 min\nlocally at 100% CPU). Documents the invariants in gc-safety.md,\ntesting.md, and fuzzing.md.\n\nFixes #1401\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1427 review comments\n\n- VM.initForThread: root each standard port before allocating the next,\n  mirroring init() (#1013) — a fresh child thread has no vm_instance\n  registered, so a stress collection during the second allocPort swept\n  the first port.\n- build.zig: apply -Dtest-filter to thottam-tests too.\n- tests_deepcopy: root copied_fn across the second deepCopy (it only\n  survives because deepCopyValue holds no_collect; follow the rule).\n- compiler_ir/compiler_macro: correct the transformer-root release-point\n  comments — body-scope roots are released by the enclosing lambda\n  compile's truncation, not compileExpression*.\n- docs/dev/testing.md: complete the example's imports.\n\nNot taken: the CLAUDE.md -Dtest-filter=tests_io example is correct\n(qualified test names include the module prefix; verified — the filter\nmatches all 30 tests_io tests), and rooting `neg` in the bignum tests\nis unnecessary (it is never held across a subsequent allocation).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add /do-stress-test skill: gc-stress suite on a 3-hour DO droplet\n\nCompanion to /do-linux-test for the -Dgc-stress=true unit suite, which\nruns for hours, not minutes: the suite is launched detached on the\ndroplet and polled (no SSH command may outlive the Bash tool timeout),\nthe self-destruct timer is 3h05m instead of 55 minutes, and the droplet\ngets 8 GB RAM plus swap because the testing allocator's metadata churn\nunder stress inflates RSS by gigabytes (#1401 postmortem). A plain\nbuild+test sanity check runs first so a broken commit fails in minutes\ninstead of after a multi-hour stress run.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T12:08:45+05:30",
-          "tree_id": "ecfdde2b8d6fa9f86c398704b62934f764afbb38",
-          "url": "https://github.com/kaappi/kaappi/commit/0abf3c34824db0571ad304d30f8505786b5d4835"
-        },
-        "date": 1783754074111,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.345636,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.941855,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.984527,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.375308,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01306,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.337274,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502807,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070313,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.422723,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.943686,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.744402,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.039783,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.531775,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.690753,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042949,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045017,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "d8c9ee8f872f7783be680bb4e4ff747a3ea3018c",
+          "message": "Release v0.19.0",
+          "timestamp": "2026-07-18T14:28:45+05:30",
+          "tree_id": "cd0c907acc7afea0a4f5237d1c3cf7b03bbc03ff",
+          "url": "https://github.com/kaappi/kaappi/commit/d8c9ee8f872f7783be680bb4e4ff747a3ea3018c"
+        },
+        "date": 1784367234748,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.433061,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.643342,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.914219,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.546618,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006349,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053684,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505684,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069884,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.460191,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.929084,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596989,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426346,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.845477,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.723538,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043895,
             "unit": "seconds"
           }
         ]
