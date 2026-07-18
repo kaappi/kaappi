@@ -13,6 +13,10 @@ var rt_gc: memory.GC = undefined;
 pub export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
     const allocator = std.heap.c_allocator;
 
+    // Native binaries do flonum arithmetic too: restore the IEEE default
+    // FP mode on platforms that boot with flush-to-zero (NetBSD/aarch64).
+    platform.normalizeFpEnvBestEffort();
+
     rt_gc = memory.GC.init(allocator);
 
     if (platform.getenv("KAAPPI_GC_THRESHOLD")) |env_ptr| {
