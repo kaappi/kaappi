@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   input ports, so `read-u8`, `read-bytevector`, and `u8-ready?` operate on
   them directly. See `lib/srfi/271*.sld` and `tests/scheme/srfi/srfi271.scm`.
 
+### Fixed
+
+- **`--lib-path` entries past the 16th are no longer silently dropped**
+  (#1653) — two fixed `[16]` buffers (CLI storage in `cli.zig` and the
+  search-path assembly in `main.zig`) capped the library search path with
+  no diagnostic, so a 17th `--lib-path` — or the auto-discovered dirs
+  (script directory, `~/.kaappi/lib`, exe-relative `lib`) once 16 explicit
+  ones existed — vanished. Both now grow dynamically. Same silent-data-loss
+  shape as the CLI-argument cap fixed in #1652.
+
 ## [0.19.0] - 2026-07-18
 
 ### Added
