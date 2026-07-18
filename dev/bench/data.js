@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784395259169,
+  "lastUpdate": 1784396031410,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "54706a0c92b8ed81b4370fd67eb4dfb0512627ee",
-          "message": "Scheduler integration: io_waiting, runSchedulerStep, reactor park (KEP-0001 P2) (#1453)\n\n* Scheduler integration: io_waiting, runSchedulerStep, reactor park (KEP-0001 P2)\n\nWires the Phase 1 reactor (kaappi/kaappi#1446) into the fiber scheduler.\nCollapses the four structurally identical scheduler-dispatch loops\n(channel-receive/fiber-join, thread-join!, mutex-lock!, condition-variable\nwaits) into one shared runSchedulerStep, whose idle branch parks in the\nreactor instead of a bare break or a whole-thread nanosleep. thread-sleep!\nis reimplemented as a timed reactor park, so it no longer stalls sibling\nfibers. The fixed 64-fiber table becomes a growable list, and per-fiber\nsave/restore is bounded to the live register/frame window instead of\nmemcpying the VM's entire register file on every switch.\n\nAlso fixes two bugs surfaced by this refactor:\n- Object.as() relied on every GC-tracked struct's `header: Object` field\n  sitting at byte offset 0, which Zig's auto struct layout does not\n  guarantee; adding fields to Fiber broke it for that type. Switched to\n  @fieldParentPtr and pointer-to-header encoding, which is layout-independent.\n- Native-primitive args slices point into vm.registers, which\n  runSchedulerStep can reallocate while recursively dispatching other\n  fibers; reading args[] after that point was a use-after-free. Values\n  needed post-dispatch are now captured into locals beforehand.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add a timer-only WASI reactor backend to fix the wasm build\n\nreactor.zig's Backend switch only handled kqueue (macOS) and epoll\n(Linux); everything else, including wasm32-wasi, hit a @compileError.\nPhase 1 left Reactor completely unreferenced, so this never surfaced —\nPhase 2 added a reactor field to VM, and VM.deinit() calls\nreactor.deinit(), which now forces the compiler to fully resolve\nReactor's type (including Backend) for every target the VM compiles\nfor, wasm included.\n\nFull poll_oneoff-based fd support is KEP-0001 Phase 4 work. Nothing\nregisters a port's fd with the reactor before Phase 3, so the only path\nthat needs to work on wasm today is a plain wait bounded by the timer\nheap's nearest deadline — what thread-sleep! and timed mutex/join/\ncondvar waits need. Verified locally: zig build wasm succeeds, the CI\nsmoke test (wasmtime run ... tests/wasm/smoke.scm) passes unchanged,\nand spawn/channel-send/channel-receive/fiber-join all work correctly\nunder wasmtime, exercising this backend's wait() path end to end.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix scheduler review findings: timer starvation, OOM safety, deadlock detection\n\n- schedule() now pops expired reactor timers every tick (not just when\n  idle), fixing a regression where a timed mutex-lock!/thread-join!/\n  condvar wait next to a busy sibling fiber missed its deadline by up\n  to a full timeout period instead of firing promptly.\n- threadJoinFn's fiber path clears me.deadline_ns after its wait\n  resolves, matching the other three wait sites — a stale deadline\n  previously carried an unrelated addTimer entry into a fiber's next,\n  untimed wait, which could hang forever or resolve on the wrong event.\n- mutex-lock!, thread-join!, and condvar wait now check\n  runSchedulerStep's return value and raise a deadlock error instead\n  of silently assuming success when nothing could ever wake them.\n  Also fixes runSchedulerStep itself: it read ctx.isDone() after\n  already forcing the fiber back to .running, which made CondVarWait's\n  isDone() (keyed on fiber status) always report true.\n- saveCurrentFiber/restoreFiber (and their grow helpers) now propagate\n  allocation failure instead of swallowing it and continuing to memcpy\n  into a buffer that silently stayed too small.\n- thread-terminate! cancels the victim's pending reactor timer, and\n  Reactor.markRoots's doc comment now reflects that this makes the\n  timer heap a load-bearing GC root, not just belt-and-braces.\n- WasiBackend.wait propagates a non-EINTR nanosleep failure as\n  error.Unexpected instead of silently treating it as a normal wakeup.\n\n* Fix popExpiredTimers OOM ordering bug, add regression tests for prior fixes\n\n- popExpiredTimers popped a timer off the heap before appending its\n  fiber to the ready list; if the append allocation failed, that fiber\n  was dropped from both places and would never wake. Append first, pop\n  only on success (CodeRabbit finding on the previous commit).\n- Add two smoke tests for the two confirmed regressions fixed earlier\n  (timer starvation next to a busy sibling; stale deadline_ns causing\n  a false non-deadlock read). Verified both fail against the pre-fix\n  code (643c50f1) before being added, per repo policy that bug fixes\n  ship with a test that fails without them.\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T18:47:50Z",
-          "tree_id": "ff9b213148b9c630f74f0a1e68561115bac6d496",
-          "url": "https://github.com/kaappi/kaappi/commit/54706a0c92b8ed81b4370fd67eb4dfb0512627ee"
-        },
-        "date": 1783797249078,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.36703,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.92416,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.907571,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.472935,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006471,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054194,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510899,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069925,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.425548,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.010707,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.564048,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429739,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.880032,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.675291,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044309,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044929,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aae508f8588c6b730fc370525bc514bc16df9d5f",
+          "message": "Bump softprops/action-gh-release in the github-actions group (#1633)\n\nBumps the github-actions group with 1 update: [softprops/action-gh-release](https://github.com/softprops/action-gh-release).\n\n\nUpdates `softprops/action-gh-release` from 3.0.1 to 3.0.2\n- [Release notes](https://github.com/softprops/action-gh-release/releases)\n- [Changelog](https://github.com/softprops/action-gh-release/blob/master/CHANGELOG.md)\n- [Commits](https://github.com/softprops/action-gh-release/compare/718ea10b132b3b2eba29c1007bb80653f286566b...3d0d9888cb7fd7b750713d6e236d1fcb99157228)\n\n---\nupdated-dependencies:\n- dependency-name: softprops/action-gh-release\n  dependency-version: 3.0.2\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-18T22:27:37+05:30",
+          "tree_id": "e98b5ed284eb1ffdda4e1c140aa6d7928ec957d7",
+          "url": "https://github.com/kaappi/kaappi/commit/aae508f8588c6b730fc370525bc514bc16df9d5f"
+        },
+        "date": 1784396030514,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.065739,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.500577,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.934779,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.408284,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006673,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05257,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509716,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067994,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.227055,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.996,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.509265,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.477189,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.746759,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.884294,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045216,
             "unit": "seconds"
           }
         ]
