@@ -312,7 +312,18 @@ fn addImportDep(b: *DepBuilder, spec: Value) void {
     const lib_name = unwrapImportSpec(spec) orelse return;
     var rel_buf: [512]u8 = undefined;
     const rel = vm_library.buildLibRelPath(lib_name, &rel_buf) catch return;
-    const resolved = vm_library.resolveLibraryPath(b.ctx.arena, rel, b.ctx.lib_paths) orelse return;
+    if (vm_library.resolveLibraryPath(b.ctx.arena, rel, b.ctx.lib_paths)) |resolved| {
+        if (toAbs(b.ctx.arena, b.ctx.cwd, resolved)) |abs| b.addDep(abs);
+        return;
+    }
+    // SRFI 261 (#1645): (srfi srfi-<n> …) / (srfi <mnemonic>-<n> …) resolve
+    // to srfi/<n>[/…].sld when the literal name has no file. Mirror the import
+    // resolver's literal-first fallback — otherwise such an import looks
+    // built-in ("no .sld on disk", above) and its dep edge is silently
+    // dropped, under-selecting suites without tripping the incomplete flag.
+    var buf261: [512]u8 = undefined;
+    const rel261 = vm_library.buildSrfi261RelPath(lib_name, &buf261) orelse return;
+    const resolved = vm_library.resolveLibraryPath(b.ctx.arena, rel261, b.ctx.lib_paths) orelse return;
     if (toAbs(b.ctx.arena, b.ctx.cwd, resolved)) |abs| b.addDep(abs);
 }
 
@@ -747,4 +758,34 @@ fn dupDeps(arena: std.mem.Allocator, deps: []const []const u8) ![][]const u8 {
     const out = try arena.alloc([]const u8, deps.len);
     for (deps, 0..) |d, i| out[i] = d;
     return out;
+}
+
+test "addImportDep: SRFI 261 forms keep their dep edge (#1645)" {
+    // Needs the repo's lib/ tree on disk; skip when the runner isn't at the
+    // repo root (resolveLibraryPath probes relative to the process cwd).
+    if (!platform.pathExists("lib/srfi/2.sld")) return;
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var changed = std.StringHashMap(void).init(arena);
+    var ctx = Ctx{
+        .arena = arena,
+        .cwd = "/repo",
+        .lib_paths = &.{},
+        .changed = &changed,
+        .memo = std.StringHashMap(Analysis).init(arena),
+    };
+
+    // Without the fallback this import resolves to no file and looks
+    // built-in, silently dropping the edge to srfi/2.sld.
+    const a = analyzeSource(&ctx, "/repo/tests/x.scm", "(import (scheme base) (srfi srfi-2))");
+    try testing.expectEqual(@as(usize, 1), a.deps.len);
+    try testing.expect(std.mem.endsWith(u8, a.deps[0], "lib/srfi/2.sld"));
+
+    // Mnemonic form with a sub-library tail: (srfi <word>-146 hash) → srfi/146/hash.sld.
+    const b = analyzeSource(&ctx, "/repo/tests/y.scm", "(import (srfi mnemonic-146 hash))");
+    try testing.expectEqual(@as(usize, 1), b.deps.len);
+    try testing.expect(std.mem.endsWith(u8, b.deps[0], "lib/srfi/146/hash.sld"));
 }

@@ -536,3 +536,133 @@ test "every spec name resolves in globals (drift guard)" {
         }
     }
 }
+
+// ── SRFI 261 (#1645): portable SRFI library references ──────────────────────
+// (srfi srfi-<n>) and (srfi <mnemonic>-<n>) resolve to (srfi <n>) as a
+// fallback; literal names win. Disk-backed forms are covered by
+// tests/scheme/srfi/srfi261.scm — these tests stay registry-only.
+
+const vm_library = @import("vm_library.zig");
+const reader_mod = @import("reader.zig");
+
+test "srfi 261: suffix parser accepts trailing -<digits> only" {
+    const s = vm_library.srfi261Suffix;
+    try std.testing.expectEqual(@as(?i64, 1), s("srfi-1"));
+    try std.testing.expectEqual(@as(?i64, 1), s("lists-1"));
+    try std.testing.expectEqual(@as(?i64, 69), s("basic-hash-tables-69"));
+    try std.testing.expectEqual(@as(?i64, 133), s("vectors-133"));
+    try std.testing.expectEqual(@as(?i64, 1), s("a-01")); // leading zeros parse
+    try std.testing.expectEqual(@as(?i64, null), s("srfi"));
+    try std.testing.expectEqual(@as(?i64, null), s("srfi-"));
+    try std.testing.expectEqual(@as(?i64, null), s("-1")); // no prefix before the dash
+    try std.testing.expectEqual(@as(?i64, null), s("lists-nope"));
+    try std.testing.expectEqual(@as(?i64, null), s("lists-1x"));
+    try std.testing.expectEqual(@as(?i64, null), s("a-+5")); // a sign is not a digit
+    try std.testing.expectEqual(@as(?i64, null), s("a-99999999999999999999")); // overflow
+}
+
+test "srfi 261: buildSrfi261RelPath splices the number over the second segment" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.no_collect += 1;
+
+    const cases = [_]struct { src: []const u8, want: ?[]const u8 }{
+        .{ .src = "(srfi srfi-2)", .want = "srfi/2.sld" },
+        .{ .src = "(srfi vectors-133)", .want = "srfi/133.sld" },
+        .{ .src = "(srfi lists-146 hash)", .want = "srfi/146/hash.sld" },
+        .{ .src = "(srfi 2)", .want = null }, // already numeric
+        .{ .src = "(scheme base)", .want = null }, // not srfi
+        .{ .src = "(srfi srfi-)", .want = null }, // no digits
+    };
+    for (cases) |c| {
+        var rdr = reader_mod.Reader.init(&gc, c.src);
+        defer rdr.deinit();
+        const name = try rdr.readDatum();
+        var buf: [512]u8 = undefined;
+        const got = vm_library.buildSrfi261RelPath(name, &buf);
+        if (c.want) |w| {
+            try std.testing.expectEqualStrings(w, got.?);
+        } else {
+            try std.testing.expect(got == null);
+        }
+    }
+}
+
+test "srfi 261: (srfi srfi-1) and (srfi lists-1) resolve to built-in (srfi 1)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (srfi srfi-1))");
+    const r1 = try vm.eval("(fold + 0 (list 1 2 3))");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(r1));
+
+    // Mnemonic form composes with import modifiers.
+    _ = try vm.eval("(import (only (srfi lists-1) last))");
+    const r2 = try vm.eval("(last (list 1 2 3))");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(r2));
+}
+
+test "srfi 261: sub-library components pass through" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (srfi srfi-254 ephemerons))");
+    const r = try vm.eval("(procedure? make-ephemeron)");
+    try std.testing.expect(r == types.TRUE);
+}
+
+test "srfi 261: a literal registry name shadows the rewrite" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // srfi/4.sld exists on disk, but a library registered under the literal
+    // hyphenated name must win over normalizing to (srfi 4).
+    _ = try vm.eval(
+        \\(define-library (srfi srfi-4)
+        \\  (import (scheme base))
+        \\  (export srfi261-shadow-marker)
+        \\  (begin (define srfi261-shadow-marker 42)))
+    );
+    _ = try vm.eval("(import (srfi srfi-4))");
+    const r = try vm.eval("srfi261-shadow-marker");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r));
+}
+
+test "srfi 261: malformed and missing names fail as library-not-found" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // No trailing digits: not a 261 form, plain not-found under the literal name.
+    try std.testing.expectError(th.VMError.CompileError, vm.eval("(import (srfi srfi-))"));
+    var detail = vm.last_error_detail[0..vm.last_error_detail_len];
+    try std.testing.expect(std.mem.startsWith(u8, detail, "library not found: (srfi.srfi-)"));
+
+    try std.testing.expectError(th.VMError.CompileError, vm.eval("(import (srfi lists-nope))"));
+
+    // Well-formed 261 name whose target doesn't exist: the message names the
+    // original spelling and the resolved number.
+    try std.testing.expectError(th.VMError.CompileError, vm.eval("(import (srfi srfi-99999))"));
+    detail = vm.last_error_detail[0..vm.last_error_detail_len];
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(srfi.srfi-99999)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "srfi 261 form of (srfi 99999)") != null);
+}
+
+test "srfi 261: cond-expand (library ...) sees 261 forms" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r1 = try vm.eval("(cond-expand ((library (srfi srfi-1)) 1) (else 0))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try vm.eval("(cond-expand ((library (srfi srfi-99999)) 1) (else 0))");
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(r2));
+}
