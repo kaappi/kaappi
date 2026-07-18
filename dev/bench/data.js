@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784367236403,
+  "lastUpdate": 1784371396840,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fae98918f9548ae2c2243e69fdce2f9ee75b1202",
-          "message": "Fix correctness gaps in the /do-stress-test skill (#1430) (#1433)\n\n- Split sanity check into separate SSH commands with direct exit code\n  capture instead of piping through tail (which masked build failures)\n- Pin exact commit SHA in pre-flight and fetch by SHA on the droplet\n  so reports are attributable to a specific commit\n- Add explicit substitution instruction for the quoted heredoc\n- Move self-destruct timer to after provisioning and sanity check so\n  it doesn't eat the stress suite's 3-hour budget\n- Add /do-stress-test and /do-linux-test entries to harness docs\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T12:15:13+05:30",
-          "tree_id": "c11299f1fccbe9b6171a4316733f26c081b2d3cc",
-          "url": "https://github.com/kaappi/kaappi/commit/fae98918f9548ae2c2243e69fdce2f9ee75b1202"
-        },
-        "date": 1783754242970,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332236,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.665299,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.989477,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.362535,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013118,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.337898,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502284,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070103,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.425168,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.947435,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.748699,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.036082,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.553135,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695493,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043242,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043895,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e19c06ccaa1a47a99a50ee2aec8657b89b645b20",
+          "message": "Add SRFI 263 (Prototype Object System) (#1640)\n\n* Add SRFI 263 (Prototype Object System)\n\nImplements the Self-inspired prototype object system as two portable\nlibraries — (srfi 263) for the core message-passing/reflection protocol\nand (srfi 263 syntax) for the define-object/derive-object/copy-object/\nset-method! sugar — loaded on demand like the other portable SRFIs.\nCloses #1638.\n\nPorted from Daniel Ziltener's reference implementation. The reference\ntargets CHICKEN and leans on a few things R7RS leaves unspecified, so\nthe port makes them portable and, where the reference is simply broken,\nmatches the SRFI's documented behavior instead (each site is marked\n\"Kaappi:\"):\n\n  * The private symbol ##srfi-263#obj-data is bar-quoted so a strict\n    R7RS reader accepts it, and the dead first copy of recursive-lookup\n    is dropped.\n  * The root 'derive method returns a single value rather than relying\n    on CHICKEN truncating (values obj data) in a single-value context —\n    without this even basic derivation fails.\n  * copy/copy-object never worked in the reference (it sends the mirror\n    'get-* messages no mirror understands, and its methods captured the\n    original's data). It now uses the real 'immediate-* messages and\n    re-installs 'mirror so a copy is an independent duplicate.\n  * An unhandled message now re-dispatches message-not-understood /\n    ambiguous-message-send to the receiver, so a custom handler slot can\n    intercept it as the SRFI requires; the reference applied the bare\n    symbol and could not be overridden.\n\nThe portable-SRFI count is generated by scanning lib/srfi/*.sld, so\nkaappi features and the docs move to 73 SRFIs (65 portable). A\nconformance suite in tests/scheme/srfi/srfi263.scm ports the reference\ntests and adds coverage for reflection, working copy, custom handlers,\nand the syntax macros (51 checks).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address SRFI 263 review: reflection, copy, define-method\n\nFixes found in code review — all latent bugs in reference-implementation\npaths the reference's own test suite never exercised, plus spec-compliance\ngaps. Each site is marked \"Kaappi:\".\n\nCore (lib/srfi/263.sld):\n  * full-slot-list crashed: it unioned slot *records* with (car slot).\n    Dedup by slot-getter, and include the receiver's own slots by folding\n    (list self) into recursive-ancestor-collector (which previously kept\n    self only in the no-parents base case).\n  * Mirror reflection ran the recursive collectors against the mirror\n    receiver, so full-ancestor-list / full-slot-list returned mirror\n    objects instead of the real ancestors/slots. Thread the mirrored\n    object through populate-mirror and drive the collectors from it.\n  * Add the has-ancestor mirror message the SRFI lists but the reference\n    omits.\n  * The root's set-method-slot! slot recorded the procedure instead of the\n    'set-method-slot! message name; quote it so reflection and deletion by\n    name work.\n  * copy of the parentless root object aliased the global root (mirror\n    reinstall was skipped when there were no parents); always reinstall,\n    falling back to the root object as the mirror base.\n\nSyntax (lib/srfi/263/syntax.sld):\n  * Export define-method — the name the SRFI specifies — as the primary\n    method macro; keep set-method! (the reference's name) as an alias.\n\nDocumented as a known limitation (a gap in the finalized SRFI itself):\n  * (resend #f ...) from a method inherited from a non-immediate ancestor\n    loops; a correct fix needs a distinct-origin lookup the SRFI never\n    specified. Noted in the source header and CONFORMANCE.md.\n\nTests (tests/scheme/srfi/srfi263.scm): rewritten to SRFI-64 per\ntests/scheme/CLAUDE.md, and extended to cover full-slot-list, has-ancestor,\nreal-object ancestry, resend to super, private (non-symbol) selectors,\nroot-copy independence, define-method vs the set-method! alias, and\nnamed-parent expansion of derive-object / copy-object. 64 checks.\n\nAlso lists (srfi 263 syntax) in CONFORMANCE.md's sub-library inventory.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T15:40:50+05:30",
+          "tree_id": "4ef56f3eef34875ff9368c49b4bf163a6a107655",
+          "url": "https://github.com/kaappi/kaappi/commit/e19c06ccaa1a47a99a50ee2aec8657b89b645b20"
+        },
+        "date": 1784371395422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378553,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.753562,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.905248,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.459721,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006336,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053678,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504515,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070038,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.436179,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.93099,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.573947,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43215,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.824229,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.58501,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047105,
             "unit": "seconds"
           }
         ]
