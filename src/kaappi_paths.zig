@@ -122,6 +122,18 @@ pub fn getExePath(buf: []u8) ?[]const u8 {
         return buf[0 .. len - 1]; // len counts the terminating NUL
     }
 
+    if (comptime @import("builtin").os.tag == .netbsd) {
+        // Same kernel-canonical lookup as FreeBSD, but NetBSD files it under
+        // the KERN_PROC_ARGS node: {KERN, PROC_ARGS, pid, PROC_PATHNAME},
+        // pid -1 = calling process. procfs (which would offer
+        // /proc/curproc/exe) is typically not mounted.
+        var mib = [4]c_int{ std.c.CTL.KERN, std.c.KERN.PROC_ARGS, -1, std.c.KERN.PROC_PATHNAME };
+        var len: usize = buf.len;
+        if (std.c.sysctl(&mib, mib.len, buf.ptr, &len, null, 0) != 0) return null;
+        if (len <= 1) return null;
+        return buf[0 .. len - 1]; // len counts the terminating NUL
+    }
+
     if (comptime @import("builtin").os.tag == .openbsd) {
         return openbsdExePath(buf);
     }

@@ -77,9 +77,9 @@ Implemented: **Threads** — `current-thread`, `thread?`, `make-thread`, `thread
 
 Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM and GC with an independent heap. Values are deep-copied across thread boundaries at start and join.
 
-### Portable SRFIs (64 libraries)
+### Portable SRFIs (65 libraries)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 271 randomized), (srfi 271 determinized).
 
 | SRFI | Title |
 |------|-------|

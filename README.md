@@ -44,7 +44,7 @@ No install needed — run Scheme in your browser at the
 
 ## Installation
 
-### Install script (macOS, Linux)
+### Install script (macOS, Linux, FreeBSD, OpenBSD, NetBSD)
 
 ```bash
 curl -fsSL https://kaappi-lang.org/install.sh | bash
@@ -52,7 +52,10 @@ curl -fsSL https://kaappi-lang.org/install.sh | bash
 
 This installs `kaappi` and `thottam` (the package manager) to `~/.local/bin/`
 and the standard libraries to `~/.kaappi/lib/`, verifying SHA256 checksums
-along the way.
+along the way. On the BSDs the script works from the base system alone —
+when neither `curl` nor `wget` is installed it falls back to the base
+`fetch` (FreeBSD) or `ftp` (OpenBSD, NetBSD) for downloads and `sha256`
+for verification.
 
 Prebuilt binaries for every platform are on the
 [releases page](https://github.com/kaappi/kaappi/releases/latest). macOS
@@ -86,6 +89,7 @@ zig build test                       # run the unit tests
 | Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
+| NetBSD | x86_64, aarch64 | yes | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
@@ -119,6 +123,16 @@ both automatic: each binary is marked `PT_OPENBSD_NOBTCFI` at build time
 to opt out of BTCFI enforcement (Zig 0.16 emits no BTI landing pads), and
 the interpreter raises its own stack limit at startup to clear OpenBSD's
 tight 4 MiB default. See [`docs/dev/openbsd.md`](docs/dev/openbsd.md).
+
+The NetBSD port (`zig build -Dtarget=x86_64-netbsd` or `aarch64-netbsd`)
+completes the BSD trio — the same full-POSIX kqueue feature set, verified
+on NetBSD 10.1. The runtime binds NetBSD's versioned libc symbols
+explicitly (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names
+are old-ABI compat symbols that silently misparse modern structs) and
+resets the aarch64 FPCR at startup, which NetBSD boots in flush-to-zero
+mode that would break IEEE gradual underflow. The native backend
+(`kaappi compile`) needs clang from pkgsrc — NetBSD's base `cc` is GCC,
+which can't consume LLVM IR. See [`docs/dev/netbsd.md`](docs/dev/netbsd.md).
 
 ## A taste of Kaappi
 

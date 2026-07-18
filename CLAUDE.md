@@ -106,6 +106,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
 | FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
 | OpenBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-openbsd`; kqueue reactor; binaries auto-marked `PT_OPENBSD_NOBTCFI`; see `docs/dev/openbsd.md` |
+| NetBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-netbsd`; kqueue reactor; versioned libc symbols bound explicitly; aarch64 FPCR reset at startup; see `docs/dev/netbsd.md` |
 | WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
@@ -122,6 +123,12 @@ for OpenBSD — a kqueue port whose binaries are auto-marked
 `PT_OPENBSD_NOBTCFI` (a post-link patch, `tools/openbsd_nobtcfi.zig`, wired
 into `build.zig`) to survive BTCFI enforcement, since Zig 0.16 emits no BTI
 landing pads (`docs/dev/openbsd.md`).
+`zig build -Dtarget=aarch64-netbsd` (or `x86_64-netbsd`) cross-compiles
+for NetBSD — a kqueue port that binds NetBSD's versioned libc symbols
+explicitly (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names
+are old-ABI compat symbols) and resets the aarch64 FPCR at startup
+(NetBSD boots processes in flush-to-zero mode); the native backend needs
+pkgsrc clang since base cc is GCC (`docs/dev/netbsd.md`).
 Porting to a new OS or CPU architecture: `docs/dev/porting.md` (porting
 surfaces, degradation ladder, staged checklists).
 
