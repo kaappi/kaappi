@@ -53,8 +53,9 @@ curl -fsSL https://kaappi-lang.org/install.sh | bash
 This installs `kaappi` and `thottam` (the package manager) to `~/.local/bin/`
 and the standard libraries to `~/.kaappi/lib/`, verifying SHA256 checksums
 along the way. On the BSDs the script works from the base system alone —
-it falls back to `fetch`/`ftp` for downloads and `sha256` for verification
-when `curl` isn't installed.
+when neither `curl` nor `wget` is installed it falls back to the base
+`fetch` (FreeBSD) or `ftp` (OpenBSD, NetBSD) for downloads and `sha256`
+for verification.
 
 Prebuilt binaries for every platform are on the
 [releases page](https://github.com/kaappi/kaappi/releases/latest). macOS
