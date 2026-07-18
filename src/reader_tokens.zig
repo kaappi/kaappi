@@ -497,6 +497,7 @@ pub fn readHash(self: *Reader) ReadError!Token {
             return .{ .boolean = false };
         },
         '\\' => return readCharacter(self),
+        '"' => return readRawString(self), // SRFI 267 raw string: #"X"..."X"
         '(' => {
             self.pos += 1;
             return .hash_lparen;
@@ -576,6 +577,53 @@ pub fn readHash(self: *Reader) ReadError!Token {
         },
         else => return ReadError.UnexpectedChar,
     }
+}
+
+/// Parse an SRFI 267 raw string literal. Called from `readHash` with `self.pos`
+/// pointing at the opening `"` (the byte right after `#`). Grammar:
+///
+///     ⟨raw string (X)⟩ ⩴ `#"` X `"` ⟨internal⟩ `"` X `"`
+///
+/// where the delimiter X is any run of bytes not containing `"`, and the
+/// internal content is the longest run that does not contain the terminator
+/// sequence `"` X `"`. No escape sequences are interpreted — every byte between
+/// the opening and terminating delimiters is copied verbatim (newlines
+/// included). The byte-level scan is UTF-8-safe because `"` (0x22) never appears
+/// as a continuation byte in a valid multi-byte sequence.
+pub fn readRawString(self: *Reader) ReadError!Token {
+    self.pos += 1; // consume opening `"`
+
+    // Delimiter X: bytes up to the next `"`. Stopping at `"` guarantees X holds
+    // no `"`, so it is always a ⟨valid delimiter⟩.
+    const delim_start = self.pos;
+    while (self.pos < self.source.len and self.source[self.pos] != '"') {
+        self.pos += 1;
+    }
+    if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+    const delim = self.source[delim_start..self.pos];
+    self.pos += 1; // consume the `"` closing the delimiter / opening the content
+
+    // Terminator is `"` ++ delim ++ `"`. Copy bytes until its leftmost match.
+    self.token_buf.clearRetainingCapacity();
+    while (self.pos < self.source.len) {
+        if (self.source[self.pos] == '"' and matchesRawTerminator(self, delim)) {
+            self.pos += delim.len + 2; // consume the whole terminator
+            return .{ .string = self.token_buf.items };
+        }
+        if (self.token_buf.items.len >= Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+        self.token_buf.append(self.gc.allocator, self.source[self.pos]) catch return ReadError.OutOfMemory;
+        self.pos += 1;
+    }
+    return ReadError.UnterminatedString;
+}
+
+/// True when the bytes at `self.pos` are the raw-string terminator `"` delim `"`.
+/// The caller has already checked that `self.source[self.pos] == '"'`.
+fn matchesRawTerminator(self: *Reader, delim: []const u8) bool {
+    const need = delim.len + 2;
+    if (self.pos + need > self.source.len) return false;
+    if (!std.mem.eql(u8, self.source[self.pos + 1 .. self.pos + 1 + delim.len], delim)) return false;
+    return self.source[self.pos + 1 + delim.len] == '"';
 }
 
 pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {

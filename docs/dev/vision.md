@@ -38,7 +38,7 @@ interacting with continuations, `syntax-rules` with nested ellipsis, proper
 Unicode case-folding in identifiers — is where implementations diverge from the
 standard. Kaappi does the last 10%.
 
-This extends to the ecosystem: 72 SRFIs, a C FFI, a package manager, TCP/TLS
+This extends to the ecosystem: 73 SRFIs, a C FFI, a package manager, TCP/TLS
 networking, database clients, a web framework. A language is only as useful as
 the things you can build with it without leaving it.
 

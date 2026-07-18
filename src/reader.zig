@@ -596,6 +596,11 @@ fn readAndPrint(gc: *memory.GC, input: []const u8) ![]u8 {
     return printer.valueToString(gc.allocator, val, .write);
 }
 
+fn readAndDisplay(gc: *memory.GC, input: []const u8) ![]u8 {
+    const val = try readString(gc, input);
+    return printer.valueToString(gc.allocator, val, .display);
+}
+
 test "read integers" {
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
@@ -679,6 +684,71 @@ test "read string" {
     const s = try readAndPrint(&gc, "\"hello world\"");
     defer testing.allocator.free(s);
     try testing.expectEqualStrings("\"hello world\"", s);
+}
+
+test "read raw string with empty delimiter" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // #""abc""  ->  abc
+    const s = try readAndDisplay(&gc, "#\"\"abc\"\"");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("abc", s);
+}
+
+test "read raw string does not interpret escapes" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // #""a\nb""  ->  literal backslash-n, four characters, no newline.
+    const disp = try readAndDisplay(&gc, "#\"\"a\\nb\"\"");
+    defer testing.allocator.free(disp);
+    try testing.expectEqualStrings("a\\nb", disp);
+
+    // write mode round-trips the backslash as an escaped backslash.
+    const wr = try readAndPrint(&gc, "#\"\"a\\nb\"\"");
+    defer testing.allocator.free(wr);
+    try testing.expectEqualStrings("\"a\\\\nb\"", wr);
+}
+
+test "read raw string with custom delimiter and embedded quotes" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // #"end"he said "hi""end"  ->  he said "hi"
+    const s = try readAndDisplay(&gc, "#\"end\"he said \"hi\"\"end\"");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("he said \"hi\"", s);
+}
+
+test "read raw string content may embed the delimiter char" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // #"xx"a"x"b"xx"  ->  a"x"b  (leftmost "xx" terminator wins)
+    const s = try readAndDisplay(&gc, "#\"xx\"a\"x\"b\"xx\"");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("a\"x\"b", s);
+}
+
+test "read raw string preserves newlines verbatim" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // #"|"a<newline>b"|"  ->  a<newline>b
+    const s = try readAndDisplay(&gc, "#\"|\"a\nb\"|\"");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("a\nb", s);
+}
+
+test "read raw string errors on missing terminator" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // Content never closed by the terminating `""`.
+    try testing.expectError(ReadError.UnterminatedString, readString(&gc, "#\"\"abc"));
+    // Delimiter never closed by a `"`.
+    try testing.expectError(ReadError.UnterminatedString, readString(&gc, "#\"abc"));
 }
 
 test "read empty list" {
