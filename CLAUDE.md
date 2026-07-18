@@ -114,11 +114,12 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
 `zig build -Dtarget=aarch64-windows` (or `x86_64-windows`) cross-compiles
 the Windows binaries (kaappi.exe, thottam.exe, kaappi-lsp.exe);
-syscall-level platform differences live in `src/platform.zig` — both
-arches share the same OS-gated code (see `docs/dev/windows.md` for the
-port's architecture, degradations, and how to test on a Windows machine;
-x86_64 also builds natively with the stock Zig toolchain, and x64
-binaries run on the ARM64 reference VM via Windows' x64 emulation).
+syscall-level platform differences live behind the `src/platform.zig`
+facade (Windows ABI/socket/pipe helpers in `src/platform_win*.zig`) —
+both arches share the same OS-gated code (see `docs/dev/windows.md` for
+the port's architecture, degradations, and how to test on a Windows
+machine; x86_64 also builds natively with the stock Zig toolchain, and
+x64 binaries run on the ARM64 reference VM via Windows' x64 emulation).
 `zig build -Dtarget=aarch64-freebsd` (or `x86_64-freebsd`) cross-compiles
 for FreeBSD — a full-POSIX port with no degradations (`docs/dev/freebsd.md`).
 `zig build -Dtarget=aarch64-openbsd` (or `x86_64-openbsd`) cross-compiles

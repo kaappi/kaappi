@@ -308,11 +308,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check results
+        # Every leg must be exactly `success` — a cancelled or skipped
+        # job is not an acceptance pass.
         run: |
           results="${{ needs.test-checksums.result }} ${{ needs.test-macos.result }} ${{ needs.test-linux-x86.result }} ${{ needs.test-linux-arm.result }} ${{ needs.test-windows-x64.result }} ${{ needs.test-wasm.result }} ${{ needs.test-install-script.result }}"
           echo "Job results: $results"
-          if echo "$results" | grep -q "failure"; then
-            echo "One or more acceptance tests failed"
-            exit 1
-          fi
+          for r in $results; do
+            if [ "$r" != "success" ]; then
+              echo "One or more acceptance tests did not succeed"
+              exit 1
+            fi
+          done
           echo "All acceptance tests passed"

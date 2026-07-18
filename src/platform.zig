@@ -10,14 +10,19 @@
 //! and calls the wide CRT entry points so non-ASCII paths work regardless
 //! of the active ANSI code page.
 //!
-//! Fd readiness on Windows is socket-only (#1608 stage 1): ports whose
-//! CRT fd wraps a SOCKET (isSocketFd probe) flip to non-blocking via
-//! FIONBIO and get reactor-driven fiber suspension through WSAEventSelect
-//! (reactor.zig's WindowsEventBackend), reading/writing through
-//! sockRecv/sockSend. Pipes and files have no would-block mode at the CRT
-//! layer, so their fiber I/O still degrades to blocking reads — the same
-//! shape as a WASI host whose NONBLOCK probe fails. Sequential programs
-//! and timer-driven fibers are unaffected either way.
+//! Fd readiness on Windows (#1608): ports whose CRT fd wraps a SOCKET
+//! (isSocketFd probe) flip to non-blocking via FIONBIO and get
+//! event-driven fiber suspension through WSAEventSelect (reactor.zig's
+//! WindowsEventBackend), reading/writing through sockRecv/sockSend.
+//! Pipe ports have no OS-level would-block mode, so they enter *emulated*
+//! non-blocking mode under a scheduler: pipeRead/pipeWrite's
+//! non-destructive pre-checks synthesize EAGAIN and the reactor re-polls
+//! the same checks on a 10 ms quantum (platform_win_pipe.zig). File
+//! ports keep blocking reads — the POSIX baseline too, since no OS has
+//! regular-file readiness. Sequential programs and timer-driven fibers
+//! are unaffected either way. This file is the public facade; the
+//! Windows ABI declarations and the socket/pipe helpers live in
+//! platform_win.zig, platform_win_sock.zig, and platform_win_pipe.zig.
 
 const std = @import("std");
 const builtin = @import("builtin");

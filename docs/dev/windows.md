@@ -3,9 +3,12 @@
 Kaappi builds and runs on Windows 11, on both ARM64 and x86_64. The port
 keeps the runtime's integer-fd POSIX-shaped I/O layer intact by mapping
 it onto the C runtime's low-level io functions, and concentrates every
-syscall-level platform difference in one file. Everything below is
-OS-gated, not arch-gated — both architectures run the same platform
-code; only the toolchain caveats differ.
+syscall-level platform difference behind one facade — `src/platform.zig`,
+whose Windows ABI declarations and socket/pipe helpers live in
+`src/platform_win.zig`, `src/platform_win_sock.zig`, and
+`src/platform_win_pipe.zig`. Everything below is OS-gated, not
+arch-gated — both architectures run the same platform code; only the
+toolchain caveats differ.
 
 ```bash
 zig build -Dtarget=aarch64-windows        # kaappi.exe, thottam.exe, kaappi-lsp.exe
