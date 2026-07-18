@@ -431,6 +431,10 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .group_info,
         .directory_object,
         .scheme_environment,
+        // SRFI-254 weak references are tied to one GC's collection cycle.
+        .ephemeron,
+        .guardian,
+        .transport_cell,
         => return error.UncopyableType,
     };
 }

@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-74 SRFIs supported. 8 built-in (native Zig), 66 portable (.sld files). Coverage details for the built-in SRFIs follow.
+75 SRFIs supported. 9 built-in (native Zig), 66 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -76,6 +76,14 @@ Implemented: File info (`file-info`, `file-info?`, `file-info-type`, all `file-i
 Implemented: **Threads** — `current-thread`, `thread?`, `make-thread`, `thread-name`, `thread-specific`, `thread-specific-set!`, `thread-start!`, `thread-yield!`, `thread-sleep!`, `thread-terminate!`, `thread-join!`. **Mutexes** — `mutex?`, `make-mutex`, `mutex-name`, `mutex-specific`, `mutex-specific-set!`, `mutex-state`, `mutex-lock!`, `mutex-unlock!`. **Condition variables** — `condition-variable?`, `make-condition-variable`, `condition-variable-name`, `condition-variable-specific`, `condition-variable-specific-set!`, `condition-variable-signal!`, `condition-variable-broadcast!`. **Time** — `current-time`, `time?`, `time->seconds`, `seconds->time`. **Exceptions** — `join-timeout-exception?`, `abandoned-mutex-exception?`, `terminated-thread-exception?`, `uncaught-exception?`, `uncaught-exception-reason`.
 
 Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM and GC with an independent heap. Values are deep-copied across thread boundaries at start and join.
+
+### SRFI 254 — Ephemerons and Guardians
+
+**Coverage: 100%** of the exported identifiers, across `(srfi 254)` and the component libraries `(srfi 254 ephemerons)`, `(srfi 254 guardians)`, `(srfi 254 transport-cell-guardians)`, and `(srfi 254 ephemerons-and-guardians)`.
+
+Implemented: **Ephemerons** — `make-ephemeron`, `ephemeron?`, `ephemeron-key`, `ephemeron-value`, `ephemeron-broken?`, `ephemeron-ref`. The garbage collector retains an ephemeron's value only while its key is reachable through a path that does not pass through the value, so an ephemeron breaks even when its value references its key (the case a plain weak-key pair gets wrong). **Guardians** — `make-guardian`, `guardian?`; a guardian is itself a procedure, registering elements with `(g obj [rep])` and returning resurrected representatives with `(g)`. **Transport cell guardians** — `make-transport-cell-guardian`, `transport-cell-guardian?`, `transport-cell?`, `transport-cell-key`, `transport-cell-value`, `transport-cell-broken?`, `current-hash`. **Shared** — `reference-barrier`.
+
+Kaappi's collector is non-moving, so `current-hash` is a stable identity hash and transport cell guardians are degenerate: a key is never transported, so a registered cell never breaks and a zero-argument transport-cell-guardian call always returns `#f`. On break, an ephemeron's key and value both read as `#f` (the value is cleared for memory safety once it is no longer retained).
 
 ### Portable SRFIs (66 libraries)
 

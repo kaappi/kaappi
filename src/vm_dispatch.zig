@@ -588,6 +588,18 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
+                } else if (types.isGuardian(callee)) {
+                    // invokeGuardian may allocate (transport register) and grow
+                    // self.frames, invalidating `frame` — read dst first.
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.invokeGuardian(self, callee, self.registers[abs_base + 1 .. abs_base + 1 + @as(usize, nargs)]);
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
                 } else {
                     self.setErrorDetail("not a procedure", .{});
                     return VMError.NotAProcedure;
@@ -752,6 +764,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         try self.setParameterValue(param, new_val);
                         break :blk types.VOID;
                     };
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
+                } else if (types.isGuardian(proc)) {
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.invokeGuardian(self, proc, flat_args[0..count]);
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);

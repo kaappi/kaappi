@@ -54,6 +54,13 @@ pub const Lib = enum {
     srfi_69,
     srfi_133,
     srfi_170,
+    // SRFI-254 (Ephemerons and Guardians): a composite library plus the three
+    // component libraries and the (srfi 254 ephemerons-and-guardians) alias.
+    srfi_254,
+    srfi_254_ephemerons,
+    srfi_254_guardians,
+    srfi_254_transport_cell_guardians,
+    srfi_254_ephemerons_and_guardians,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
     /// for this tag, so `addExportsForLib` never picks these specs up.
@@ -86,6 +93,11 @@ pub const Lib = enum {
             .srfi_69 => "srfi.69",
             .srfi_133 => "srfi.133",
             .srfi_170 => "srfi.170",
+            .srfi_254 => "srfi.254",
+            .srfi_254_ephemerons => "srfi.254.ephemerons",
+            .srfi_254_guardians => "srfi.254.guardians",
+            .srfi_254_transport_cell_guardians => "srfi.254.transport-cell-guardians",
+            .srfi_254_ephemerons_and_guardians => "srfi.254.ephemerons-and-guardians",
             .internal => "kaappi.internal",
         };
     }
@@ -197,6 +209,7 @@ pub const all_specs = core_specs ++
     primitives_r7rs.specs ++
     (if (is_wasm) no_specs else primitives_ffi.specs) ++
     primitives_srfi1.specs ++
+    @import("primitives_srfi254.zig").specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
