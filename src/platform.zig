@@ -1,4 +1,4 @@
-//! Cross-platform syscall shim (Windows aarch64 target).
+//! Cross-platform syscall shim (Windows targets, aarch64 + x86_64).
 //!
 //! The runtime's I/O layer is built on integer file descriptors with
 //! POSIX read/write/open/close semantics. POSIX targets forward straight

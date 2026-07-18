@@ -86,7 +86,7 @@ zig build test                       # run the unit tests
 | Linux | x86_64 | yes | yes | LLVM backend |
 | Linux | aarch64 | yes | yes | LLVM backend |
 | Linux | riscv64 | yes | yes | LLVM backend |
-| Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
+| Windows | aarch64 (ARM64), x86_64 | yes | yes | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | NetBSD | x86_64, aarch64 | yes | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
@@ -95,19 +95,20 @@ zig build test                       # run the unit tests
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
 powers the [playground](https://kaappi-lang.org/playground/).
 
-The Windows port (`zig build -Dtarget=aarch64-windows`) covers the full
+The Windows port (`zig build -Dtarget=aarch64-windows` or
+`-Dtarget=x86_64-windows`) covers the full
 interpreter — REPL (plain line editing, no history/completion), fibers,
 channels, OS threads, FFI (`LoadLibrary`), and the `kaappi test` runner.
 thottam installs packages on Windows too (with Git for Windows on PATH);
 only manifests with a `build:` command are refused — the C-FFI packages'
 Makefiles target POSIX.
-Platform differences: fd readiness is socket-only — socket-backed ports
-get reactor-driven non-blocking fiber I/O (WSAEventSelect), while pipe
-and file ports keep blocking reads (timers and cross-thread wakeups
-always work) — and the POSIX-only slice of SRFI-170 (uid/gid, symlinks,
-chmod/umask, user/group info) raises a catchable file error.
-`cond-expand` distinguishes the platforms: Windows builds expose the
-`windows` feature identifier instead of `posix`.
+Platform differences: fd readiness covers sockets (event-driven,
+WSAEventSelect) and pipes (polled) — file ports keep blocking reads
+(timers and cross-thread wakeups always work) — and the POSIX-only
+slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info)
+raises a catchable file error. `cond-expand` distinguishes the
+platforms: Windows builds expose the `windows` feature identifier
+instead of `posix`.
 
 The FreeBSD port (`zig build -Dtarget=x86_64-freebsd` or
 `aarch64-freebsd`) is full POSIX with no degradations: kqueue-backed

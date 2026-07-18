@@ -184,6 +184,63 @@ jobs:
           THOTTAM=release/thottam-aarch64-linux \
           bash tests/acceptance/acceptance.sh "${TAG#v}"
 
+  # x86_64 Windows acceptance on the standard windows-latest runners,
+  # under the runner's Git Bash (acceptance.sh is plain bash driving the
+  # binary; verified 34/34 against the cross-compiled x86_64 binaries on
+  # the Windows reference VM). The aarch64-windows artifact has no such
+  # leg — smoke-test it on the reference VM per the release skill.
+  test-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Disable autocrlf
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        shell: bash
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kaappi-x86_64-windows.exe' \
+            --pattern 'thottam-x86_64-windows.exe' \
+            --pattern 'kaappi-lib.tar.gz' \
+            --pattern 'SHA256SUMS' \
+            --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify checksum
+        shell: bash
+        run: cd release && grep 'kaappi-x86_64-windows.exe' SHA256SUMS | sha256sum -c
+
+      - name: Install libraries
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.kaappi/lib" /tmp/libextract
+          tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract
+          cp -r /tmp/libextract/lib/* "$HOME/.kaappi/lib/"
+
+      - name: Run acceptance tests
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          KAAPPI=release/kaappi-x86_64-windows.exe \
+          THOTTAM=release/thottam-x86_64-windows.exe \
+          bash tests/acceptance/acceptance.sh "${TAG#v}"
+
   test-wasm:
     runs-on: ubuntu-latest
     steps:

@@ -1,27 +1,38 @@
-# Windows port (aarch64)
+# Windows port (aarch64 + x86_64)
 
-Kaappi builds and runs on Windows 11 ARM64. The port keeps the runtime's
-integer-fd POSIX-shaped I/O layer intact by mapping it onto the C
-runtime's low-level io functions, and concentrates every syscall-level
-platform difference in one file.
+Kaappi builds and runs on Windows 11, on both ARM64 and x86_64. The port
+keeps the runtime's integer-fd POSIX-shaped I/O layer intact by mapping
+it onto the C runtime's low-level io functions, and concentrates every
+syscall-level platform difference in one file. Everything below is
+OS-gated, not arch-gated — both architectures run the same platform
+code; only the toolchain caveats differ.
 
 ```bash
 zig build -Dtarget=aarch64-windows        # kaappi.exe, thottam.exe, kaappi-lsp.exe
+zig build -Dtarget=x86_64-windows         # same three, x64
 zig build test -Dtarget=aarch64-windows   # compiles unit-tests.exe (run it on Windows)
+zig build test -Dtarget=x86_64-windows
 ```
 
 Builds use Zig's bundled mingw-w64, so no Windows SDK or MSVC install is
 needed on the build machine.
 
-Cross-compilation is currently the **only** way to build: the official
-Zig 0.16.0 aarch64-windows toolchain access-violates compiling anything
-natively on Windows ARM64 (`zig build` and `zig build-exe` alike, on any
-project — #1613). Root cause: LLVM miscompiled `private thread_local`
-access on aarch64-windows (ziglang#31865 on Codeberg), and the shipped
-zig.exe — itself a stripped, LLVM-built aarch64-windows binary — carries
-the miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
-compile natively on the box; kaappi native builds unblock when the first
-fixed release (0.17.0) ships and the pinned toolchain moves to it.
+On **aarch64**, cross-compilation is currently the **only** way to
+build: the official Zig 0.16.0 aarch64-windows toolchain
+access-violates compiling anything natively on Windows ARM64
+(`zig build` and `zig build-exe` alike, on any project — #1613). Root
+cause: LLVM miscompiled `private thread_local` access on
+aarch64-windows (ziglang#31865 on Codeberg), and the shipped zig.exe —
+itself a stripped, LLVM-built aarch64-windows binary — carries the
+miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
+compile natively on the box; kaappi native builds unblock when the
+first fixed release (0.17.0) ships and the pinned toolchain moves to
+it.
+
+On **x86_64**, none of that applies: #1613 is a bug in LLVM's aarch64
+COFF backend, and the standard Zig 0.16.0 x86_64-windows toolchain
+compiles natively. Cross-compiling from macOS/Linux and building
+natively on an x64 Windows box both work today.
 
 ## Architecture: src/platform.zig
 
@@ -218,7 +229,11 @@ natively and match the interpreter's output, and `kaappi doctor`'s
 smoke-link passes. Verified on Windows 11 ARM64 (build 26100) with a Zig
 master toolchain as the linker (#1610); with the 0.16.0 toolchain,
 `zig cc` on the box access-violates like every native toolchain use
-(#1613), so end users get this at the 0.17.0 bump.
+(#1613), so aarch64 end users get this at the 0.17.0 bump. On x86_64
+the stock 0.16.0 toolchain already works as the linker: the same e2e
+suite passes on the reference VM under x64 emulation with
+zig-x86_64-windows-0.16.0 on PATH, and the `windows-x64-test` CI job
+runs it on every PR.
 
 Windows-specific pieces of the path (#1610):
 
@@ -230,9 +245,9 @@ Windows-specific pieces of the path (#1610):
 * `kaappi compile foo.scm` derives `foo.exe` (PATH lookup and
   double-click need the extension); an explicit `-o name` is used as
   given.
-* The emitted module triple is `aarch64-pc-windows-gnu` — the gnu
-  (MinGW) ABI the runtime lib is built with and the ABI `zig cc` targets
-  on a box without MSVC.
+* The emitted module triple is `aarch64-pc-windows-gnu` /
+  `x86_64-pc-windows-gnu` per arch — the gnu (MinGW) ABI the runtime
+  lib is built with and the ABI `zig cc` targets on a box without MSVC.
 * The link line adds `-lws2_32` and drops `-lpthread`: the fd-readiness
   backends call Winsock through `extern "ws2_32"` declarations, which
   Zig links automatically only when it builds the final binary itself —
@@ -245,17 +260,24 @@ Windows-specific pieces of the path (#1610):
 
 ## Testing on a Windows machine
 
-CI covers the target twice (ci.yml): `windows-cross` cross-compiles the
-binaries and the test exes from Linux, guarding the path release.yml
-ships with, and `windows-arm-test` executes the unit suite, the thottam
+CI covers the target three ways (ci.yml): `windows-cross`
+cross-compiles the binaries and the test exes from Linux for **both**
+arches (a matrix over aarch64/x86_64), guarding the path release.yml
+ships with, and two execution jobs run the unit suite, the thottam
 suite plus a real package install/remove integration test, the R7RS
-suite, the VM-verified `.scm` suites, and the shell-based suites (#1612)
-on GitHub's hosted `windows-11-arm` runners on every PR. The execution
-job installs no toolchain — it downloads the binaries `windows-cross`
-built as an artifact, because native compilation on Windows ARM64 is
-broken in the Zig 0.16.0 toolchain itself (#1613). The FFI suite runs
-against a fixture DLL that `windows-cross` cross-compiles into the same
-artifact (`zig cc -target aarch64-windows-gnu -shared`).
+suite, the VM-verified `.scm` suites, and the shell-based suites
+(#1612) on every PR: `windows-arm-test` on GitHub's hosted
+`windows-11-arm` runners and `windows-x64-test` on the standard
+x86_64 `windows-latest` runners. Both execution jobs run the suites
+from the cross-compiled artifacts with no toolchain installed — on
+aarch64 because native compilation is broken in the Zig 0.16.0
+toolchain itself (#1613), on x64 so both jobs exercise identical
+no-toolchain conditions. The x64 job then installs the (natively
+working) x86_64 Zig and runs the native-backend e2e suite
+(`tests/e2e/run-e2e.ps1`, #1610) — the one leg the arm job cannot
+have until the 0.17.0 bump. The FFI suite runs against a fixture DLL
+that `windows-cross` cross-compiles into each artifact
+(`zig cc -target <arch>-windows-gnu -shared`).
 
 The shell-based drivers (errors, test-runner, pipeline, doctor, fmt,
 cache, timings, the smoke `.sh` scripts, sandbox, robustness) run under
@@ -298,7 +320,22 @@ complete R7RS suite, every `tests/scheme/{smoke,compliance,
 continuations,hygiene,srfi,ffi,audit}` file, and the shell-based
 suites under Git Bash (34 pass, 15 skip: the 14 `compile/` gates plus
 `profile-json-escaping.sh`) — the same set the `windows-arm-test` CI
-job now runs on every PR. The fd-readiness unit
+job now runs on every PR.
+
+The **x86_64** build was verified on the same reference machine via
+Windows 11's built-in x64 emulation layer (x64 binaries run
+transparently on ARM64 Windows), which is also how to re-test it
+there: cross-compile with `-Dtarget=x86_64-windows`, ship, run. The
+full set passed under emulation — unit suite (1166/0, 15 skips),
+thottam suite, R7RS, all 436 `.scm` suite files, the shell suites
+(same 34/15/0 profile as aarch64), the post-release acceptance script
+(34/34), and the native-backend e2e (see above). A stripped x86_64
+kaappi.exe starts and runs correctly — the #1607 strip crash does not
+exist on this arch. Emulation is a fidelity compromise (it validates
+the port's logic, not x64 silicon); the `windows-x64-test` CI job runs
+the same suites on real x86_64 runners on every PR, so the VM is only
+needed for what CI can't reach (interactive REPL, release smoke
+tests). The fd-readiness unit
 suites (`tests_reactor.zig`, `tests_scheduler.zig`, `tests_port_io.zig`)
 run on Windows too: testing_helpers' cross-platform fd pairs substitute
 loopback TCP socket pairs for the POSIX pipes/socketpairs, so those
@@ -312,36 +349,46 @@ see "Native backend" above).
 
 ## Releasing
 
-`release.yml` cross-compiles the Windows row from an ubuntu runner and
-ships `kaappi-aarch64-windows.exe`, `thottam-aarch64-windows.exe`, and
-`libkaappi_rt-aarch64-windows.lib` (the gnu-ABI static lib is emitted as
-`kaappi_rt.lib`). The row builds with `-Dstrip=false`: a **stripped**
-kaappi.exe access-violates at startup on ARM64 Windows (0xC0000005
-before any output — #1607). Root cause: under strip, Zig demotes
-threadlocals to `private` linkage and LLVM emits a broken +64 KB TLS
-offset for them on aarch64-windows (ziglang#31865) — kaappi reaches
-`vm_instance`/`gc_instance` at startup, while thottam and small probes
-have no affected threadlocal access, which is why only kaappi.exe
-crashed. Fixed in LLVM/Zig master; re-enable strip for the row and
-retest after the toolchain bump (#1613). The post-release acceptance workflow checksums the Windows
-artifacts but does not yet execute them (wiring it to the hosted
-`windows-11-arm` runners is open) — smoke-test a release manually per
-the github-release skill's Step 10.
+`release.yml` cross-compiles both Windows rows from ubuntu runners and
+ships `kaappi-{aarch64,x86_64}-windows.exe`,
+`thottam-{aarch64,x86_64}-windows.exe`, and
+`libkaappi_rt-{aarch64,x86_64}-windows.lib` (the gnu-ABI static lib is
+emitted as `kaappi_rt.lib`). The **aarch64** row builds with
+`-Dstrip=false`: a **stripped** kaappi.exe access-violates at startup
+on ARM64 Windows (0xC0000005 before any output — #1607). Root cause:
+under strip, Zig demotes threadlocals to `private` linkage and LLVM
+emits a broken +64 KB TLS offset for them on aarch64-windows
+(ziglang#31865) — kaappi reaches `vm_instance`/`gc_instance` at
+startup, while thottam and small probes have no affected threadlocal
+access, which is why only kaappi.exe crashed. Fixed in LLVM/Zig
+master; re-enable strip for the row and retest after the toolchain
+bump (#1613). The **x86_64** row strips like every other platform —
+the miscompile lives in LLVM's aarch64 COFF backend, and a stripped
+x64 kaappi.exe was verified working on the reference VM. Post-release,
+the x86_64 artifact has a real acceptance leg (`test-windows-x64` in
+post-release.yml, on windows-latest); the aarch64 artifact is
+checksummed but not executed (a `windows-11-arm` leg is still open) —
+smoke-test it manually per the github-release skill's Step 10.
 
 ## Known gaps / follow-ups
 
-* Native compilation on Windows ARM64 crashes in the Zig 0.16.0
+* Native compilation on Windows **ARM64** crashes in the Zig 0.16.0
   toolchain (`zig build`/`zig build-exe`/`zig cc` access-violate on any
-  project, #1613) — all builds must cross-compile, and `kaappi compile`
-  needs a fixed toolchain on the box for its link step (verified
-  end-to-end with Zig master, see "Native backend" above). Fixed
-  upstream (ziglang#31865); everything unblocks at the 0.17.0 toolchain
-  bump.
+  project, #1613) — aarch64 builds must cross-compile, and `kaappi
+  compile` needs a fixed toolchain on the box for its link step
+  (verified end-to-end with Zig master, see "Native backend" above).
+  Fixed upstream (ziglang#31865); everything unblocks at the 0.17.0
+  toolchain bump. x86_64 Windows is unaffected.
 * The `compile/` shell suite self-skips on Windows: every script
   rebuilds the runtime archive or the interpreter with a native `zig`
-  on the box, which #1613 breaks. The `skip_on_windows` gates
-  (tests/scheme/shell-common.sh) lift work at the 0.17.0 toolchain
-  bump. (The rest of the shell-based suites run in CI — #1612.)
+  on the box, which #1613 breaks on aarch64. The `skip_on_windows`
+  gates (tests/scheme/shell-common.sh) are OS-level, so they also skip
+  on x86_64 where a native zig would actually work — the scripts
+  themselves have never been ported to Windows path/exe-suffix
+  conventions. Lifting the gates (per-arch or wholesale at the 0.17.0
+  bump) is open; the native-compile path on x64 is covered by
+  run-e2e.ps1 in `windows-x64-test` meanwhile. (The rest of the
+  shell-based suites run in CI — #1612.)
 * thottam refuses manifests with a `build:` command (#1609 ported
   everything else — see Deliberate degradations above); lifting that
   needs a Windows build story for the C-FFI packages, which today are
@@ -350,5 +397,6 @@ the github-release skill's Step 10.
   plain REPL depends on the console's UTF-8 code page (set at startup).
 * Long paths (> 260 chars) need the system long-path opt-in.
 * `-Dstrip=true` produces a kaappi.exe that access-violates at startup
-  on ARM64 Windows (#1607, see Releasing above) — releases ship it
-  unstripped until the toolchain bump lands the LLVM TLS fix.
+  on ARM64 Windows (#1607, see Releasing above) — the aarch64 release
+  row ships unstripped until the toolchain bump lands the LLVM TLS
+  fix. The x86_64 row is unaffected and ships stripped.

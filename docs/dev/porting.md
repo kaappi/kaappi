@@ -26,14 +26,16 @@ in [netbsd.md](netbsd.md)).
 | Linux | aarch64 | native | same | `test` (ubuntu-24.04-arm) | yes |
 | Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode | `riscv64-test` | yes |
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
+| Windows | x86_64 | cross-compiled or native | same as aarch64 plus the native-backend e2e (`run-e2e.ps1`) on `windows-latest` runners | `windows-cross` + `windows-x64-test` | yes |
 | FreeBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM FreeBSD VM (x86_64); verified on a real 15.1 aarch64 box | `freebsd-test` | yes (both arches) |
 | OpenBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM OpenBSD 7.9 VM (x86_64); verified on a real 7.9 aarch64 box | `openbsd-test` | yes (both arches, `PT_OPENBSD_NOBTCFI`-marked) |
 | NetBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM NetBSD 10.1 VM (x86_64); verified on a real 10.1 aarch64 box | `netbsd-test` | yes (both arches) |
 | WASI | wasm32 | cross-compiled (`zig build wasm`) | smoke + timer + parallel-pool under wasmtime | `wasm` | yes (`kaappi.wasm`) |
 
 Everything builds from any host — Zig cross-compiles all rows; no target
-needs its own build machine (Windows currently *requires* cross-compilation
-because the 0.16.0 toolchain is itself miscompiled on that target, #1613).
+needs its own build machine (Windows **aarch64** currently *requires*
+cross-compilation because the 0.16.0 toolchain is itself miscompiled on
+that target, #1613; Windows x86_64 is unaffected and builds natively).
 
 ## Where portability lives
 

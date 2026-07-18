@@ -68,8 +68,9 @@ KAAPPI_TEST_SKIP="callcc-bench.scm" bash tests/scheme/run-all.sh
 ## Shell test scripts (`*.sh`)
 
 Suite directories may also hold bash drivers; `run-all.sh` runs them via
-`run_shell_suite` (and the `windows-arm-test` CI job runs them under Git
-Bash on Windows — see `docs/dev/windows.md`). Conventions:
+`run_shell_suite` (and the `windows-arm-test`/`windows-x64-test` CI jobs
+run them under Git Bash on Windows — see `docs/dev/windows.md`).
+Conventions:
 
 - Accept the binary as `${KAAPPI:-zig-out/bin/kaappi}` or `${1:-...}` —
   runners pass both.

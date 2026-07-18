@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Windows x86_64 support
+
+- **Windows x86_64 (x64) target** — `zig build -Dtarget=x86_64-windows`
+  cross-compiles kaappi.exe, thottam.exe, and kaappi-lsp.exe for x64
+  Windows; the platform layer was already OS-gated, so both Windows
+  architectures share the same code and degradation profile
+  (`docs/dev/windows.md`). Verified on Windows 11 (ARM64 reference VM
+  via the built-in x64 emulation layer): full unit suite, R7RS, all
+  `.scm` and shell suites, thottam, the post-release acceptance script,
+  and the native-backend e2e (`kaappi compile`, 38/38) — the stock Zig
+  0.16.0 x86_64-windows toolchain works natively (the #1613
+  access-violation is aarch64-only), so `kaappi compile` needs no
+  master-toolchain workaround on x64. CI gains a `windows-cross`
+  aarch64/x86_64 matrix and a `windows-x64-test` job (windows-latest)
+  running the same suites as `windows-arm-test` plus the native-backend
+  e2e; releases ship `kaappi-x86_64-windows.exe`,
+  `thottam-x86_64-windows.exe`, and `libkaappi_rt-x86_64-windows.lib`
+  (stripped — the #1607 strip crash is aarch64-only), with a
+  post-release acceptance leg on windows-latest.
+
 #### SRFI 271 (Random port libraries)
 
 - **SRFI 271 (Random port libraries)** — `(import (srfi 271))` gives
