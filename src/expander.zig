@@ -948,8 +948,14 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // bake __hyg_ names into the inner macro's stored template. Gensyms are
     // globally unique, so renaming again cannot prevent any capture — it
     // only severs the reference from the binding created by the generating
-    // expansion (issue #919: __hyg_N___hyg_M_march-hare undefined).
-    if (std.mem.startsWith(u8, name, "__hyg_")) return gc.allocSymbol(name);
+    // expansion (issue #919: __hyg_N___hyg_M_march-hare undefined). The same
+    // holds for the named-let loop gensym (__nlet_N_name): named-let desugars
+    // during compilation, interleaved with macro expansion, so its loop name
+    // can flow back through a macro whose template re-emits it (e.g. SRFI 257's
+    // ~etc, where the recursive (loop ...) call rides inside a submatch
+    // argument). Re-renaming it splits the reference from the letrec binding.
+    if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_"))
+        return gc.allocSymbol(name);
     const in_binding = (scope & BINDING_FLAG) != 0;
     // Strip context flags that don't change renaming, so the same template
     // identifier gets the same gensym inside and outside those contexts

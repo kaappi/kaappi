@@ -390,8 +390,28 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         try captureLocalsOnTransformer(self, transformer);
         try computeBoundFreeRefs(self, transformer);
         const tx = types.toObject(transformer).as(types.Transformer);
-        tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_snap_names) catch return CompileError.OutOfMemory;
-        tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_snap_vals) catch return CompileError.OutOfMemory;
+        // R7RS 4.3.1 suppresses sibling keywords only for references the
+        // transformer's TEMPLATE makes (definition-site free references). A
+        // sibling handed to it as an argument is a use-site identifier — not a
+        // template free reference — and must stay resolvable (the
+        // `classify-nonellipsis-symbol` idiom `(b () k ...)` passes a sibling
+        // macro `k` through helper `b`). So keep only siblings this
+        // transformer free-references; on overflow, fall back to all siblings.
+        var free_names: [64][]const u8 = undefined;
+        var free_count: usize = 0;
+        const have_free = collectTransformerFreeRefs(transformer, &free_names, &free_count);
+        var peer_names_f: std.ArrayList([]const u8) = .empty;
+        defer peer_names_f.deinit(self.gc.allocator);
+        var peer_vals_f: std.ArrayList(Value) = .empty;
+        defer peer_vals_f.deinit(self.gc.allocator);
+        for (peer_snap_names, peer_snap_vals) |pn, pv| {
+            if (!have_free or nameInSlice(free_names[0..free_count], pn)) {
+                peer_names_f.append(self.gc.allocator, pn) catch return CompileError.OutOfMemory;
+                peer_vals_f.append(self.gc.allocator, pv) catch return CompileError.OutOfMemory;
+            }
+        }
+        tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_names_f.items) catch return CompileError.OutOfMemory;
+        tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_vals_f.items) catch return CompileError.OutOfMemory;
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
     }
 
@@ -475,6 +495,27 @@ fn restoreMacros(self: *Compiler, names: [][]const u8, values: []?Value) void {
             _ = self.macros.remove(name);
         }
     }
+}
+
+/// Collect the free-reference identifier names in a transformer's templates —
+/// identifiers that are neither the rule's pattern variables nor literals.
+/// Returns false on overflow (caller should then treat the set as unknown).
+fn collectTransformerFreeRefs(transformer: Value, out: *[64][]const u8, count: *usize) bool {
+    const tx = types.toObject(transformer).as(types.Transformer);
+    var pv_names: [64][]const u8 = undefined;
+    var pv_count: usize = 0;
+    for (tx.patterns[0..tx.num_rules]) |pat| {
+        if (!collectSymbols(pat, &pv_names, &pv_count)) return false;
+    }
+    for (tx.templates[0..tx.num_rules]) |tmpl| {
+        if (!collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, out, count)) return false;
+    }
+    return true;
+}
+
+fn nameInSlice(names: []const []const u8, name: []const u8) bool {
+    for (names) |n| if (std.mem.eql(u8, n, name)) return true;
+    return false;
 }
 
 fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
