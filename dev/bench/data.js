@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784378233074,
+  "lastUpdate": 1784390677337,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "2a68ce7dc920bd10ba8a97b3344827c31a2b77a1",
-          "message": "Release v0.14.1",
-          "timestamp": "2026-07-11T13:50:24+05:30",
-          "tree_id": "e77af6ec5e70539e2e2b6ec0f17875929d40e1d2",
-          "url": "https://github.com/kaappi/kaappi/commit/2a68ce7dc920bd10ba8a97b3344827c31a2b77a1"
-        },
-        "date": 1783759749255,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.983611,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.575408,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.62159,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.014707,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005697,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.040594,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.341668,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.049059,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.602242,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.325664,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.152215,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.366774,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.291349,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.792088,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033993,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038114,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c11b06801bf465310f02b9b64abde91b8ad6dc63",
+          "message": "Implement SRFI 250 (Insertion-ordered Hash Tables) (#1647)\n\nAdd the portable (srfi 250) library: hash tables that preserve\nfirst-insertion order across iteration, folding, and conversion, with the\nfull API — constructors, the bidirectional cursor interface, ordered\nfold-left/fold-right, and destructive set operations.\n\nDesign: a doubly-linked list of nodes gives O(1) ordered insert, delete,\nand pop, while a built-in (SRFI 69) hash table keyed through the SRFI 128\ncomparator maps each key to its node for O(1) lookup. The comparator flows\nstraight into the built-in table, which already extracts a comparator's\nequality and hash, so key comparison honours it.\n\nNodes are 4-slot vectors and the table record stores the head/tail *keys*\nrather than node references. This keeps `write` finite: Kaappi's record\nprinter recurses into fields without cycle detection, so a node reference in\na record field would loop on the prev/next cycle. Holding leaf keys instead\nkeeps the cyclic nodes solely inside the index, which prints opaquely.\n\nIncludes a SRFI-64 conformance suite covering the ordering guarantees,\ncursors, mutability rules, and set operations, and bumps the SRFI count\n(76 -> 77) in README, CONFORMANCE, and CLAUDE.\n\nCloses #1646.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T21:01:48+05:30",
+          "tree_id": "80a8310dca5330bb6950a82dcff53ac7dd13563e",
+          "url": "https://github.com/kaappi/kaappi/commit/c11b06801bf465310f02b9b64abde91b8ad6dc63"
+        },
+        "date": 1784390675844,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.093648,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.460874,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.919287,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.414812,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00672,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052432,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51034,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068351,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.259569,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.978911,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.51645,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.469862,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.740256,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.817428,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045184,
             "unit": "seconds"
           }
         ]
