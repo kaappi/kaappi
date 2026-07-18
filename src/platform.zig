@@ -759,14 +759,16 @@ pub fn osRandomBytes(buf: []u8) bool {
     if (comptime builtin.os.tag == .linux) {
         var off: usize = 0;
         while (off < buf.len) {
-            const rc = std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0);
-            switch (std.os.linux.E.init(rc)) {
-                .SUCCESS => {
-                    if (rc == 0) return false; // no progress, avoid spinning
-                    off += rc;
-                },
-                .INTR => continue,
-                else => return false,
+            // getrandom is a raw syscall: it returns the byte count, or a
+            // negative -errno directly (it does not set libc errno), so decode
+            // the signed return rather than going through std.posix.errno.
+            const sret: isize = @bitCast(std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0));
+            if (sret > 0) {
+                off += @intCast(sret);
+            } else if (sret == -@as(isize, @intFromEnum(std.os.linux.E.INTR))) {
+                continue; // interrupted by a signal; retry
+            } else {
+                return false; // error, or zero progress
             }
         }
         return true;
