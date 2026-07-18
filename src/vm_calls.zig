@@ -22,6 +22,54 @@ pub fn clearFrameLocals(vm: *VM, base: u32, used: usize, locals_count: u16) void
     }
 }
 
+/// Invoke a SRFI-254 guardian, which is itself a procedure. Zero arguments
+/// removes and returns a resurrected element (or #f); the register forms add an
+/// element. An object guardian takes `(g obj [rep])` and returns an unspecified
+/// value; a transport cell guardian takes `(tg key value)`, wraps them in a
+/// fresh transport cell it registers, and returns that cell. The result is a
+/// plain value — no frame is pushed — so every call-dispatch site handles a
+/// guardian the same way it handles a parameter.
+pub fn invokeGuardian(vm: *VM, guardian: Value, args: []const Value) VMError!Value {
+    // Root the guardian across the transport-cell allocation below: on the
+    // callWithArgs path it may be held only in a Zig local.
+    var self_val = guardian;
+    vm.gc.pushRoot(&self_val);
+    defer vm.gc.popRoot();
+    const g = types.toGuardian(self_val);
+
+    if (args.len == 0) {
+        // Retrieve. A transport cell guardian never resurrects on this
+        // non-moving collector, so its ready queue stays empty and this
+        // returns #f.
+        if (g.ready.items.len == 0) return types.FALSE;
+        const e = g.ready.orderedRemove(0);
+        return if (g.is_transport) e.watched else e.payload;
+    }
+
+    if (g.is_transport) {
+        if (args.len != 2) {
+            vm.setErrorDetail("transport cell guardian: expected 2 arguments (key value), got {d}", .{args.len});
+            return VMError.ArityMismatch;
+        }
+        const cell = vm.gc.allocTransportCell(args[0], args[1]) catch return VMError.OutOfMemory;
+        g.registered.append(vm.gc.allocator, .{ .watched = cell, .payload = types.NIL }) catch return VMError.OutOfMemory;
+        return cell;
+    }
+
+    if (args.len > 2) {
+        vm.setErrorDetail("guardian: expected 1 or 2 arguments, got {d}", .{args.len});
+        return VMError.ArityMismatch;
+    }
+    const obj = args[0];
+    const rep = if (args.len == 2) args[1] else obj;
+    if (obj == types.FALSE or rep == types.FALSE) {
+        vm.setErrorDetail("guardian: guarded object and representative must not be #f", .{});
+        return VMError.InvalidArgument;
+    }
+    g.registered.append(vm.gc.allocator, .{ .watched = obj, .payload = rep }) catch return VMError.OutOfMemory;
+    return types.VOID;
+}
+
 /// Package continuation arguments the same way `values` does:
 /// 1 arg → that arg directly, 0 or 2+ → MultipleValues.
 pub fn continuationArgValue(gc: *memory.GC, args: []const Value) VMError!Value {
@@ -396,6 +444,10 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
         }
         return;
     }
+    if (types.isGuardian(callee)) {
+        vm.registers[base] = try invokeGuardian(vm, callee, vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]);
+        return;
+    }
     if (types.isContinuation(callee)) {
         const cont = types.toObject(callee).as(types.Continuation);
         const value = try continuationArgValue(vm.gc, vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]);
@@ -741,6 +793,9 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
             try vm.setParameterValue(param, new_val);
             return types.VOID;
         }
+    }
+    if (types.isGuardian(proc)) {
+        return invokeGuardian(vm, proc, args);
     }
     if (types.isContinuation(proc)) {
         const cont = types.toObject(proc).as(types.Continuation);

@@ -754,6 +754,18 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             .scheme_environment => {
                 try writer.writeAll("#<environment>");
             },
+            .ephemeron => {
+                const eph = obj.as(types.Ephemeron);
+                try writer.writeAll(if (eph.broken) "#<ephemeron broken>" else "#<ephemeron>");
+            },
+            .guardian => {
+                const g = obj.as(types.Guardian);
+                try writer.writeAll(if (g.is_transport) "#<transport-cell-guardian>" else "#<guardian>");
+            },
+            .transport_cell => {
+                const tc = obj.as(types.TransportCell);
+                try writer.writeAll(if (tc.broken) "#<transport-cell broken>" else "#<transport-cell>");
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");
