@@ -21,6 +21,69 @@ pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
     else => false,
 };
 
+/// The LLVM `target triple` for a host `(arch, os)`, or null on an architecture
+/// the native backend cannot target. A real triple exists only for aarch64 and
+/// x86_64 (× the six supported OSes); every other arch would otherwise be
+/// emitted as `unknown-unknown-unknown`, which the `-w` on the `zig cc` link
+/// lets the driver silently override with the host default — so the link
+/// *succeeds* and the user gets a binary that segfaults (#1656). This is the
+/// single source of truth for both the emitted triple (emitPreamble) and
+/// `native_backend_supported`, so a future port that adds an arch arm here
+/// flips both at once. The `windows` arms use the gnu (MinGW) ABI: it matches
+/// how the runtime lib is built and how `zig cc` links on a box without MSVC
+/// (#1610).
+pub fn targetTriple(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) ?[]const u8 {
+    return switch (arch) {
+        .aarch64 => switch (os) {
+            .macos => "aarch64-apple-macosx",
+            .linux => "aarch64-unknown-linux-gnu",
+            .windows => "aarch64-pc-windows-gnu",
+            .freebsd => "aarch64-unknown-freebsd",
+            .openbsd => "aarch64-unknown-openbsd",
+            .netbsd => "aarch64-unknown-netbsd",
+            else => "aarch64-unknown-unknown",
+        },
+        .x86_64 => switch (os) {
+            .macos => "x86_64-apple-macosx",
+            .linux => "x86_64-unknown-linux-gnu",
+            .windows => "x86_64-pc-windows-gnu",
+            .freebsd => "x86_64-unknown-freebsd",
+            .openbsd => "x86_64-unknown-openbsd",
+            .netbsd => "x86_64-unknown-netbsd",
+            else => "x86_64-unknown-unknown",
+        },
+        else => null,
+    };
+}
+
+/// Whether the LLVM native backend can target this host. False on the
+/// interpreter-tier arches (riscv64, s390x, ppc64le, …) — `kaappi compile`,
+/// `--emit-llvm`, and `kaappi doctor` consult this to refuse native compilation
+/// *loudly* instead of emitting an unknown-triple module that links to a
+/// crashing binary (#1656). The interpreter tier runs on every arch regardless.
+/// See docs/dev/decisions/native-backend-architecture-scope.md.
+pub const native_backend_supported = targetTriple(@import("builtin").cpu.arch, @import("builtin").os.tag) != null;
+
+test "targetTriple: only aarch64/x86_64 are native-compilable; others refuse (#1656)" {
+    // Supported hosts get a concrete triple for every supported OS.
+    try std.testing.expect(targetTriple(.aarch64, .linux) != null);
+    try std.testing.expect(targetTriple(.aarch64, .macos) != null);
+    try std.testing.expect(targetTriple(.x86_64, .linux) != null);
+    try std.testing.expect(targetTriple(.x86_64, .windows) != null);
+    // The interpreter-tier arches have no triple, so native_backend_supported
+    // is false there and `kaappi compile` refuses instead of linking a
+    // segfaulting binary. A future port that adds one of these arms flips this
+    // assertion and native_backend_supported together (single source of truth).
+    try std.testing.expect(targetTriple(.riscv64, .linux) == null);
+    try std.testing.expect(targetTriple(.s390x, .linux) == null);
+    try std.testing.expect(targetTriple(.powerpc64le, .linux) == null);
+    // native_backend_supported is exactly "the host has a triple".
+    try std.testing.expectEqual(
+        targetTriple(@import("builtin").cpu.arch, @import("builtin").os.tag) != null,
+        native_backend_supported,
+    );
+}
+
 // A named native function with at most this many fixed parameters gets a
 // register-argument `tailcc` fast entry (see emitLambdaFunction). Beyond it the
 // uniform array ABI is kept — the bound keeps register pressure and signature
@@ -1345,34 +1408,11 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitPreamble(self: *LLVMEmitter) EmitError!void {
-        const arch = @import("builtin").cpu.arch;
-        const os = @import("builtin").os.tag;
-        // The gnu (MinGW) Windows ABI matches how the runtime lib is built and
-        // how `zig cc` links on a box without MSVC (#1610). Clang would
-        // override a mismatched module triple with the driver's, but only
-        // with a warning that -w hides — emit the right one to begin with.
-        const triple = switch (arch) {
-            .aarch64 => switch (os) {
-                .macos => "aarch64-apple-macosx",
-                .linux => "aarch64-unknown-linux-gnu",
-                .windows => "aarch64-pc-windows-gnu",
-                .freebsd => "aarch64-unknown-freebsd",
-                .openbsd => "aarch64-unknown-openbsd",
-                .netbsd => "aarch64-unknown-netbsd",
-                else => "aarch64-unknown-unknown",
-            },
-            .x86_64 => switch (os) {
-                .macos => "x86_64-apple-macosx",
-                .linux => "x86_64-unknown-linux-gnu",
-                .windows => "x86_64-pc-windows-gnu",
-                .freebsd => "x86_64-unknown-freebsd",
-                .openbsd => "x86_64-unknown-openbsd",
-                .netbsd => "x86_64-unknown-netbsd",
-                else => "x86_64-unknown-unknown",
-            },
-            else => "unknown-unknown-unknown",
-        };
-
+        // native_compiler refuses on unsupported arches before reaching here
+        // (#1656), so targetTriple is non-null in every real compile; the
+        // `orelse` is a defensive fallback so a stray direct call still emits
+        // *something* rather than crashing the compiler.
+        const triple = targetTriple(@import("builtin").cpu.arch, @import("builtin").os.tag) orelse "unknown-unknown-unknown";
         try self.print("; Generated by Kaappi Scheme LLVM backend\ntarget triple = \"{s}\"\n\n", .{triple});
         for (native_decls.decls) |d| {
             try self.print("declare {s} @{s}(", .{ d.ret.toLLVM(), d.export_name });

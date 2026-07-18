@@ -12,6 +12,11 @@ riscv64 is the designated pathfinder if that happens.
 Prerequisite shipped independently of any port: #1656 — `kaappi compile`
 on an unsupported architecture must refuse loudly instead of linking a
 binary that crashes (see "The failure mode that forced this decision").
+**Done:** `llvm_emit.native_backend_supported` (the single source of truth
+derived from `targetTriple`, so a future arch arm flips it automatically)
+now gates both `emitLlvmFile` — which exits nonzero naming the arch and
+pointing at the interpreter, before any codegen — and `kaappi doctor`,
+which reports one honest `arch` WARN instead of a misleading PASS trio.
 
 ## Problem
 
