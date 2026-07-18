@@ -27,7 +27,7 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
 — 614 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
-72 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
+73 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
 
@@ -199,7 +199,7 @@ symbols, and **multi-line input** with automatic paren balancing.
 
 ### Beyond the standard
 
-- **72 SRFIs** — 8 built-in, 64 as portable `.sld` libraries (full list in [CONFORMANCE.md](CONFORMANCE.md))
+- **73 SRFIs** — 8 built-in, 65 as portable `.sld` libraries (full list in [CONFORMANCE.md](CONFORMANCE.md))
 - **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops ([details](docs/dev/llvm-backend.md))
 - **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable
 - **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C
@@ -453,7 +453,7 @@ R7RS-small and is not implemented.
 
 ### SRFI coverage
 
-72 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
+73 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
 linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
 [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
 

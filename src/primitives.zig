@@ -199,6 +199,7 @@ pub const all_specs = core_specs ++
     primitives_srfi1.specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
+    @import("primitives_random_port.zig").specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
     @import("primitives_fiber.zig").specs ++
     @import("primitives_parallel.zig").specs ++

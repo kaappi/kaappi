@@ -730,6 +730,11 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
             return byte;
         }
     }
+    // SRFI-271 random port: an inexhaustible byte source, never EOF.
+    if (port.random_gen) |g| {
+        if (!port.is_open) return null;
+        return g.nextByte();
+    }
     // String input port
     if (port.is_string_port) {
         const data = port.string_data orelse return null;

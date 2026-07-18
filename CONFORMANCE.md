@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-72 SRFIs supported. 8 built-in (native Zig), 64 portable (.sld files). Coverage details for the built-in SRFIs follow.
+73 SRFIs supported. 8 built-in (native Zig), 65 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -147,3 +147,4 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 232 | Flexible curried procedures |
 | 233 | INI files |
 | 235 | Combinators |
+| 271 | Random port libraries |

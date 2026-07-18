@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **SRFI 271 (Random port libraries)** — `(import (srfi 271))` gives
+  cryptographic-quality random binary input ports drawn from OS entropy;
+  `(import (srfi 271 determinized))` adds reproducible, deterministic ports
+  backed by a xoshiro256** generator whose state can be captured, compared,
+  and restored (`random-port-state`, `random-port-state?`,
+  `random-port-state=?`, `random-port?`), plus a
+  `random-port-initialization-error?` condition. States have a write/read-
+  invariant external representation. Random ports are ordinary R7RS binary
+  input ports, so `read-u8`, `read-bytevector`, and `u8-ready?` operate on
+  them directly. See `lib/srfi/271*.sld` and `tests/scheme/srfi/srfi271.scm`.
+
 ## [0.18.0] - 2026-07-18
 
 ### Added

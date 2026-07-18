@@ -808,6 +808,7 @@ fn objectSize(obj: *Object) usize {
             if (port.string_out_buf) |_| s += port.string_out_cap;
             if (port.read_buf) |rb| s += rb.len;
             if (port.write_buf) |wb| s += wb.len;
+            if (port.random_gen) |_| s += @sizeOf(types.RandomGen);
             break :blk s;
         },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
@@ -998,6 +999,9 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             }
             if (port.string_out_buf) |sb| {
                 gc.allocator.free(sb);
+            }
+            if (port.random_gen) |g| {
+                gc.allocator.destroy(g);
             }
             poisonAndDestroy(gc, Port, port);
         },
