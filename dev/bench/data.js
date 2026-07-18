@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784344165408,
+  "lastUpdate": 1784363089859,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "929f90b26ce90bd3b3e4000215ae35aa9b3cd869",
-          "message": "Reject native compilation when a set! param is captured by a nested lambda (#1425)\n\n* Reject native compilation when a set! param is captured by a nested lambda (#1422)\n\nThe native closure tiers copy captured variables by value into an upvalue\narray at closure-creation time, so a set! of the captured binding after\ncapture is invisible to the closure — diverging from the VM's by-location\nsemantics.  Add a guard in tryCompileDefineFunction that scans the raw\nbody S-expressions for this conflict and falls back to the interpreter\nwhen detected.  Update the native-subset fuzz generator to mark function\nparams as non-settable so it does not produce programs that trigger the\nnew guard.\n\nCloses #1422\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: guard tier 2, pin native/fallback in tests, extract helper\n\n- Add the #1422 guard to tryCompilePureLambdaAsNativeClosure (tier 2) so\n  inline lambdas like ((lambda (u) ...) 1) also fall back when a param is\n  both set! and captured.\n- Pin compilation tier in the test script via --emit-llvm: cases 1-4\n  assert no native fn definition (fallback), cases 5-6 assert a native fn\n  definition (stays native).  Add the tier-2 inline-lambda reproducer as\n  case 4.\n- Extract pushNonSettable helper in fuzz_gen.zig and use it from all five\n  call sites in fuzz_gen_native.zig.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-10T20:32:14Z",
-          "tree_id": "88dc4beb61c34ab9e01a177cfd54c031445afa8b",
-          "url": "https://github.com/kaappi/kaappi/commit/929f90b26ce90bd3b3e4000215ae35aa9b3cd869"
-        },
-        "date": 1783717471152,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.10262,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.961395,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.025461,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.424044,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014227,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.374444,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509255,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068321,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 14.580133,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.971175,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.664939,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.164728,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.413675,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.866266,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045309,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044203,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8151f8c4c3ca89730e57ec00b3e39b8fe1f7a833",
+          "message": "Port Kaappi to NetBSD (x86_64, aarch64) (#1635)\n\n* Port Kaappi to NetBSD (x86_64, aarch64)\n\nNetBSD is the sixth completed OS port: a full-POSIX platform whose\nreadiness API is kqueue, so the existing macOS/FreeBSD/OpenBSD reactor\nbackend carries it unchanged. Unlike the other BSDs, NetBSD's defining\nproblems are binary-compatibility engineering and a non-IEEE floating\npoint default — both producing silent wrong data rather than crashes.\n\nVersioned libc symbols. NetBSD keeps every old-ABI function under its\nplain name for old binaries and renames the modern one; Zig's std.c\ndeclares a handful by plain name and therefore links the compat version,\nwhich misparses modern structs. Five symbols bit: readdir/opendir\n(dirent grew at 3.0 — directory listings came back name-shifted, so\n`kaappi cache status` saw an empty cache and thottam tree walks copied\nnothing), getpwnam/getpwuid (passwd grew at 6.0 — SRFI-170 user-info\nreturned shuffled home dir/shell), lstat (struct stat time fields — the\ncompat syscall leaves the modern layout's timestamp padding\nuninitialized), kevent (timeout timespec — benign on LP64 but bound\nexplicitly), and unsetenv (void→int return, cosmetic). All five now\nbind the versioned name (__readdir30, __getpwnam50, __lstat50,\n__kevent50, __unsetenv13) via comptime-selected externs. Detection was\nnm --dynamic against libc (weak plain symbol beside a strong __nameNN\none) plus one on-box link, where NetBSD ld's .gnu.warning sections\nnamed the last two — the audit method is documented in\ndocs/dev/netbsd.md.\n\nFloating point. NetBSD/aarch64 starts every process with FPCR.FZ|DN set\n(0x3000000): denormals flush to zero, so (> fl-least 0.0) was #f and\nSRFI-144 failed. platform.normalizeFpEnvBestEffort() resets FPCR to the\nIEEE default at startup (kaappi, kaappi-lsp, kaappi_runtime_init for\nnative binaries); threads inherit the corrected state — verified\nempirically with a pthread probe. Regression tests at both levels.\n\nOther surfaces: self-exe lookup via sysctl {KERN, PROC_ARGS, -1,\nPROC_PATHNAME} (kernel-canonical, like FreeBSD under a different mib);\nraiseStackLimitBestEffort extended to NetBSD (8 MiB default soft\nstack); the NetBSD LLVM triples; C-compiler discovery probes clang\nbefore cc on NetBSD (base cc is GCC, which cannot consume LLVM IR — the\nnative backend needs pkgsrc clang, and the shared cc_search_order now\nkeeps doctor's finding honest, warning when only GCC is present);\ninstall.sh detects NetBSD via uname -p (uname -m reports the kernel\nport, evbarm, not the CPU) with base ftp download and sha256 checksums.\n\nVerified on a real NetBSD 10.1 aarch64 machine: 1142/1142 unit tests,\nthottam suite, R7RS 1395/0, the full run-all.sh battery (1869 pass, 0\nfail, 2 skip), kaappi test runner, the interactive linenoise REPL, and\nthe native backend (kaappi compile) linking with pkgsrc clang — no Zig\ntoolchain on the box. The unit-test binary's DebugAllocator commits\n~4 GiB cumulative, which OOM-kills swapless 4 GiB boxes (UVM: out of\nswap) — the reference box got a swapfile and the CI VM 6 GiB of RAM.\nCI gains a netbsd-test job (cross-compile gate on ubuntu, then\nexecution in a KVM NetBSD 10.1 VM via SHA-pinned vmactions);\nrelease.yml ships both arches; the release skill gains the NetBSD\nsmoke-test leg. New docs/dev/netbsd.md; all support matrices updated.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1635 review findings\n\nAll five CodeRabbit findings, verified against the code:\n\n- doctor's smoke-link now resolves its driver through the shared\n  native_compiler.cc_search_order instead of a private zig→cc→clang→gcc\n  probe, so the c-compiler finding and the smoke link always describe\n  the same compiler `kaappi compile` will use (on NetBSD: pkgsrc clang,\n  never silently base GCC), and both findings now name the driver.\n- cc_search_order gains a regression test asserting zig first, gcc\n  last, and clang probed before cc on NetBSD — it runs on the NetBSD\n  unit-test leg, where a reordering would fail.\n- platform.zig (1507 lines) split along the arch-specific seam the\n  file-size policy names: the self-contained Windows extern namespace\n  moves to platform_win.zig (re-exported as `platform.win`, call sites\n  unchanged), leaving platform.zig at ~1280 lines.\n- README: NetBSD row in the supported-platforms table, and the install\n  script section now names the BSDs and their base-system download/\n  checksum fallbacks.\n- porting.md: reflowed the exemplar sentence so an issue reference no\n  longer starts a Markdown line (MD018).\n\nVerified: host suite green, aarch64-windows and aarch64-netbsd still\ncross-compile, and on the NetBSD 10.1 box the unit suite passes\n1143/1143 with doctor reporting clang for both c-compiler and\nsmoke-link.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T07:51:57Z",
+          "tree_id": "5c6b924959c9c11d29679c0adebd44d03bee7c66",
+          "url": "https://github.com/kaappi/kaappi/commit/8151f8c4c3ca89730e57ec00b3e39b8fe1f7a833"
+        },
+        "date": 1784363087910,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.390008,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.319285,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.91229,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.548809,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006345,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053469,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.501992,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070586,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.462295,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.930162,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.575667,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433217,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.825178,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.750151,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045017,
             "unit": "seconds"
           }
         ]
