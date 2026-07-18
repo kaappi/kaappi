@@ -132,6 +132,12 @@ pub const GC = struct {
     minor_cycle_count: u32 = 0,
     mark_worklist: std.ArrayList(Value) = .empty,
     marking: bool = false,
+    /// SRFI-254 weak references reached during the current mark phase. Filled
+    /// by markValueInner as reachable ephemerons/guardians are marked, drained
+    /// to a fixpoint by gc_collect.processWeakRefs after marking, then cleared.
+    /// Live only within a single collection.
+    pending_ephemerons: std.ArrayList(Value) = .empty,
+    pending_guardians: std.ArrayList(Value) = .empty,
 
     pub const INITIAL_ROOT_CAPACITY: usize = 1024;
     pub const MAX_ROOT_CAPACITY: usize = 65536;
@@ -189,6 +195,8 @@ pub const GC = struct {
         self.extra_roots.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
         self.mark_worklist.deinit(self.allocator);
+        self.pending_ephemerons.deinit(self.allocator);
+        self.pending_guardians.deinit(self.allocator);
         self.source_spans.deinit();
     }
 
@@ -1192,6 +1200,45 @@ pub const GC = struct {
         };
         self.finishAlloc(&se.header, @sizeOf(types.SchemeEnvironment));
         return types.makePointer(&se.header);
+    }
+
+    pub fn allocEphemeron(self: *GC, key: Value, value: Value) !Value {
+        self.rootArgs2(key, value);
+        try self.maybeCollect();
+        self.clearArgRoots();
+        const eph = try self.allocator.create(types.Ephemeron);
+        eph.* = .{
+            .header = .{ .tag = .ephemeron },
+            .key = key,
+            .value = value,
+        };
+        self.finishAlloc(&eph.header, @sizeOf(types.Ephemeron));
+        return types.makePointer(&eph.header);
+    }
+
+    pub fn allocGuardian(self: *GC, is_transport: bool) !Value {
+        try self.maybeCollect();
+        const g = try self.allocator.create(types.Guardian);
+        g.* = .{
+            .header = .{ .tag = .guardian },
+            .is_transport = is_transport,
+        };
+        self.finishAlloc(&g.header, @sizeOf(types.Guardian));
+        return types.makePointer(&g.header);
+    }
+
+    pub fn allocTransportCell(self: *GC, key: Value, value: Value) !Value {
+        self.rootArgs2(key, value);
+        try self.maybeCollect();
+        self.clearArgRoots();
+        const tc = try self.allocator.create(types.TransportCell);
+        tc.* = .{
+            .header = .{ .tag = .transport_cell },
+            .key = key,
+            .value = value,
+        };
+        self.finishAlloc(&tc.header, @sizeOf(types.TransportCell));
+        return types.makePointer(&tc.header);
     }
 
     pub fn allocDirectoryObject(self: *GC, dir: *anyopaque, include_dotfiles: bool) !Value {

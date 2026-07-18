@@ -77,6 +77,14 @@ Implemented: **Threads** — `current-thread`, `thread?`, `make-thread`, `thread
 
 Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM and GC with an independent heap. Values are deep-copied across thread boundaries at start and join.
 
+### SRFI 254 — Ephemerons and Guardians
+
+**Coverage: 100%** of the exported identifiers, across `(srfi 254)` and the component libraries `(srfi 254 ephemerons)`, `(srfi 254 guardians)`, `(srfi 254 transport-cell-guardians)`, and `(srfi 254 ephemerons-and-guardians)`.
+
+Implemented: **Ephemerons** — `make-ephemeron`, `ephemeron?`, `ephemeron-key`, `ephemeron-value`, `ephemeron-broken?`, `ephemeron-ref`. The garbage collector retains an ephemeron's value only while its key is reachable through a path that does not pass through the value, so an ephemeron breaks even when its value references its key (the case a plain weak-key pair gets wrong). **Guardians** — `make-guardian`, `guardian?`; a guardian is itself a procedure, registering elements with `(g obj [rep])` and returning resurrected representatives with `(g)`. **Transport cell guardians** — `make-transport-cell-guardian`, `transport-cell-guardian?`, `transport-cell?`, `transport-cell-key`, `transport-cell-value`, `transport-cell-broken?`, `current-hash`. **Shared** — `reference-barrier`.
+
+Kaappi's collector is non-moving, so `current-hash` is a stable identity hash and transport cell guardians are degenerate: a key is never transported, so a registered cell never breaks and a zero-argument transport-cell-guardian call always returns `#f`. On break, an ephemeron's key and value both read as `#f` (the value is cleared for memory safety once it is no longer retained).
+
 ### Portable SRFIs (64 libraries)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).

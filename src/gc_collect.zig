@@ -32,6 +32,9 @@ const FfiCallback = types.FfiCallback;
 const Bignum = types.Bignum;
 const Rational = types.Rational;
 const RandomSource = types.RandomSource;
+const Ephemeron = types.Ephemeron;
+const Guardian = types.Guardian;
+const TransportCell = types.TransportCell;
 
 const build_options = @import("build_options");
 const GC_THRESHOLD: usize = build_options.gc_initial_threshold;
@@ -63,6 +66,7 @@ fn minorCollect(gc: *GC) void {
     for (gc.remembered_set.items) |obj| {
         markObjectContents(gc, obj);
     }
+    processWeakRefs(gc);
     sweepYoung(gc);
     pruneRememberedSet(gc);
 }
@@ -270,6 +274,26 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
                 if (isYoungPointer(gc, val.*)) return true;
             }
         },
+        // Weak structures never actually enter the remembered set (they are
+        // never mutated after allocation), but for completeness these report
+        // any young field: an over-approximation is always safe here.
+        .ephemeron => {
+            const eph = obj.as(Ephemeron);
+            if (isYoungPointer(gc, eph.key) or isYoungPointer(gc, eph.value)) return true;
+        },
+        .guardian => {
+            const g = obj.as(Guardian);
+            for (g.registered.items) |e| {
+                if (isYoungPointer(gc, e.watched) or isYoungPointer(gc, e.payload)) return true;
+            }
+            for (g.ready.items) |e| {
+                if (isYoungPointer(gc, e.watched) or isYoungPointer(gc, e.payload)) return true;
+            }
+        },
+        .transport_cell => {
+            const tc = obj.as(TransportCell);
+            if (isYoungPointer(gc, tc.key) or isYoungPointer(gc, tc.value)) return true;
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
     return false;
@@ -288,9 +312,102 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
 fn fullCollect(gc: *GC) void {
     clearOldMarks(gc);
     markRoots(gc);
+    processWeakRefs(gc);
     sweep(gc);
     sweepOld(gc);
     gc.remembered_set.clearRetainingCapacity();
+}
+
+/// SRFI-254 weak-reference resolution, run after the strong mark phase and
+/// before sweeping. Reaches a fixpoint over two interacting weak structures:
+///
+///   * Ephemerons — the value is retained (marked strongly) only once the key
+///     is proven reachable; keys reachable solely through an ephemeron's own
+///     value never qualify, so an ephemeron whose value references its key
+///     still breaks. Ephemerons whose key never becomes reachable are broken.
+///
+///   * Object guardians — a registered element whose watched object is still
+///     reachable keeps its representative alive (tying the representative's
+///     lifetime to the object, so a resurrected element never hands back a
+///     reclaimed representative). An element whose watched object is
+///     unreachable is resurrected: both fields are marked and the element moves
+///     to the guardian's ready queue for a zero-argument `(g)` call.
+///
+/// Ephemerons are processed before guardians each round so that a key kept
+/// alive only by a still-live ephemeron value is seen before any guardian
+/// decision; resurrecting a guardian element can in turn make an ephemeron key
+/// reachable, so the whole thing iterates until neither makes progress.
+/// Transport cell guardians hold their cells strongly (marked during the strong
+/// phase) and never resurrect on this non-moving collector, so they need no
+/// work here.
+fn processWeakRefs(gc: *GC) void {
+    while (true) {
+        var progress = false;
+
+        // Ephemerons: retain the value of every ephemeron whose key is now
+        // reachable, and drop it from the pending set.
+        var i: usize = 0;
+        while (i < gc.pending_ephemerons.items.len) {
+            const eph_val = gc.pending_ephemerons.items[i];
+            const eph = types.toObject(eph_val).as(Ephemeron);
+            if (weakReachable(gc, eph.key)) {
+                markValue(gc, eph.key);
+                markValue(gc, eph.value);
+                _ = gc.pending_ephemerons.swapRemove(i); // moved last into i
+                progress = true;
+            } else {
+                i += 1;
+            }
+        }
+
+        // Object guardians: resurrect registered elements whose watched object
+        // is unreachable; keep the representatives of the rest alive.
+        var gi: usize = 0;
+        while (gi < gc.pending_guardians.items.len) : (gi += 1) {
+            const g = types.toObject(gc.pending_guardians.items[gi]).as(Guardian);
+            var j: usize = 0;
+            while (j < g.registered.items.len) {
+                const e = g.registered.items[j];
+                if (weakReachable(gc, e.watched)) {
+                    if (!weakReachable(gc, e.payload)) {
+                        markValue(gc, e.payload);
+                        progress = true;
+                    }
+                    j += 1;
+                } else {
+                    markValue(gc, e.watched);
+                    markValue(gc, e.payload);
+                    g.ready.append(gc.allocator, e) catch @panic("GC guardian: ready queue OOM");
+                    _ = g.registered.swapRemove(j); // moved last into j
+                    progress = true;
+                }
+            }
+        }
+
+        if (!progress) break;
+    }
+
+    // Any ephemeron still pending has a key that never became reachable: break
+    // it. Clearing both fields (not just the key) keeps ephemeron-value
+    // memory-safe, since the value is no longer marked and may now be swept.
+    for (gc.pending_ephemerons.items) |eph_val| {
+        const eph = types.toObject(eph_val).as(Ephemeron);
+        eph.broken = true;
+        eph.key = types.FALSE;
+        eph.value = types.FALSE;
+    }
+    gc.pending_ephemerons.clearRetainingCapacity();
+    gc.pending_guardians.clearRetainingCapacity();
+}
+
+/// True when `v` will survive this collection independently of any weak
+/// structure: immediates are never collected, foreign-owned objects are the
+/// other GC's responsibility, and same-GC heap objects survive iff marked.
+fn weakReachable(gc: *GC, v: Value) bool {
+    if (!types.isPointer(v)) return true;
+    const obj = types.toObject(v);
+    if (obj.owner != gc.id) return true;
+    return obj.flags.marked;
 }
 
 fn sweepYoung(gc: *GC) void {
@@ -485,7 +602,43 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             var vit = se.env.valueIterator();
             while (vit.next()) |val| markValue(gc, val.*);
         },
+        .ephemeron => registerPendingEphemeron(gc, obj),
+        .guardian => markGuardianStrong(gc, obj),
+        .transport_cell => {
+            const tc = obj.as(TransportCell);
+            markValue(gc, tc.key);
+            markValue(gc, tc.value);
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+    }
+}
+
+/// Record a reachable ephemeron for the post-mark weak fixpoint without tracing
+/// its key or value — those are decided by processWeakRefs.
+fn registerPendingEphemeron(gc: *GC, obj: *Object) void {
+    gc.pending_ephemerons.append(gc.allocator, types.makePointer(obj)) catch
+        @panic("GC: pending ephemerons OOM");
+}
+
+/// Mark the strongly-held fields of a reachable guardian and, for an object
+/// guardian, record it for the resurrection fixpoint. A transport cell
+/// guardian holds its registered cells strongly (they never resurrect on this
+/// non-moving collector); an object guardian holds only its ready (already
+/// resurrected) elements strongly, its registered elements being weak. Marking
+/// uses gc.markValue so it composes whether called from the worklist drain or
+/// the remembered-set walk.
+fn markGuardianStrong(gc: *GC, obj: *Object) void {
+    const g = obj.as(Guardian);
+    if (g.is_transport) {
+        for (g.registered.items) |e| markValue(gc, e.watched);
+        for (g.ready.items) |e| markValue(gc, e.watched);
+    } else {
+        for (g.ready.items) |e| {
+            markValue(gc, e.watched);
+            markValue(gc, e.payload);
+        }
+        gc.pending_guardians.append(gc.allocator, types.makePointer(obj)) catch
+            @panic("GC: pending guardians OOM");
     }
 }
 
@@ -739,6 +892,35 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             var vit = se.env.valueIterator();
             while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch @panic("GC mark: worklist OOM");
         },
+        .ephemeron => {
+            // Weak key, conditional value: the ephemeron object survives (it
+            // is already marked above), but its key/value are left to
+            // processWeakRefs. Recording it here is what limits the fixpoint to
+            // reachable ephemerons.
+            gc.pending_ephemerons.append(gc.allocator, cur) catch @panic("GC mark: pending ephemerons OOM");
+        },
+        .guardian => {
+            const g = obj.as(Guardian);
+            if (g.is_transport) {
+                // Transport cells are held strongly; marking each cell traces
+                // its key/value via the .transport_cell arm.
+                for (g.registered.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
+                for (g.ready.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
+            } else {
+                // Ready (resurrected) elements are strong; registered elements
+                // are weak and handled by processWeakRefs.
+                for (g.ready.items) |e| {
+                    worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
+                    worklist.append(gc.allocator, e.payload) catch @panic("GC mark: worklist OOM");
+                }
+                gc.pending_guardians.append(gc.allocator, cur) catch @panic("GC mark: pending guardians OOM");
+            }
+        },
+        .transport_cell => {
+            const tc = obj.as(TransportCell);
+            worklist.append(gc.allocator, tc.key) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
@@ -843,6 +1025,13 @@ fn objectSize(obj: *Object) usize {
         .condition_variable => @sizeOf(types.ConditionVariable),
         .srfi18_time => @sizeOf(types.Srfi18Time),
         .scheme_environment => @sizeOf(types.SchemeEnvironment),
+        .ephemeron => @sizeOf(Ephemeron),
+        .guardian => blk: {
+            const g = obj.as(Guardian);
+            break :blk @sizeOf(Guardian) +
+                (g.registered.capacity + g.ready.capacity) * @sizeOf(types.GuardEntry);
+        },
+        .transport_cell => @sizeOf(TransportCell),
     };
 }
 
@@ -1120,6 +1309,18 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 gc.allocator.destroy(se.env);
             }
             poisonAndDestroy(gc, types.SchemeEnvironment, se);
+        },
+        .ephemeron => {
+            poisonAndDestroy(gc, Ephemeron, obj.as(Ephemeron));
+        },
+        .guardian => {
+            const g = obj.as(Guardian);
+            g.registered.deinit(gc.allocator);
+            g.ready.deinit(gc.allocator);
+            poisonAndDestroy(gc, Guardian, g);
+        },
+        .transport_cell => {
+            poisonAndDestroy(gc, TransportCell, obj.as(TransportCell));
         },
     }
 }
