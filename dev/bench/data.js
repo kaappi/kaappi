@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784371396840,
+  "lastUpdate": 1784373573596,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "18a26cb3aeddfd87b3f6ea8f846f56dbb8dd923e",
-          "message": "Security-harden the DigitalOcean test skills (#1431) (#1435)\n\nThree hardening changes to both /do-linux-test and /do-stress-test:\n\n1. SSH host-key pinning: ssh-keyscan on first contact saves to a temp\n   known_hosts file; all subsequent SSH commands use\n   StrictHostKeyChecking=yes against the pinned key (TOFU model).\n\n2. Token not on command line: the DO API token is written to\n   /root/.do-token (mode 0600) via stdin; the self-destruct timer reads\n   it from the file instead of interpolating it into the process argv.\n\n3. Unprivileged test user: a dedicated \"tester\" user runs git clone,\n   zig build, and all tests. Root handles system provisioning and the\n   token file, which tester cannot access. This prevents a malicious\n   branch from reaching the API token.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T12:23:34+05:30",
-          "tree_id": "c0891b1bd203c3b79017e9b7ee62e510d0a1f394",
-          "url": "https://github.com/kaappi/kaappi/commit/18a26cb3aeddfd87b3f6ea8f846f56dbb8dd923e"
-        },
-        "date": 1783754931850,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.372253,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.024906,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.003892,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.402044,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013181,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.34109,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50457,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070405,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.467842,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.945451,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.766173,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.045453,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.59977,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.755314,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044575,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047105,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec09cc40c6d50fa3f607b7c54398dfd50032bae6",
+          "message": "Implement SRFI 267: Raw String Syntax (#1642)\n\n* Implement SRFI 267: Raw String Syntax\n\nRaw strings (#\"X\"...\"X\") are string literals that interpret no escape\nsequences, with a per-literal delimiter X (any run of bytes without \").\nThey spare the escaping of content full of \\ and \" — regexes, Windows\npaths, embedded source.\n\nThe lexical syntax is built into the reader: readHash gains a `\"` arm that\nscans the delimiter and copies content verbatim up to the leftmost `\"X\"`\nterminator. #\" was previously a read error, so nothing conflicts, and\nraw-string literals work anywhere a string can appear. The (srfi 267)\nlibrary adds the port procedures — read-raw-string,\nread-raw-string-after-prefix, can-delimit?, generate-delimiter,\nwrite-raw-string, and the two error predicates — in pure (scheme base);\ngenerate-delimiter is linear-time to avoid the blow-up the SRFI warns of.\n\nCloses #1639.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* SRFI 267: linear generate-delimiter, reject surplus port args\n\nAddress CodeRabbit review on #1642:\n\n- generate-delimiter walked the string with indexed string-ref, which in\n  Kaappi rescans UTF-8 from the front on every access (O(n^2)), contradicting\n  the linear-time claim. Rewrite it as a single pass over (string->list ...),\n  computing empty-delimiter validity and the longest `=` run together; drop the\n  now-unused longest-run helper.\n\n- read-raw-string, read-raw-string-after-prefix, and write-raw-string accepted\n  any number of trailing arguments and silently used only the first port. Add\n  opt-port, which rejects two-or-more arguments with an arity error, matching\n  the SRFI's fixed [port] signatures.\n\nTests extended: generate-delimiter edge cases (adjacent quotes, UTF-8 content)\nand surplus-port rejection for all three procedures.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-18T16:19:23+05:30",
+          "tree_id": "8899a21331e3e3893933e16aa013602c50d9763f",
+          "url": "https://github.com/kaappi/kaappi/commit/ec09cc40c6d50fa3f607b7c54398dfd50032bae6"
+        },
+        "date": 1784373571257,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.36979,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.221184,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.918922,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.491422,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006384,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0537,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506796,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069855,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.440061,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.937023,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.589431,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.439115,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.823892,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.595093,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044484,
             "unit": "seconds"
           }
         ]
