@@ -536,13 +536,26 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
     reporting.writeToFd(cfd, c_source);
     _ = platform.close(cfd);
 
-    // A C compiler capable of driving the linker is required; `zig` needs the
-    // `cc` subcommand. Prefer zig cc (per the repo's linking rule), then cc.
-    const use_zig = findInPath(a, "zig") != null;
-    const cc = if (use_zig) (findInPath(a, "zig").?) else (findInPath(a, "cc") orelse findInPath(a, "clang") orelse findInPath(a, "gcc") orelse {
+    // A C compiler capable of driving the linker is required; `zig` needs
+    // the `cc` subcommand. Resolve via native_compiler.cc_search_order —
+    // the same order the c-compiler finding above reports and `kaappi
+    // compile` actually links with — so the smoke result describes the
+    // driver users will really get (on NetBSD that means pkgsrc clang
+    // before the base GCC, docs/dev/netbsd.md).
+    var cc: ?[]const u8 = null;
+    var cc_name: []const u8 = "";
+    for (native_compiler.cc_search_order) |cand| {
+        if (findInPath(a, cand)) |p| {
+            cc = p;
+            cc_name = cand;
+            break;
+        }
+    }
+    const use_zig = std.mem.eql(u8, cc_name, "zig");
+    const cc_path = cc orelse {
         r.add("native-backend", "smoke-link", .pass, "skipped (no C compiler)", null);
         return;
-    });
+    };
 
     const lib_flag = r.fmt("-L{s}", .{lib_dir});
 
@@ -556,7 +569,7 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
         }
     }.f;
 
-    push(&argv, &argc, a, cc);
+    push(&argv, &argc, a, cc_path);
     if (use_zig) push(&argv, &argc, a, "cc");
     push(&argv, &argc, a, "-w");
     push(&argv, &argc, a, c_path);
@@ -606,9 +619,9 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
         break :blk exited and code == 0;
     };
     if (link_ok) {
-        r.add("native-backend", "smoke-link", .pass, r.fmt("linked a test program against " ++ rt_lib ++ " in {s}", .{lib_dir}), null);
+        r.add("native-backend", "smoke-link", .pass, r.fmt("{s} linked a test program against " ++ rt_lib ++ " in {s}", .{ cc_name, lib_dir }), null);
     } else {
-        r.add("native-backend", "smoke-link", .warn, "link against " ++ rt_lib ++ " failed", "run 'kaappi compile <file.scm>' to see the linker error");
+        r.add("native-backend", "smoke-link", .warn, r.fmt("{s}: link against " ++ rt_lib ++ " failed", .{cc_name}), "run 'kaappi compile <file.scm>' to see the linker error");
     }
 }
 

@@ -2,8 +2,9 @@
 
 How Kaappi's existing platform support is structured, and staged checklists
 for bringing up a new operating system or a new CPU architecture. The six
-completed ports are the reference material: **Windows aarch64** (#1606,
-#1608, #1609 — the OS-port exemplar, documented in [windows.md](windows.md)),
+completed ports are the reference material: **Windows aarch64**
+(#1606, #1608, #1609 — the OS-port exemplar, documented in
+[windows.md](windows.md)),
 **wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar),
 **riscv64-linux** (the CPU-architecture exemplar, tested under QEMU),
 **FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
@@ -60,7 +61,7 @@ What a port actually touches, in dependency order:
 
 | Surface | File(s) | What it is |
 |---------|---------|------------|
-| Syscall shim | `src/platform.zig` (+ `platform_win_sock.zig`) | The single boundary for every OS call: fd-based read/write/open/close, stat, directory iteration, env vars, clocks, sleep, console setup, terminal width, self-exe path, `dlopen`/`dlsym` (FFI), process spawn, temp dir, random seed. POSIX targets forward to `std.posix`/`std.c`; non-POSIX targets reimplement the same integer-fd surface. |
+| Syscall shim | `src/platform.zig` (+ `platform_win.zig`, `platform_win_sock.zig`, `platform_win_pipe.zig`) | The single boundary for every OS call: fd-based read/write/open/close, stat, directory iteration, env vars, clocks, sleep, console setup, terminal width, self-exe path, `dlopen`/`dlsym` (FFI), process spawn, temp dir, random seed. POSIX targets forward to `std.posix`/`std.c`; non-POSIX targets reimplement the same integer-fd surface. |
 | Reactor backend | `src/reactor.zig` | Per-OS-thread readiness multiplexer. `Backend` is an exhaustive `switch (builtin.os.tag)` — kqueue (Apple platforms, FreeBSD, OpenBSD, NetBSD), epoll (Linux), `poll_oneoff` (WASI), WSAEventSelect (Windows) — with `else => @compileError`. **This is the one hard compile gate a new OS hits**: every BSD port, where `KqueueBackend` was already the right code, still had to add its tag to the switch arms. Also per-OS: `NotifierBackend`, `ThreadNotifier.notify` (cross-thread wakeup: `EVFILT_USER` / eventfd / `SetEvent`), and `releaseNotifier`'s close path. The timer heap is portable userspace. |
 | Non-blocking probe | `src/primitives_io.zig` (`maybeSetNonblocking`) | Per-OS strategy for flipping port fds to would-block mode, and the degradation trigger when the OS can't (see "the degradation ladder"). |
 | Feature identifiers | `src/types.zig` (`platform_features`) | The `cond-expand` table. Exactly one OS-class identifier per build (`posix` or `windows` today); capability identifiers (`kaappi-threads`, …) dropped where unsupported. `kaappi features`, `(features)`, and `cond-expand` all read this one table. |

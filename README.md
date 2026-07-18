@@ -44,7 +44,7 @@ No install needed — run Scheme in your browser at the
 
 ## Installation
 
-### Install script (macOS, Linux)
+### Install script (macOS, Linux, FreeBSD, OpenBSD, NetBSD)
 
 ```bash
 curl -fsSL https://kaappi-lang.org/install.sh | bash
@@ -52,7 +52,9 @@ curl -fsSL https://kaappi-lang.org/install.sh | bash
 
 This installs `kaappi` and `thottam` (the package manager) to `~/.local/bin/`
 and the standard libraries to `~/.kaappi/lib/`, verifying SHA256 checksums
-along the way.
+along the way. On the BSDs the script works from the base system alone —
+it falls back to `fetch`/`ftp` for downloads and `sha256` for verification
+when `curl` isn't installed.
 
 Prebuilt binaries for every platform are on the
 [releases page](https://github.com/kaappi/kaappi/releases/latest). macOS
@@ -86,6 +88,7 @@ zig build test                       # run the unit tests
 | Windows | aarch64 (ARM64) | yes | yes | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
 | OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
+| NetBSD | x86_64, aarch64 | yes | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
