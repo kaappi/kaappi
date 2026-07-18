@@ -413,10 +413,11 @@ pub fn build(b: *std.Build) void {
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
     // Cross-compiled test binaries the host can't execute (no emulator
-    // registered — e.g. aarch64-windows) skip cleanly instead of failing,
-    // so `zig build test -Dtarget=aarch64-windows` is a compile gate CI
-    // can run anywhere. Native runs and QEMU-backed riscv64 are
-    // unaffected (the binary is executable there, so it still runs).
+    // registered — e.g. aarch64- or x86_64-windows) skip cleanly instead
+    // of failing, so `zig build test -Dtarget=<arch>-windows` is a
+    // compile gate CI can run anywhere. Native runs and QEMU-backed
+    // riscv64 are unaffected (the binary is executable there, so it
+    // still runs).
     run_unit_tests.skip_foreign_checks = true;
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);

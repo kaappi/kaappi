@@ -353,14 +353,19 @@ jobs:
             cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
             bash tests/scheme/run-all.sh
 
-  # Cross-compile the Windows aarch64 binaries and the unit-test binary
-  # from Linux. Compile-only by design: this guards the cross-compilation
-  # path release.yml ships with, independent of the Windows runner image.
-  # Execution is covered by windows-arm-test below.
+  # Cross-compile the Windows binaries and the unit-test binary from
+  # Linux, once per arch. Compile-only by design: this guards the
+  # cross-compilation path release.yml ships with, independent of the
+  # Windows runner images. Execution is covered by windows-arm-test and
+  # windows-x64-test below.
   windows-cross:
     needs: format
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -370,38 +375,44 @@ jobs:
         uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
-          cache-key: windows-cross
+          cache-key: windows-cross-${{ matrix.arch }}
 
-      - name: Build (cross-compile for aarch64-windows)
-        run: zig build -Dtarget=aarch64-windows
+      - name: Build (cross-compile for ${{ matrix.arch }}-windows)
+        # `lib` builds kaappi_rt.lib — windows-x64-test links against it
+        # in the native-backend e2e step.
+        run: |
+          zig build -Dtarget=${{ matrix.arch }}-windows
+          zig build lib -Dtarget=${{ matrix.arch }}-windows
 
-      - name: Compile unit tests (aarch64-windows)
+      - name: Compile unit tests (${{ matrix.arch }}-windows)
         # The host can't execute the foreign test binaries; the build's
         # Run steps set skip_foreign_checks, so this compiles everything
         # and skips execution — a plain compile gate with normal error
         # propagation.
         run: |
-          zig build test -Dtarget=aarch64-windows
+          zig build test -Dtarget=${{ matrix.arch }}-windows
           ls .zig-cache/o/*/unit-tests.exe
 
-      - name: Stage binaries for windows-arm-test
+      - name: Stage binaries for the Windows test jobs
         # ls -t picks the exe this run compiled — the restored Zig cache
         # can hold stale unit-tests.exe from earlier runs.
         run: |
           mkdir -p win-stage
           cp zig-out/bin/kaappi.exe zig-out/bin/thottam.exe zig-out/bin/kaappi-lsp.exe win-stage/
+          cp zig-out/lib/kaappi_rt.lib win-stage/
           cp "$(ls -t .zig-cache/o/*/unit-tests.exe | head -1)" win-stage/
           cp "$(ls -t .zig-cache/o/*/thottam-tests.exe | head -1)" win-stage/
 
       - name: Cross-compile FFI test fixture
-        # uint64-range.scm dlopens this; windows-arm-test drops it into
-        # tests/scheme/ffi/fixtures/ — that job has no toolchain (#1613).
-        run: zig cc -target aarch64-windows-gnu -shared tests/scheme/ffi/fixtures/u64test.c -o win-stage/libu64test.dll
+        # uint64-range.scm dlopens this; the Windows test jobs drop it
+        # into tests/scheme/ffi/fixtures/ — the arm job has no toolchain
+        # (#1613).
+        run: zig cc -target ${{ matrix.arch }}-windows-gnu -shared tests/scheme/ffi/fixtures/u64test.c -o win-stage/libu64test.dll
 
-      - name: Upload binaries for windows-arm-test
+      - name: Upload binaries for the Windows test jobs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: windows-aarch64-binaries
+          name: windows-${{ matrix.arch }}-binaries
           path: win-stage/
           retention-days: 3
 
@@ -555,6 +566,175 @@ jobs:
             done
           done
           exit $fail
+
+  # Execute the same suite set on x86_64 Windows via the standard
+  # windows-latest runners, from the cross-compiled x86_64 artifacts
+  # (guarding the binaries release.yml ships), plus the native-backend
+  # e2e suite (tests/e2e/run-e2e.ps1, #1610) — possible only on this
+  # arch: Zig 0.16.0 works natively on x86_64 Windows, while the
+  # aarch64 toolchain access-violates compiling anything (#1613, an
+  # aarch64-only LLVM COFF bug). Zig is installed only after the shell
+  # suites so both Windows jobs run them under identical no-toolchain
+  # conditions (the bundle-rebuild scripts gate on a toolchain being
+  # present).
+  windows-x64-test:
+    needs: windows-cross
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      # The Windows runner images set core.autocrlf=true; the Scheme
+      # suites compare exact output, so check out files as committed.
+      - name: Disable autocrlf
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-x86_64-binaries
+          path: bin
+
+      - name: Unwrap archived artifact
+        # Safety net only: named downloads extract the artifact contents
+        # into `path` directly (loose files, so this loop normally has
+        # nothing to do — the wrapper-zip belief was a misdiagnosis, #1620).
+        # Windows ships bsdtar, which extracts zip if one ever appears.
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for z in bin/*.zip; do tar -xf "$z" -C bin && rm -f "$z"; done
+          ls -l bin
+
+      - name: Stage FFI test fixture
+        # uint64-range.scm opens tests/scheme/ffi/fixtures/libu64test
+        # relative to the repo root this job runs the suites from.
+        shell: bash
+        run: cp bin/libu64test.dll tests/scheme/ffi/fixtures/
+
+      - name: Create tmp directories
+        # Tests write scratch files under /tmp/..., which kaappi.exe
+        # resolves to \tmp on the current drive (docs/dev/windows.md).
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\tmp | Out-Null
+          $drive = (Get-Location).Path.Substring(0, 2)
+          New-Item -ItemType Directory -Force -Path "$drive\tmp" | Out-Null
+
+      - name: Unit tests
+        shell: bash
+        run: bin/unit-tests.exe
+
+      - name: thottam unit tests
+        shell: bash
+        run: bin/thottam-tests.exe
+
+      - name: thottam integration test
+        # Mirrors the POSIX test job's step: a real install of the
+        # pure-Scheme kaappi-json, imported through the installed lib
+        # dir, then removed — which deletes a real git clone, whose
+        # read-only pack files are the Windows-specific removal hazard
+        # (#1609). KAAPPI_HOME is a C:/-style path (pwd -W): thottam
+        # hands paths straight to git.exe and the CRT, which never see
+        # git-bash's /d/... spellings.
+        shell: bash
+        run: |
+          export KAAPPI_HOME="$(pwd -W)/thottam-home"
+          bin/thottam.exe list
+          bin/thottam.exe install kaappi-json
+          bin/thottam.exe update kaappi-json
+          bin/thottam.exe list | grep kaappi-json
+          bin/thottam.exe verify
+          echo '(import (kaappi json)) (display (json-write-string (list 1 2 3))) (newline)' > use-json.scm
+          bin/kaappi.exe --lib-path "$KAAPPI_HOME/lib" use-json.scm
+          bin/thottam.exe remove kaappi-json
+          ! bin/thottam.exe list | grep kaappi-json
+          rm -f use-json.scm
+
+      - name: R7RS test suite
+        shell: bash
+        run: bin/kaappi.exe tests/scheme/r7rs/r7rs-tests.scm
+
+      - name: Scheme suites (VM-verified subset)
+        shell: bash
+        run: |
+          fail=0
+          for dir in smoke compliance continuations hygiene srfi ffi audit; do
+            for f in tests/scheme/$dir/*.scm; do
+              if bin/kaappi.exe "$f" > out.log 2>&1; then
+                echo "  PASS  $f"
+              else
+                echo "  FAIL  $f"
+                cat out.log
+                fail=1
+              fi
+            done
+          done
+          rm -f out.log
+          exit $fail
+
+      - name: Shell suites (#1612)
+        # The bash-driven drivers, under the runner's Git Bash. Exit 77 =
+        # SKIP (tests/scheme/shell-common.sh): a script whose premise cannot
+        # hold on Windows — the compile/ suite hard-skips on the OS — reports
+        # itself instead of failing. KAAPPI_HOME is isolated like run-all.sh
+        # does, so suites never touch a real cache.
+        shell: bash
+        run: |
+          # Some drivers validate JSON with python3; shim python3 when the
+          # name is missing. ($HOME, not $RUNNER_TEMP: a Windows-spelled dir
+          # in bash's PATH would not resolve for bash's own lookup.)
+          if ! command -v python3 >/dev/null 2>&1; then
+            mkdir -p "$HOME/.pyshim"
+            printf '#!/bin/sh\nexec python "$@"\n' > "$HOME/.pyshim/python3"
+            chmod +x "$HOME/.pyshim/python3"
+            export PATH="$HOME/.pyshim:$PATH"
+          fi
+          export KAAPPI=bin/kaappi.exe
+          export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
+          fail=0
+          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings sandbox robustness; do
+            for s in tests/scheme/$dir/*.sh; do
+              [ -e "$s" ] || continue
+              # `|| status=$?`: the runner's `shell: bash` implies -e, which
+              # would otherwise abort the whole step on the first SKIP (77).
+              status=0
+              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1) || status=$?
+              if [ "$status" -eq 0 ]; then
+                echo "  PASS  $s"
+              elif [ "$status" -eq 77 ]; then
+                echo "  SKIP  $s"
+              else
+                echo "  FAIL  $s (exit $status)"
+                printf '%s\n' "$out"
+                fail=1
+              fi
+            done
+          done
+          exit $fail
+
+      - name: Install Zig
+        # After the suites (see the job comment). Native x86_64 Windows
+        # Zig — the C compiler + linker `kaappi compile` picks up.
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: windows-x64-test
+
+      - name: Native backend e2e (#1610)
+        # `kaappi compile` end-to-end on x86_64 Windows: emits LLVM IR,
+        # links against the cross-compiled kaappi_rt.lib (KAAPPI_LIB_DIR
+        # — the artifact drops it next to the exe, not at the
+        # exe-relative ..\lib), and requires every native binary's
+        # output to match the interpreter's.
+        shell: pwsh
+        run: |
+          $env:KAAPPI_LIB_DIR = Join-Path $PWD "bin"
+          & .\tests\e2e\run-e2e.ps1 -Kaappi (Join-Path $PWD "bin\kaappi.exe")
+          exit $LASTEXITCODE
 
   wasm:
     needs: format

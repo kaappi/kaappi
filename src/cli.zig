@@ -136,8 +136,13 @@ pub const Options = struct {
     lib_path_buf: [16][]const u8 = undefined,
     lib_path_count: usize = 0,
 
-    script_arg_buf: [64][]const u8 = undefined,
-    script_arg_count: usize = 0,
+    /// The script path plus every argument after it, in argv order — what a
+    /// script's `(command-line)` reports and what multi-file subcommands
+    /// (`fmt`, `test`) iterate. Allocated from the same immortal c_allocator
+    /// argv itself lives in (platform.argsIterate): a fixed cap here
+    /// silently dropped every argument past the 64th, so `kaappi fmt` over
+    /// the 573-file corpus only ever touched the first 64 files (#1652).
+    script_args_slice: []const []const u8 = &.{},
 
     action: Action = .run,
 
@@ -148,7 +153,7 @@ pub const Options = struct {
     }
 
     pub fn scriptArgs(self: *const Options) []const []const u8 {
-        return self.script_arg_buf[0..self.script_arg_count];
+        return self.script_args_slice;
     }
 };
 
@@ -298,8 +303,8 @@ pub fn parse(args: std.process.Args) Options {
     // Collect remaining args after the file path for (command-line).
     // Also check for -o which is valid after the file path for compile modes.
     if (opts.file_path) |fp| {
-        opts.script_arg_buf[0] = fp;
-        opts.script_arg_count = 1;
+        var script_args: std.ArrayList([]const u8) = .empty;
+        script_args.append(std.heap.c_allocator, fp) catch oomCollectingArgs();
         const consumes_output = opts.compile_mode or opts.native_compile_mode or
             opts.disassemble_mode or opts.emit_llvm_mode;
         while (iter.next()) |extra| {
@@ -313,14 +318,16 @@ pub fn parse(args: std.process.Args) Options {
                 opts.ir_no_opt = true;
                 continue;
             }
-            if (opts.script_arg_count < 64) {
-                opts.script_arg_buf[opts.script_arg_count] = extra;
-                opts.script_arg_count += 1;
-            }
+            script_args.append(std.heap.c_allocator, extra) catch oomCollectingArgs();
         }
+        opts.script_args_slice = script_args.toOwnedSlice(std.heap.c_allocator) catch oomCollectingArgs();
     }
 
     return opts;
+}
+
+fn oomCollectingArgs() noreturn {
+    usageError("kaappi: out of memory collecting command-line arguments\n");
 }
 
 pub fn printUsage() void {
@@ -562,10 +569,32 @@ test "parse: value flags" {
 test "parse: script args after filename" {
     const argv = [_][*:0]const u8{ "kaappi", "test.scm", "arg1", "arg2" };
     const opts = parse(testArgs(&argv));
-    try std.testing.expectEqual(@as(usize, 3), opts.script_arg_count);
+    try std.testing.expectEqual(@as(usize, 3), opts.scriptArgs().len);
     try std.testing.expectEqualStrings("test.scm", opts.scriptArgs()[0]);
     try std.testing.expectEqualStrings("arg1", opts.scriptArgs()[1]);
     try std.testing.expectEqualStrings("arg2", opts.scriptArgs()[2]);
+}
+
+test "parse: script args past the 64th are kept (#1652)" {
+    // The old fixed [64] buffer silently dropped everything past it — the
+    // fmt corpus (573 files in one xargs invocation) only ever touched the
+    // first 64 files. Build 129 args and require every one to survive.
+    const argv = comptime blk: {
+        @setEvalBranchQuota(200_000);
+        var a: [131][*:0]const u8 = undefined;
+        a[0] = "kaappi";
+        a[1] = "test.scm";
+        for (0..129) |i| {
+            a[2 + i] = std.fmt.comptimePrint("arg{d}", .{i});
+        }
+        break :blk a;
+    };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expectEqual(@as(usize, 130), opts.scriptArgs().len);
+    try std.testing.expectEqualStrings("test.scm", opts.scriptArgs()[0]);
+    try std.testing.expectEqualStrings("arg63", opts.scriptArgs()[64]);
+    try std.testing.expectEqualStrings("arg64", opts.scriptArgs()[65]);
+    try std.testing.expectEqualStrings("arg128", opts.scriptArgs()[129]);
 }
 
 test "parse: compile subcommand" {
@@ -691,7 +720,7 @@ test "parse: flags after filename are script args" {
     const opts = parse(testArgs(&argv));
     try std.testing.expect(!opts.gc_stats_mode);
     try std.testing.expect(!opts.profile_mode);
-    try std.testing.expectEqual(@as(usize, 3), opts.script_arg_count);
+    try std.testing.expectEqual(@as(usize, 3), opts.scriptArgs().len);
     try std.testing.expectEqualStrings("--gc-stats", opts.scriptArgs()[1]);
 }
 
@@ -718,7 +747,7 @@ test "parse: --diagnostics=json after filename is a script arg, not a format" {
     const argv = [_][*:0]const u8{ "kaappi", "test.scm", "--diagnostics=json" };
     const opts = parse(testArgs(&argv));
     try std.testing.expectEqual(DiagnosticsFormat.text, opts.diagnostics_format);
-    try std.testing.expectEqual(@as(usize, 2), opts.script_arg_count);
+    try std.testing.expectEqual(@as(usize, 2), opts.scriptArgs().len);
     try std.testing.expectEqualStrings("--diagnostics=json", opts.scriptArgs()[1]);
 }
 

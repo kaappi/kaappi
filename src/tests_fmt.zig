@@ -291,3 +291,29 @@ test "empty input yields empty output" {
     try expectFormat("", "");
     try expectFormat("   \n\n  ", "");
 }
+
+// ── SRFI 267 raw strings (#1652 corpus fallout) ──────────────────────────────
+// The CST lexer must carve `#"X" content "X"` exactly like the real reader
+// (reader_tokens.readRawString), or the round-trip guard refuses the file —
+// srfi267.scm surfaced this the first time the corpus actually reached it.
+
+test "raw string is one verbatim lexeme" {
+    try expectFormat("(display   #\"\"no escapes \\n here\"\")", "(display #\"\"no escapes \\n here\"\")\n");
+    try expectFormat("(a  #\"X\"quotes \" inside\"X\"  b)", "(a #\"X\"quotes \" inside\"X\" b)\n");
+}
+
+test "multiline raw string never inlines and stays byte-identical" {
+    const src = "(define text #\"\"line one\nline two\"\")\n";
+    try expectIdempotent(src);
+    try expectRoundTrips(src);
+}
+
+test "raw strings round-trip through the real reader" {
+    try expectRoundTrips("(list #\"\"plain\"\" #\"q\"with \" quote\"q\")");
+}
+
+test "unterminated raw string is a format error" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    try testing.expectError(fmt.ParseError.UnterminatedString, fmt.formatSource(arena.allocator(), "(a #\"X\"never closed"));
+}

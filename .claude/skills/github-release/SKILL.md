@@ -141,7 +141,7 @@ Note: `src/main.zig` and `src/thottam.zig` read the version from
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows (kaappi-aarch64-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, x86_64-openbsd, aarch64-openbsd, x86_64-netbsd, aarch64-netbsd, plus kaappi.wasm (wasm32-wasi)
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows and x86_64-windows (kaappi-{aarch64,x86_64}-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, x86_64-openbsd, aarch64-openbsd, x86_64-netbsd, aarch64-netbsd, plus kaappi.wasm (wasm32-wasi)
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -185,9 +185,11 @@ install script verification. If it fails, investigate before updating the
 docs site — a failure means the release artifacts have a problem (e.g.
 missing entitlement, broken binary, bad checksum).
 
-The Windows artifacts are covered by the checksum job (it verifies every
-released file) but have **no CI acceptance leg** — GitHub has no ARM64
-Windows runners. Smoke-test on the `ssh win11` UTM VM:
+The x86_64-windows artifact has its own post-release acceptance leg
+(`test-windows-x64`, on the windows-latest runners). The aarch64-windows
+artifact is covered by the checksum job (it verifies every released
+file) but has **no CI acceptance leg** — post-release.yml has no
+windows-11-arm job. Smoke-test it on the `ssh win11` UTM VM:
 
 ```bash
 # Download the release binary
@@ -200,7 +202,10 @@ ssh win11 "C:\tmp\kaappi-vX.Y.Z.exe features"
 ```
 
 Verify: version matches, script prints `3`, and `features` shows `windows`
-(not `posix`) with target `aarch64-windows-gnu`. See `docs/dev/windows.md`.
+(not `posix`) with target `aarch64-windows-gnu`. The same VM also runs
+the x86_64 artifact via Windows' built-in x64 emulation (target then
+reads `x86_64-windows-gnu`) if a manual cross-check is ever needed.
+See `docs/dev/windows.md`.
 
 The FreeBSD artifacts are likewise checksum-covered but have **no CI
 acceptance leg** — GitHub hosts no FreeBSD runners. Smoke-test the

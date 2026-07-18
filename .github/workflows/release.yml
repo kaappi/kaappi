@@ -113,6 +113,19 @@ jobs:
             lib_src: kaappi_rt.lib
             lib_ext: .lib
             strip: false
+          # Same cross-compiled mingw-w64 path; execution is verified by
+          # CI's windows-x64-test job on the x86_64 windows-latest
+          # runners and under x64 emulation on the Windows 11 ARM64
+          # reference machine (docs/dev/windows.md). strip: true — the
+          # #1607 threadlocal miscompile is aarch64-COFF-specific; a
+          # stripped x86_64 kaappi.exe runs correctly (VM-verified).
+          - os: ubuntu-latest
+            target: x86_64-windows
+            artifact: kaappi-x86_64-windows.exe
+            exe_ext: .exe
+            lib_src: kaappi_rt.lib
+            lib_ext: .lib
+            strip: true
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

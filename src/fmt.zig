@@ -208,6 +208,10 @@ const Lexer = struct {
             self.pos += 4;
             return .list_open;
         }
+        if (rest.len >= 2 and rest[1] == '"') {
+            try self.scanRawString();
+            return .atom;
+        }
         if (rest.len >= 2 and rest[1] == '\\') {
             self.scanChar();
             return .atom;
@@ -225,6 +229,31 @@ const Lexer = struct {
         }
         self.scanAtom();
         return .atom;
+    }
+
+    /// SRFI 267 raw string `#"X" content "X"` — one verbatim lexeme, kept
+    /// byte-for-byte (newlines included; a multiline atom never inlines, see
+    /// `computeMeasure`). Mirrors reader_tokens.readRawString: the delimiter X
+    /// is the bytes up to the next `"`, the terminator is `"` X `"`, and no
+    /// escape sequences exist. `self.pos` is at the `#`.
+    fn scanRawString(self: *Lexer) ParseError!void {
+        self.pos += 2; // consume `#"`
+        const delim_start = self.pos;
+        while (self.pos < self.src.len and self.src[self.pos] != '"') self.pos += 1;
+        if (self.pos >= self.src.len) return ParseError.UnterminatedString;
+        const delim = self.src[delim_start..self.pos];
+        self.pos += 1; // the `"` closing the delimiter / opening the content
+        while (self.pos < self.src.len) : (self.pos += 1) {
+            if (self.src[self.pos] == '"' and
+                self.pos + delim.len + 2 <= self.src.len and
+                std.mem.eql(u8, self.src[self.pos + 1 .. self.pos + 1 + delim.len], delim) and
+                self.src[self.pos + 1 + delim.len] == '"')
+            {
+                self.pos += delim.len + 2; // consume the whole terminator
+                return;
+            }
+        }
+        return ParseError.UnterminatedString;
     }
 
     fn scanAtom(self: *Lexer) void {

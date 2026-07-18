@@ -8,8 +8,10 @@
 # kaappi_rt.lib are cross-compiled and copied over — see "Testing on a Windows
 # machine" in docs/dev/windows.md. `kaappi compile` discovers kaappi_rt.lib by
 # itself (exe-relative ..\lib, or KAAPPI_LIB_DIR) and links with the first C
-# compiler found on PATH, so put a working zig on PATH first (Zig master /
-# >= 0.17.0 on ARM64 — the 0.16.0 toolchain access-violates, #1613).
+# compiler found on PATH, so put a working zig on PATH first: on ARM64 that
+# means Zig master / >= 0.17.0 (the 0.16.0 toolchain access-violates, #1613);
+# on x86_64 the stock 0.16.0 toolchain works (#1613 is aarch64-only) and the
+# windows-x64-test CI job runs this script with it on every PR.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File tests\e2e\run-e2e.ps1 `
 #            [-Kaappi <path\to\kaappi.exe>]

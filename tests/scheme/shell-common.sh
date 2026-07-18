@@ -4,7 +4,7 @@
 # On Windows the suites run under Git Bash (MSYS) — see docs/dev/windows.md.
 # A script whose premise cannot hold there calls skip_on_windows with a
 # reason and exits 77, the conventional SKIP status (automake's) that
-# run-all.sh and the windows-arm-test CI driver both recognize. This is the
+# run-all.sh and the Windows CI test drivers recognize. This is the
 # shell analogue of the `cond-expand (windows ...)` gate the .scm tests use.
 
 # is_windows: true under Git Bash / MSYS / Cygwin on Windows.

@@ -103,7 +103,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | x86_64 | yes | yes | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | CI tested (QEMU) |
-| Windows | aarch64 (ARM64) | yes | yes | `zig build -Dtarget=aarch64-windows`; see `docs/dev/windows.md` |
+| Windows | aarch64 (ARM64), x86_64 | yes | yes | `zig build -Dtarget=<arch>-windows`; see `docs/dev/windows.md` |
 | FreeBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-freebsd`; kqueue reactor; see `docs/dev/freebsd.md` |
 | OpenBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-openbsd`; kqueue reactor; binaries auto-marked `PT_OPENBSD_NOBTCFI`; see `docs/dev/openbsd.md` |
 | NetBSD | x86_64, aarch64 | yes | yes | `zig build -Dtarget=<arch>-netbsd`; kqueue reactor; versioned libc symbols bound explicitly; aarch64 FPCR reset at startup; see `docs/dev/netbsd.md` |
@@ -112,10 +112,14 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
 `zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries
 run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
-`zig build -Dtarget=aarch64-windows` cross-compiles the Windows binaries
-(kaappi.exe, thottam.exe, kaappi-lsp.exe); syscall-level platform
-differences live in `src/platform.zig` (see `docs/dev/windows.md` for the
-port's architecture, degradations, and how to test on a Windows machine).
+`zig build -Dtarget=aarch64-windows` (or `x86_64-windows`) cross-compiles
+the Windows binaries (kaappi.exe, thottam.exe, kaappi-lsp.exe);
+syscall-level platform differences live behind the `src/platform.zig`
+facade (Windows ABI/socket/pipe helpers in `src/platform_win*.zig`) —
+both arches share the same OS-gated code (see `docs/dev/windows.md` for
+the port's architecture, degradations, and how to test on a Windows
+machine; x86_64 also builds natively with the stock Zig toolchain, and
+x64 binaries run on the ARM64 reference VM via Windows' x64 emulation).
 `zig build -Dtarget=aarch64-freebsd` (or `x86_64-freebsd`) cross-compiles
 for FreeBSD — a full-POSIX port with no degradations (`docs/dev/freebsd.md`).
 `zig build -Dtarget=aarch64-openbsd` (or `x86_64-openbsd`) cross-compiles
