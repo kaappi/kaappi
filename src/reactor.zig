@@ -29,12 +29,31 @@ pub const Interest = enum { read, write };
 const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
 
 const Backend = switch (builtin.os.tag) {
-    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd => KqueueBackend,
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => KqueueBackend,
     .linux => EpollBackend,
     .wasi => WasiPollBackend,
     .windows => WindowsEventBackend,
     else => @compileError("reactor: unsupported OS (kqueue/epoll/wasi/windows only)"),
 };
+
+/// NetBSD versions every libc symbol whose signature contains `time_t`:
+/// the plain `kevent` symbol is the pre-6.0 compat wrapper reading a
+/// 32-bit-tv_sec `struct timespec50` for the timeout, while modern code
+/// (what the system headers' __RENAME(__kevent50) resolves to) must call
+/// `__kevent50`. Zig's std.c declares only the plain name, so bind the
+/// versioned symbol explicitly there; every other kqueue OS keeps the
+/// plain name. (struct kevent itself never changed — only the timeout
+/// parameter's type did.)
+const kevent_sys = if (builtin.os.tag == .netbsd) struct {
+    extern "c" fn __kevent50(
+        kq: c_int,
+        changelist: [*]const std.c.Kevent,
+        nchanges: c_int,
+        eventlist: [*]std.c.Kevent,
+        nevents: c_int,
+        timeout: ?*const std.c.timespec,
+    ) c_int;
+}.__kevent50 else std.c.kevent;
 
 const TimerEntry = struct {
     deadline_ns: u64,
@@ -91,7 +110,7 @@ pub const ThreadNotifier = struct {
         self.wake_pending.store(true, .release);
         if (!self.alive.load(.acquire)) return;
         switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd => {
+            .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => {
                 var triggers = [1]std.c.Kevent{.{
                     .ident = 0,
                     .filter = std.c.EVFILT.USER,
@@ -106,7 +125,7 @@ pub const ThreadNotifier = struct {
                 // posted, and the reactor blocked in poll() has no other
                 // way to learn a notify happened.
                 while (true) {
-                    const rc = std.c.kevent(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
+                    const rc = kevent_sys(self.backend.kq, &triggers, 1, triggers[0..0].ptr, 0, &zero_ts);
                     if (rc >= 0 or platform.errno(rc) != .INTR) break;
                 }
             },
@@ -132,7 +151,7 @@ pub const ThreadNotifier = struct {
 /// Reactor is constructed (see Reactor.init / each backend's
 /// `notifierBackend`).
 const NotifierBackend = switch (builtin.os.tag) {
-    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd => struct { kq: i32 },
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => struct { kq: i32 },
     .linux => struct { fd: i32 },
     .wasi => struct {},
     .windows => struct { event: platform.win.HANDLE },
@@ -167,7 +186,7 @@ pub fn retainNotifier(n: *ThreadNotifier) void {
 pub fn releaseNotifier(n: *ThreadNotifier) void {
     if (n.refcount.fetchSub(1, .acq_rel) == 1) {
         switch (builtin.os.tag) {
-            .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd => _ = platform.close(n.backend.kq),
+            .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => _ = platform.close(n.backend.kq),
             .linux => _ = platform.close(n.backend.fd),
             .wasi => {},
             // Shared with the backend's wait — closed only here, exactly
@@ -441,7 +460,7 @@ pub const Reactor = struct {
 };
 
 // ---------------------------------------------------------------------------
-// kqueue backend (macOS/Apple platforms, FreeBSD, OpenBSD)
+// kqueue backend (macOS/Apple platforms, FreeBSD, OpenBSD, NetBSD)
 // ---------------------------------------------------------------------------
 
 const KqueueBackend = struct {
@@ -543,7 +562,7 @@ const KqueueBackend = struct {
 
     fn apply(self: *KqueueBackend, changes: []const std.c.Kevent) !void {
         var zero_ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
-        const rc = std.c.kevent(self.kq, changes.ptr, @intCast(changes.len), self.raw[0..0].ptr, 0, &zero_ts);
+        const rc = kevent_sys(self.kq, changes.ptr, @intCast(changes.len), self.raw[0..0].ptr, 0, &zero_ts);
         if (rc < 0) return error.Unexpected;
     }
 
@@ -554,7 +573,7 @@ const KqueueBackend = struct {
             ts = .{ .sec = @intCast(ns / 1_000_000_000), .nsec = @intCast(ns % 1_000_000_000) };
             ts_ptr = &ts;
         }
-        const rc = std.c.kevent(self.kq, self.raw[0..0].ptr, 0, &self.raw, self.raw.len, ts_ptr);
+        const rc = kevent_sys(self.kq, self.raw[0..0].ptr, 0, &self.raw, self.raw.len, ts_ptr);
         if (rc < 0) {
             if (platform.errno(rc) == .INTR) return self.ready[0..0];
             return error.Unexpected;

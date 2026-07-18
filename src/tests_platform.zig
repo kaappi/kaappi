@@ -109,9 +109,11 @@ test "dlSym on the dlOpen(null) process handle finds CRT symbols (#1611)" {
 test "getExePath resolves the running test binary to an absolute path" {
     // Per-OS lookup (kaappi_paths.zig): /proc/self/exe on Linux,
     // _NSGetExecutablePath on macOS, GetModuleFileNameW on Windows,
-    // sysctl kern.proc.pathname on FreeBSD. Every platform this suite
-    // executes on must resolve the test binary itself; only WASI (which
-    // never runs unit tests) legitimately returns null.
+    // sysctl kern.proc.pathname on FreeBSD, sysctl
+    // kern.proc_args.<pid>.pathname on NetBSD, argv[0] resolution on
+    // OpenBSD. Every platform this suite executes on must resolve the
+    // test binary itself; only WASI (which never runs unit tests)
+    // legitimately returns null.
     if (comptime is_wasm) return error.SkipZigTest;
     const paths = @import("kaappi_paths.zig");
     var buf: [4096]u8 = undefined;
@@ -121,4 +123,23 @@ test "getExePath resolves the running test binary to an absolute path" {
     } else {
         try std.testing.expect(p.len > 0 and p[0] == '/');
     }
+}
+
+var fpcr_denormal_numerator: f64 = 4.9406564584124654e-308;
+var fpcr_denormal_divisor: f64 = 1e16;
+
+test "denormal arithmetic survives after normalizeFpEnvBestEffort" {
+    // NetBSD/aarch64 boots processes with FPCR.FZ set — denormals flush
+    // to zero and SRFI-144's `(> fl-least 0.0)` turns false — which
+    // normalizeFpEnvBestEffort corrects at startup (platform.zig). The
+    // test binary has no main.zig startup, so make the call here, then
+    // prove gradual underflow works: this quotient is the smallest
+    // positive denormal (5e-324) under IEEE-754 and exactly 0.0 under
+    // flush-to-zero. Globals (not comptime consts) keep the division a
+    // runtime operation. On every other platform the call is a no-op and
+    // the property already holds.
+    platform.normalizeFpEnvBestEffort();
+    const q = fpcr_denormal_numerator / fpcr_denormal_divisor;
+    try std.testing.expect(q > 0.0);
+    try std.testing.expect(q == std.math.floatTrueMin(f64));
 }

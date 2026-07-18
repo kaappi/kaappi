@@ -56,6 +56,14 @@
 (test-equal #t (string=? (real-path (string-append D "/ln"))
                          (real-path (string-append D "/a.txt"))))
 (test-equal 'symlink (file-info-type (file-info (string-append D "/ln") #f)))
+;; lstat must describe the link itself, and with the *modern* struct
+;; layout: POSIX guarantees st_size = strlen(target), and the timestamps
+;; must be sane. Guards the NetBSD __lstat50 versioned-symbol fix — the
+;; plain compat lstat leaves the size/time fields shifted or with garbage
+;; high bits (docs/dev/netbsd.md).
+(let ((lfi (file-info (string-append D "/ln") #f)))
+  (test-equal (string-length (string-append D "/a.txt")) (file-info:size lfi))
+  (test-equal #t (< 0 (file-info:mtime lfi) 4102444800))) ; before year 2100
 
 ;;; --- create-directory with permission bits ---
 (create-directory (string-append D "/sub") #o700)

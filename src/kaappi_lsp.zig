@@ -771,6 +771,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // raise its own 4 MiB default stack limit to avoid overflowing on deeply
     // nested forms. No-op elsewhere. See docs/dev/openbsd.md.
     platform.raiseStackLimitBestEffort();
+    platform.normalizeFpEnvBestEffort();
 
     log("kaappi-lsp v" ++ version ++ " starting\n");
 

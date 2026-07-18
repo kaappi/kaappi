@@ -42,11 +42,14 @@ jobs:
   test:
     needs: format
     runs-on: ${{ matrix.os }}
-    # macOS runners are ~1.5x slower than the Linux ones: unit tests (~6 min)
-    # plus the Scheme suites (~11 min) alone run ~17 min and drift over the
-    # default 20-min cap, so the job is cancelled mid-run (a pre-existing flake
-    # seen on main). Give macOS 30 min, matching the Debug and riscv64 jobs.
-    timeout-minutes: ${{ matrix.timeout || (matrix.os == 'macos-latest' && 30 || 20) }}
+    # Successful runs of every leg sit at 15-23 min (Linux Release legs
+    # 15-18, macOS 18-23), so a 20-min cap leaves only minutes of headroom
+    # and ordinary runner variance cancels healthy runs mid-suite — it hit
+    # macOS ReleaseSafe repeatedly on main and then ubuntu ReleaseFast on
+    # PR #1635. 30 min is the hang-bound the Debug and riscv64 jobs
+    # already use; the timeout exists to catch hangs, not to race the
+    # suite.
+    timeout-minutes: ${{ matrix.timeout || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -270,6 +273,83 @@ jobs:
             ulimit -d $(ulimit -Hd)
             ./unit-tests-openbsd
             ./thottam-tests-openbsd
+            cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
+            bash tests/scheme/run-all.sh
+
+  netbsd-test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: netbsd
+
+      - name: Build (cross-compile for x86_64-netbsd)
+        # The runtime archive lets the VM's compile-suite scripts link
+        # `kaappi compile` output with pkgsrc clang (NetBSD's base cc is GCC,
+        # which cannot consume LLVM IR — docs/dev/netbsd.md).
+        run: |
+          zig build -Dtarget=x86_64-netbsd
+          zig build lib -Dtarget=x86_64-netbsd
+
+      - name: Compile unit tests (x86_64-netbsd)
+        # skip_foreign_checks makes this compile-and-skip on the Linux host;
+        # the binaries execute inside the VM below. ls -t picks the binaries
+        # this run compiled.
+        run: |
+          zig build test -Dtarget=x86_64-netbsd
+          cp "$(ls -t .zig-cache/o/*/unit-tests | head -1)" ./unit-tests-netbsd
+          cp "$(ls -t .zig-cache/o/*/thottam-tests | head -1)" ./thottam-tests-netbsd
+
+      - name: Trim workspace for VM sync
+        run: rm -rf .zig-cache
+
+      - name: Run test suites (NetBSD VM)
+        uses: vmactions/netbsd-vm@fac0a63f3e5244c600cb9ca532d27ee774ecdb4b # v1
+        with:
+          release: "10.1"
+          usesh: true
+          sync: rsync
+          copyback: false
+          # 6 GiB: std.testing's DebugAllocator commits ~4 GiB cumulative
+          # over the unit suite (poisoned freed pages are never unmapped)
+          # and the vmactions image has no swap configured — the 4 GiB
+          # reference machine needed a swapfile for the same reason
+          # (docs/dev/netbsd.md).
+          mem: 6144
+          # bash: run-all.sh; python3 + git: the errors/ and test-runner/
+          # suites validate JSON output and build throwaway git repos;
+          # clang: the compile/ suite needs an LLVM-capable driver (base cc
+          # is GCC). Retried: cdn.netbsd.org intermittently truncates or
+          # 503s large package downloads.
+          prepare: |
+            for i in 1 2 3; do
+              /usr/sbin/pkg_add -I bash git-base clang && break
+              sleep 20
+            done
+            /usr/sbin/pkg_add -I python313 || /usr/sbin/pkg_add -I python312
+            for v in 3.13 3.12; do
+              if [ -x /usr/pkg/bin/python$v ]; then ln -sf /usr/pkg/bin/python$v /usr/pkg/bin/python3; break; fi
+            done
+            command -v clang || { echo "clang install failed"; exit 1; }
+          run: |
+            set -e
+            # NetBSD's defaults cap the main-thread stack at 8 MiB (soft) and
+            # the data segment at 4 GiB. The test runner recurses on the main
+            # thread, and the DebugAllocator grows monotonically, so raise
+            # both to the hard limits (64 MiB / 64 GiB) before running the
+            # unit-test binary (docs/dev/netbsd.md).
+            ulimit -s $(ulimit -H -s)
+            ulimit -d $(ulimit -H -d)
+            ./unit-tests-netbsd
+            ./thottam-tests-netbsd
             cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
             bash tests/scheme/run-all.sh
 
