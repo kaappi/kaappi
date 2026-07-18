@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784343628055,
+  "lastUpdate": 1784344165408,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f211bacb145b55c92a53560a8831cc168cf24f1a",
-          "message": "Auto-file GitHub issues for scheduled fuzz findings (#1426)\n\n* Auto-file GitHub issues for scheduled fuzz findings\n\nA failing scheduled fuzz run was only visible as a red run in the\nActions tab, plus a notification email that goes solely to whoever\nlast touched the cron line — findings could sit unnoticed for days\nwhile their artifacts aged toward the 90-day expiry.\n\nAdd a trailing `report` job to fuzz.yml that files findings into the\nissue tracker: one open issue per failed job (bounded fuzzing,\nnative-diff, oracle-diff), labeled `fuzz-finding`, containing the run\nlink, a bounded artifact excerpt (first divergent program plus both\nsides' output, or the fuzzer transcript tail), and replay\ninstructions. While an issue stays open, repeat failures append\ncomments instead of opening duplicates. Issues are never auto-closed:\nseed bases rotate nightly, so a green run does not mean a finding is\nfixed.\n\nThe report job is separate so the write-capable token never coexists\nwith execution of fuzzer-generated programs: the three fuzzing jobs\nkeep contents:read tokens and persist-credentials: false, while the\nreport job gets issues:write + actions:read and runs no generated\ncode.\n\nAlso fix two latent problems noticed in passing: the fuzz crash\nartifact silently excluded `.zig-cache/f/crash` and `libfuzzer.log`\n(upload-artifact skips hidden directories unless\ninclude-hidden-files: true — the artifact contained only\nfuzz-run.log), and the oracle-diff job's checkout/setup-zig steps\nwere the only ones in the file not SHA-pinned.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Gate finding issues on finding markers to avoid false positives\n\nif: failure() fires on any step failure in the needed jobs, so an apt\nflake, a toolchain download failure, or a broken build on main would\nhave filed an issue titled as a crash or divergence with nothing in it.\n\nA real finding always ships in the artifact (the encoded crash input\nfor the fuzz job, seed-<N>.scm divergences for the diff jobs), so the\nreport job now checks for that marker: with it, the finding issue is\nfiled as before; without it, the failed jobs are collected under a\nsingle deduped \"Fuzz CI: infrastructure or build failure\" issue that\nsays plainly it is not (necessarily) a finding. Marker-less failures\nstill get reported rather than dropped because a job-level timeout can\nbe a genuine hang — every generated program is individually bounded,\nso a whole job hitting its timeout is itself suspicious.\n\nThe fuzz job's issue title narrows from \"failed (crash or test\nfailure)\" to \"found a crash\"; a pre-fuzz build or unit-test failure now\nroutes to the infrastructure issue (with the fuzz-run.log tail\nexcerpted) instead of duplicating regular CI's failure under a finding\ntitle.\n\nRouting verified by dry-running the script against a stubbed gh in\nfour scenarios: no artifacts at all, a divergence marker, a crash\nmarker, and a mixed run (oracle finding deduped into an existing open\nissue while the fuzz build failure files the infrastructure issue).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-11T01:10:17+05:30",
-          "tree_id": "437752874e2ddbf57b354a8f3f95944e8586014f",
-          "url": "https://github.com/kaappi/kaappi/commit/f211bacb145b55c92a53560a8831cc168cf24f1a"
-        },
-        "date": 1783714279455,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.33874,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.609409,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.000709,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.437285,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012946,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.338437,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507384,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071021,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.588017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.954432,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.753327,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.046184,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.573821,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715159,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044625,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044473,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "1f73a11d977d3cdb0942a0e3407553c944a61cbb",
+          "message": "Release v0.18.0",
+          "timestamp": "2026-07-18T08:02:50+05:30",
+          "tree_id": "7ed215ec18bc88c7eb4c0f6f86f7135a5d5a2453",
+          "url": "https://github.com/kaappi/kaappi/commit/1f73a11d977d3cdb0942a0e3407553c944a61cbb"
+        },
+        "date": 1784344164092,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.044157,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.578969,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.912988,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.403837,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006718,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052851,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509341,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068508,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.265153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984063,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.508215,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471041,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.727958,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.84518,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044203,
             "unit": "seconds"
           }
         ]
