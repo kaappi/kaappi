@@ -100,6 +100,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tools/openbsd_nobtcfi.zig"),
             .target = b.graph.host,
             .optimize = .ReleaseSafe,
+            // pread/pwrite/close are libc externs; macOS links libc
+            // implicitly but Linux (the usual CI/build host) does not.
+            .link_libc = true,
         }),
     }) else null;
 
