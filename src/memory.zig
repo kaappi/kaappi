@@ -611,6 +611,32 @@ pub const GC = struct {
         return types.makePointer(&port.header);
     }
 
+    /// A SRFI-271 random binary input port backed by `gen` (copied to the
+    /// heap and owned by the port; freed in gc_collect's port sweep). No fd,
+    /// no string buffer — reads come from gen.nextByte() via readOneByte.
+    pub fn allocRandomPort(self: *GC, gen: types.RandomGen) !Value {
+        try self.maybeCollect();
+        const g = try self.allocator.create(types.RandomGen);
+        g.* = gen;
+        errdefer self.allocator.destroy(g);
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = -1,
+            .is_input = true,
+            .is_output = false,
+            .is_open = true,
+            .name = "random",
+            .owns_name = false,
+            .peek_byte = null,
+            .is_string_port = false,
+            .is_binary = true,
+            .random_gen = g,
+        };
+        self.finishAlloc(&port.header, @sizeOf(Port) + @sizeOf(types.RandomGen));
+        return types.makePointer(&port.header);
+    }
+
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
         // Copy before collecting: `data` may alias another bytevector/string.
         const owned = try self.allocator.dupe(u8, data);

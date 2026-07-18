@@ -543,6 +543,10 @@ pub const Port = struct {
     is_binary: bool = false,
     read_buf: ?[]u8 = null,
     read_buf_len: usize = 0,
+    /// SRFI-271 random port: when non-null this input port yields bytes from
+    /// a random generator rather than an fd or string buffer (owned; freed
+    /// with the port). See RandomGen below.
+    random_gen: ?*RandomGen = null,
     // Non-blocking port state (KEP-0001 Phase 3):
     /// O_NONBLOCK has been set on `fd` (lazily, the first time a read/write
     /// runs while a fiber scheduler exists). Never set for fd 0/1/2.
@@ -575,6 +579,62 @@ pub const Port = struct {
         is_pipe: bool = false,
         _pad: u5 = 0,
     } = .{},
+};
+
+/// Which kind of source backs a SRFI-271 random binary input port.
+pub const RandomKind = enum(u8) { randomized, determinized };
+
+/// Generator state behind a SRFI-271 random port (owned by Port.random_gen).
+/// Holds no Scheme Values, so the GC never traces it — only frees it.
+///
+/// Determinized ports run a xoshiro256** PRNG. Its full observable state is
+/// the four state words `s` plus the current 8-byte output block `out` and
+/// `out_pos`, the number of bytes of that block already delivered; this is
+/// exactly what (random-port-state ...) captures, so two ports with equal
+/// state produce identical byte streams. `out` is a pure function of `s`
+/// (the advance step is a bijection), so equal `(s, out_pos)` always implies
+/// equal `out` — state equality via a byte-for-byte snapshot is canonical.
+///
+/// Randomized ports refill each block from OS entropy and expose no state.
+pub const RandomGen = struct {
+    kind: RandomKind,
+    s: [4]u64 = .{ 0, 0, 0, 0 },
+    out: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    /// 8 means "no pending block"; the next byte forces a refill. A fresh
+    /// determinized generator starts here so the seed words drive the first
+    /// output block.
+    out_pos: u8 = 8,
+
+    fn xoshiroNext(self: *RandomGen) u64 {
+        const s = &self.s;
+        const result = std.math.rotl(u64, s[1] *% 5, 7) *% 9;
+        const t = s[1] << 17;
+        s[2] ^= s[0];
+        s[3] ^= s[1];
+        s[1] ^= s[2];
+        s[0] ^= s[3];
+        s[2] ^= t;
+        s[3] = std.math.rotl(u64, s[3], 45);
+        return result;
+    }
+
+    /// Next pseudorandom byte, or null when a randomized port's OS entropy
+    /// source is unavailable (rather than emitting predictable bytes under a
+    /// cryptographic-quality contract). Determinized ports never fail and
+    /// never return null; a random port never reaches EOF. On a null the
+    /// output block is left un-advanced so a retry re-attempts the refill.
+    pub fn nextByte(self: *RandomGen) ?u8 {
+        if (self.out_pos >= 8) {
+            switch (self.kind) {
+                .randomized => if (!platform.osRandomBytes(&self.out)) return null,
+                .determinized => std.mem.writeInt(u64, &self.out, self.xoshiroNext(), .little),
+            }
+            self.out_pos = 0;
+        }
+        const b = self.out[self.out_pos];
+        self.out_pos += 1;
+        return b;
+    }
 };
 
 // ---------------------------------------------------------------------------

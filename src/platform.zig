@@ -734,6 +734,56 @@ pub fn randomSeed64() u64 {
     return (hi << 32) | lo;
 }
 
+/// Fill `buf` with cryptographic-quality OS entropy: getrandom on Linux,
+/// arc4random_buf on BSD/macOS, RtlGenRandom on Windows, random_get on WASI.
+/// Returns true once the whole buffer holds real OS entropy.
+///
+/// Returns false if the OS source genuinely fails, and — deliberately — never
+/// substitutes clock- or PRNG-derived bytes: a caller advertising
+/// cryptographic quality (SRFI-271 randomized ports) must surface the failure
+/// rather than hand out predictable output. In practice arc4random_buf cannot
+/// fail, blocking getrandom only returns short on EINTR (retried here), and
+/// RtlGenRandom / WASI random_get fail only in extreme conditions, so false is
+/// effectively unreachable on a healthy host.
+pub fn osRandomBytes(buf: []u8) bool {
+    if (buf.len == 0) return true;
+    if (comptime is_windows) {
+        var off: usize = 0;
+        while (off < buf.len) {
+            const chunk: u32 = @intCast(@min(buf.len - off, @as(usize, std.math.maxInt(u32))));
+            if (SystemFunction036(buf.ptr + off, chunk) == 0) return false;
+            off += chunk;
+        }
+        return true;
+    }
+    if (comptime builtin.os.tag == .linux) {
+        var off: usize = 0;
+        while (off < buf.len) {
+            // getrandom is a raw syscall: it returns the byte count, or a
+            // negative -errno directly (it does not set libc errno), so decode
+            // the signed return rather than going through std.posix.errno.
+            const sret: isize = @bitCast(std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0));
+            if (sret > 0) {
+                off += @intCast(sret);
+            } else if (sret == -@as(isize, @intFromEnum(std.os.linux.E.INTR))) {
+                continue; // interrupted by a signal; retry
+            } else {
+                return false; // error, or zero progress
+            }
+        }
+        return true;
+    }
+    if (comptime is_wasm) {
+        // WASI exposes a real CSPRNG; the browser playground shim backs it
+        // with crypto.getRandomValues.
+        return std.os.wasi.random_get(buf.ptr, buf.len) == .SUCCESS;
+    }
+    // BSD/macOS: arc4random_buf always succeeds.
+    const arc4_buf = @extern(*const fn (buf: [*]u8, len: usize) callconv(.c) void, .{ .name = "arc4random_buf" });
+    arc4_buf(buf.ptr, buf.len);
+    return true;
+}
+
 /// Iterates "NAME=VALUE" environment entries as UTF-8 (each valid until
 /// the next call). POSIX walks `environ`; Windows walks the wide
 /// environment block.
