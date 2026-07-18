@@ -60,8 +60,16 @@ check "report URL line" $?
 grep -qF "panic: deliberate panic" <<<"$out"
 check "standard panic message retained" $?
 
-grep -qE "0x[0-9a-fA-F]+" <<<"$out"
-check "stack trace addresses retained" $?
+# Zig's panic unwinder can't walk frames on every target — ppc64le prints
+# "(empty stack trace)" (no frame-walk in Zig 0.16's std there). The banner
+# can't retain what std never produces, so assert addresses only when a
+# trace exists; the probe is the output itself, not an arch list (#1654).
+if grep -qF "(empty stack trace)" <<<"$out"; then
+    echo "SKIP: stack trace addresses (Zig prints no frames on this target)"
+else
+    grep -qE "0x[0-9a-fA-F]+" <<<"$out"
+    check "stack trace addresses retained" $?
+fi
 
 # Ordering: banner (identity) must come before the panic message + trace.
 banner_line=$(grep -n "internal error" <<<"$out" | head -1 | cut -d: -f1)
