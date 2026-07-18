@@ -369,6 +369,16 @@ fn processWeakRefs(gc: *GC) void {
             while (j < g.registered.items.len) {
                 const e = g.registered.items[j];
                 if (weakReachable(gc, e.watched)) {
+                    // Retain the representative strongly while its element is
+                    // registered, tying its lifetime to the watched object.
+                    // This is a deliberate choice for a non-refcounted
+                    // collector: a representative reachable only through the
+                    // element could otherwise be swept before the element is
+                    // resurrected, leaving `(g)` to hand back freed memory. The
+                    // bounded cost is that a representative which transitively
+                    // references another guarded object can delay that object's
+                    // resurrection — harmless, since SRFI-254 leaves the order
+                    // in which elements become available unspecified.
                     if (!weakReachable(gc, e.payload)) {
                         markValue(gc, e.payload);
                         progress = true;
