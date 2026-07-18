@@ -1,14 +1,17 @@
 # Porting to a new OS or CPU architecture
 
 How Kaappi's existing platform support is structured, and staged checklists
-for bringing up a new operating system or a new CPU architecture. The four
+for bringing up a new operating system or a new CPU architecture. The five
 completed ports are the reference material: **Windows aarch64** (#1606,
 #1608, #1609 — the OS-port exemplar, documented in [windows.md](windows.md)),
 **wasm32-wasi** (KEP-0001 Phase 4 — the capability-degradation exemplar),
-**riscv64-linux** (the CPU-architecture exemplar, tested under QEMU), and
+**riscv64-linux** (the CPU-architecture exemplar, tested under QEMU),
 **FreeBSD** (the POSIX-audit exemplar — a port where nearly everything
 already works and the job is verifying it, documented in
-[freebsd.md](freebsd.md)).
+[freebsd.md](freebsd.md)), and **OpenBSD** (the toolchain-hardening exemplar
+— a POSIX/kqueue platform whose security mitigations, BTCFI enforcement and
+tight default resource limits, forced accommodations nothing else needs,
+documented in [openbsd.md](openbsd.md)).
 
 ## Current support matrix
 
@@ -20,6 +23,7 @@ already works and the job is verifying it, documented in
 | Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode | `riscv64-test` | yes |
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
 | FreeBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM FreeBSD VM (x86_64); verified on a real 15.1 aarch64 box | `freebsd-test` | yes (both arches) |
+| OpenBSD | x86_64, aarch64 | cross-compiled | unit + thottam + full `.scm` suites in a KVM OpenBSD 7.9 VM (x86_64); verified on a real 7.9 aarch64 box | `openbsd-test` | yes (both arches, `PT_OPENBSD_NOBTCFI`-marked) |
 | WASI | wasm32 | cross-compiled (`zig build wasm`) | smoke + timer + parallel-pool under wasmtime | `wasm` | yes (`kaappi.wasm`) |
 
 Everything builds from any host — Zig cross-compiles all rows; no target
@@ -360,6 +364,26 @@ Hard-won specifics worth re-reading before starting (fuller detail in
   that also broke only-stripped binaries (#1607). Reduce with minimal
   probes before assuming the bug is in this repo, and document the
   workaround next to the release row (`strip: false`).
+* **A hardened OS can reject the whole toolchain's output.** OpenBSD/arm64
+  enforces BTCFI — every indirect branch must hit a `bti` landing pad or
+  the kernel raises `SIGILL`/`ILL_BTCFI` — and Zig 0.16 emits none, so the
+  binary trapped on its first function-pointer call before `main` ran. The
+  fix wasn't in our code: OpenBSD ships an opt-out (`-z nobtcfi` →
+  `PT_OPENBSD_NOBTCFI`), applied to the native-backend link directly and
+  to Zig-linked binaries by a post-link ELF patch (`tools/openbsd_nobtcfi.zig`,
+  wired into `build.zig`). `ktrace`/`kdump` on the box named the exact
+  `ILL_BTCFI` fault; a two-line C probe (function pointer with vs. without
+  `-mbranch-protection`) proved it was enforcement, not our bug. Watch for
+  the same class on any CFI-enforcing OS (amd64 IBT, future arm64 targets).
+* **A young target's default resource limits may be far tighter.** OpenBSD's
+  `default` login class caps the main stack at 4 MiB (deep interpreter
+  recursion overflowed it — the fix was the existing 64 MiB worker thread
+  plus a startup `setrlimit`) and the data segment at 1.5 GiB (the
+  DebugAllocator's unbounded virtual growth flakily OOM'd the *unit-test*
+  binary — the fix was raising `ulimit -d` for the test run, a harness
+  concern the shipped C-allocator binaries never hit). Check `ulimit -a`
+  early and separate "the runtime needs this" from "only the test binary
+  does."
 * **Probe capabilities at runtime, per object.** Comptime OS checks
   can't see host differences (WASI browser shim vs wasmtime; socket vs
   pipe fds behind the same CRT). One-time probes with remembered answers

@@ -20,11 +20,14 @@
     (display "FAIL: ") (display name) (display " should have raised error")
     (newline)))
 
-;; libm on POSIX; on Windows the CRT (ucrtbase.dll) hosts the math
-;; functions — there is no libm.dll.
+;; sqrt lives in libm on POSIX; on Windows the CRT (ucrtbase.dll) hosts the
+;; math functions — there is no libm.dll. abs is a libc function, resolved
+;; from the process's own libc (the null/default handle) on POSIX — dlsym on
+;; an OpenBSD libm handle does not find it — and from ucrtbase on Windows.
 (define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
+(define abs-lib (ffi-open (cond-expand (windows "ucrtbase") (else #f))))
 (define c-sqrt (ffi-fn libm "sqrt" '(double) 'double))
-(define c-abs (ffi-fn libm "abs" '(int) 'int))
+(define c-abs (ffi-fn abs-lib "abs" '(int) 'int))
 
 ;; --- Valid calls still work ---
 (let ((r (c-sqrt 4.0)))
@@ -57,6 +60,7 @@
   (check "fixnum->double coercion" (and (> r 1.99) (< r 2.01)) #t))
 
 (ffi-close libm)
+(ffi-close abs-lib)
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "FFI type validation tests failed" fail))

@@ -23,10 +23,12 @@
     (display "FAIL: ") (display name) (display " should have raised error")
     (newline)))
 
-;; abs resolves through libm's dependency chain on POSIX; on Windows the
-;; CRT (ucrtbase.dll) exports it directly — there is no libm.dll.
-(define libm (ffi-open (cond-expand (windows "ucrtbase") (else "libm"))))
-(define c-abs (ffi-fn libm "abs" '(int) 'int))
+;; abs is a libc function: resolve it from the process's own libc (the
+;; null/default handle) on POSIX — dlsym on an OpenBSD libm handle does not
+;; find abs — and from the CRT (ucrtbase.dll) on Windows, which has no
+;; libm.dll.
+(define abs-lib (ffi-open (cond-expand (windows "ucrtbase") (else #f))))
+(define c-abs (ffi-fn abs-lib "abs" '(int) 'int))
 
 ;; Valid in-range call
 (check "abs(-42)" (c-abs -42) 42)
@@ -39,7 +41,7 @@
 (check-error "abs(-5000000000) out of c_int range"
   (lambda () (c-abs -5000000000)))
 
-(ffi-close libm)
+(ffi-close abs-lib)
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "FFI int-range tests failed" fail))

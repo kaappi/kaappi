@@ -25,6 +25,7 @@ investigation produced analysis worth keeping.
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
 | [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, the `windows` feature identifier, how to test on a Windows machine |
 | [freebsd.md](freebsd.md) | FreeBSD port: kqueue backend reuse, the sysctl self-exe lookup, zero runtime degradations, cross-compile + copy testing, the CI VM job |
+| [openbsd.md](openbsd.md) | OpenBSD port: the `PT_OPENBSD_NOBTCFI` opt-out around BTCFI enforcement, the `KERN_PROC_ARGS` self-exe lookup, the tight default stack/data limits, cross-compile + patch + copy testing, the CI VM job |
 | [porting.md](porting.md) | Porting to a new OS or CPU architecture: the support matrix, where portability lives, the degradation ladder, staged checklists, what "supported" means |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |

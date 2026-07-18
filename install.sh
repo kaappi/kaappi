@@ -18,16 +18,17 @@ detect_platform() {
         Darwin)  os="macos" ;;
         Linux)   os="linux" ;;
         FreeBSD) os="freebsd" ;;
+        OpenBSD) os="openbsd" ;;
         *)
             echo "error: unsupported OS: $os"
-            echo "Kaappi supports macOS, Linux, and FreeBSD. See https://github.com/$REPO"
+            echo "Kaappi supports macOS, Linux, FreeBSD, and OpenBSD. See https://github.com/$REPO"
             exit 1
             ;;
     esac
 
     case "$arch" in
         arm64|aarch64) arch="aarch64" ;;
-        # FreeBSD reports x86_64 as amd64 (uname -m).
+        # FreeBSD and OpenBSD report x86_64 as amd64 (uname -m).
         x86_64|amd64)  arch="x86_64" ;;
         riscv64)       arch="riscv64" ;;
         *)

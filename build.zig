@@ -86,6 +86,23 @@ pub fn build(b: *std.Build) void {
     // stdin line loop instead (repl.zig).
     const use_linenoise = !is_wasm_target and target.result.os.tag != .windows;
 
+    // OpenBSD enforces BTCFI: an indirect branch must land on a `bti`
+    // instruction, but Zig 0.16 emits no landing pads, so every Zig-linked
+    // binary would SIGILL on its first function-pointer call. This host tool
+    // adds the PT_OPENBSD_NOBTCFI opt-out marker post-link; `installExe`
+    // below runs it on each installed executable for OpenBSD targets, so
+    // `zig build -Dtarget=<arch>-openbsd` produces working binaries directly.
+    // The `kaappi compile` native backend opts out honestly via `-z nobtcfi`
+    // (native_compiler.zig). See docs/dev/openbsd.md.
+    const nobtcfi_tool: ?*std.Build.Step.Compile = if (target.result.os.tag == .openbsd) b.addExecutable(.{
+        .name = "openbsd_nobtcfi",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/openbsd_nobtcfi.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseSafe,
+        }),
+    }) else null;
+
     // Main module (embedded_bytecode added below based on bundle mode)
     const main_mod = kaappiModule(b, options_mod, .{
         .target = target,
@@ -156,7 +173,7 @@ pub fn build(b: *std.Build) void {
         .root_module = main_mod,
     });
     exe.stack_size = 64 * 1024 * 1024; // 64 MB — u16 register widening increases compiler frame sizes
-    b.installArtifact(exe);
+    installExe(b, exe, nobtcfi_tool);
 
     // Portable library sources (.sld/.scm), installed next to the exe so a
     // from-source build can resolve them via the exe-relative <exe_dir>/../lib
@@ -338,7 +355,7 @@ pub fn build(b: *std.Build) void {
         .root_module = thottam_mod,
     });
     thottam_exe.stack_size = 64 * 1024 * 1024;
-    b.installArtifact(thottam_exe);
+    installExe(b, thottam_exe, nobtcfi_tool);
 
     // Language server (kaappi-lsp)
     const lsp_mod = kaappiModule(b, options_mod, .{
@@ -353,7 +370,7 @@ pub fn build(b: *std.Build) void {
         .root_module = lsp_mod,
     });
     lsp_exe.stack_size = 64 * 1024 * 1024;
-    b.installArtifact(lsp_exe);
+    installExe(b, lsp_exe, nobtcfi_tool);
 
     // Fuzz program generator (driver for the offline differential harness,
     // tests/fuzz/native-diff.sh). Dev/CI tool: installed only by this step,
@@ -448,6 +465,25 @@ pub fn build(b: *std.Build) void {
 
     const cov_scheme_step = b.step("coverage-scheme", "Run a Scheme file with kcov code coverage");
     cov_scheme_step.dependOn(&run_kcov_scheme.step);
+}
+
+/// Installs `exe` to the bin dir, then — for OpenBSD targets — marks the
+/// installed binary PT_OPENBSD_NOBTCFI so it survives BTCFI enforcement
+/// (see the `nobtcfi_tool` comment in `build`). `has_side_effects` keeps the
+/// patch running on every build, since the install step re-copies the raw
+/// (unmarked) binary each time. A no-op wrapper around `installArtifact` on
+/// every other target.
+fn installExe(b: *std.Build, exe: *std.Build.Step.Compile, nobtcfi_tool: ?*std.Build.Step.Compile) void {
+    const tool = nobtcfi_tool orelse {
+        b.installArtifact(exe);
+        return;
+    };
+    const inst = b.addInstallArtifact(exe, .{});
+    const patch = b.addRunArtifact(tool);
+    patch.addArg(b.getInstallPath(.bin, exe.out_filename));
+    patch.has_side_effects = true;
+    patch.step.dependOn(&inst.step);
+    b.getInstallStep().dependOn(&patch.step);
 }
 
 fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {

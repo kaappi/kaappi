@@ -438,7 +438,14 @@ test "renderStatus and clearDir over a temp cache dir" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    // Resolve the tmp dir with a path-string realpath, not Io.Dir's fd→path
+    // lookup: the latter is error.OperationUnsupported on OpenBSD (no
+    // /proc/self/fd, no F_GETPATH). std.testing places tmp dirs at
+    // .zig-cache/tmp/<sub_path> relative to the cwd.
+    var rel_buf: [platform.PATH_MAX]u8 = undefined;
+    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var real_buf: [platform.PATH_MAX]u8 = undefined;
+    const dir = try allocator.dupe(u8, platform.realPath(rel, &real_buf) orelse return error.FileNotFound);
     defer allocator.free(dir);
 
     try writeTestCacheEntry(allocator, dir, "aaaa.sbc", "/home/u/one.scm");

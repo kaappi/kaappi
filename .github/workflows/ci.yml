@@ -204,6 +204,73 @@ jobs:
             cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
             bash tests/scheme/run-all.sh
 
+  # OpenBSD: cross-compile the x86_64 binaries + test executables on Linux,
+  # mark them PT_OPENBSD_NOBTCFI (Zig 0.16 emits no BTI landing pads, which
+  # OpenBSD's BTCFI enforcement requires — docs/dev/openbsd.md), then execute
+  # inside a KVM OpenBSD VM (GitHub hosts no OpenBSD runners). The VM tracks
+  # 7.9 to match the aarch64 reference machine; OpenBSD breaks ABI between
+  # releases, so the Zig-targeted release and the VM release must agree.
+  openbsd-test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: openbsd
+
+      - name: Build (cross-compile for x86_64-openbsd)
+        # zig build marks the three installed binaries PT_OPENBSD_NOBTCFI via
+        # the host patcher (build.zig installExe). The runtime archive lets the
+        # VM's compile-suite scripts link `kaappi compile` output with base cc.
+        run: |
+          zig build -Dtarget=x86_64-openbsd
+          zig build lib -Dtarget=x86_64-openbsd
+
+      - name: Compile and mark unit tests (x86_64-openbsd)
+        # skip_foreign_checks makes this compile-and-skip on the Linux host;
+        # the binaries execute inside the VM below. ls -t picks the binaries
+        # this run compiled. Test executables are not installed artifacts, so
+        # the NOBTCFI marker is applied explicitly with the same host tool.
+        run: |
+          zig build test -Dtarget=x86_64-openbsd
+          cp "$(ls -t .zig-cache/o/*/unit-tests | head -1)" ./unit-tests-openbsd
+          cp "$(ls -t .zig-cache/o/*/thottam-tests | head -1)" ./thottam-tests-openbsd
+          zig run tools/openbsd_nobtcfi.zig -- ./unit-tests-openbsd ./thottam-tests-openbsd
+
+      - name: Trim workspace for VM sync
+        run: rm -rf .zig-cache
+
+      - name: Run test suites (OpenBSD VM)
+        uses: vmactions/openbsd-vm@c941015845c0f0c429676840963dc63b226d4f69 # v1
+        with:
+          release: "7.9"
+          usesh: true
+          sync: rsync
+          copyback: false
+          # bash: run-all.sh; python3 + git: the errors/ and test-runner/
+          # suites validate JSON output and build throwaway git repos.
+          prepare: pkg_add -I bash python%3 git
+          run: |
+            set -e
+            # OpenBSD's default login class caps the main-thread stack at 4 MiB
+            # and the data segment at 1.5 GiB. The test runner recurses on the
+            # main thread, and std.testing's DebugAllocator never reuses freed
+            # address space, so raise both to the hard limits before running the
+            # unit-test binary (docs/dev/openbsd.md).
+            ulimit -s $(ulimit -Hs)
+            ulimit -d $(ulimit -Hd)
+            ./unit-tests-openbsd
+            ./thottam-tests-openbsd
+            cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
+            bash tests/scheme/run-all.sh
+
   # Cross-compile the Windows aarch64 binaries and the unit-test binary
   # from Linux. Compile-only by design: this guards the cross-compilation
   # path release.yml ships with, independent of the Windows runner image.
