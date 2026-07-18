@@ -70,16 +70,6 @@
                 ((char=? (string-ref s i) ch) #t)
                 (else (loop (+ i 1)))))))
 
-    ;; Length of the longest run of `ch` in `s`.
-    (define (longest-run s ch)
-      (let ((n (string-length s)))
-        (let loop ((i 0) (cur 0) (best 0))
-          (if (= i n)
-              (max cur best)
-              (if (char=? (string-ref s i) ch)
-                  (loop (+ i 1) (+ cur 1) best)
-                  (loop (+ i 1) 0 (max cur best)))))))
-
     ;; --- delimiter predicates -------------------------------------------
 
     ;; True iff string2 is a ⟨valid delimiter⟩ and string1 is a valid
@@ -92,28 +82,51 @@
            (not (string-ends-with? string1
                                    (string-append "\"" string2)))))
 
-    ;; Return a delimiter D such that (can-delimit? string D). The empty
-    ;; delimiter works whenever `string` has no `""` and does not end with `"`;
-    ;; otherwise a run of `=` longer than any run of `=` in `string` is valid,
-    ;; because that run then never occurs in `string` at all, so neither
-    ;; `"=...="` nor a trailing `"=...=` can appear. Linear time.
+    ;; Return a delimiter D such that (can-delimit? string D), computed in a
+    ;; single pass over the character list. (Kaappi indexes strings by codepoint
+    ;; — string-ref rescans UTF-8 from the front — so an indexed loop here would
+    ;; be quadratic; a list walk is genuinely linear.) The empty delimiter works
+    ;; whenever `string` has no `""` and does not end with `"`; otherwise a run
+    ;; of `=` longer than any run of `=` in `string` is valid, because that run
+    ;; then never occurs in `string` at all, so neither `"=...="` nor a trailing
+    ;; `"=...=` can appear.
     (define (generate-delimiter string)
-      (if (can-delimit? string "")
-          ""
-          (make-string (+ 1 (longest-run string #\=)) #\=)))
+      (let loop ((chars (string->list string))
+                 (prev #f)       ; previous character (#f before the first)
+                 (best 0)        ; longest run of #\= seen so far
+                 (run 0)         ; length of the current run of #\=
+                 (adjacent #f))  ; has an adjacent `""` pair appeared?
+        (if (null? chars)
+            (if (and (not adjacent) (not (eqv? prev #\")))
+                ""
+                (make-string (+ 1 best) #\=))
+            (let* ((c (car chars))
+                   (run* (if (char=? c #\=) (+ run 1) 0)))
+              (loop (cdr chars)
+                    c
+                    (if (> run* best) run* best)
+                    run*
+                    (or adjacent (and (eqv? prev #\") (char=? c #\"))))))))
 
     ;; --- reading --------------------------------------------------------
 
+    ;; Resolve the single optional port argument, defaulting via (get-default).
+    ;; The SRFI signatures take a fixed [port]; reject 2+ arguments with an arity
+    ;; error rather than silently using the first and dropping the rest.
+    (define (opt-port opt get-default)
+      (cond ((null? opt) (get-default))
+            ((null? (cdr opt)) (car opt))
+            (else (error "srfi 267: at most one port argument expected"))))
+
     (define (read-raw-string . opt)
-      (let ((port (if (pair? opt) (car opt) (current-input-port))))
+      (let ((port (opt-port opt current-input-port)))
         (if (and (eqv? (read-char port) #\#)
                  (eqv? (read-char port) #\"))
             (read-after-prefix port)
             (raise (make-read-error "read-raw-string: expected #\" prefix")))))
 
     (define (read-raw-string-after-prefix . opt)
-      (read-after-prefix
-       (if (pair? opt) (car opt) (current-input-port))))
+      (read-after-prefix (opt-port opt current-input-port)))
 
     ;; Assumes the `#"` prefix has been consumed. Reads the delimiter, then the
     ;; content up to the terminating `" X "`.
@@ -155,9 +168,10 @@
     ;; --- writing --------------------------------------------------------
 
     (define (write-raw-string string1 string2 . opt)
-      (if (can-delimit? string1 string2)
-          (write-string
-           (string-append "#\"" string2 "\"" string1 "\"" string2 "\"")
-           (if (pair? opt) (car opt) (current-output-port)))
-          (raise (make-write-error
-                  "write-raw-string: delimiter cannot represent the string"))))))
+      (let ((port (opt-port opt current-output-port)))
+        (if (can-delimit? string1 string2)
+            (write-string
+             (string-append "#\"" string2 "\"" string1 "\"" string2 "\"")
+             port)
+            (raise (make-write-error
+                    "write-raw-string: delimiter cannot represent the string")))))))

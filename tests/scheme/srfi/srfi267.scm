@@ -44,6 +44,8 @@ line2"|")
 (test-assert (gen-ok? ""))
 (test-assert (gen-ok? "=\"==\"===\""))
 (test-assert (gen-ok? "\"\"\"\""))
+(test-assert (gen-ok? "a\"\"===b"))    ; adjacent quotes force the =-run path
+(test-assert (gen-ok? "café\""))       ; UTF-8 content ending in a quote
 
 ;;; --- read-raw-string / read-raw-string-after-prefix ----------------------
 
@@ -88,6 +90,24 @@ line2"|")
   (guard (e ((raw-string-read-error? e) (not (raw-string-write-error? e)))
             (else #f))
     (read-rs "bad")))
+
+;;; --- optional-port arity -------------------------------------------------
+;;; The SRFI signatures take a fixed [port]; surplus arguments are an error.
+
+(test-assert
+  (guard (e (#t #t))
+    (read-raw-string (open-input-string "#\"\"x\"\"") (current-input-port))
+    #f))
+(test-assert
+  (guard (e (#t #t))
+    (read-raw-string-after-prefix (open-input-string "\"x\"") (current-input-port))
+    #f))
+(test-assert
+  (guard (e (#t #t))
+    (write-raw-string "x" "" (open-output-string) (open-output-string))
+    #f))
+;; A single port argument is still accepted.
+(test-equal "x" (read-raw-string (open-input-string "#\"\"x\"\"")))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-267")
