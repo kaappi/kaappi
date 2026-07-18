@@ -185,6 +185,17 @@ pub fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: 
         return;
     }
 
+    // SRFI 261 (#1645): (srfi srfi-<n>) and (srfi <mnemonic>-<n>) refer to
+    // (srfi <n>). Literal name first — a user library registered or shipped
+    // under the hyphenated name keeps winning — so the rewrite only fires
+    // when the literal name resolves to nothing at all (registry above,
+    // disk/bundled/embedded here).
+    if (srfi261FormNumber(import_set)) |n| {
+        if (!libraryIsAvailable(vm, lib_name, import_set)) {
+            return importSrfi261Normalized(vm, target, import_set, lib_name, n);
+        }
+    }
+
     // Circular import detection
     if (vm.loading_libs.contains(lib_name)) {
         vm.setErrorDetail("circular import: ({s})", .{lib_name});
@@ -256,6 +267,111 @@ pub fn buildLibRelPath(name_list: Value, buf: *[512]u8) ![]const u8 {
     pos += ext.len;
 
     return buf[0..pos];
+}
+
+/// SRFI 261 (#1645): the number carried by a `srfi-<n>` / `<mnemonic>-<n>`
+/// library-name component, or null when `name` has no such suffix. The digits
+/// after the LAST '-' are the SRFI number; the prefix is not validated — the
+/// number alone is authoritative (the spec assigns colliding mnemonics, e.g.
+/// vectors-43 and vectors-133).
+pub fn srfi261Suffix(name: []const u8) ?i64 {
+    const dash = std.mem.lastIndexOfScalar(u8, name, '-') orelse return null;
+    if (dash == 0) return null; // "-1" has no mnemonic/srfi prefix
+    const digits = name[dash + 1 ..];
+    if (digits.len == 0) return null; // "srfi-"
+    for (digits) |c| {
+        if (c < '0' or c > '9') return null; // "lists-nope", "a-+5"
+    }
+    // u31 rejects absurd numbers that would overflow the fixnum range.
+    const n = std.fmt.parseInt(u31, digits, 10) catch return null;
+    return @as(i64, n);
+}
+
+/// SRFI 261 (#1645): the SRFI number of a (srfi srfi-<n> …) or
+/// (srfi <mnemonic>-<n> …) library name, or null when `name_list` isn't one.
+/// Trailing components (sub-libraries) don't participate: (srfi srfi-146 hash)
+/// carries 146.
+pub fn srfi261FormNumber(name_list: Value) ?i64 {
+    if (!types.isPair(name_list)) return null;
+    const head = types.car(name_list);
+    if (!types.isSymbol(head) or !std.mem.eql(u8, types.symbolName(head), "srfi")) return null;
+    const rest = types.cdr(name_list);
+    if (!types.isPair(rest)) return null;
+    const second = types.car(rest);
+    if (!types.isSymbol(second)) return null;
+    return srfi261Suffix(types.symbolName(second));
+}
+
+/// SRFI 261 (#1645): fresh (srfi <n> rest…) name list for a matched form.
+/// `n` is the number srfi261FormNumber returned for `name_list`.
+fn normalizeSrfiLibName(gc: *memory.GC, name_list: Value, n: i64) !Value {
+    var input = name_list;
+    gc.pushRoot(&input);
+    defer gc.popRoot();
+    var srfi_sym = try gc.allocSymbol("srfi");
+    gc.pushRoot(&srfi_sym);
+    defer gc.popRoot();
+    var tail = try gc.allocPair(types.makeFixnum(n), types.cdr(types.cdr(input)));
+    gc.pushRoot(&tail);
+    defer gc.popRoot();
+    return gc.allocPair(srfi_sym, tail);
+}
+
+/// SRFI 261 (#1645): normalized relative path ("srfi/<n>[/…].sld") for a
+/// (srfi srfi-<n> …) / (srfi <mnemonic>-<n> …) name, or null when the name
+/// isn't a 261 form. Pure — no GC allocation — so graph builders
+/// (test_selection's addImportDep) can mirror the resolver without a VM.
+pub fn buildSrfi261RelPath(name_list: Value, buf: *[512]u8) ?[]const u8 {
+    const n = srfi261FormNumber(name_list) orelse return null;
+    var lit_buf: [512]u8 = undefined;
+    const lit = buildLibRelPath(name_list, &lit_buf) catch return null;
+    // Splice the number over the second path segment:
+    // "srfi/lists-146/hash.sld" → "srfi/146/hash.sld".
+    const seg_start = (std.mem.indexOfScalar(u8, lit, '/') orelse return null) + 1;
+    const seg_end = std.mem.indexOfScalarPos(u8, lit, seg_start, '/') orelse (lit.len - ".sld".len);
+    return std.fmt.bufPrint(buf, "{s}{d}{s}", .{ lit[0..seg_start], n, lit[seg_end..] }) catch null;
+}
+
+/// Import via the SRFI 261 rewrite of `import_set` (whose parsed number is
+/// `n`). Split from processImportSet with an explicit error set so the mutual
+/// recursion doesn't trip inferred-error-set resolution.
+fn importSrfi261Normalized(vm: *VM, target: *std.StringHashMap(Value), import_set: Value, lib_name: []const u8, n: i64) VMError!void {
+    var norm = normalizeSrfiLibName(vm.gc, import_set, n) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&norm);
+    defer vm.gc.popRoot();
+    processImportSet(vm, target, norm) catch |err| {
+        // A miss on the rewritten name is reported under the name the user
+        // actually wrote; deeper load errors keep their own detail (#1010).
+        const detail = vm.last_error_detail[0..vm.last_error_detail_len];
+        if (err == error.UndefinedVariable and
+            (detail.len == 0 or std.mem.startsWith(u8, detail, "library not found:")))
+        {
+            vm.setErrorDetail("library not found: ({s}) (srfi 261 form of (srfi {d}))", .{ lib_name, n });
+        }
+        // processImportSet's recursion-inferred set is anyerror; keep every
+        // real VM error's identity (Yielded in particular drives the fiber
+        // retry protocol) and collapse the rest (e.g. InvalidSyntax) exactly
+        // as handleImportInto's boundary does.
+        return switch (err) {
+            error.ArityMismatch, error.CompileError, error.ContinuationInvoked, error.DivisionByZero, error.ExceptionRaised, error.ExecutionTimeout, error.IndexOutOfBounds, error.InvalidArgument, error.InvalidBytecode, error.NotAProcedure, error.OutOfMemory, error.StackOverflow, error.Terminated, error.TypeError, error.UndefinedVariable, error.Yielded => |e| e,
+            else => VMError.CompileError,
+        };
+    };
+}
+
+/// libraryIsAvailable plus the SRFI 261 rewrite — the check behind both
+/// cond-expand (library …) entry points, so (library (srfi srfi-1)) answers
+/// exactly what import can resolve. libraryIsAvailable itself stays literal:
+/// import's literal-first shadowing and this check must not disagree.
+pub fn libraryIsAvailableSrfi261(vm: *VM, lib_name: []const u8, lib_name_list: Value) bool {
+    if (libraryIsAvailable(vm, lib_name, lib_name_list)) return true;
+    const n = srfi261FormNumber(lib_name_list) orelse return false;
+    var norm = normalizeSrfiLibName(vm.gc, lib_name_list, n) catch return false;
+    vm.gc.pushRoot(&norm);
+    defer vm.gc.popRoot();
+    const norm_name = library_mod.libraryNameToString(vm.gc.allocator, norm) catch return false;
+    defer vm.gc.allocator.free(norm_name);
+    return libraryIsAvailable(vm, norm_name, norm);
 }
 
 /// Load and evaluate a library source file from a resolved path.
@@ -605,7 +721,7 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
             const lib_name_list = types.car(rest);
             const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_name_list) catch return false;
             defer vm.gc.allocator.free(lib_name);
-            return libraryIsAvailable(vm, lib_name, lib_name_list);
+            return libraryIsAvailableSrfi261(vm, lib_name, lib_name_list);
         }
     }
     return false;
