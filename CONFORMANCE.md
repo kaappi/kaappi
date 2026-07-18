@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-73 SRFIs supported. 8 built-in (native Zig), 65 portable (.sld files). Coverage details for the built-in SRFIs follow.
+74 SRFIs supported. 8 built-in (native Zig), 66 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -77,9 +77,9 @@ Implemented: **Threads** — `current-thread`, `thread?`, `make-thread`, `thread
 
 Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM and GC with an independent heap. Values are deep-copied across thread boundaries at start and join.
 
-### Portable SRFIs (65 libraries)
+### Portable SRFIs (66 libraries)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 263 syntax).
 
 | SRFI | Title |
 |------|-------|
@@ -147,7 +147,13 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 232 | Flexible curried procedures |
 | 233 | INI files |
 | 235 | Combinators |
+| 263 | Prototype Object System |
 | 267 | Raw string syntax † |
+
+SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
+ancestor loops, because `resend` restarts the lookup skipping only the original
+receiver — a distinct-origin lookup the finalized SRFI never specified. Resending
+to an explicit target, and resend from a directly-overriding method, both work.
 
 † SRFI 267 is a hybrid: the `#"X"…"X"` lexical syntax is built into the reader
 (so raw-string literals work in any source file), while the port procedures
