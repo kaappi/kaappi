@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784455399752,
+  "lastUpdate": 1784455859402,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e98846412302163dfcbc54a381281301b31d5eb2",
-          "message": "Address PR #1485 review nits: stale comment, timed_out hoist, peer-death doc (#1486)\n\nThree non-blocking items carried over from the KEP-0002 P3 (#1468) review\nthat landed as PR #1485:\n\n- promoteChannel's migration-loop comment claimed registerRecvWaiter ran\n  \"above\" the loop; it actually runs once, after it. Corrected, and noted\n  the OOM-mid-loop corner this creates (stale-but-self-healing enrollments\n  vs. unreached fibers left with no wake path) rather than un-enrolling on\n  that error path.\n- channelReceiveShared reset me.timed_out after the SharedChannelPoll local-\n  sibling drive instead of before it. runSchedulerStep's generic loop bails\n  whenever timed_out is true regardless of Ctx, so a stale flag from an\n  unrelated earlier timed wait could silently skip the drive and let the\n  park decision run with the world still active. Hoisted the reset above\n  the drive.\n- Documented the KEP-0002 §5 accepted liveness gap on sharedWakeupPossible:\n  a receiver parked after this returned true hangs forever if the peer\n  exits without sending, since a stub release rings nothing and the parked\n  fiber's own registry entry keeps the deadlock detector disarmed. Go-style\n  hang, accepted by design; §6's planned per-call timeout is the escape\n  hatch.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T13:15:41+05:30",
-          "tree_id": "77b2cc46d1280c43a24d1a708748628b39f68a8c",
-          "url": "https://github.com/kaappi/kaappi/commit/e98846412302163dfcbc54a381281301b31d5eb2"
-        },
-        "date": 1783930416490,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.37971,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.430871,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.672718,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.317269,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006411,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.043726,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.380355,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05563,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.955922,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.474842,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.287663,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.414862,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.426963,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.101245,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038916,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043674,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7a136dbbcc0826aed08d26d85cef7014f270fc7",
+          "message": "Add understanding map and /quiz comprehension skill (#1664)\n\n* Add understanding map and /quiz comprehension skill\n\nAI-assisted development generates code faster than a human forms a\ntheory of it. The existing harness (CLAUDE.md, rules, memory) solves\nthe machine side of that gap — every session cold-starts into full\ncontext — but nothing maintained the human side.\n\ndocs/dev/understanding-map.md is the policy: it classifies subsystems\ninto a core tier, where the maintainer holds the theory (values/heap\nlayout, GC, IR + register contract, continuations/wind, expander\nhygiene, fibers/reactor, cross-thread ownership), and a fenced tier,\nwhere a contract of spec + tests makes shallow understanding a\ndeliberate, safe choice. It carries the decision rule, per-tier\nobligations, fence-integrity rules, and the reification ladder\n(tacit → documented → checklisted → machine-checked).\n\nThe /quiz skill is the practice: a prediction-with-commitment\ncomprehension quiz on a core-tier subsystem, graded against the\ncurrent code and live runs (never docs), with results appended to a\nper-user ledger at ~/.kaappi/quiz-ledger.md — outside the repo so it\nsurvives worktrees and stays private.\n\nAlso adds the missing /parallel-issues entries to both skill tables:\nthe harness doc claims to cover every component but didn't list it.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address review: /quiz argument contract, prep wording, MD040\n\nMake /quiz's subsystem aliases canonical ledger keys mapped to the\nunderstanding map's numbered core-tier sections, and define how a\nsrc/ file argument resolves (owning core section's alias, or — for a\nfile no core section lists — fenced-tier, explicit-request-only, with\nthe file as syllabus and its path as ledger key). Reword the harness\ndoc's protocol summary so \"code is ground truth\" no longer reads as\n\"skip the docs\" (the map is the syllabus; docs are read last for\ndrift detection). Add the MD040 language tag on the decision-rule\nfence.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T15:00:16+05:30",
+          "tree_id": "5a490fd8c9ab59b5cd9fcd4ba023e4acc2d4cd19",
+          "url": "https://github.com/kaappi/kaappi/commit/f7a136dbbcc0826aed08d26d85cef7014f270fc7"
+        },
+        "date": 1784455858232,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.596931,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.852031,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573377,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.604789,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005515,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.038073,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.325951,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.050311,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.124241,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.199049,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.013804,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.328414,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.090009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.911925,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.028928,
             "unit": "seconds"
           }
         ]
