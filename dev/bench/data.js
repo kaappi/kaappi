@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784498113073,
+  "lastUpdate": 1784500592939,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7d2a7655aa78adc2a32c21e58769378595909145",
-          "message": "Preserve a closure's lib_env when deep-copying across threads (#1479) (#1526)\n\nA procedure defined inside a `define-library` body that `thread-start!`s a\nthunk calling into another library's exported procedure hung (kaappi-http's\n`http-listen-threaded`) or raised \"undefined variable\" (unguarded) on every\nrequest.\n\nRoot cause: `GC.deepCopy`, which copies the thunk closure from the parent GC\nto the child OS thread's GC, set `new_func.env = null`. Runtime name\nresolution uses `func.env orelse self.globals` (vm_dispatch.zig), so nulling\nthe library's `lib_env` silently redirected every lookup in the child to the\nshared globals map — where library-scoped imports don't live. The child then\nfailed to resolve the cross-library name; http's `guard` swallowed the error\nand closed the socket, so the client just saw a hung connection. The same\ncode defined at top level worked because a top-level import lands in globals,\nwhere `env == null` already looks.\n\nFix: preserve `new_func.env = func.env`. `env` is a raw `*StringHashMap`\npointer into the shared library registry — `VM.initForThread` shares\n`vm.libraries` by pointer and the parent keeps every `lib_env` alive, so the\nchild resolving names through it (and running the parent-heap procedures it\nfinds) is exactly how it already runs any shared global. It is not a GC\nValue, so the collector never traverses it and no cross-heap mark-bit is\nwritten. `env_val` (the eval/immutability Environment *object*, a GC Value)\nstays NIL rather than sharing a parent-heap object into the child heap;\nruntime resolution uses `env`, not `env_val`, and a normally loaded library\nhas `env_val == NIL` here anyway.\n\nRegression test `library-thread-cross-call-1479.scm` (+ `lib1479/` fixtures)\ncovers both the plain and guard-wrapped (http-shaped) forms, including the\ncallee resolving its own library-scoped helper; it fails (exit 1) without the\nfix and passes with it. Full unit suite, gc-stress (srfi18 cross-thread copy),\nand Scheme suite (449 files) green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T09:50:32+05:30",
-          "tree_id": "383b21a553372260db40f648b5996cba20d73dc3",
-          "url": "https://github.com/kaappi/kaappi/commit/7d2a7655aa78adc2a32c21e58769378595909145"
-        },
-        "date": 1784004511661,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.906324,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.438422,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.925709,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.514686,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006363,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054591,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50269,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069455,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.315357,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.957682,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.611079,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.426528,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.833504,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.622483,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043124,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045491,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "32dccea48d4833af53e9c39544b159423decea41",
+          "message": "Implement SRFI 257: pattern matcher with backtracking (#1678)\n\n* Implement SRFI 257: pattern matcher with backtracking (#1644)\n\nPort Sergei Egorov's reference implementation as portable libraries:\n(srfi 257) plus the misc and box sublibraries. The optional rx\nsublibrary needs SRFI 264 and is deferred.\n\nThe reference match is a CPS protocol of macro-generating macros\n(Petrofsky extraction, classify via nested let-syntax), and porting it\nsurfaced seven general expander/compiler defects, each fixed with a\nregression test in tests_macros.zig:\n\n- let-syntax templates could not reference an enclosing function's\n  locals: transformers now record definition-site lexical free refs\n  (def_site_local_refs) and renameForHygiene keeps them unrenamed when\n  the current frame cannot resolve them, so the normal upvalue path\n  applies; same-frame refs keep the shadow-proof rename+alias path\n- hygienic-capture alias injection could shadow a generated let-syntax\n  macro whose base name collides with a user variable; macro-bound\n  names are now skipped\n- injected aliases now read through boxes: they copy the slot's current\n  is_boxed and markLocalBoxedBySlot flips every same-slot local\n- quasiquote template symbols are data and are no longer hygiene-\n  renamed (2-bit nesting depth; depth-matching unquote resumes\n  expression mode)\n- a hygiene-renamed, unbound identifier now matches an unbound\n  syntax-rules literal of its base name (cm-match's <...>/<_> tokens)\n- pattern-var values substituted into nested syntax-rules templates are\n  wrapped in __hyg-usertext provenance markers, instantiated in\n  substitute-don't-rename mode, and stripped at the compile boundary --\n  without this every expansion generation re-renamed spliced user text\n  under a fresh scope, severing binders from references (the root cause\n  of broken non-linear patterns)\n- literal_bound now resolves a literal's definition-site binding\n  through the full lexical chain, matching the use-site check, so\n  literals bound in enclosing frames (non-linear pattern variables\n  inside generated backtracking lambdas) compare correctly\n\n111 of the reference suite's 112 assertions pass; the exception\ncompares boxes with equal?, which is implementation-specific. Two\nSRFI-241 catamorphism towers in the suite exceed the macro-expansion\nstep limit (runaway expansion, documented). Ships a 22-assertion smoke\nsuite in run-all plus the full port under tests/scheme/srfi/slow/.\n\nCloses #1644\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review feedback on SRFI 257\n\n- fix the upstream ~if-id-member reference bug: the non-identifier\n  fallback branch expanded an unbound yv where it meant xv, breaking\n  patterns whose atom is not a symbol (sr-match clauses with literal\n  numbers); note the deviation in the library header\n- wire the SRFI-64 failure exit code in both test suites (capture the\n  runner before test-end, exit 1 on failures) per tests/scheme\n  conventions, and cover ~etc+/~etc=/~etc**, the (f -> x) cata\n  operator, and non-symbol sr-match patterns in the smoke suite\n- fix the stale \"Portable SRFIs\" heading count in CONFORMANCE.md\n- rebase over SRFI 264 (#1672): counts move to 80 SRFIs / 70 portable;\n  the rx sublibrary is now unblocked and tracked as a follow-up\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Harden stripUsertextMarkers and make expansion context threadlocal\n\nReview follow-ups on the SRFI 257 machinery:\n\n- stripUsertextMarkers now terminates on cyclic inputs (tortoise-hare\n  on the cdr spine, cf. countPairs, plus a depth cap on nested\n  descent) — a macro invoked with a datum-label literal like\n  #0=(1 . #0#) previously hung the walk at every expansion call site —\n  and descends into vector literals so a user-text splice inside #(e)\n  cannot leak a marker pair into runtime data\n- the per-expansion expander context (active_custom_ellipsis,\n  active_literals, active_def_local_refs, active_use_check) is now\n  threadlocal: expansion is reachable from SRFI 18 child-thread\n  compile paths, and plain module globals let concurrent compilers\n  clobber each other's hygiene state\n- CONFORMANCE.md and the library header no longer claim SRFI 264 is\n  unavailable (it landed in #1672); the rx sublibrary stays a\n  follow-up\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address third review round on SRFI 257\n\n- fix a second upstream reference bug: ~seq-append and ~seq-append/ng\n  computed (x-length xv) before consulting the type predicate, so\n  matching (~string-append ...) against a non-string (or\n  (~vector-append ...) against a non-vector) raised a type error\n  instead of failing the pattern; the codegen now gates on (x? xv),\n  with smoke tests for all three mismatch shapes\n- make the remaining shared expansion state thread-safe: scope_table /\n  scope_table_count become threadlocal (they are per-expansion caches,\n  saved/restored around each expansion), and next_scope_id /\n  gensym_counter are bumped atomically so renames stay process-unique\n- raise the stripUsertextMarkers descent cap to 4096 and document why\n  a cap is sound (markers exist only in the freshly built template\n  skeleton, whose nesting is bounded by the expansion limits; the\n  compileForm safety net covers any survivor)\n- root freshly allocated Values across subsequent allocations in the\n  marker-wrap, quote, and quasiquote instantiation paths, per the GC\n  safety guidelines\n- exercise a real provenance marker in the vector-splice regression\n  test (a symbol datum; fixnums are never wrapped) and fix the stale\n  SRFI 264 note in the slow suite header\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address fourth review round on SRFI 257 machinery\n\n- strip vector-valued expansions too: the compile-boundary call sites\n  gated on isPair, so a macro whose whole expansion is #(e) skipped\n  stripping and leaked a marker into the vector constant; regression\n  test added\n- bound unwrapUsertext's chain walk: construction never stacks\n  wrappers, so legitimate chains are one layer; the bound keeps user\n  data forged as marker pairs — including a cyclic\n  #0=(__hyg-usertext . #0#) — from hanging the walk (the marker name\n  lives in the __hyg_ namespace the expander already reserves);\n  regression test added\n- widen quasiquote nesting depth to 3 bits (0-7, saturating) and add a\n  nested-quasiquote macro-vs-direct equivalence test. Towers whose\n  unquotes fully unwind at depth >= 3 turn out to be rejected by the\n  runtime quasiquote evaluator itself, macro or no macro — a separate\n  pre-existing limitation noted in the test\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make forged cyclic marker chains fully inert\n\nRouting the forged #0=(__hyg-usertext . #0#) datum through a macro (as\nthe review asked the regression test to do) exposed a real hang beyond\nthe bounded unwrap: when the chain unwraps to itself, the strip walk's\nre-examine step and the marker-splice instantiation path could loop.\nBoth now treat a chain that unwraps to a marker pair as opaque data,\nand the regression test passes the cyclic datum through expansion.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T03:34:42+05:30",
+          "tree_id": "0201b9ec44dd57f1d57225a6a3a9b8cbd0f9d789",
+          "url": "https://github.com/kaappi/kaappi/commit/32dccea48d4833af53e9c39544b159423decea41"
+        },
+        "date": 1784500591224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.186974,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.208364,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.651235,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.304488,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006261,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.042,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.373092,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053658,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.984498,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.444774,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.247192,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.417647,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.415903,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.025592,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037074,
             "unit": "seconds"
           }
         ]
