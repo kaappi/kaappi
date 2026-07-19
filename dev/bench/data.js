@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784455859402,
+  "lastUpdate": 1784463652613,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d54c45c2b9d864ff6b033e34b19f87fdbffa168b",
-          "message": "KEP-0004 Phase 0/1: unify cond-expand library checks, add subsystem features (#1488)\n\n* KEP-0004 Phase 0/1: unify cond-expand library checks, add subsystem features\n\nPhase 0 (cleanup): evalFeatureReq's hardcoded known_libs array in\ncompiler_conditionals.zig never listed any kaappi.* library or srfi.18,\nbut callers never noticed because it silently fell through to the\nglobals.libraryExists callback, which already checked the live registry\ncorrectly. Deleted the redundant array outright and extracted the\nduplicated \"does this library exist\" check (previously hand-written\nseparately in vm.zig's checkLibraryExists and vm_library.zig's\nevalLibFeatureReq) into one shared vm_library.libraryIsAvailable(),\ncalled from both entry points.\n\nPhase 1: added kaappi-fibers, kaappi-reactor (all targets, including\nwasm32-wasi per KEP-0001 Phase 4), and kaappi-threads (omitted on wasm,\nmatching Lib.wasmAvailable()'s existing srfi_18 => false gate) as bare\ncond-expand feature identifiers, so portable library code has a short\nway to detect these subsystems instead of spelling out (library ...)\nrequirements.\n\nVerified: 839/839 Zig unit tests, 1395/1395 R7RS suite, 440/440 Scheme\ntest files, plus manual end-to-end checks against a built binary for\nboth the new identifiers and the known_libs-removal regression risk.\n\nSee keps/keps/0004-discoverable-deviations.md.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: honor sandbox mode in libraryIsAvailable\n\nCodeRabbit flagged, and I independently confirmed against a built\nbinary, that libraryIsAvailable fell through to a disk probe\n(libraryFileExists) even under --sandbox, while tryLoadLibraryFromFile\nrejects every file-backed load there (vm_library.zig:428). Result:\n(cond-expand ((library (srfi 41)) ...)) reported the library available\nwhile the matching (import (srfi 41)) then failed — a behavioral\nmismatch, and a way for sandboxed code to probe host filesystem state\nthrough cond-expand.\n\nPre-existing in both call sites this PR unified (checkLibraryExists and\nevalLibFeatureReq had the identical get()-then-libraryFileExists()\nsequence on main already) — not a regression introduced here, but this\nPR's consolidation is the natural single place to close it.\n\nAlso extends features-consistency.scm (#1177) with the three KEP-0004\nPhase 1 identifiers for Scheme-level parity with the new Zig tests, per\nthe review's optional suggestion.\n\nLeft two other review comments as-is per triage: the new tests'\nGC/VM setup duplication matches the existing style in this file (no\nth.expectEval* helper covers symbol-result assertions), and the wasm\nbranch of platform_features isn't unit-testable from a native test\nbinary (already noted inline in types.zig).\n\nVerified: 840/840 Zig unit tests, 1395/1395 R7RS suite, 440/440 Scheme\ntest files. Manually reproduced the sandbox mismatch against a built\nbinary before the fix and confirmed it's closed after.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T08:02:16Z",
-          "tree_id": "1270eadf2910b2a65b9a777a102d838144645190",
-          "url": "https://github.com/kaappi/kaappi/commit/d54c45c2b9d864ff6b033e34b19f87fdbffa168b"
-        },
-        "date": 1783931403516,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.39606,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.845261,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.963455,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.545601,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006437,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.056393,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.520186,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070448,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.462565,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.009258,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.656881,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434867,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.866668,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.748023,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043986,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.028928,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9da7b393aa7895c63ab0b601e9002d495b8886b6",
+          "message": "Harden fiber timed-mutex regression test against QEMU flake (#1665)\n\nThe netbsd-test CI job (a cross-compiled x86_64-netbsd binary in a\nresource-constrained QEMU VM) intermittently failed this KEP-0001 Phase 2\n(#1440) regression test on its `(< wait-elapsed 0.3)` assertion. That bound\nis an absolute wall-clock magnitude on a single sample: when the host\nbriefly deschedules the whole VM near the 0.05s timer expiry, the\nhost-backed clock advances and the sample balloons past 0.3s even though the\nfix is present.\n\nWidening the bound is not an option — the broken build resolves at ~0.7s, so\nany bound loose enough to never flake would also let a genuinely broken build\npass, destroying the regression signal. Instead, assert the ordering the\nregression is actually about: the busy sibling now timestamps its own\ncompletion, and the test checks the timed lock resolved before that\n(wait-elapsed < busy-elapsed). Both samples come from one clock, so a\nslow/loaded VM stretches them together and cannot invert their order — a\npause that inflates wait-elapsed necessarily happened before the sibling\nfinished and inflates busy-elapsed by the same amount. A premise check keeps\nthe sibling comfortably outlasting the timeout, and both timing checks now\nprint the measured values on failure instead of a bare boolean.\n\nVerified the regression is still caught by temporarily neutering the per-tick\ntimer pop in runReactorTick: the test then fails with wait-elapsed just after\nbusy-elapsed, exactly the pre-#1440 behavior.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T17:16:58+05:30",
+          "tree_id": "48d125a4c01012651e9b22421b51a0e5923d9891",
+          "url": "https://github.com/kaappi/kaappi/commit/9da7b393aa7895c63ab0b601e9002d495b8886b6"
+        },
+        "date": 1784463651126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.074539,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.708097,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.92222,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.558178,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006707,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05287,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513398,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070295,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.202077,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.993752,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514624,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.478858,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.734423,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.886521,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045596,
             "unit": "seconds"
           }
         ]
