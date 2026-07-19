@@ -265,7 +265,12 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
         for (types.platform_features) |f| {
             if (std.mem.eql(u8, name, f)) return true;
         }
-        return false;
+        // #1649: srfi-<n> feature identifiers. The compiler has no direct VM
+        // access, so this goes through the globals.srfiFeatureAvailable
+        // callback (registered by the VM), which routes to the same
+        // library-availability check as (library (srfi <n>)) — mirroring the
+        // libraryExists callback used by the (library ...) case below. (KEP-0004)
+        return @import("globals.zig").srfiFeatureAvailable(name);
     }
 
     if (types.isPair(req)) {

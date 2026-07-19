@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### `srfi-<n>` cond-expand feature identifiers
+
+- **`srfi-<n>` cond-expand feature identifiers** — each supported SRFI can
+  now be probed without attempting an import, e.g.
+  `(cond-expand (srfi-1 (import (srfi 1))) (else …))`. The identifier is
+  derived from the supported-SRFI set (never hardcoded): `srfi-<n>` is true
+  iff SRFI *n* is available to this VM, answered through the same check as
+  `(library (srfi <n>))`, so built-in, portable, `--sandbox` and WASM
+  answers all match what `(import (srfi <n>))` would do. Works in both
+  expression- and `define-library`-level `cond-expand`. Like `(library …)`
+  requirements, a `srfi-<n>` identifier is a derived probe cond-expand
+  resolves on demand rather than a bare feature, so `(features)` is
+  unchanged. SRFI 261 (the fileless naming convention) reports `srfi-261`
+  true (#1649).
+
 #### Windows x86_64 support
 
 - **Windows x86_64 (x64) target** — `zig build -Dtarget=x86_64-windows`

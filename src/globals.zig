@@ -110,3 +110,16 @@ pub fn libraryExists(lib_name: []const u8, lib_name_list: Value) bool {
     if (library_exists_checker) |checker| return checker(lib_name, lib_name_list);
     return false;
 }
+
+/// Callback for cond-expand `srfi-<n>` feature-identifier checks (#1649).
+/// Registered by the VM so the compiler's evalFeatureReq can answer these
+/// without importing vm.zig, exactly as library_exists_checker does for the
+/// `(library ...)` form. Returns false for any name that is not a supported
+/// `srfi-<n>` feature id.
+pub const SrfiFeatureFn = *const fn (name: []const u8) bool;
+pub var srfi_feature_checker: ?SrfiFeatureFn = null;
+
+pub fn srfiFeatureAvailable(name: []const u8) bool {
+    if (srfi_feature_checker) |checker| return checker(name);
+    return false;
+}
