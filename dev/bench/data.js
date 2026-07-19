@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784427033046,
+  "lastUpdate": 1784432646030,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6d4d7a11379fe86c707cb61c8139b11402bfd306",
-          "message": "Fix epoll stale-fire stranding of opposite-direction waiters (#1481)\n\nReactor.poll() gated the re-arm step behind `if (!fired) continue;`, so a\nstale ONESHOT fire (an event for a direction whose waiter list was already\nemptied by removeWaiter) skipped re-arming. On epoll, that stale fire still\ndisarms the whole fd, permanently stranding any waiter left on the opposite\ndirection — a silent hang invisible to isEmpty(). Re-arm unconditionally\nwhenever waiters remain after the drain.\n\nVerified on real Linux/epoll via podman: the new regression test fails\nwithout the fix and passes with it; kqueue is immune (independent\nper-direction knotes) so this is a no-op guard on macOS.\n\nFixes #1462.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-12T10:15:03Z",
-          "tree_id": "4fd51eb0a48884690ebfe6ae962116803c2993c6",
-          "url": "https://github.com/kaappi/kaappi/commit/6d4d7a11379fe86c707cb61c8139b11402bfd306"
-        },
-        "date": 1783852830609,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.415682,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.881712,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912764,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.529929,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006455,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054808,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510752,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069211,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.476762,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.984158,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.616468,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436849,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.86987,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.701503,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043168,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038189,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3b4157756061c240c382780cbcef5e824220649",
+          "message": "Add srfi-<n> cond-expand feature identifiers (#1660)\n\nCloses #1649.\n\nR7RS implementations conventionally advertise each supported SRFI as a\ncond-expand feature identifier (srfi-1, srfi-64, ...) so a program can\nprobe support without attempting an import. Kaappi exposed none, so\n(cond-expand (srfi-1 ...) (else ...)) always took the else branch despite\nthe interpreter shipping SRFI 0 itself.\n\nResolve srfi-<n> by routing through the same availability check as\n(library (srfi <n>)) (libraryIsAvailable), so built-in, portable,\n--sandbox and WASM answers all match what (import (srfi <n>)) would do --\nnothing hardcoded (the #1517 derive-don't-list principle). SRFI 261 is the\none supported SRFI with no library file, so srfi-261 answers true directly.\n\nA single implementation (vm_library.srfiFeatureAvailable) serves both\nfeature-req evaluators: evalLibFeatureReq (define-library) calls it\ndirectly; the compiler's evalFeatureReq reaches it via a new\nglobals.srfiFeatureAvailable callback the VM registers, mirroring the\nlibrary_exists_checker used by the (library ...) form.\n\nLike a (library ...) requirement, a srfi-<n> identifier is a derived probe\ncond-expand resolves on demand, not a bare feature, so (features) stays the\nplatform/subsystem table it must equal at the kaappi features CLI boundary\n(#1517); kaappi features notes the ids in its SRFIs section.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T08:41:08+05:30",
+          "tree_id": "0c6a2542cb7130a26df678c50aff5ad197934842",
+          "url": "https://github.com/kaappi/kaappi/commit/a3b4157756061c240c382780cbcef5e824220649"
+        },
+        "date": 1784432644520,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.069008,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.54678,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924093,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.428649,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006789,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05242,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511286,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06802,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.274651,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.001286,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.502079,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.480886,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.726371,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.889916,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045917,
             "unit": "seconds"
           }
         ]
