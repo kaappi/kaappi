@@ -5,8 +5,11 @@ const timings = @import("timings.zig");
 const Value = types.Value;
 const GC = memory.GC;
 
-var active_custom_ellipsis: ?[]const u8 = null;
-var active_literals: []const Value = &.{};
+// Expansion is reachable from child-thread compile paths (SRFI 18 threads
+// compile with their own VM); per-expansion context must be threadlocal so
+// concurrent compilers cannot clobber each other's state.
+threadlocal var active_custom_ellipsis: ?[]const u8 = null;
+threadlocal var active_literals: []const Value = &.{};
 
 fn isEllipsis(name: []const u8) bool {
     // If the name is listed as a literal, it's not the ellipsis
@@ -57,14 +60,20 @@ pub fn isWellKnown(name: []const u8) bool {
 }
 
 /// Monotonically increasing counter for generating unique hygienic names.
+/// Shared across threads (renames must be process-unique), so bumped
+/// atomically; see freshGensymId.
 var gensym_counter: u32 = 0;
 
 /// Scope identifier for macro invocations (each invocation gets a fresh one).
+/// Atomic for the same reason as gensym_counter.
 var next_scope_id: u32 = 0;
 
 fn freshScope() u32 {
-    next_scope_id += 1;
-    return next_scope_id;
+    return @atomicRmw(u32, &next_scope_id, .Add, 1, .monotonic) + 1;
+}
+
+fn freshGensymId() u32 {
+    return @atomicRmw(u32, &gensym_counter, .Add, 1, .monotonic) + 1;
 }
 
 /// Tracks renamings within a single macro invocation so that the same
@@ -76,8 +85,12 @@ const ScopeEntry = struct {
 };
 
 const MAX_SCOPE_ENTRIES = 256;
-var scope_table: [MAX_SCOPE_ENTRIES]ScopeEntry = undefined;
-var scope_table_count: usize = 0;
+// The scope table is a per-expansion dedup cache, saved/restored around each
+// expansion — cross-thread sharing of it could interleave restorations and
+// split a binding's rename from its references, so it is threadlocal (like
+// the active_* expansion context above).
+threadlocal var scope_table: [MAX_SCOPE_ENTRIES]ScopeEntry = undefined;
+threadlocal var scope_table_count: usize = 0;
 
 // ---------------------------------------------------------------------------
 // Pattern variable binding
@@ -132,12 +145,25 @@ pub const LITERAL_BOUND_PENDING: u32 = 0xFFFFFFFE;
 pub const UseSiteBindingCheck = struct {
     ctx: ?*const anyopaque = null,
     resolve_fn: ?*const fn (?*const anyopaque, []const u8) u32 = null,
+    frame_resolve_fn: ?*const fn (?*const anyopaque, []const u8) bool = null,
 
     pub fn resolve(self: UseSiteBindingCheck, name: []const u8) u32 {
         if (self.resolve_fn) |f| return f(self.ctx, name);
         return LITERAL_UNBOUND;
     }
+
+    pub fn resolvesInFrame(self: UseSiteBindingCheck, name: []const u8) bool {
+        if (self.frame_resolve_fn) |f| return f(self.ctx, name);
+        return false;
+    }
 };
+
+// Per-expansion context for renameForHygiene (set/restored by expandMacro,
+// mirroring active_literals): the transformer's definition-site local
+// references and the compiler callback that says whether a name is a local
+// of the current function frame.
+threadlocal var active_def_local_refs: []const []const u8 = &.{};
+threadlocal var active_use_check: UseSiteBindingCheck = .{};
 
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
     // `--timings` (kaappi#1515): the sole macro-expansion chokepoint, so timing
@@ -152,6 +178,12 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     const saved_literals = active_literals;
     active_literals = transformer.literals;
     defer active_literals = saved_literals;
+    const saved_def_local_refs = active_def_local_refs;
+    active_def_local_refs = transformer.def_site_local_refs;
+    defer active_def_local_refs = saved_def_local_refs;
+    const saved_use_check = active_use_check;
+    active_use_check = use_check;
+    defer active_use_check = saved_use_check;
     const input = types.cdr(expr); // skip the keyword
 
     // Extract the macro keyword name from the first pattern (car of the
@@ -223,7 +255,13 @@ pub const ExpandError = error{
 // Pattern matching
 // ---------------------------------------------------------------------------
 
-fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u32, use_check: UseSiteBindingCheck) bool {
+fn matchPattern(pattern_in: Value, input_in: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u32, use_check: UseSiteBindingCheck) bool {
+    // See USERTEXT_MARKER: a user identifier spliced into this macro's
+    // PATTERN by a generating macro participates as the bare datum, and a
+    // marked chunk arriving as INPUT (via an argument another generated
+    // macro passed along) matches as the datum it wraps.
+    const pattern = unwrapUsertext(pattern_in);
+    const input = unwrapUsertext(input_in);
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
@@ -233,7 +271,22 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
             if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) {
                 if (!types.isSymbol(input)) return false;
                 const input_name = types.symbolName(input);
-                if (!std.mem.eql(u8, input_name, name)) return false;
+                if (!std.mem.eql(u8, input_name, name)) {
+                    // A hygiene-renamed template identifier still
+                    // free-identifier=?s an UNBOUND literal of its base name:
+                    // the rename was minted precisely because the identifier
+                    // had no binding. (SRFI 257's cm-match emits template
+                    // tokens `<...>`/`<_>` that its helper matchers declare
+                    // as syntax-rules literals.) Bound literals keep strict
+                    // binding comparison.
+                    const stripped = types.stripHygienicPrefix(input_name);
+                    if (stripped.len == input_name.len) return false;
+                    if (!std.mem.eql(u8, stripped, name)) return false;
+                    const def_slot_s = if (lit_idx < literal_bound.len) literal_bound[lit_idx] else LITERAL_UNBOUND;
+                    if (def_slot_s != LITERAL_UNBOUND) return false;
+                    if (use_check.resolve(input_name) != LITERAL_UNBOUND) return false;
+                    return true;
+                }
                 // R7RS 4.3.2: match only if both refer to the same binding
                 // or both are unbound.  Compare binding slots, not just
                 // bound-vs-unbound, so two different bindings with the same
@@ -319,9 +372,11 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
         const pat_elem = types.car(pat);
         const pat_rest = types.cdr(pat);
 
-        // Check if next element is ellipsis
+        // Check if next element is ellipsis. Unwrap user-text splices: an
+        // `...` substituted into a generated macro's pattern still functions
+        // as an ellipsis there (Taylor Campbell's ellipsis test).
         if (pat_rest != types.NIL and types.isPair(pat_rest)) {
-            const maybe_ellipsis = types.car(pat_rest);
+            const maybe_ellipsis = unwrapUsertext(types.car(pat_rest));
             if (types.isSymbol(maybe_ellipsis) and isEllipsis(types.symbolName(maybe_ellipsis))) {
                 // Ellipsis: pat_elem matches zero or more input elements
                 const after_ellipsis = types.cdr(pat_rest);
@@ -483,6 +538,122 @@ const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, don't ren
 const BINDING_FLAG: u32 = 0x20000000; // identifier is in binding position
 const NESTED_SR_FLAG: u32 = 0x10000000; // inside a nested syntax-rules template
 const LET_PAIR_FLAG: u32 = 0x08000000; // template is a single let-binding (var init) pair
+// Quasiquote nesting depth (0-7, saturating). Symbols under `quasiquote` are
+// DATA — they must not be hygiene-renamed — but a depth-matching `unquote`
+// re-enters expression territory where renaming resumes. Three bits cover any
+// realistic template nesting; like the flag bits above, they assume expansion
+// scope ids stay below the flag region.
+const QQ_DEPTH_MASK: u32 = 0x07000000;
+const QQ_DEPTH_ONE: u32 = 0x01000000;
+
+// Provenance marker for pattern-var values substituted into a NESTED
+// syntax-rules template (a generated macro's spec). When that generated
+// macro later expands, its "template" mixes its own skeleton text with
+// spliced user text; without provenance, the user identifiers get hygiene-
+// renamed as if template-introduced — under a different scope at every
+// generation, severing binders from references (SRFI 257's CPS protocol,
+// #1644). Substituted chunks are wrapped as (<marker> . value) and unwrapped
+// verbatim by the next instantiation (or by matchPattern for pattern-side
+// splices), so user text is never re-walked.
+pub const USERTEXT_MARKER = "__hyg-usertext";
+
+pub fn isUsertextPair(v: Value) bool {
+    if (!types.isPair(v)) return false;
+    const h = types.car(v);
+    return types.isSymbol(h) and std.mem.eql(u8, types.symbolName(h), USERTEXT_MARKER);
+}
+
+pub fn unwrapUsertext(v: Value) Value {
+    // Construction never stacks wrappers (both wrap sites skip values that
+    // are already marked), so a legitimate chain is exactly one layer. The
+    // bound defends against user data forged as marker pairs — including a
+    // cyclic #0=(__hyg-usertext . #0#) — which must not hang the walk. The
+    // marker name lives in the __hyg_ namespace the expander already
+    // reserves (renameForHygiene never renames it), so forged data is
+    // out-of-contract in the same way forged __hyg_N_x identifiers are.
+    var cur = v;
+    var hops: u8 = 0;
+    while (isUsertextPair(cur) and hops < 64) : (hops += 1) cur = types.cdr(cur);
+    return cur;
+}
+
+/// Strip user-text markers from a fully-instantiated expansion, in place,
+/// so compilation sees plain forms. Subtrees headed by `syntax-rules` are
+/// skipped: specs of macros the expansion DEFINES keep their markers for
+/// their own later instantiation. Cyclic inputs (a macro invoked with a
+/// datum-label literal like #0=(1 . #0#)) terminate: the cdr spine carries
+/// a tortoise-hare check, and nested descent is depth-capped. Markers are
+/// created only at pattern-var substitution boundaries in the freshly built
+/// template skeleton — never inside the (possibly cyclic) user data a chunk
+/// wraps — and skeleton nesting is bounded by the expansion-depth/step
+/// limits, far below this cap; matching the expander's fixed-limit design
+/// (MAX_MACRO_EXPANSION_DEPTH, MAX_BINDINGS, MAX_SCOPE_ENTRIES). Should a
+/// marker ever survive in code position anyway, compileForm still treats
+/// it as transparent.
+pub fn stripUsertextMarkers(gc: *GC, expr: Value) void {
+    stripUsertextWalk(gc, expr, 4096);
+}
+
+fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
+    if (depth == 0) return;
+    if (types.isVector(expr)) {
+        const vec = types.toObject(expr).as(types.Vector);
+        for (vec.data, 0..) |elem, i| {
+            if (isUsertextPair(elem)) {
+                const unwrapped = unwrapUsertext(elem);
+                if (isUsertextPair(unwrapped)) continue; // forged cycle: opaque
+                gc.writeBarrier(types.toObject(expr), unwrapped);
+                vec.data[i] = unwrapped;
+            }
+            stripUsertextWalk(gc, vec.data[i], depth - 1);
+        }
+        return;
+    }
+    if (!types.isPair(expr)) return;
+    const head = types.car(expr);
+    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "syntax-rules")) return;
+    var cur = expr;
+    var hare = expr;
+    // Iterative cdr-walk with per-node car handling keeps recursion depth
+    // bounded by tree depth, not list length.
+    while (true) {
+        const car_v = types.car(cur);
+        if (isUsertextPair(car_v)) {
+            const unwrapped = unwrapUsertext(car_v);
+            // A forged cyclic marker chain unwraps to itself — leave it as
+            // opaque data rather than descending into the cycle.
+            if (!isUsertextPair(unwrapped)) {
+                gc.writeBarrier(types.toObject(cur), unwrapped);
+                types.setCar(cur, unwrapped);
+                stripUsertextWalk(gc, types.car(cur), depth - 1);
+            }
+        } else {
+            stripUsertextWalk(gc, car_v, depth - 1);
+        }
+        const cdr_v = types.cdr(cur);
+        if (isUsertextPair(cdr_v)) {
+            const unwrapped = unwrapUsertext(cdr_v);
+            if (isUsertextPair(unwrapped)) return; // forged cycle: opaque data
+            gc.writeBarrier(types.toObject(cur), unwrapped);
+            types.setCdr(cur, unwrapped);
+            // Re-examine the new cdr in place (it may be a pair to continue
+            // into, or an atom that ends the walk).
+            continue;
+        }
+        if (types.isVector(cdr_v)) {
+            stripUsertextWalk(gc, cdr_v, depth - 1);
+            return;
+        }
+        if (!types.isPair(cdr_v)) return;
+        cur = cdr_v;
+        // Tortoise-hare on the cdr spine (cf. countPairs): unwraps above
+        // only splice marker pairs out, so advancing the hare over the
+        // possibly-rewritten spine stays safe.
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (hare == cur) return;
+    }
+}
 
 /// Whether an ellipsis element template references any outer list binding —
 /// the condition under which instantiateEllipsis can find a repeat count.
@@ -502,6 +673,21 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         // 1. Pattern variable -- substitute with matched value (from use site)
         for (bindings) |b| {
             if (std.mem.eql(u8, b.name, name)) {
+                // Inside a nested syntax-rules template (and outside quote),
+                // mark the spliced value so the generated macro's own
+                // expansion later inserts it verbatim instead of re-walking
+                // it as template text (see USERTEXT_MARKER).
+                if ((intro_scope & NESTED_SR_FLAG) != 0 and
+                    (intro_scope & QUOTE_FLAG) == 0 and
+                    (types.isSymbol(b.value) or types.isPair(b.value)))
+                {
+                    if (isUsertextPair(b.value)) return b.value; // already protected
+                    var val_root = b.value;
+                    gc.pushRoot(&val_root);
+                    defer gc.popRoot();
+                    const marker = try gc.allocSymbol(USERTEXT_MARKER);
+                    return gc.allocPair(marker, val_root);
+                }
                 if (!b.is_list) return b.value;
                 // Shouldn't use a list binding at depth 0 without ellipsis
                 return b.value;
@@ -547,6 +733,30 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
     if (!types.isPair(template)) return template;
 
+    // A user-text splice from an enclosing expansion. The chunk is use-site
+    // text, so hygiene renaming must not touch it — but it may reference
+    // THIS macro's pattern variables (define-match-pattern builds the
+    // generated macro's rules out of user text), so substitution and
+    // ellipsis expansion still apply. That combination is exactly the
+    // quote-mode walk: substitute, expand ellipses, rename nothing. The
+    // wrapper is PRESERVED: the chunk may land inside yet another generated
+    // syntax-rules spec (SRFI 257's accumulator rebinds) and must stay
+    // protected for that next generation too. Markers are stripped once,
+    // at the compile boundary (stripUsertextMarkers).
+    if (isUsertextPair(template)) {
+        const inner = unwrapUsertext(template);
+        // A forged cyclic marker chain unwraps to itself: treat as opaque data.
+        if (isUsertextPair(inner)) return inner;
+        const new_inner = try instantiateTemplate(gc, inner, bindings, (intro_scope | QUOTE_FLAG) & ~NESTED_SR_FLAG, literals, macro_keyword, globals, macros);
+        if (isUsertextPair(new_inner)) return new_inner; // already protected
+        if (!types.isSymbol(new_inner) and !types.isPair(new_inner)) return new_inner;
+        var inner_root = new_inner;
+        gc.pushRoot(&inner_root);
+        defer gc.popRoot();
+        const marker = try gc.allocSymbol(USERTEXT_MARKER);
+        return gc.allocPair(marker, inner_root);
+    }
+
     const in_escape = (intro_scope & ESCAPE_FLAG) != 0;
 
     // Check for (quote ...) — substitute pattern vars but skip hygiene renaming
@@ -556,9 +766,50 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         if (q_rest != types.NIL and types.isPair(q_rest)) {
             const quoted = types.car(q_rest);
             const new_quoted = try instantiateTemplate(gc, quoted, bindings, intro_scope | QUOTE_FLAG, literals, macro_keyword, globals, macros);
-            return gc.allocPair(tmpl_head, try gc.allocPair(new_quoted, types.NIL));
+            var nq_root = new_quoted;
+            gc.pushRoot(&nq_root);
+            defer gc.popRoot();
+            const tail = try gc.allocPair(nq_root, types.NIL);
+            return gc.allocPair(tmpl_head, tail);
         }
         return template;
+    }
+
+    // Quasiquote: its symbols are data (no renaming, like quote), but a
+    // depth-matching unquote/unquote-splicing switches back to expression
+    // mode where renaming resumes. Track nesting in QQ_DEPTH bits. Inside a
+    // plain (quote ...) context (QUOTE_FLAG set, depth 0), quasiquote and
+    // unquote are ordinary data — leave them to the regular walk.
+    if (types.isSymbol(tmpl_head)) {
+        const hname = types.symbolName(tmpl_head);
+        const qq_depth = (intro_scope & QQ_DEPTH_MASK) / QQ_DEPTH_ONE;
+        const q_rest = types.cdr(template);
+        const unary = q_rest != types.NIL and types.isPair(q_rest) and types.cdr(q_rest) == types.NIL;
+        if (unary and std.mem.eql(u8, hname, "quasiquote")) {
+            const in_plain_quote = (intro_scope & QUOTE_FLAG) != 0 and qq_depth == 0;
+            if (!in_plain_quote) {
+                const new_depth = if (qq_depth < 7) qq_depth + 1 else 7;
+                const sub_scope = (intro_scope & ~QQ_DEPTH_MASK) | QUOTE_FLAG | (new_depth * QQ_DEPTH_ONE);
+                const new_inner = try instantiateTemplate(gc, types.car(q_rest), bindings, sub_scope, literals, macro_keyword, globals, macros);
+                var ni_root = new_inner;
+                gc.pushRoot(&ni_root);
+                defer gc.popRoot();
+                const tail = try gc.allocPair(ni_root, types.NIL);
+                return gc.allocPair(tmpl_head, tail);
+            }
+        } else if (unary and qq_depth > 0 and
+            (std.mem.eql(u8, hname, "unquote") or std.mem.eql(u8, hname, "unquote-splicing")))
+        {
+            const new_depth = qq_depth - 1;
+            var sub_scope = (intro_scope & ~QQ_DEPTH_MASK) | (new_depth * QQ_DEPTH_ONE);
+            if (new_depth == 0) sub_scope &= ~QUOTE_FLAG;
+            const new_inner = try instantiateTemplate(gc, types.car(q_rest), bindings, sub_scope, literals, macro_keyword, globals, macros);
+            var ni_root = new_inner;
+            gc.pushRoot(&ni_root);
+            defer gc.popRoot();
+            const tail = try gc.allocPair(ni_root, types.NIL);
+            return gc.allocPair(tmpl_head, tail);
+        }
     }
 
     // Check for ellipsis escape: (... <template>) — treat ... as literal inside
@@ -960,7 +1211,7 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // Strip context flags that don't change renaming, so the same template
     // identifier gets the same gensym inside and outside those contexts
     // (e.g. an outer binding referenced from a nested syntax-rules template).
-    const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG);
+    const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK);
     const gmod = @import("globals.zig");
     if (globals) |g| {
         const glk = gmod.acquireGlobalsRead(g);
@@ -997,6 +1248,25 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
         }
     }
 
+    // A free template reference to a definition-site LOCAL variable. When the
+    // expansion happens in the same function frame, fall through: the rename +
+    // captured-locals slot alias resolves it shadow-proof. But when the macro's
+    // output lands in a nested lambda (a different frame), no slot alias can
+    // reach the outer frame — keep the name so the reference compiles through
+    // the regular local/upvalue path. Without this, user code that a macro
+    // splices into a nested syntax-rules template (SRFI 257's submatch/
+    // if-new-var protocol) loses its free variables to the rename (#1644).
+    if (!in_binding and !scopeTableContains(clean_scope, name)) {
+        for (active_def_local_refs) |ref| {
+            if (std.mem.eql(u8, ref, name)) {
+                if (!active_use_check.resolvesInFrame(name)) {
+                    return gc.allocSymbol(name);
+                }
+                break;
+            }
+        }
+    }
+
     for (scope_table[0..scope_table_count]) |entry| {
         if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
             return gc.allocSymbol(entry.renamed_to);
@@ -1004,9 +1274,9 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     }
 
     // Generate a fresh hygienic name for truly new identifiers
-    gensym_counter += 1;
+    const gensym_id = freshGensymId();
     var buf: [128]u8 = undefined;
-    const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_counter, name }) catch
+    const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_id, name }) catch
         return gc.allocSymbol(name);
 
     const sym_val = try gc.allocSymbol(len);

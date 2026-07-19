@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-83 SRFIs supported. 11 built-in (native Zig), 71 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+84 SRFIs supported. 11 built-in (native Zig), 72 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,9 +97,9 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (71 libraries)
+### Portable SRFIs (72 libraries)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 257 misc), (srfi 257 box), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
 | SRFI | Title |
 |------|-------|
@@ -170,6 +170,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 235 | Combinators |
 | 250 | Insertion-ordered hash tables |
 | 259 | Tagged procedures with type safety |
+| 257 | Simple Extendable Pattern Matcher with Backtracking ‡ |
 | 263 | Prototype Object System |
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
@@ -179,6 +180,11 @@ SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
 ancestor loops, because `resend` restarts the lookup skipping only the original
 receiver — a distinct-origin lookup the finalized SRFI never specified. Resending
 to an explicit target, and resend from a directly-overriding method, both work.
+
+‡ SRFI 257's optional `(srfi 257 rx)` sublibrary is not yet provided. It
+builds on SRFI 264 (Scheme Regular Expressions), which is now available, so
+the rx integration is tracked as a follow-up. The main library and the `misc`
+and `box` sublibraries are complete.
 
 † SRFI 267 is a hybrid: the `#"X"…"X"` lexical syntax is built into the reader
 (so raw-string literals work in any source file), while the port procedures

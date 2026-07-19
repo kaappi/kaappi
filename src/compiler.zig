@@ -367,13 +367,25 @@ pub const Compiler = struct {
     }
 
     pub fn markLocalBoxedBySlot(self: *Compiler, slot: u16) CompileError!void {
+        // Flip every local aliasing this slot (hygienic-capture aliases share
+        // the slot of the local they mirror), so all names read through the
+        // box. Emit the box_local op only on the first transition — if any
+        // entry was already boxed, the register already holds a box.
+        var had_boxed = false;
+        var transitioned = false;
         for (self.locals.items) |*local| {
-            if (local.slot == slot and !local.is_boxed) {
-                local.is_boxed = true;
-                try self.emitOp(.box_local);
-                try self.emitU16(slot);
-                return;
+            if (local.slot == slot) {
+                if (local.is_boxed) {
+                    had_boxed = true;
+                } else {
+                    local.is_boxed = true;
+                    transitioned = true;
+                }
             }
+        }
+        if (transitioned and !had_boxed) {
+            try self.emitOp(.box_local);
+            try self.emitU16(slot);
         }
     }
 
@@ -705,6 +717,12 @@ pub const Compiler = struct {
 
         if (types.isSymbol(head)) {
             const name = types.symbolName(head);
+
+            // Safety net: a user-text provenance marker that survived to
+            // compilation is transparent — compile the wrapped datum.
+            if (std.mem.eql(u8, name, expander.USERTEXT_MARKER)) {
+                return self.compileExpr(args, dst, is_tail);
+            }
 
             const effective_name = types.stripHygienicPrefix(name);
 

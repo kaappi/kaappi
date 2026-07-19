@@ -1118,6 +1118,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             if (tx.let_syntax_peer_names.len > 0) gc.allocator.free(tx.let_syntax_peer_names);
             if (tx.let_syntax_peer_vals.len > 0) gc.allocator.free(tx.let_syntax_peer_vals);
             if (tx.bound_free_refs.len > 0) gc.allocator.free(tx.bound_free_refs);
+            if (tx.def_site_local_refs.len > 0) gc.allocator.free(tx.def_site_local_refs);
             poisonAndDestroy(gc, Transformer, tx);
         },
         .error_object => {
