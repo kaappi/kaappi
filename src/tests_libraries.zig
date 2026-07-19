@@ -807,3 +807,22 @@ test "top-level cond-expand still yields a value as an expression (#1661)" {
     // expression-position compiler in compiler_conditionals.compileCondExpand).
     try std.testing.expectEqual(types.VOID, try vm.eval("(cond-expand (no-such-feature 1))"));
 }
+
+test "top-level cond-expand malformed-form parity with the compiler (#1661)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A matched clause returns immediately and never inspects later clauses —
+    // so a bare symbol after a matched else is ignored, not a syntax error,
+    // exactly as the expression-position compiler treats it.
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(cond-expand (else 42) trailing-junk)")));
+
+    // A non-pair where a clause is expected is a syntax error, like the compiler.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand not-a-clause)"));
+
+    // An improper clause-list tail reached without a match is the syntax error
+    // the compiler reports for the same form in expression position.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (no-such-feature 1) . junk)"));
+}

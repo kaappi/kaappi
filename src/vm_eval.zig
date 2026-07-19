@@ -172,7 +172,13 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            last = vm.execute(func) catch |err| return err;
+            // runTopLevelFunction, not vm.execute: a spliced top-level body can
+            // be reached while an outer execution is suspended (eval re-entered
+            // from a native callback, frame_count != 0). A bare vm.execute would
+            // resetExecutionState and corrupt frame 0; runTopLevelFunction runs
+            // the thunk re-entrantly in that case and is identical to vm.execute
+            // at true top level. func is rooted above, as it requires.
+            last = runTopLevelFunction(vm, func) catch |err| return err;
         }
         rest = types.cdr(rest);
     }
@@ -192,13 +198,21 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
 //
 // The caller (handleTopLevelForm) has the whole cond-expand form rooted, so the
 // clause list and the selected body stay reachable across the compile/execute
-// that handleTopLevelBegin performs. No clause matching yields void, matching
-// the expression-position compiler (compiler_conditionals.compileCondExpand).
+// that handleTopLevelBegin performs.
+//
+// Malformed-form handling tracks the expression-position compiler
+// (compiler_conditionals.compileCondExpand) so the same form errors the same way
+// regardless of position: a non-pair where a clause is expected is a syntax
+// error; a proper but unsatisfied list (no matching clause, no else) yields
+// void; and — like the compiler — a matched clause returns immediately without
+// inspecting later clauses, so trailing clauses after a match are not validated.
+// The one case needing an explicit check is an improper clause-list tail reached
+// without a match (e.g. `(cond-expand (x 1) . junk)`): the compiler rejects it,
+// so we do too rather than silently yield void.
 fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
     var clauses = clauses_val;
-    while (types.isPair(clauses)) {
+    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
         const clause = types.car(clauses);
-        clauses = types.cdr(clauses);
         if (!types.isPair(clause)) return VMError.CompileError;
         const feature_req = types.car(clause);
         const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
@@ -206,6 +220,7 @@ fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
             return handleTopLevelBegin(vm, types.cdr(clause));
         }
     }
+    if (clauses != types.NIL) return VMError.CompileError;
     return types.VOID;
 }
 
