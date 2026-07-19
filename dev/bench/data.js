@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784477720860,
+  "lastUpdate": 1784479779671,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ce6656c7ecef5201dd009d04e454c4ef4b889732",
-          "message": "KEP-0002 Phase 4: capacity, timeouts, close for cross-thread channels (#1502)\n\n* Capacity, timeouts, close: bounded channels, drain-then-EOF (KEP-0002 P4)\n\nImplements the amended §6 close semantics from KEP-0002 (kaappi/keps#12):\nEOF outwaits reservations and the failure path rings receivers on a\nclosed channel. Adds make-channel's optional capacity argument,\n[timeout [timeout-val]] on channel-send/channel-receive (SRFI-18\nshape), and channel-close!/channel-closed?, for both the local\n(unpromoted) and shared (cross-thread) channel representations.\n\nThe §4-6 protocol was already model-checked in Phase 1-3 (re-verified\nagainst the KEP's exact pseudocode with the TLA+ suite before writing\nany code); this phase wires it up end to end and adds the local-channel\nequivalent.\n\nFixes #1469\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix shared-channel timeout swallowed by a spurious wake-all retry\n\nchannelSendShared/channelReceiveShared's main-fiber (and redispatched\ndispatched-fiber) loop can re-enter its local-sibling poll drive with\n`me.status == .running` while a previously-armed reactor timer is\nstill live: sweepSharedWaiters (the wake-all discipline §5 requires)\nflips a .waiting fiber to .suspended on *any* notify, with no per-\nwaiter targeting, and never cancels its timer. If that timer then\npops while the poll drive is running, wakeReadyFiber silently drops\nit (it only sets timed_out for a .waiting/.io_waiting fiber) --\npermanently losing the timeout for the rest of the wait.\n\nFix: detach the timer from the reactor's heap (not `me.deadline_ns`,\nwhich stays the single record of the original absolute deadline)\nbefore every poll-drive iteration, and re-arm from that preserved\nvalue at the next park step. Clearing the field too, as an earlier\nversion of this fix did, would make every re-arm fall through to a\nfreshly re-parsed relative timeout and silently extend it on each\nspurious wake instead.\n\nAlso tightens a Phase 4 regression test's leak-check discipline to\nmatch its neighbors (explicit baselines, non-deferred reactor\nteardown before the assertions).\n\nFound in PR #1502 review.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T21:02:55+05:30",
-          "tree_id": "d57a1211c98c1abbdd10e233e41c4774e3b04dea",
-          "url": "https://github.com/kaappi/kaappi/commit/ce6656c7ecef5201dd009d04e454c4ef4b889732"
-        },
-        "date": 1783958617139,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.354451,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.802242,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.90259,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.557304,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006474,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053304,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507013,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069939,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.388379,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.977181,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.567285,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427448,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.842838,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712226,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043644,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035445,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f6bfe1b051a64ff6f1040dd0e118f8159df972a",
+          "message": "Implement SRFI 264 (String Syntax for Scheme Regular Expressions) (#1672)\n\nSSRE is a compact, PCRE-inspired string syntax for regular expressions that\ntranslates to the SRE S-expressions of SRFI 115. Add it as the portable\nlibrary (srfi 264): lib/srfi/264.sld is a faithful port of Sergei Egorov's\nMIT-licensed reference implementation, wrapped in an R7RS define-library over\n(srfi 115). The parser and unparser are pure Scheme; the only runtime\ndependency is `regexp` from SRFI 115 (used by ssre->regexp).\n\nExports ssre->sre, ssre->regexp, sre->ssre, ssre-definitions, ssre-bind, and\nssre-unbind. The derived (srfi srfi-264) alias and the `cond-expand srfi-264`\nfeature id work with no extra code, and `kaappi features` picks 264 up from\nthe build-time lib/srfi scan.\n\nOne deviation from the reference: ssre-syntax-error? checked (string? (cadr x))\nfor the source field, but `fail` raises it as a char list, so the guard was\ndead and a raw list escaped instead of a formatted error object. Check list?\nso ssre-fancy-error runs and syntax errors surface as proper error objects.\n\nTests:\n- tests/scheme/srfi/srfi264.scm runs the upstream conformance corpus (2751\n  parser/unparser cases) verbatim, with an exit-on-failure epilogue so\n  run-all.sh and CI catch regressions.\n- tests/scheme/srfi/srfi264-behavior.scm (SRFI-64) covers ssre->regexp\n  matching through SRFI 115, the ssre-bind/ssre-unbind lifecycle, and the\n  error-object regression above.\n\nBump the SRFI count 78 -> 79 (69 portable) in README, CONFORMANCE, CLAUDE.md,\nthe understanding map, and CHANGELOG.\n\nCloses #1666.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T21:41:01+05:30",
+          "tree_id": "12992f7a55381f98a73fc76c64810d3ddb4f5e45",
+          "url": "https://github.com/kaappi/kaappi/commit/9f6bfe1b051a64ff6f1040dd0e118f8159df972a"
+        },
+        "date": 1784479778735,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.320551,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.211575,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.898406,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407293,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006345,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053468,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.5025,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071109,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.405298,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.953459,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.625655,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438714,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.836249,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.704866,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043361,
             "unit": "seconds"
           }
         ]
