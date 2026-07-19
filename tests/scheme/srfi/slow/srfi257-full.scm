@@ -444,4 +444,6 @@
 (test-equal #f (match '42 ((~box a) a) (_ #f)))
 (test-equal 42 (match (box 42) ((~box a) a) (_ #f)))
 
-(test-end)
+(let ((runner (test-runner-current)))
+  (test-end)
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

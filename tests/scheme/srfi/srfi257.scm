@@ -132,4 +132,31 @@
 (test-equal 42 (unbox (match (box 42) ((~box? a) a) (_ #f))))
 (test-equal 42 (match (box 42) ((~box a) a) (_ #f)))
 
-(test-end)
+
+; misc sublibrary: the ~etc+ / ~etc= / ~etc** length-refined matchers
+(test-equal 'plus  (match '(1 2)  ((~etc+ (~number?)) 'plus)  (_ 'no)))
+(test-equal 'no    (match '()     ((~etc+ (~number?)) 'plus)  (_ 'no)))
+(test-equal '(1 2) (match '(1 2)  ((~and (~etc= 2 x) l) x)    (_ 'no)))
+(test-equal 'no    (match '(1 2 3) ((~etc= 2 x) x)            (_ 'no)))
+(test-equal 'twoish (match '(1 2) ((~etc** 1 3 (~number?)) 'twoish) (_ 'no)))
+(test-equal 'no     (match '()    ((~etc** 1 3 (~number?)) 'twoish) (_ 'no)))
+
+; cm-match catamorphism with an explicit (f -> x) cata operator
+(test-equal 6
+  (letrec ((sum (lambda (l)
+                  (cm-match l
+                    (() 0)
+                    ((,x . ,(sum -> r)) (+ x r))))))
+    (sum '(1 2 3))))
+
+; sr-match pattern containing a non-symbol atom (exercises the upstream
+; ~if-id-member yv/xv fix: non-identifier atoms fall through to a plain
+; datum comparison)
+(test-equal 'one-two
+  ((lambda (in) (sr-match in () ((1 2) 'one-two) ((_ _) 'other))) '(1 2)))
+(test-equal 'other
+  ((lambda (in) (sr-match in () ((1 2) 'one-two) ((_ _) 'other))) '(3 4)))
+
+(let ((runner (test-runner-current)))
+  (test-end)
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

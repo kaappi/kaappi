@@ -6,7 +6,11 @@
 ;;; built from a small core and is user-extensible through
 ;;; define-match-pattern, which hides the internal macro protocol.
 ;;;
-;;; Ported to Kaappi from Sergei Egorov's reference implementation.
+;;; Ported to Kaappi from Sergei Egorov's reference implementation, with
+;;; one fix: ~if-id-member's non-identifier fallback branch referenced an
+;;; unbound `yv` where it meant `xv` (upstream reference bug), which broke
+;;; patterns whose first argument is a non-symbol atom (e.g. sr-match
+;;; clauses with literal numbers).
 ;;; The optional (srfi 257 rx) sublibrary is not provided: it requires
 ;;; SRFI 264 (Scheme Regular Expressions), which Kaappi does not ship.
 ;;;
@@ -652,7 +656,7 @@
        (syntax-error "... used as a variable name")
        (syntax-error "_ used as a variable name")
        (if-new-var a (l ...) (submatch xv pf c kt kf) (submatch xv pt c kt kf))
-       (submatch yv pt c kt kf)))))
+       (submatch xv pt c kt kf)))))
 
 ; (~replace-specials new-ellipsis new-underscore p) matches against p after replacing
 ; ... in p with new-ellipsis and _ with new-underscore
