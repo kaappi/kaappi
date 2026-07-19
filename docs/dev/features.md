@@ -101,5 +101,8 @@ a `Lib` tag or a `.sld` file is enough.
   `cond-expand` identifiers for Scheme authors; it links here for the CLI view.
 - [observing-the-pipeline.md](observing-the-pipeline.md) — the `ast`/`expand`/`ir`
   read-only dumps, the other "understand the build" introspection commands.
+- [srfi-status-check.md](srfi-status-check.md) — the CI guard that reads
+  `srfis.builtin`/`srfis.portable` from `features --json` and fails if any
+  implemented SRFI is not `final` in the canonical registry.
 - [check.md](check.md), [test-runner.md](test-runner.md) — sibling
   machine-legibility subcommands.
