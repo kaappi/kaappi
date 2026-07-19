@@ -11,8 +11,8 @@
 ;;; unbound `yv` where it meant `xv` (upstream reference bug), which broke
 ;;; patterns whose first argument is a non-symbol atom (e.g. sr-match
 ;;; clauses with literal numbers).
-;;; The optional (srfi 257 rx) sublibrary is not provided: it requires
-;;; SRFI 264 (Scheme Regular Expressions), which Kaappi does not ship.
+;;; The optional (srfi 257 rx) sublibrary is not yet provided; it builds on
+;;; SRFI 264 and is tracked as a follow-up.
 ;;;
 ;;; SPDX-FileCopyrightText: 2024 Sergei Egorov
 ;;; SPDX-License-Identifier: MIT

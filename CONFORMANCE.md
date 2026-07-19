@@ -181,9 +181,10 @@ ancestor loops, because `resend` restarts the lookup skipping only the original
 receiver — a distinct-origin lookup the finalized SRFI never specified. Resending
 to an explicit target, and resend from a directly-overriding method, both work.
 
-‡ SRFI 257's optional `(srfi 257 rx)` sublibrary is not provided: it requires
-SRFI 264 (Scheme Regular Expressions), which Kaappi does not ship. The main
-library and the `misc` and `box` sublibraries are complete.
+‡ SRFI 257's optional `(srfi 257 rx)` sublibrary is not yet provided. It
+builds on SRFI 264 (Scheme Regular Expressions), which is now available, so
+the rx integration is tracked as a follow-up. The main library and the `misc`
+and `box` sublibraries are complete.
 
 † SRFI 267 is a hybrid: the `#"X"…"X"` lexical syntax is built into the reader
 (so raw-string literals work in any source file), while the port procedures

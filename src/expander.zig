@@ -5,8 +5,11 @@ const timings = @import("timings.zig");
 const Value = types.Value;
 const GC = memory.GC;
 
-var active_custom_ellipsis: ?[]const u8 = null;
-var active_literals: []const Value = &.{};
+// Expansion is reachable from child-thread compile paths (SRFI 18 threads
+// compile with their own VM); per-expansion context must be threadlocal so
+// concurrent compilers cannot clobber each other's state.
+threadlocal var active_custom_ellipsis: ?[]const u8 = null;
+threadlocal var active_literals: []const Value = &.{};
 
 fn isEllipsis(name: []const u8) bool {
     // If the name is listed as a literal, it's not the ellipsis
@@ -149,8 +152,8 @@ pub const UseSiteBindingCheck = struct {
 // mirroring active_literals): the transformer's definition-site local
 // references and the compiler callback that says whether a name is a local
 // of the current function frame.
-var active_def_local_refs: []const []const u8 = &.{};
-var active_use_check: UseSiteBindingCheck = .{};
+threadlocal var active_def_local_refs: []const []const u8 = &.{};
+threadlocal var active_use_check: UseSiteBindingCheck = .{};
 
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
     // `--timings` (kaappi#1515): the sole macro-expansion chokepoint, so timing
@@ -559,12 +562,33 @@ pub fn unwrapUsertext(v: Value) Value {
 /// Strip user-text markers from a fully-instantiated expansion, in place,
 /// so compilation sees plain forms. Subtrees headed by `syntax-rules` are
 /// skipped: specs of macros the expansion DEFINES keep their markers for
-/// their own later instantiation.
+/// their own later instantiation. Cyclic inputs (a macro invoked with a
+/// datum-label literal like #0=(1 . #0#)) terminate: the cdr spine carries
+/// a tortoise-hare check, and nested descent is depth-capped — a marker
+/// can only sit at finite depth, so the cap never skips a real one.
 pub fn stripUsertextMarkers(gc: *GC, expr: Value) void {
+    stripUsertextWalk(gc, expr, 512);
+}
+
+fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
+    if (depth == 0) return;
+    if (types.isVector(expr)) {
+        const vec = types.toObject(expr).as(types.Vector);
+        for (vec.data, 0..) |elem, i| {
+            if (isUsertextPair(elem)) {
+                const unwrapped = unwrapUsertext(elem);
+                gc.writeBarrier(types.toObject(expr), unwrapped);
+                vec.data[i] = unwrapped;
+            }
+            stripUsertextWalk(gc, vec.data[i], depth - 1);
+        }
+        return;
+    }
     if (!types.isPair(expr)) return;
     const head = types.car(expr);
     if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "syntax-rules")) return;
     var cur = expr;
+    var hare = expr;
     // Iterative cdr-walk with per-node car handling keeps recursion depth
     // bounded by tree depth, not list length.
     while (true) {
@@ -573,10 +597,8 @@ pub fn stripUsertextMarkers(gc: *GC, expr: Value) void {
             const unwrapped = unwrapUsertext(car_v);
             gc.writeBarrier(types.toObject(cur), unwrapped);
             types.setCar(cur, unwrapped);
-            stripUsertextMarkers(gc, types.car(cur));
-        } else if (types.isPair(car_v)) {
-            stripUsertextMarkers(gc, car_v);
         }
+        stripUsertextWalk(gc, types.car(cur), depth - 1);
         const cdr_v = types.cdr(cur);
         if (isUsertextPair(cdr_v)) {
             const unwrapped = unwrapUsertext(cdr_v);
@@ -586,8 +608,18 @@ pub fn stripUsertextMarkers(gc: *GC, expr: Value) void {
             // into, or an atom that ends the walk).
             continue;
         }
+        if (types.isVector(cdr_v)) {
+            stripUsertextWalk(gc, cdr_v, depth - 1);
+            return;
+        }
         if (!types.isPair(cdr_v)) return;
         cur = cdr_v;
+        // Tortoise-hare on the cdr spine (cf. countPairs): unwraps above
+        // only splice marker pairs out, so advancing the hare over the
+        // possibly-rewritten spine stays safe.
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (hare == cur) return;
     }
 }
 

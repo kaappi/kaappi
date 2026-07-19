@@ -931,3 +931,30 @@ test "syntax-rules literal bound in an enclosing frame matches across lambdas" {
         \\  (f 1))
     );
 }
+
+test "macro argument with a cyclic datum-label literal expands and compiles" {
+    // stripUsertextMarkers runs on every expansion output; its cdr-spine walk
+    // must terminate on cyclic pairs (tortoise-hare, cf. countPairs) instead
+    // of hanging when a macro is invoked with #0=(1 . #0#)-style data.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax id (syntax-rules () ((_ x) x)))
+        \\  (car (id '#0=(1 . #0#))))
+    , 1);
+}
+
+test "user text spliced into a vector literal is unwrapped" {
+    // A pattern-var substitution inside a nested syntax-rules template gets a
+    // provenance marker; when the splice lands inside a VECTOR literal, the
+    // compile-boundary strip must descend into vector elements or the marker
+    // pair leaks into runtime data.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax vb
+        \\    (syntax-rules ()
+        \\      ((_ e)
+        \\       (let-syntax ((g (syntax-rules () ((_) (vector-ref #(e) 0)))))
+        \\         (g)))))
+        \\  (vb 42))
+    , 42);
+}
