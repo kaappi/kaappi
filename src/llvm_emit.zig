@@ -21,17 +21,18 @@ pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
     else => false,
 };
 
-/// The LLVM `target triple` for a host `(arch, os)`, or null on an architecture
-/// the native backend cannot target. A real triple exists only for aarch64 and
-/// x86_64 (× the six supported OSes); every other arch would otherwise be
-/// emitted as `unknown-unknown-unknown`, which the `-w` on the `zig cc` link
-/// lets the driver silently override with the host default — so the link
-/// *succeeds* and the user gets a binary that segfaults (#1656). This is the
-/// single source of truth for both the emitted triple (emitPreamble) and
-/// `native_backend_supported`, so a future port that adds an arch arm here
-/// flips both at once. The `windows` arms use the gnu (MinGW) ABI: it matches
-/// how the runtime lib is built and how `zig cc` links on a box without MSVC
-/// (#1610).
+/// The LLVM `target triple` for a host `(arch, os)`, or null when the native
+/// backend cannot emit a *concrete* triple for it. That is exactly aarch64 and
+/// x86_64 × the six supported OSes; every other arch — and any other OS on
+/// those two arches — returns null. A non-concrete triple would come out as
+/// `*-unknown-unknown`, which the `-w` on the `zig cc` link lets the driver
+/// silently override with the host default — so the link *succeeds* and the
+/// user gets a binary that segfaults (#1656). Returning null instead routes
+/// every such host through the loud refusal, not just unsupported arches. This
+/// is the single source of truth for both the emitted triple (emitPreamble) and
+/// `native_backend_supported`, so a future port that adds an arm here flips both
+/// at once. The `windows` arms use the gnu (MinGW) ABI: it matches how the
+/// runtime lib is built and how `zig cc` links on a box without MSVC (#1610).
 pub fn targetTriple(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) ?[]const u8 {
     return switch (arch) {
         .aarch64 => switch (os) {
@@ -41,7 +42,7 @@ pub fn targetTriple(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) ?[]const u
             .freebsd => "aarch64-unknown-freebsd",
             .openbsd => "aarch64-unknown-openbsd",
             .netbsd => "aarch64-unknown-netbsd",
-            else => "aarch64-unknown-unknown",
+            else => null,
         },
         .x86_64 => switch (os) {
             .macos => "x86_64-apple-macosx",
@@ -50,7 +51,7 @@ pub fn targetTriple(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) ?[]const u
             .freebsd => "x86_64-unknown-freebsd",
             .openbsd => "x86_64-unknown-openbsd",
             .netbsd => "x86_64-unknown-netbsd",
-            else => "x86_64-unknown-unknown",
+            else => null,
         },
         else => null,
     };
@@ -77,6 +78,12 @@ test "targetTriple: only aarch64/x86_64 are native-compilable; others refuse (#1
     try std.testing.expect(targetTriple(.riscv64, .linux) == null);
     try std.testing.expect(targetTriple(.s390x, .linux) == null);
     try std.testing.expect(targetTriple(.powerpc64le, .linux) == null);
+    // A supported arch on an *unsupported OS* has no concrete triple either, so
+    // it refuses too: native_backend_supported means "we can emit a correct
+    // triple", not merely "the arch is one we know". Without this, such a host
+    // would emit `aarch64-unknown-unknown` and hit the same -w link/crash path.
+    try std.testing.expect(targetTriple(.aarch64, .dragonfly) == null);
+    try std.testing.expect(targetTriple(.x86_64, .illumos) == null);
     // native_backend_supported is exactly "the host has a triple".
     try std.testing.expectEqual(
         targetTriple(@import("builtin").cpu.arch, @import("builtin").os.tag) != null,
