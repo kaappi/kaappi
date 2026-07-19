@@ -76,6 +76,23 @@ jobs:
       - name: Build
         run: zig build -Doptimize=${{ matrix.optimize }}
 
+      # Kaappi ships only final SRFIs. Fail if the binary reports a SRFI whose
+      # status in the canonical registry is draft/withdrawn. Runs once (needs a
+      # binary; the enumeration comes from `kaappi features --json`). Exit 77 =
+      # SKIP (registry unreachable) so a network blip never reds the leg.
+      - name: SRFI final-status guard
+        if: matrix.os == 'ubuntu-latest' && matrix.optimize == 'ReleaseSafe'
+        run: |
+          set +e
+          bash tools/check-srfi-status.sh zig-out/bin/kaappi
+          code=$?
+          set -e
+          if [ "$code" -eq 77 ]; then
+            echo "::warning::SRFI final-status check skipped (registry unreachable)"
+            exit 0
+          fi
+          exit "$code"
+
       - name: Unit tests (leak detection via std.testing.allocator)
         run: zig build test -Doptimize=${{ matrix.optimize }}
 
