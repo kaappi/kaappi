@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784441258226,
+  "lastUpdate": 1784448968878,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "55ccff0b61fcecac2a108309f838563cf5a769fc",
-          "message": "Envelopes at thread boundaries: thread-start!/join! via envelopes (KEP-0002 P2) (#1483)\n\n* Envelopes at thread boundaries: thread-start!/join! via envelopes (KEP-0002 P2)\n\nthread-start! now copies the thunk into a shared_channel.Envelope on the\nparent thread, before ever calling std.Thread.spawn, instead of letting\nthe child deepCopy fiber.thunk out of the still-running parent heap\nasynchronously. The child copies out of that envelope into its own fresh\nheap. This closes the old concurrent-copy race (a mutation racing the\ncopy could tear a captured structure) and is the only place a channel\ncaptured by the thunk can legally promote, since promotion requires\ngc_instance to match the channel's owner -- true only on the parent\nthread, now, before spawn.\n\nthread-join!'s result/exception cross the same way: built into an\nenvelope on the child thread right before it exits, instead of being\ndeep-copied directly out of the child's still-allocated heap by the\nparent at join time. This retires child_registry's raw-Value special\ncase and, symmetrically, is what makes a channel created and returned\nby the child promote correctly (the same ownership requirement, now\nsatisfied on the child's own thread instead of the parent's at join).\n\nThe process-global live-thread counter KEP-0002 Phase 2 calls for\nalready exists (live_child_threads, added in #1455's cross-thread\nmutex/condvar fix) -- no new code needed there.\n\nAlso fixes a double-free the envelope model exposes: child_registry's\nresult/exception lookup was a peek (get), so two racing thread-join!\ncalls on the same fiber -- reachable via a shared global, since fiber\nownership is otherwise unchecked -- could both retrieve and free the\nsame *Envelope. Replaced with an atomic take (takeResult) that clears\nboth fields under the registry lock.\n\nMotivation Path 1 (a channel captured in the thread thunk) now works\nend to end; Motivation Path 2 (a channel reached through a shared\nglobal) is unaffected and still raises the foreign-owner error.\n\nNew tests: thunk-snapshot (parent mutation after thread-start! not\nvisible to the child), Path 1 end-to-end, a channel created and\nreturned by the child, reply-channel identity across two\npromotion/alias hops, 20-thread churn with no refcount leak\n(-Dgc-stress=true clean), and the synchronous (never-spawns-an-OS-\nthread) shape of an uncopyable-thunk error.\n\nVerified: zig build test and -Dgc-stress=true green; full Scheme/R7RS\nsuite 1835/0; zig fmt clean; thread-start!/join! overhead for a trivial\nthunk is within measurement noise of the pre-Phase-2 baseline (~34-38us\neither way, dominated by OS thread creation, not the extra copy).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: preserve exception-envelope failures, message clarity, test gaps\n\nReview of #1483 (both CodeRabbit and a manual pass) found real gaps:\n\n- The exception path collapsed both \"uncopyable exception content\" and\n  \"OOM building the envelope\" into a silent null, unlike the result path's\n  `.failed` (which raises a specific error). Since R7RS `raise` permits\n  raising arbitrary values, an exception carrying a port or a foreign-\n  owned channel is a realistic case, not a corner one. `exception` is now\n  the same `JoinResult` shape as `result`; a `.failed` build synthesizes a\n  diagnostic error instead of leaving the join reason void.\n\n- Both the thunk and result-path \"uncopyable type\" messages were\n  misleading for one real cause: gc_deep_copy.zig's `.channel` arm returns\n  UncopyableType for a genuinely uncopyable value AND for a channel owned\n  by neither thread (reached via a shared global instead of the thunk/\n  message that would have legally handed it over) -- the same error for\n  two different reasons. Broadened both messages to name the second cause\n  (verified against an A/B repro from review: a shared-global channel\n  raised or returned by the thunk).\n\n- Comment fix: \"the usual child_registry.storeResult path used by every\n  post-spawn failure\" overstated -- only the callWithArgs-failure path\n  actually stores a result; the earlier post-spawn failures set .errored\n  directly, same as the pre-spawn path being commented on.\n\n- Test-quality fixes: th.expectEval for two one-shot fixnum tests;\n  types.isChannel instead of a raw .tag comparison; the exception-envelope\n  test now receives and checks the drained 'irritant-marker value instead\n  of only checking that promotion happened; the 20-iteration thread-churn\n  test scales to 5 under -Dgc-stress=true (matches tests_robustness.zig's\n  pattern); new regression test pinning the .failed -> \"thread-join!:\n  result contains...\" path specifically (a thunk returning a port).\n\nDeliberately deferred to a follow-up issue (both reviewers frame these as\nnon-blocking): the deeper \"should a shared-global channel forwarded\nthrough an exception/result regain exact main-branch parity\" question,\nand the residual concurrent-double-join hazards (thread.join() called\ntwice on the same handle, a result-read race) that predate this PR and\nare best closed by giving fiber operations the same foreign-owner check\nchannels already have, rather than patching thread-join! point by point.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-12T18:47:22Z",
-          "tree_id": "e3489bcd1568df13844f2c3cda76b0f6ebcc3a77",
-          "url": "https://github.com/kaappi/kaappi/commit/55ccff0b61fcecac2a108309f838563cf5a769fc"
-        },
-        "date": 1783883846059,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.350855,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.047066,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.987968,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.565634,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006545,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055023,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.543095,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070188,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.377668,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.100511,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.564963,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437464,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.871535,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.720003,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043176,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033164,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8cdaf53cac57d2d94d2421e0a61a1bf83c7fcca",
+          "message": "Report the real dlopen failure from ffi-open (#1662)\n\nffi-open probes several candidates (name as-is, platform suffixes,\n<home>/lib/ with suffixes) but reported dlerror() only after the last\nprobe — and dlerror only remembers the most recent failure. A library\nthat existed but refused to load (macOS code-signing rejection, wrong\narchitecture, corrupt file) was therefore reported as \"no such file\"\nfor a fallback path the user never asked for.\n\nTwo changes:\n\n- Snapshot per-candidate failures and report, in order of preference:\n  the first candidate that exists on disk but failed to load, else the\n  as-is attempt's error (prefixed with the requested name when the\n  platform's dlerror text doesn't contain it, e.g. Windows' bare\n  \"Win32 error N\") plus a note listing the other probes. The dlerror\n  text is clamped so the note survives the 256-byte detail buffer.\n\n- Skip the <home>/lib/ fallback for names containing a path separator,\n  matching dlopen(3) semantics where a slash means pathname, not search\n  key. Previously an absolute path produced nonsense probes like\n  \"<home>/lib//abs/path/libfoo.dylib.so\" — whose \"no such file\" then\n  masked the real error. All ecosystem packages pass bare names, so\n  nothing relied on the old behavior.\n\nMotivating repro: with libkaappi_math.dylib present in ~/.kaappi/lib\nbut rejected by library validation, (import (kaappi math)) reported\nonly \"no such file\" for ~/.kaappi/lib/libkaappi_math.so and never the\nvalidation error for the .dylib that exists. Since the library passes\na bare name, the interesting error came from a mid-order candidate —\nwhich is why existence, not probe order, selects the reported error.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T07:41:12Z",
+          "tree_id": "f4ee62349d8f4cb8840c65801b2941e1f1d91741",
+          "url": "https://github.com/kaappi/kaappi/commit/d8cdaf53cac57d2d94d2421e0a61a1bf83c7fcca"
+        },
+        "date": 1784448966947,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.443335,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.954518,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.912342,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.442541,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006375,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053645,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.497193,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069244,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.572538,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.953883,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.618425,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.441765,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.837112,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713689,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044657,
             "unit": "seconds"
           }
         ]
