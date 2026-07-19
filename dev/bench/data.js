@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784479779671,
+  "lastUpdate": 1784485063676,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c8f8549f5e5dee13fc37ba96eb5c5a858f814a27",
-          "message": "docs: add Machine legibility section and correct GC description in vision.md (#1519)\n\n* docs: add Machine legibility section to vision.md\n\nRecords the machine-legibility strategic direction — making Kaappi the most\nlegible Scheme for humans and AI agents to understand, diagnose, and\nautomate — in the canonical vision doc, framed as the third core value\n(Transparency over magic) turned outward: from a runtime transparent to\ncontributors to a toolchain transparent to the programs that drive it.\n\nCaptures the falsifiable operational test (an agent goes from failing\nprogram to verified fix using only documented CLI output), the three pillars\n(Diagnose / Understand / Automate), and the non-goals that keep this as\nextension where R7RS-small is silent rather than deviation where it speaks —\nnotably the declined static type system. Cross-references KEP-0005 (the\ndiagnostic contract) and the tracking epic kaappi#1503.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* docs: correct the GC description in vision.md to match the implementation\n\nThe \"Simplicity over abstraction\" value and the GC design-decision section\nstill described a pre-generational collector — \"no generational promotion, no\nwrite barriers,\" and a heading arguing against generational GC. The collector\nhas since become generational (young/old split, minor vs. full collections,\nold→young write barrier feeding a remembered set, promotion after surviving\nrepeated collections; see memory.zig, gc_collect.zig, and the Object header in\ntypes.zig).\n\nRewrite both passages to describe that accurately while keeping the doc's\nframing: the collector is still comprehensible, and the write barrier is\npresented as deliberate, earned machinery rather than something avoided. The\nstill-true points (no copying, no compaction, fragmentation not a problem in\npractice) are retained.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T22:06:04+05:30",
-          "tree_id": "560ecf3603a8871bb0b258a5d461d3c89bc5700c",
-          "url": "https://github.com/kaappi/kaappi/commit/c8f8549f5e5dee13fc37ba96eb5c5a858f814a27"
-        },
-        "date": 1783961919218,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.429727,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.011852,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.929102,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.508571,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006437,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053769,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506232,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070178,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.385618,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.980549,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.583547,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432434,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.842238,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.714618,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044626,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043361,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "64901a5f3e04c491e4b8da6cb60f45d34d125d8e",
+          "message": "Add /vm-test skill for on-hardware UTM VM testing (#1676)\n\n* Add /vm-test skill for on-hardware UTM VM testing\n\nThe BSD/Linux-arch/Windows ports are validated on a fleet of local UTM\nVMs, but the power-on step and the per-platform build-anywhere/execute-on-\ntarget recipe (cross-compile on the Mac, ship the tree + zig-out + the two\ntest binaries, run on the box) lived scattered across docs/dev/*.md and\nsession memory. This skill consolidates that into one runnable procedure\nand automates the mechanical, error-prone parts.\n\nvm-up.sh maps an ssh alias to its utmctl VM name, launches UTM if needed,\nstarts the VM, and blocks until SSH answers. SKILL.md carries the per-VM\ntable (target triple, admin tool, file signature, deps) and the ship/run\nsteps, encoding the traps these ports have hit: Alpine must be -musl\n(static; no glibc loader), test binaries are selected by file signature\nnot mtime (stale-binary footgun), sync is tar-over-ssh with\nCOPYFILE_DISABLE (rsync is absent on OpenBSD; AppleDouble files fail the\nfmt suite), plus OpenBSD's nobtcfi patch, NetBSD's swap/full-paths, and\nWindows' distinct PowerShell/Git-Bash flow.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Harden /vm-test recipe against masked failures (review)\n\nAddress the CodeRabbit review on #1676. All six were real correctness bugs\nin commands the skill tells you to run:\n\n- Test-binary selection now fails closed: clear stale staged copies first,\n  then skip the cp entirely when no target-arch binary is found, so a\n  missing build can't ship an old binary.\n- Group the ulimit-carrying $RUNPREFIX in a { …; } before chaining the unit\n  and thottam suites — the semicolons in RUNPREFIX otherwise break the &&\n  chain and let a failed unit suite be masked by the last command's status.\n- Propagate run-all.sh's real exit status instead of the trailing echo's,\n  so an automated caller sees a failed VM run.\n- Invoke bash by full path on NetBSD (new $BASH var; /usr/pkg/bin/bash) —\n  the non-login PATH lacks /usr/pkg/bin, so bare bash fails there. Also\n  apply $RUNPREFIX to run-all.sh (CI raises the same limits for it).\n- Windows: select the test .exe by PE machine type, not mtime (x64 and\n  aarch64 outputs coexist in the cache), and create C:\\tmp\\kaappi-vm before\n  extracting into it (tar -C won't make the dir).\n\nGrouping/exit-status semantics verified with stubbed suites.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T16:55:37Z",
+          "tree_id": "98030aef571978f0d060e13a8a7e85d40b65dc34",
+          "url": "https://github.com/kaappi/kaappi/commit/64901a5f3e04c491e4b8da6cb60f45d34d125d8e"
+        },
+        "date": 1784485061892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.506789,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.313928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.689149,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.43308,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006479,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046159,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.390529,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058133,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.095815,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.517289,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.366927,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.425337,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.52515,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.892488,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03769,
             "unit": "seconds"
           }
         ]
