@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### SRFI 264 (String Syntax for Scheme Regular Expressions)
+
+- **SRFI 264 (String Syntax for Scheme Regular Expressions)** — SSRE, a compact,
+  PCRE-inspired string syntax for regular expressions that translates to the SRE
+  S-expressions of SRFI 115. The portable `(srfi 264)` library exports
+  `ssre->sre`, `ssre->regexp`, `sre->ssre`, `ssre-definitions`, `ssre-bind`, and
+  `ssre-unbind`. Ported from Sergei Egorov's MIT-licensed reference
+  implementation; the full upstream conformance corpus (2751 parser/unparser
+  cases) passes (#1666).
+
 ## [0.20.0] - 2026-07-19
 
 ### Added
