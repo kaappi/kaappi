@@ -601,6 +601,7 @@ fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
         for (vec.data, 0..) |elem, i| {
             if (isUsertextPair(elem)) {
                 const unwrapped = unwrapUsertext(elem);
+                if (isUsertextPair(unwrapped)) continue; // forged cycle: opaque
                 gc.writeBarrier(types.toObject(expr), unwrapped);
                 vec.data[i] = unwrapped;
             }
@@ -619,13 +620,20 @@ fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
         const car_v = types.car(cur);
         if (isUsertextPair(car_v)) {
             const unwrapped = unwrapUsertext(car_v);
-            gc.writeBarrier(types.toObject(cur), unwrapped);
-            types.setCar(cur, unwrapped);
+            // A forged cyclic marker chain unwraps to itself — leave it as
+            // opaque data rather than descending into the cycle.
+            if (!isUsertextPair(unwrapped)) {
+                gc.writeBarrier(types.toObject(cur), unwrapped);
+                types.setCar(cur, unwrapped);
+                stripUsertextWalk(gc, types.car(cur), depth - 1);
+            }
+        } else {
+            stripUsertextWalk(gc, car_v, depth - 1);
         }
-        stripUsertextWalk(gc, types.car(cur), depth - 1);
         const cdr_v = types.cdr(cur);
         if (isUsertextPair(cdr_v)) {
             const unwrapped = unwrapUsertext(cdr_v);
+            if (isUsertextPair(unwrapped)) return; // forged cycle: opaque data
             gc.writeBarrier(types.toObject(cur), unwrapped);
             types.setCdr(cur, unwrapped);
             // Re-examine the new cdr in place (it may be a pair to continue
@@ -737,6 +745,8 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     // at the compile boundary (stripUsertextMarkers).
     if (isUsertextPair(template)) {
         const inner = unwrapUsertext(template);
+        // A forged cyclic marker chain unwraps to itself: treat as opaque data.
+        if (isUsertextPair(inner)) return inner;
         const new_inner = try instantiateTemplate(gc, inner, bindings, (intro_scope | QUOTE_FLAG) & ~NESTED_SR_FLAG, literals, macro_keyword, globals, macros);
         if (isUsertextPair(new_inner)) return new_inner; // already protected
         if (!types.isSymbol(new_inner) and !types.isPair(new_inner)) return new_inner;

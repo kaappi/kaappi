@@ -982,8 +982,7 @@ test "forged cyclic usertext-marker datum does not hang unwrap" {
     try th.expectEval(
         \\(begin
         \\  (define-syntax id (syntax-rules () ((_ x) x)))
-        \\  (define c '#0=(__hyg-usertext . #0#))
-        \\  (if (pair? (id c)) 42 0))
+        \\  (if (pair? (id '#0=(__hyg-usertext . #0#))) 42 0))
     , 42);
 }
 
