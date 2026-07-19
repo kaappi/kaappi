@@ -277,14 +277,30 @@ pub fn buildLibRelPath(name_list: Value, buf: *[512]u8) ![]const u8 {
 pub fn srfi261Suffix(name: []const u8) ?i64 {
     const dash = std.mem.lastIndexOfScalar(u8, name, '-') orelse return null;
     if (dash == 0) return null; // "-1" has no mnemonic/srfi prefix
-    const digits = name[dash + 1 ..];
-    if (digits.len == 0) return null; // "srfi-"
+    return parseSrfiDigits(name[dash + 1 ..]);
+}
+
+/// Parse `digits` as a SRFI number: nonempty and ASCII digits only, within the
+/// u31 range that rejects absurd values which would overflow the fixnum range.
+/// Shared by srfi261Suffix (#1645) and srfiFeatureNumber (#1649).
+fn parseSrfiDigits(digits: []const u8) ?i64 {
+    if (digits.len == 0) return null; // "srfi-", "lists-"
     for (digits) |c| {
         if (c < '0' or c > '9') return null; // "lists-nope", "a-+5"
     }
-    // u31 rejects absurd numbers that would overflow the fixnum range.
     const n = std.fmt.parseInt(u31, digits, 10) catch return null;
     return @as(i64, n);
+}
+
+/// SRFI 0 (#1649): the number N of a `srfi-<n>` cond-expand *feature*
+/// identifier (e.g. `srfi-1` → 1), or null when `name` is not one. Requires the
+/// literal `srfi-` prefix followed by digits only — unlike srfi261Suffix, which
+/// reads the trailing -<digits> of any *library-name* component: a feature id
+/// is `srfi-1`, never a bare `lists-1`.
+pub fn srfiFeatureNumber(name: []const u8) ?i64 {
+    const prefix = "srfi-";
+    if (!std.mem.startsWith(u8, name, prefix)) return null;
+    return parseSrfiDigits(name[prefix.len..]);
 }
 
 /// SRFI 261 (#1645): the SRFI number of a (srfi srfi-<n> …) or
@@ -372,6 +388,38 @@ pub fn libraryIsAvailableSrfi261(vm: *VM, lib_name: []const u8, lib_name_list: V
     const norm_name = library_mod.libraryNameToString(vm.gc.allocator, norm) catch return false;
     defer vm.gc.allocator.free(norm_name);
     return libraryIsAvailable(vm, norm_name, norm);
+}
+
+/// Fresh `(srfi <n>)` library-name list.
+fn buildSrfiNameList(gc: *memory.GC, n: i64) !Value {
+    var srfi_sym = try gc.allocSymbol("srfi");
+    gc.pushRoot(&srfi_sym);
+    defer gc.popRoot();
+    // allocPair auto-roots its Value args, so tail needs no separate root
+    // before it is handed to the outer allocPair on the next line.
+    const tail = try gc.allocPair(types.makeFixnum(n), types.NIL);
+    return gc.allocPair(srfi_sym, tail);
+}
+
+/// SRFI 0 (#1649): whether the `srfi-<n>` cond-expand feature identifier `name`
+/// is supported by this VM. False for any name that is not a `srfi-<n>` form.
+///
+/// For a real SRFI number the answer routes through the same availability check
+/// as `(library (srfi <n>))` — so built-in SRFIs (registered), portable SRFIs
+/// (their `.sld` loadable), and the `--sandbox`/WASM degradations all stay
+/// consistent with what `(import (srfi <n>))` would actually do; nothing is
+/// hardcoded (the #1517 derive-don't-list principle). SRFI 261 (#1645) is the
+/// one supported SRFI with no library file — a pure naming convention — so it
+/// answers true directly.
+pub fn srfiFeatureAvailable(vm: *VM, name: []const u8) bool {
+    const n = srfiFeatureNumber(name) orelse return false;
+    if (n == 261) return true; // naming convention, no .sld to probe
+    var list = buildSrfiNameList(vm.gc, n) catch return false;
+    vm.gc.pushRoot(&list);
+    defer vm.gc.popRoot();
+    const canonical = library_mod.libraryNameToString(vm.gc.allocator, list) catch return false;
+    defer vm.gc.allocator.free(canonical);
+    return libraryIsAvailable(vm, canonical, list);
 }
 
 /// Load and evaluate a library source file from a resolved path.
@@ -684,7 +732,9 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
         for (types.platform_features) |f| {
             if (std.mem.eql(u8, name, f)) return true;
         }
-        return false;
+        // #1649: srfi-<n> feature identifiers, routed through the same
+        // availability check as (library (srfi <n>)).
+        return srfiFeatureAvailable(vm, name);
     }
 
     if (types.isPair(req)) {

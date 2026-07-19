@@ -149,7 +149,9 @@ fn renderText(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try writeNumberList(w, builtin_srfi);
     try w.print("\n  portable ({d}): ", .{build_options.portable_srfis.len});
     try writeNumberList(w, build_options.portable_srfis);
-    try w.writeByte('\n');
+    // #1649: every SRFI listed above is also probeable as a cond-expand feature
+    // identifier `srfi-<n>`; not re-listed here to avoid duplicating both sets.
+    try w.writeAll("\n  (each is also a cond-expand feature id: srfi-<n>)\n");
 
     try w.writeAll("\nLimits:\n");
     try w.print("  initial frame capacity     {d} (grows to {d})\n", .{ build_options.max_frames, types.MAX_FRAME_LIMIT });

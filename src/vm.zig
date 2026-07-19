@@ -33,11 +33,17 @@ pub fn setVMInstance(vm: *VM) void {
         .owns_globals = vm.owns_globals,
     });
     globals_mod.library_exists_checker = &checkLibraryExists;
+    globals_mod.srfi_feature_checker = &checkSrfiFeature;
 }
 
 fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
     const vm = vm_instance orelse return false;
     return vm_library.libraryIsAvailableSrfi261(vm, lib_name, lib_name_list);
+}
+
+fn checkSrfiFeature(name: []const u8) bool {
+    const vm = vm_instance orelse return false;
+    return vm_library.srfiFeatureAvailable(vm, name);
 }
 
 pub const GlobalsRwLock = globals_mod.GlobalsRwLock;

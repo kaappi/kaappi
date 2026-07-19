@@ -353,6 +353,11 @@ fn symbolEqP(args: []const Value) PrimitiveError!Value {
 fn featuresFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
+    // The bare platform/subsystem feature table (R7RS 6.14). SRFI support is
+    // *not* enumerated here: like `(library …)` requirements, a `srfi-<n>`
+    // identifier is a derived probe cond-expand resolves on demand, not a bare
+    // feature — so this stays the exact table `kaappi features` reports (#1517),
+    // and #1649 keeps `srfi-<n>` working through cond-expand alone.
     var items: [types.platform_features.len]Value = undefined;
     for (types.platform_features, 0..) |name, i| {
         items[i] = gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;

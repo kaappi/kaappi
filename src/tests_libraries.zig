@@ -3,6 +3,7 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const platform = @import("platform.zig");
 const library_mod = @import("library.zig");
 const primitives_mod = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
@@ -665,4 +666,92 @@ test "srfi 261: cond-expand (library ...) sees 261 forms" {
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
     const r2 = try vm.eval("(cond-expand ((library (srfi srfi-99999)) 1) (else 0))");
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(r2));
+}
+
+// ── SRFI 0 srfi-<n> cond-expand feature identifiers (#1649) ─────────────────
+// A supported SRFI is probeable as the feature id `srfi-<n>`, routed through
+// the same availability check as (library (srfi <n>)) so built-in, portable,
+// sandbox and WASM answers all match what (import (srfi <n>)) would do.
+
+test "srfi-N feature: number parser requires the srfi- prefix (#1649)" {
+    const f = vm_library.srfiFeatureNumber;
+    try std.testing.expectEqual(@as(?i64, 1), f("srfi-1"));
+    try std.testing.expectEqual(@as(?i64, 0), f("srfi-0"));
+    try std.testing.expectEqual(@as(?i64, 261), f("srfi-261"));
+    try std.testing.expectEqual(@as(?i64, 170), f("srfi-170"));
+    // Unlike srfi261Suffix, a bare mnemonic form is not a feature id.
+    try std.testing.expectEqual(@as(?i64, null), f("lists-1"));
+    try std.testing.expectEqual(@as(?i64, null), f("vectors-133"));
+    // Non-srfi platform features never look like one.
+    try std.testing.expectEqual(@as(?i64, null), f("kaappi-threads"));
+    try std.testing.expectEqual(@as(?i64, null), f("r7rs"));
+    // Malformed / noncanonical srfi- forms.
+    try std.testing.expectEqual(@as(?i64, null), f("srfi-")); // no digits
+    try std.testing.expectEqual(@as(?i64, null), f("srfi")); // no dash
+    try std.testing.expectEqual(@as(?i64, null), f("srfi-1x")); // trailing non-digit
+    try std.testing.expectEqual(@as(?i64, null), f("srfi-1-2")); // extra dash
+    try std.testing.expectEqual(@as(?i64, null), f("srfi-99999999999999999999")); // overflow
+    // Leading zeros normalize (as in srfi261Suffix), e.g. srfi-01 → 1.
+    try std.testing.expectEqual(@as(?i64, 1), f("srfi-01"));
+}
+
+test "srfi-N feature: cond-expand resolves built-in, portable, 261, and unknown (#1649)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Built-in SRFI (registered in vm.libraries).
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-1 1) (else 0))")));
+    // SRFI 261 is a naming convention with no .sld, but still supported (#1645).
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-261 1) (else 0))")));
+    // A number no SRFI uses is false.
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(try vm.eval("(cond-expand (srfi-99999 1) (else 0))")));
+    // Composes with and/or/not and matches the (library ...) spelling.
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand ((and srfi-1 srfi-261) 1) (else 0))")));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand ((not srfi-99999) 1) (else 0))")));
+
+    // Portable SRFI resolves via the on-disk .sld probe (skip if tree absent).
+    if (platform.pathExists("lib/srfi/2.sld")) {
+        try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-2 1) (else 0))")));
+    }
+}
+
+test "srfi-N feature: works inside define-library (evalLibFeatureReq) (#1649)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The cond-expand here is a library declaration, evaluated by
+    // evalLibFeatureReq (not the compiler's evalFeatureReq).
+    _ = try vm.eval(
+        \\(define-library (test feat-lib)
+        \\  (export marker)
+        \\  (cond-expand
+        \\    (srfi-1 (begin (define marker 'has-1)))
+        \\    (else   (begin (define marker 'no-1)))))
+    );
+    _ = try vm.eval("(import (test feat-lib))");
+    try std.testing.expectEqualStrings("has-1", types.symbolName(try vm.eval("marker")));
+}
+
+// Regression companion to "cond-expand library check honors sandbox mode":
+// a portable SRFI's srfi-<n> feature id must track availability under
+// --sandbox exactly as (library (srfi <n>)) does — both go through
+// libraryIsAvailable, so a disk-only SRFI is false when sandboxed.
+test "srfi-N feature: portable srfi id honors sandbox mode (#1649)" {
+    if (!platform.pathExists("lib/srfi/2.sld")) return error.SkipZigTest;
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-2 1) (else 0))")));
+
+    vm.sandbox_mode = true;
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(try vm.eval("(cond-expand (srfi-2 1) (else 0))")));
+    // A built-in, sandbox-allowed SRFI stays true under sandbox.
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-1 1) (else 0))")));
 }
