@@ -8,7 +8,8 @@
 ;; Deviations from the reference suite:
 ;;   - the (box 42) equal? assertion compares via unbox (equal? on SRFI 111
 ;;     boxes is implementation-specific; Kaappi boxes compare by identity)
-;;   - the (srfi 257 rx) sublibrary is not tested (needs SRFI 264, not shipped)
+;;   - the (srfi 257 rx) sublibrary is not tested (its SRFI 264 integration
+;;     is a follow-up; SRFI 264 itself is available)
 ;;
 ;; This is the FULL port (about 4½ minutes of macro expansion on an M-class
 ;; laptop), kept out of run-all.sh's non-recursive srfi/*.scm glob; CI runs

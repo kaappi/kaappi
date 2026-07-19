@@ -955,6 +955,6 @@ test "user text spliced into a vector literal is unwrapped" {
         \\      ((_ e)
         \\       (let-syntax ((g (syntax-rules () ((_) (vector-ref #(e) 0)))))
         \\         (g)))))
-        \\  (vb 42))
+        \\  (if (equal? (vb foo) 'foo) 42 0))
     , 42);
 }

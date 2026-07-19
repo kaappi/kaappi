@@ -97,6 +97,12 @@
 (test-equal '(xyz 4 #f #f)
   (match 4 ((~or 1 2 3) 'small) ((~or x y z) `(xyz ,x ,y ,z))))
 
+; sequence matchers must FAIL (not raise) on mismatched input types
+; (Kaappi fix over the reference: the type predicate gates x-length)
+(test-equal 'no (match '(1 2) ((~string-append a b) (list a b)) (_ 'no)))
+(test-equal 'no (match "ab" ((~vector-append a b) (list a b)) (_ 'no)))
+(test-equal 'no (match 7 ((~string-append/ng a b) (list a b)) (_ 'no)))
+
 ; misc sublibrary: syntax-rules-like matcher with literal list
 (test-equal 3
   ((lambda (in) (sr-match in (a b) ((a x) 1) ((b x y) 2) ((a x y) 3) ((_ _ _) 4)))

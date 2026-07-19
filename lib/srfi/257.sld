@@ -450,13 +450,18 @@
     ((_ xv (x? x-length subx nullx p) c kt kf)
      (submatch xv p c kt kf))
     ((_ xv (x? x-length subx nullx hp tp) (b n) kt kf)
-     (let ((l (x-length xv)) (f (lambda () kf)))
-       (let loop ((i l))
-         (define (b) (if (> i 0) (loop (- i 1)) (f)))
-         (let ((hxv (subx xv 0 i))) ; match head first
-           (submatch hxv hp (b n)
-             (let ((txv (subx xv i l)))
-               (submatch txv tp (b n) kt (b))) (b))))))
+     ; Kaappi fix: gate on the type predicate before taking the length —
+     ; upstream calls x-length first, so matching e.g. (~string-append ...)
+     ; against a non-string raised instead of failing the pattern.
+     (if (x? xv)
+         (let ((l (x-length xv)) (f (lambda () kf)))
+           (let loop ((i l))
+             (define (b) (if (> i 0) (loop (- i 1)) (f)))
+             (let ((hxv (subx xv 0 i))) ; match head first
+               (submatch hxv hp (b n)
+                 (let ((txv (subx xv i l)))
+                   (submatch txv tp (b n) kt (b))) (b)))))
+         kf))
   ((_ xv (x? x-length subx nullx p . p*) c kt kf)
    (submatch xv (~seq-append x? x-length subx nullx p
       (~seq-append x? x-length subx nullx . p*)) c kt kf))))
@@ -470,13 +475,16 @@
     ((_ xv (x? x-length subx nullx p) c kt kf)
      (submatch xv p c kt kf))
     ((_ xv (x? x-length subx nullx hp tp) (b n) kt kf)
-    (let ((l (x-length xv)) (f (lambda () kf)))
-      (let loop ((i 0))
-        (define (b) (if (< i l) (loop (+ i 1)) (f)))
-        (let ((hxv (subx xv 0 i))) ; match head first
-          (submatch hxv hp (b n)
-            (let ((txv (subx xv i l)))
-              (submatch txv tp (b n) kt (b))) (b))))))
+    ; Kaappi fix: same type-predicate gate as ~seq-append above.
+    (if (x? xv)
+        (let ((l (x-length xv)) (f (lambda () kf)))
+          (let loop ((i 0))
+            (define (b) (if (< i l) (loop (+ i 1)) (f)))
+            (let ((hxv (subx xv 0 i))) ; match head first
+              (submatch hxv hp (b n)
+                (let ((txv (subx xv i l)))
+                  (submatch txv tp (b n) kt (b))) (b)))))
+        kf))
   ((_ xv (x? x-length subx nullx p . p*) c kt kf)
    (submatch xv (~seq-append/ng x? x-length subx nullx p
       (~seq-append/ng x? x-length subx nullx . p*)) c kt kf))))

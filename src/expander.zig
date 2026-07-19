@@ -60,14 +60,20 @@ pub fn isWellKnown(name: []const u8) bool {
 }
 
 /// Monotonically increasing counter for generating unique hygienic names.
+/// Shared across threads (renames must be process-unique), so bumped
+/// atomically; see freshGensymId.
 var gensym_counter: u32 = 0;
 
 /// Scope identifier for macro invocations (each invocation gets a fresh one).
+/// Atomic for the same reason as gensym_counter.
 var next_scope_id: u32 = 0;
 
 fn freshScope() u32 {
-    next_scope_id += 1;
-    return next_scope_id;
+    return @atomicRmw(u32, &next_scope_id, .Add, 1, .monotonic) + 1;
+}
+
+fn freshGensymId() u32 {
+    return @atomicRmw(u32, &gensym_counter, .Add, 1, .monotonic) + 1;
 }
 
 /// Tracks renamings within a single macro invocation so that the same
@@ -79,8 +85,12 @@ const ScopeEntry = struct {
 };
 
 const MAX_SCOPE_ENTRIES = 256;
-var scope_table: [MAX_SCOPE_ENTRIES]ScopeEntry = undefined;
-var scope_table_count: usize = 0;
+// The scope table is a per-expansion dedup cache, saved/restored around each
+// expansion — cross-thread sharing of it could interleave restorations and
+// split a binding's rename from its references, so it is threadlocal (like
+// the active_* expansion context above).
+threadlocal var scope_table: [MAX_SCOPE_ENTRIES]ScopeEntry = undefined;
+threadlocal var scope_table_count: usize = 0;
 
 // ---------------------------------------------------------------------------
 // Pattern variable binding
@@ -564,10 +574,16 @@ pub fn unwrapUsertext(v: Value) Value {
 /// skipped: specs of macros the expansion DEFINES keep their markers for
 /// their own later instantiation. Cyclic inputs (a macro invoked with a
 /// datum-label literal like #0=(1 . #0#)) terminate: the cdr spine carries
-/// a tortoise-hare check, and nested descent is depth-capped — a marker
-/// can only sit at finite depth, so the cap never skips a real one.
+/// a tortoise-hare check, and nested descent is depth-capped. Markers are
+/// created only at pattern-var substitution boundaries in the freshly built
+/// template skeleton — never inside the (possibly cyclic) user data a chunk
+/// wraps — and skeleton nesting is bounded by the expansion-depth/step
+/// limits, far below this cap; matching the expander's fixed-limit design
+/// (MAX_MACRO_EXPANSION_DEPTH, MAX_BINDINGS, MAX_SCOPE_ENTRIES). Should a
+/// marker ever survive in code position anyway, compileForm still treats
+/// it as transparent.
 pub fn stripUsertextMarkers(gc: *GC, expr: Value) void {
-    stripUsertextWalk(gc, expr, 512);
+    stripUsertextWalk(gc, expr, 4096);
 }
 
 fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
@@ -650,8 +666,11 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
                     (types.isSymbol(b.value) or types.isPair(b.value)))
                 {
                     if (isUsertextPair(b.value)) return b.value; // already protected
+                    var val_root = b.value;
+                    gc.pushRoot(&val_root);
+                    defer gc.popRoot();
                     const marker = try gc.allocSymbol(USERTEXT_MARKER);
-                    return gc.allocPair(marker, b.value);
+                    return gc.allocPair(marker, val_root);
                 }
                 if (!b.is_list) return b.value;
                 // Shouldn't use a list binding at depth 0 without ellipsis
@@ -729,7 +748,11 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         if (q_rest != types.NIL and types.isPair(q_rest)) {
             const quoted = types.car(q_rest);
             const new_quoted = try instantiateTemplate(gc, quoted, bindings, intro_scope | QUOTE_FLAG, literals, macro_keyword, globals, macros);
-            return gc.allocPair(tmpl_head, try gc.allocPair(new_quoted, types.NIL));
+            var nq_root = new_quoted;
+            gc.pushRoot(&nq_root);
+            defer gc.popRoot();
+            const tail = try gc.allocPair(nq_root, types.NIL);
+            return gc.allocPair(tmpl_head, tail);
         }
         return template;
     }
@@ -750,7 +773,11 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
                 const new_depth = if (qq_depth < 3) qq_depth + 1 else 3;
                 const sub_scope = (intro_scope & ~QQ_DEPTH_MASK) | QUOTE_FLAG | (new_depth * QQ_DEPTH_ONE);
                 const new_inner = try instantiateTemplate(gc, types.car(q_rest), bindings, sub_scope, literals, macro_keyword, globals, macros);
-                return gc.allocPair(tmpl_head, try gc.allocPair(new_inner, types.NIL));
+                var ni_root = new_inner;
+                gc.pushRoot(&ni_root);
+                defer gc.popRoot();
+                const tail = try gc.allocPair(ni_root, types.NIL);
+                return gc.allocPair(tmpl_head, tail);
             }
         } else if (unary and qq_depth > 0 and
             (std.mem.eql(u8, hname, "unquote") or std.mem.eql(u8, hname, "unquote-splicing")))
@@ -759,7 +786,11 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
             var sub_scope = (intro_scope & ~QQ_DEPTH_MASK) | (new_depth * QQ_DEPTH_ONE);
             if (new_depth == 0) sub_scope &= ~QUOTE_FLAG;
             const new_inner = try instantiateTemplate(gc, types.car(q_rest), bindings, sub_scope, literals, macro_keyword, globals, macros);
-            return gc.allocPair(tmpl_head, try gc.allocPair(new_inner, types.NIL));
+            var ni_root = new_inner;
+            gc.pushRoot(&ni_root);
+            defer gc.popRoot();
+            const tail = try gc.allocPair(ni_root, types.NIL);
+            return gc.allocPair(tmpl_head, tail);
         }
     }
 
@@ -1225,9 +1256,9 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     }
 
     // Generate a fresh hygienic name for truly new identifiers
-    gensym_counter += 1;
+    const gensym_id = freshGensymId();
     var buf: [128]u8 = undefined;
-    const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_counter, name }) catch
+    const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_id, name }) catch
         return gc.allocSymbol(name);
 
     const sym_val = try gc.allocSymbol(len);
