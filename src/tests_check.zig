@@ -291,3 +291,28 @@ test "read and compile errors are reported as findings" {
     }
     try testing.expect(saw_compile);
 }
+
+// ── Top-level cond-expand splices its selected clause (#1661) ───────────────
+// check must analyse a matched top-level cond-expand clause as spliced
+// top-level forms, exactly as it already does for begin. Otherwise the clause
+// compiled as an expression: a nested import turned `(srfi 1)` into a call to
+// an unknown `srfi`, and a nested define was never gathered as a top-level name
+// so a forward reference to it warned. Both were spurious KP4001 warnings.
+
+test "cond-expand: import nested in a matched clause is not flagged (#1661)" {
+    // else clause — the import runs for effect, `srfi` is not a call target.
+    try expectCounts("(cond-expand (else (import (srfi 1))))", 0, 0, 0);
+    // srfi-N guard (the #1649 idiom) selects the same clause.
+    try expectCounts("(cond-expand (srfi-1 (import (srfi 1))) (else 0))", 0, 0, 0);
+}
+
+test "cond-expand: a define in a matched clause is a known top-level name (#1661)" {
+    // The define nested in the clause must be gathered as a top-level name so
+    // the earlier forward reference resolves — like a top-level begin.
+    try expectCounts("(define (f) (helper))\n(cond-expand (else (define (helper) 1)))", 0, 0, 0);
+}
+
+test "cond-expand: an unsatisfied top-level clause is not an error (#1661)" {
+    // No clause matches and there is no else: folds to void, no finding.
+    try expectCounts("(cond-expand (no-such-feature (import (srfi 1))))", 0, 0, 0);
+}

@@ -73,6 +73,12 @@ assert_exit_code "explicit (exit 0) after error exits 0" 0 "$KAAPPI" "$TMPDIR_TE
 echo '(import (scheme base)) (guard (e (#t (display "caught"))) (car 1))' > "$TMPDIR_TESTS/guarded.scm"
 assert_exit_code "guarded error exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/guarded.scm"
 
+# A top-level cond-expand must splice its matched clause's body as top-level
+# forms, so a nested import runs as a declaration rather than compiling as an
+# expression that emits a spurious KP3001 and exits 1 (#1661).
+printf '(cond-expand (else (import (srfi 1))))\n(display (fold + 0 (list 1 2 3)))\n' > "$TMPDIR_TESTS/condexpand-import.scm"
+assert_exit_code "top-level cond-expand nested import exits 0 (#1661)" 0 "$KAAPPI" "$TMPDIR_TESTS/condexpand-import.scm"
+
 # Stdin scripts behave the same
 assert_stdin_exit_code "clean stdin exits 0" 0 '(display "ok")'
 assert_stdin_exit_code "stdin runtime error exits 1" 1 '(car 1)'

@@ -83,6 +83,11 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     // R7RS 5.1: top-level begin splices its body as top-level forms
     if (std.mem.eql(u8, name, "begin")) return handleTopLevelBegin(vm, types.cdr(expr));
 
+    // R7RS 4.2.1: a top-level cond-expand expands to the selected clause's forms
+    // in a top-level context, so its body may contain declarations (import,
+    // define-library, ...) that only work at top level (#1661).
+    if (std.mem.eql(u8, name, "cond-expand")) return handleTopLevelCondExpand(vm, types.cdr(expr));
+
     return null;
 }
 
@@ -102,7 +107,8 @@ fn isSpecialTopLevelForm(expr: Value) bool {
         std.mem.eql(u8, name, "define-values") or
         std.mem.eql(u8, name, "include") or
         std.mem.eql(u8, name, "include-ci") or
-        std.mem.eql(u8, name, "begin");
+        std.mem.eql(u8, name, "begin") or
+        std.mem.eql(u8, name, "cond-expand");
 }
 
 /// Compile a single expression for the native eval-fallback cache (#1494):
@@ -171,6 +177,36 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
         rest = types.cdr(rest);
     }
     return last;
+}
+
+// R7RS 4.2.1: evaluate a top-level cond-expand by selecting the first clause
+// whose feature requirement holds (or the else clause) and splicing that
+// clause's body as top-level forms — the same splicing handleTopLevelBegin
+// does. This lets top-level-only declarations nested in a matched clause
+// (import, define-library, define-record-type, ...) work, instead of the whole
+// form being compiled as an expression where those aren't recognized (#1661).
+//
+// Clause selection reuses vm_library.evalLibFeatureReq (the live-registry
+// evaluator define-library uses), so guards resolve identically in both
+// contexts: else, (library (srfi N)), and the srfi-N feature ids (#1649).
+//
+// The caller (handleTopLevelForm) has the whole cond-expand form rooted, so the
+// clause list and the selected body stay reachable across the compile/execute
+// that handleTopLevelBegin performs. No clause matching yields void, matching
+// the expression-position compiler (compiler_conditionals.compileCondExpand).
+fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
+    var clauses = clauses_val;
+    while (types.isPair(clauses)) {
+        const clause = types.car(clauses);
+        clauses = types.cdr(clauses);
+        if (!types.isPair(clause)) return VMError.CompileError;
+        const feature_req = types.car(clause);
+        const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
+        if (is_else or vm_library.evalLibFeatureReq(vm, feature_req)) {
+            return handleTopLevelBegin(vm, types.cdr(clause));
+        }
+    }
+    return types.VOID;
 }
 
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {

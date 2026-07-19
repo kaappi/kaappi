@@ -726,7 +726,10 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
 
 /// Evaluate a feature requirement for cond-expand in define-library.
 /// Unlike the compiler's evalFeatureReq, this has access to the VM's live library registry.
-fn evalLibFeatureReq(vm: *VM, req: Value) bool {
+/// Also used by handleTopLevelCondExpand in vm_eval.zig (#1661) so a top-level
+/// cond-expand selects clauses with the same live-registry logic as the
+/// define-library form.
+pub fn evalLibFeatureReq(vm: *VM, req: Value) bool {
     if (types.isSymbol(req)) {
         const name = types.symbolName(req);
         for (types.platform_features) |f| {
