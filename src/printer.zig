@@ -456,7 +456,16 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             .pair => try printListWithDepth(writer, value, mode, depth),
             .symbol => {
                 const sym = obj.as(types.Symbol);
-                if (mode != .display and symbolNeedsBars(sym.name)) {
+                if (!sym.interned and mode != .display) {
+                    // SRFI 258: an uninterned symbol has no readable external
+                    // representation. Writing it in this `#<…>` form makes
+                    // `read` reject it (the reader errors on `#<`), deliberately
+                    // breaking write/read invariance (R7RS 6.5). `display` still
+                    // shows the bare name for human-readable output.
+                    try writer.writeAll("#<uninterned-symbol ");
+                    try writer.writeAll(sym.name);
+                    try writer.writeByte('>');
+                } else if (mode != .display and symbolNeedsBars(sym.name)) {
                     try writer.writeByte('|');
                     for (sym.name) |c| {
                         if (c == '|' or c == '\\') {

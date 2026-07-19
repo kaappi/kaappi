@@ -61,6 +61,7 @@ pub const Lib = enum {
     srfi_254_guardians,
     srfi_254_transport_cell_guardians,
     srfi_254_ephemerons_and_guardians,
+    srfi_258,
     srfi_260,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
@@ -99,6 +100,7 @@ pub const Lib = enum {
             .srfi_254_guardians => "srfi.254.guardians",
             .srfi_254_transport_cell_guardians => "srfi.254.transport-cell-guardians",
             .srfi_254_ephemerons_and_guardians => "srfi.254.ephemerons-and-guardians",
+            .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
             .internal => "kaappi.internal",
         };
@@ -212,6 +214,7 @@ pub const all_specs = core_specs ++
     (if (is_wasm) no_specs else primitives_ffi.specs) ++
     primitives_srfi1.specs ++
     @import("primitives_srfi254.zig").specs ++
+    @import("primitives_srfi258.zig").specs ++
     @import("primitives_srfi260.zig").specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++

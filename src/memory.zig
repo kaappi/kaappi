@@ -317,6 +317,32 @@ pub const GC = struct {
         return val;
     }
 
+    /// SRFI 258: allocate an *uninterned* symbol. Unlike `allocSymbol`, this
+    /// never consults or inserts into the symbol table, so the result is a fresh
+    /// object that is never `eqv?` to any other symbol — including a like-named
+    /// interned symbol or another uninterned symbol with the same name. It is an
+    /// ordinary collectable heap object: the interned-symbol root scan
+    /// (gc_collect.markRoots) walks only the symbol table, so an uninterned
+    /// symbol is swept once unreachable and `freeObject` frees its name. Always
+    /// tracked in *this* GC, even on a child thread — an uninterned symbol is
+    /// never shared through the parent's intern table, and crossing a thread
+    /// boundary deep-copies it (gc_deep_copy) into the destination heap.
+    pub fn allocUninternedSymbol(self: *GC, name: []const u8) !Value {
+        // Copy before collecting: `name` may point into another heap object
+        // (e.g. a SchemeString's bytes) that this collection could free.
+        const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
+        try self.maybeCollect();
+        const sym = try self.allocator.create(Symbol);
+        sym.* = .{
+            .header = .{ .tag = .symbol },
+            .name = owned_name,
+            .interned = false,
+        };
+        self.finishAlloc(&sym.header, @sizeOf(Symbol) + name.len);
+        return types.makePointer(&sym.header);
+    }
+
     pub fn allocString(self: *GC, data: []const u8) !Value {
         // Copy before collecting: `data` may point into another heap object
         // (e.g. a SchemeString's bytes) that this collection could free.
