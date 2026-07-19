@@ -151,7 +151,7 @@ the leakiness measurement.
 
 | Area | The fence | Notes |
 |------|-----------|-------|
-| 69 portable SRFI `.sld`s | The SRFI documents (external spec) + `tests/scheme/srfi/` conformance suites | The ideal fence: a spec someone else wrote, mechanically checked |
+| 71 portable SRFI `.sld`s | The SRFI documents (external spec) + `tests/scheme/srfi/` conformance suites | The ideal fence: a spec someone else wrote, mechanically checked |
 | Primitive bodies (`src/primitives_*.zig`) | R7RS spec + audit suites (`tests/scheme/audit/`) + procedure coverage | The GC rules *inside* them stay core — see below |
 | LLVM emitter mechanics (`src/llvm_emit.zig`) | Differential fence: native output must agree with the interpreter (parity tests) | The *strategy* layer is borderline — see below |
 | Platform ports (`src/platform*.zig`) | The `platform.zig` facade + real-VM CI jobs per OS/arch | Per-OS theory lives in `docs/dev/<os>.md` |
