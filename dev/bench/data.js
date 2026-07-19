@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784486122131,
+  "lastUpdate": 1784494560265,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1da7cf32ba3b235d896a6abe9e997b4b4b73e834",
-          "message": "Fix dirty-snapshot dispatch hazard in mutex-lock!/condition-variable-wait (#1521)\n\n* Fix dirty-snapshot dispatch hazard in mutex-lock!/condition-variable-wait (#1487)\n\nmutex-lock!, condition-variable-wait (mutex-unlock! with a condvar),\nthread-join!'s fiber path, and timed local channel-send/receive all set a\nfiber .waiting and then call runSchedulerStep recursively from the same\nnative frame -- the identical shape already fixed for shared channels in\nPR #1485. If something wakes that fiber (flips it .suspended) while its\nown nested drive is still live deeper on the Zig call stack, a different\nfiber's own nested schedule() call can dispatch it from a stale, mid-\nnative-call register snapshot, resuming bytecode past the in-flight\nprimitive call with the destination register never written. Confirmed via\na 3-fiber nested mutex-contention repro (git-stash A/B).\n\nRather than rewriting each call site to use PR #1485's yield_retry\ndiscipline, this lands the issue's alternative suggestion: a generic\n`driving` guard on Fiber, set for the whole extent of any\nrunSchedulerStep call and excluded from dispatch-selection regardless of\nstatus. A per-site rewrite would have silently broken cross-OS-thread\nmutex/condvar polling (which depends on the specific waiting loop's own\nperiodic recheck) and reintroduced the exact lost-wakeup race the condvar\ngeneration-snapshot-before-unlock ordering exists to prevent. The generic\nguard sidesteps both and, as a bonus, also closes the identical hazard in\nthread-join! and timed local channel-send/receive, which weren't named in\nthe issue but turn out to have the same bug.\n\nFirst attempt at the guard baked the exclusion into schedule() itself,\nwhich broke yieldFn/threadYieldFn's \"is yielding worthwhile\" advisory\ncheck -- a busy sibling's (yield) calls stopped seeing a driving ancestor\nwhose wait had just resolved, turning yield into a no-op and reproducing\nissue #1440's starvation symptom by a different path (caught by the\nexisting fiber-timed-mutex-lock-not-starved-by-busy-sibling.scm test).\nFixed by splitting schedule() (unchanged, used by advisory checks and\nvm_calls.zig's non-nested switchTo dispatch) from a new\nscheduleForDispatch() (excludes driving fibers, used only by\nrunSchedulerStep's own dispatch loop).\n\nVerified: zig build test and -Dgc-stress=true green; full Scheme/R7RS\nsuite 1839/0; zig build wasm and -Dtarget=x86_64-linux still build; zig\nfmt clean.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address PR #1521 review nits: stale schedule() comment, unreachable-guard note, test style\n\n- tests/scheme/smoke/mutex-nested-dispatch-dirty-snapshot-1487.scm: the\n  comment wrongly credited plain schedule() with excluding driving\n  fibers, contradicting the actual schedule()/scheduleForDispatch()\n  split (CodeRabbit + manual review, both flagged the same lines).\n- src/fiber.zig: note that runSchedulerStep's `next_idx == my_idx` guard\n  is now unreachable (driving subsumes it) but kept as defense-in-depth,\n  so it doesn't read as live logic.\n- src/tests_scheduler.zig: convert the three new driving-guard tests to\n  th.TestContext, matching the rest of the file (CodeRabbit).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T20:04:34Z",
-          "tree_id": "6260853a71648582dbeb6b49d3a3d07d283827df",
-          "url": "https://github.com/kaappi/kaappi/commit/1da7cf32ba3b235d896a6abe9e997b4b4b73e834"
-        },
-        "date": 1783974829752,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.383515,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.230968,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931462,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.536127,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007151,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054095,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500986,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069549,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.505183,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.942854,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.588306,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435335,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.841356,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.688206,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04449,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045311,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9ace0b26c3afbff63e12f9f8495abd175c62bcbc",
+          "message": "Add SRFI 260 (Generated Symbols) (#1674)\n\ngenerate-symbol mints a fresh symbol on every call with a unique,\nunpredictable name. The point of the SRFI is that — unlike an uninterned\nsymbol (SRFI 258) — a generated symbol keeps write/read invariance:\nprinted and read back it is eq? to the original. Kaappi interns every\nsymbol by name and has no uninterned symbols, so that property is free;\nthe whole SRFI reduces to interning a fresh, unpredictable name.\n\nThe one primitive interns \"<pretty>.<counter>.<128-bit-hex>\": a\nprocess-global atomic counter is a hard in-process uniqueness guarantee\nindependent of entropy quality (and of SRFI-18 threads, which share the\nstatic), while platform.osRandomBytes supplies 128 bits of OS entropy for\nthe unpredictability. The optional pretty-name is a display-only prefix.\n\nWired as the 10th built-in SRFI through a single primitives.Lib tag, so\navailability, the srfi-260 cond-expand id, (srfi srfi-260) SRFI-261\nresolution, and the kaappi features listing all derive automatically —\nno second list to maintain.\n\nCloses #1668\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T01:57:14+05:30",
+          "tree_id": "a864a9187a193f26cc320ced04364e9d7abeb23c",
+          "url": "https://github.com/kaappi/kaappi/commit/9ace0b26c3afbff63e12f9f8495abd175c62bcbc"
+        },
+        "date": 1784494558162,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.258248,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.75985,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.657299,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.19275,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006153,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041689,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.401658,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058684,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.815981,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.406621,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.258999,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.398297,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.365053,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.783956,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03701,
             "unit": "seconds"
           }
         ]
