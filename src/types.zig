@@ -303,6 +303,12 @@ pub const Pair = struct {
 pub const Symbol = struct {
     header: Object,
     name: []const u8,
+    /// Interned symbols (the common case) live in the GC's symbol table and are
+    /// unique per name, so pointer identity == name identity. Uninterned symbols
+    /// (SRFI 258) bypass that table: each is a fresh object never `eqv?` to any
+    /// other symbol, even one with the same name. The flag is the only thing that
+    /// distinguishes the two — equality already works by pointer identity alone.
+    interned: bool = true,
 };
 
 pub const SchemeString = struct {
@@ -1066,6 +1072,12 @@ pub fn toPair(v: Value) *Pair {
 
 pub fn isSymbol(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .symbol;
+}
+
+/// Whether `v` is an interned symbol. Caller must have already checked
+/// `isSymbol(v)`. Uninterned symbols (SRFI 258) return false.
+pub fn symbolInterned(v: Value) bool {
+    return toObject(v).as(Symbol).interned;
 }
 
 pub fn isString(v: Value) bool {

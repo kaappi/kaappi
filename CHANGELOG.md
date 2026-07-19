@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   implementation; the full upstream conformance corpus (2751 parser/unparser
   cases) passes (#1666).
 
+#### SRFI 258 (Uninterned Symbols)
+
+- **SRFI 258 — Uninterned Symbols** — `(import (srfi 258))` provides
+  `string->uninterned-symbol`, `symbol-interned?`, and
+  `generate-uninterned-symbol`. An uninterned symbol is never `eqv?` to any
+  other symbol, even one built from the same name — useful for macro
+  programming and guaranteed-unique identifiers. They bypass the interning
+  table and are ordinary collectable objects (reclaimed once unreachable);
+  equality needed no new code since Kaappi already compares symbols by
+  identity. Per the SRFI they have no readable external representation, so
+  `write` emits an unreadable `#<uninterned-symbol name>` form that `read`
+  rejects (deliberately breaking write/read invariance). Brings the total to
+  83 SRFIs (11 built-in) (#1670).
+
 #### SRFI 260 (Generated Symbols)
 
 - **SRFI 260 (Generated Symbols)** — `(import (srfi 260))` provides

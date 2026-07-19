@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-82 SRFIs supported. 10 built-in (native Zig), 71 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+83 SRFIs supported. 11 built-in (native Zig), 71 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -84,6 +84,12 @@ Uses real OS threads via `std.Thread.spawn`. Each child thread gets its own VM a
 Implemented: **Ephemerons** — `make-ephemeron`, `ephemeron?`, `ephemeron-key`, `ephemeron-value`, `ephemeron-broken?`, `ephemeron-ref`. The garbage collector retains an ephemeron's value only while its key is reachable through a path that does not pass through the value, so an ephemeron breaks even when its value references its key (the case a plain weak-key pair gets wrong). **Guardians** — `make-guardian`, `guardian?`; a guardian is itself a procedure, registering elements with `(g obj [rep])` and returning resurrected representatives with `(g)`. **Transport cell guardians** — `make-transport-cell-guardian`, `transport-cell-guardian?`, `transport-cell?`, `transport-cell-key`, `transport-cell-value`, `transport-cell-broken?`, `current-hash`. **Shared** — `reference-barrier`.
 
 Kaappi's collector is non-moving, so `current-hash` is a stable identity hash and transport cell guardians are degenerate: a key is never transported, so a registered cell never breaks and a zero-argument transport-cell-guardian call always returns `#f`. On break, an ephemeron's key and value both read as `#f` (the value is cleared for memory safety once it is no longer retained).
+
+### SRFI 258 — Uninterned Symbols
+
+**Coverage: 100%** of the exported identifiers: `string->uninterned-symbol`, `symbol-interned?`, `generate-uninterned-symbol`.
+
+An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even one with the same name. Because Kaappi already compares symbols by object identity rather than by name, equality needs no special code — two uninterned symbols built from equal strings, and an uninterned symbol versus the like-named interned one, are all distinct. An uninterned symbol is an ordinary collectable heap object (it bypasses the permanent interning table), so it is reclaimed once unreachable. Per the SRFI, an uninterned symbol has no readable external representation: `write` emits an unreadable `#<uninterned-symbol name>` form and `read` signals an error on it, deliberately giving up write/read invariance.
 
 ### SRFI 260 — Generated Symbols
 

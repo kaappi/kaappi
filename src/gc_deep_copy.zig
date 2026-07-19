@@ -78,7 +78,18 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             }
             return head_new;
         },
-        .symbol => try gc.allocSymbol(obj.as(types.Symbol).name),
+        .symbol => {
+            const sym = obj.as(types.Symbol);
+            // Interned symbols dedupe by name in the destination table, so
+            // identity is preserved without a `visited` entry. An uninterned
+            // symbol (SRFI 258) must stay uninterned across the copy, and
+            // repeated occurrences of the *same* one within a single copy must
+            // stay mutually `eq?` — so register it in `visited`.
+            if (sym.interned) return try gc.allocSymbol(sym.name);
+            const new_val = try gc.allocUninternedSymbol(sym.name);
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
         .string => {
             const s = obj.as(types.SchemeString);
             const new_val = try gc.allocString(s.data[0..s.len]);
