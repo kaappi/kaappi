@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   implementation; the full upstream conformance corpus (2751 parser/unparser
   cases) passes (#1666).
 
+#### SRFI 260 (Generated Symbols)
+
+- **SRFI 260 (Generated Symbols)** — `(import (srfi 260))` provides
+  `generate-symbol`, which mints a fresh symbol on every call with a unique,
+  unpredictable name (optionally prefixed by a `pretty-name` display hint).
+  Unlike an uninterned symbol, a generated symbol keeps write/read invariance:
+  printed and read back it is `eq?` to the original. In-process uniqueness is
+  guaranteed by a process-global atomic counter and the name's unpredictability
+  by 128 bits of OS entropy. See `src/primitives_srfi260.zig` and
+  `tests/scheme/srfi/srfi260.scm` (#1674).
+
 ## [0.20.0] - 2026-07-19
 
 ### Added

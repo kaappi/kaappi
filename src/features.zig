@@ -49,7 +49,8 @@ pub const target_triple = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.
 const sandbox_available = builtin.os.tag != .wasi;
 
 /// Enough slots for every built-in SRFI (the `srfi_*` tags of `primitives.Lib`
-/// plus the `srfi.*` entries of `library.extra_std_libraries`); today that is 8.
+/// plus the `srfi.*` entries of `library.extra_std_libraries`); today that is 10
+/// (nine `srfi_*` tags — 1, 13, 18, 39, 69, 133, 170, 254, 260 — plus syntax-only srfi.9).
 const max_builtin_srfis = 32;
 
 // ── Dispatch ───────────────────────────────────────────────────────────
