@@ -79,6 +79,7 @@ investigations.
 | Document | Contents |
 |----------|----------|
 | [ecosystem-library-bar.md](ecosystem-library-bar.md) | Quality bar for `kaappi-*` packages (applies ecosystem-wide, not just this repo) |
+| [understanding-map.md](understanding-map.md) | Where theory must live in a maintainer's head (core tier) vs. where a contract fences deliberate shallowness (fenced tier); the reification ladder; comprehension practices incl. `/quiz` |
 
 ## Adding a new document
 
