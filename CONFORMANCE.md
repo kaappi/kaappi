@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-79 SRFIs supported. 9 built-in (native Zig), 69 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+81 SRFIs supported. 9 built-in (native Zig), 71 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -85,7 +85,7 @@ Implemented: **Ephemerons** — `make-ephemeron`, `ephemeron?`, `ephemeron-key`,
 
 Kaappi's collector is non-moving, so `current-hash` is a stable identity hash and transport cell guardians are degenerate: a key is never transported, so a registered cell never breaks and a zero-argument transport-cell-guardian call always returns `#f`. On break, an ephemeron's key and value both read as `#f` (the value is cleared for memory safety once it is no longer retained).
 
-### Portable SRFIs (68 libraries)
+### Portable SRFIs (71 libraries)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -152,10 +152,12 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 219 | Define higher-order lambda |
 | 222 | Compound objects |
 | 227 | Optional arguments |
+| 229 | Tagged procedures |
 | 232 | Flexible curried procedures |
 | 233 | INI files |
 | 235 | Combinators |
 | 250 | Insertion-ordered hash tables |
+| 259 | Tagged procedures with type safety |
 | 263 | Prototype Object System |
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
