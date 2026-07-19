@@ -755,3 +755,78 @@ test "srfi-N feature: portable srfi id honors sandbox mode (#1649)" {
     // A built-in, sandbox-allowed SRFI stays true under sandbox.
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(cond-expand (srfi-1 1) (else 0))")));
 }
+
+// ── Top-level cond-expand splices its body as top-level forms (#1661) ────────
+// R7RS 4.2.1: a top-level cond-expand expands to the selected clause's forms in
+// a top-level context, so declarations that only work at top level (import,
+// define, define-library, ...) nested in the matched clause must work. Before
+// the fix the whole form compiled as an expression, where `import` was not a
+// recognized form and `(srfi 1)` read as a call to an undefined `srfi` — the
+// program printed KP3001 and exited 1 even though the import still ran.
+
+test "top-level cond-expand splices a nested import via else (#1661)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Old behavior raised UndefinedVariable here; now it splices and imports.
+    _ = try vm.eval("(cond-expand (else (import (srfi 1))))");
+    // The import's side effect is visible: fold comes from (srfi 1).
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval("(fold + 0 '(1 2 3))")));
+}
+
+test "top-level cond-expand: matched srfi-N guard imports cleanly (#1661)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The idiomatic #1649 probe: the srfi-1 clause is selected by
+    // evalLibFeatureReq and its nested import runs as a top-level form.
+    _ = try vm.eval("(cond-expand (srfi-1 (import (srfi 1))) (else (error \"no srfi-1\")))");
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(try vm.eval("(fold + 0 '(1 2 3 4))")));
+}
+
+test "top-level cond-expand still yields a value as an expression (#1661)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A matched clause whose body is an expression: the spliced begin returns
+    // its last form's value, so a bare top-level cond-expand is still a value.
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(cond-expand (else 42))")));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(cond-expand (srfi-1 3) (else 0))")));
+
+    // cond-expand in expression position (not the top-level datum) still goes
+    // through the compiler and composes inside a larger expression.
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try vm.eval("(+ 1 (cond-expand (else 6)))")));
+
+    // No clause matches and there is no else: void, not an error (matching the
+    // expression-position compiler in compiler_conditionals.compileCondExpand).
+    try std.testing.expectEqual(types.VOID, try vm.eval("(cond-expand (no-such-feature 1))"));
+}
+
+test "top-level cond-expand malformed-form parity with the compiler (#1661)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A matched clause returns immediately and never inspects later clauses —
+    // so a bare symbol after a matched else is ignored, not a syntax error,
+    // exactly as the expression-position compiler treats it.
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(cond-expand (else 42) trailing-junk)")));
+
+    // A non-pair where a clause is expected is a syntax error, like the compiler.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand not-a-clause)"));
+
+    // An improper clause-list tail reached without a match is the syntax error
+    // the compiler reports for the same form in expression position.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (no-such-feature 1) . junk)"));
+
+    // An improper selected clause body is likewise rejected, rather than
+    // silently splicing the proper prefix and dropping the tail.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (else 1 . junk))"));
+}

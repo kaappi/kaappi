@@ -29,6 +29,7 @@ const types = @import("types.zig");
 const reader = @import("reader.zig");
 const compiler = @import("compiler.zig");
 const vm_mod = @import("vm.zig");
+const vm_library = @import("vm_library.zig");
 const ir_mod = @import("ir.zig");
 const diagnostics = @import("diagnostics.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
@@ -165,6 +166,31 @@ fn checkForm(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, expr: 
             return;
         }
 
+        // Top-level `cond-expand` splices the selected clause's body as
+        // top-level forms (R7RS 4.2.1) — recurse so a nested import runs for
+        // its effect and later forms see its bindings, mirroring the runtime's
+        // handleTopLevelCondExpand. Clause selection uses evalLibFeatureReq, the
+        // same evaluator the runtime uses, so both pick the same clause (#1661).
+        // A malformed or unsatisfied cond-expand falls through to be compiled as
+        // an expression (the compiler folds no-match to void and reports bad
+        // syntax) — the same fallback the runtime compiler path takes.
+        if (std.mem.eql(u8, name, "cond-expand")) {
+            var clauses = types.cdr(expr);
+            while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
+                const clause = types.car(clauses);
+                if (!types.isPair(clause)) break;
+                const feature_req = types.car(clause);
+                const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
+                if (is_else or vm_library.evalLibFeatureReq(vm, feature_req)) {
+                    var body = types.cdr(clause);
+                    while (types.isPair(body)) : (body = types.cdr(body)) {
+                        checkForm(vm, ctx, arena, types.car(body), path, line, col);
+                    }
+                    return;
+                }
+            }
+        }
+
         // Environment setup that later forms depend on: run it (suppressing lint
         // over the library/record code it compiles), so imported names/macros and
         // record accessors are in scope for the rest of the file.
@@ -229,6 +255,23 @@ fn collectFromForm(set: *std.StringHashMap(void), arena: std.mem.Allocator, expr
         var cur = rest;
         while (types.isPair(cur)) : (cur = types.cdr(cur)) {
             collectFromForm(set, arena, types.car(cur));
+        }
+    } else if (std.mem.eql(u8, head, "cond-expand")) {
+        // A top-level cond-expand splices its selected clause as top-level forms
+        // (#1661), so a define nested in a matched clause is a top-level name.
+        // With no VM here we can't tell which clause the runtime selects, so
+        // gather names from every clause body — the same conservative
+        // over-approximation test_selection.zig uses for import deps. At worst
+        // this suppresses a warning for a name only a dead clause defines; it
+        // never invents a spurious one (the linter's safe direction).
+        var cur = rest;
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+            const clause = types.car(cur);
+            if (!types.isPair(clause)) continue;
+            var body = types.cdr(clause); // skip the feature requirement
+            while (types.isPair(body)) : (body = types.cdr(body)) {
+                collectFromForm(set, arena, types.car(body));
+            }
         }
     }
 }

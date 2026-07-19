@@ -83,6 +83,11 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     // R7RS 5.1: top-level begin splices its body as top-level forms
     if (std.mem.eql(u8, name, "begin")) return handleTopLevelBegin(vm, types.cdr(expr));
 
+    // R7RS 4.2.1: a top-level cond-expand expands to the selected clause's forms
+    // in a top-level context, so its body may contain declarations (import,
+    // define-library, ...) that only work at top level (#1661).
+    if (std.mem.eql(u8, name, "cond-expand")) return handleTopLevelCondExpand(vm, types.cdr(expr));
+
     return null;
 }
 
@@ -102,7 +107,8 @@ fn isSpecialTopLevelForm(expr: Value) bool {
         std.mem.eql(u8, name, "define-values") or
         std.mem.eql(u8, name, "include") or
         std.mem.eql(u8, name, "include-ci") or
-        std.mem.eql(u8, name, "begin");
+        std.mem.eql(u8, name, "begin") or
+        std.mem.eql(u8, name, "cond-expand");
 }
 
 /// Compile a single expression for the native eval-fallback cache (#1494):
@@ -166,11 +172,69 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            last = vm.execute(func) catch |err| return err;
+            // runTopLevelFunction, not vm.execute: a spliced top-level body can
+            // be reached while an outer execution is suspended (eval re-entered
+            // from a native callback, frame_count != 0). A bare vm.execute would
+            // resetExecutionState and corrupt frame 0; runTopLevelFunction runs
+            // the thunk re-entrantly in that case and is identical to vm.execute
+            // at true top level. func is rooted above, as it requires.
+            last = runTopLevelFunction(vm, func) catch |err| return err;
         }
         rest = types.cdr(rest);
     }
     return last;
+}
+
+// R7RS 4.2.1: evaluate a top-level cond-expand by selecting the first clause
+// whose feature requirement holds (or the else clause) and splicing that
+// clause's body as top-level forms — the same splicing handleTopLevelBegin
+// does. This lets top-level-only declarations nested in a matched clause
+// (import, define-library, define-record-type, ...) work, instead of the whole
+// form being compiled as an expression where those aren't recognized (#1661).
+//
+// Clause selection reuses vm_library.evalLibFeatureReq (the live-registry
+// evaluator define-library uses), so guards resolve identically in both
+// contexts: else, (library (srfi N)), and the srfi-N feature ids (#1649).
+//
+// The caller (handleTopLevelForm) has the whole cond-expand form rooted, so the
+// clause list and the selected body stay reachable across the compile/execute
+// that handleTopLevelBegin performs.
+//
+// Malformed-form handling tracks the expression-position compiler
+// (compiler_conditionals.compileCondExpand) so the same form errors the same way
+// regardless of position: a non-pair where a clause is expected is a syntax
+// error; a proper but unsatisfied list (no matching clause, no else) yields
+// void; and — like the compiler — a matched clause returns immediately without
+// inspecting later clauses, so trailing clauses after a match are not validated.
+// Two structural cases need an explicit check because handleTopLevelBegin (shared
+// with top-level begin) silently ignores improper tails while the compiler
+// rejects them: an improper clause-list tail reached without a match (e.g.
+// `(cond-expand (x 1) . junk)`), and an improper selected clause body (e.g.
+// `(cond-expand (else 1 . junk))`). Both are validated here so cond-expand's own
+// structure matches the compiler; begin's own leniency is left untouched.
+fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
+    var clauses = clauses_val;
+    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
+        const clause = types.car(clauses);
+        if (!types.isPair(clause)) return VMError.CompileError;
+        const feature_req = types.car(clause);
+        const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
+        if (is_else or vm_library.evalLibFeatureReq(vm, feature_req)) {
+            const body = types.cdr(clause);
+            if (!isProperList(body)) return VMError.CompileError;
+            return handleTopLevelBegin(vm, body);
+        }
+    }
+    if (clauses != types.NIL) return VMError.CompileError;
+    return types.VOID;
+}
+
+// A proper (nil-terminated) list? Used to reject improper clause bodies before
+// splicing them, matching the compiler's rejection of the same malformed form.
+fn isProperList(list: Value) bool {
+    var rest = list;
+    while (types.isPair(rest)) rest = types.cdr(rest);
+    return rest == types.NIL;
 }
 
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {

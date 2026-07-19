@@ -108,6 +108,15 @@ their bound names are gathered structurally in a pre-pass so a forward reference
 is not warned. `define-syntax` registers its macro at *compile* time, so a
 later use of a same-file macro expands correctly without running anything.
 
+Top-level `begin` and `cond-expand` are *spliced*: their bodies are analysed as
+top-level forms, matching how the interpreter treats them (R7RS 5.1 / 4.2.1). A
+`cond-expand` clause is selected with `evalLibFeatureReq` — the same live-registry
+evaluator the runtime uses — so a nested `import` runs for effect and a nested
+`define`'s name is gathered as a top-level binding (the pre-pass conservatively
+gathers from every clause, since it has no VM to pick one). Without this, the
+matched clause compiled as an expression and a nested `import` flagged `srfi` as
+an unknown top-level variable (#1661).
+
 ## The literal-type table
 
 `check_lint.zig`'s `type_table` is deliberately narrow. An entry belongs there
