@@ -7,22 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-19
+
 ### Added
 
-#### `srfi-<n>` cond-expand feature identifiers
+#### Linux s390x and ppc64le support (interpreter tier)
 
-- **`srfi-<n>` cond-expand feature identifiers** — each supported SRFI can
-  now be probed without attempting an import, e.g.
-  `(cond-expand (srfi-1 (import (srfi 1))) (else …))`. The identifier is
-  derived from the supported-SRFI set (never hardcoded): `srfi-<n>` is true
-  iff SRFI *n* is available to this VM, answered through the same check as
-  `(library (srfi <n>))`, so built-in, portable, `--sandbox` and WASM
-  answers all match what `(import (srfi <n>))` would do. Works in both
-  expression- and `define-library`-level `cond-expand`. Like `(library …)`
-  requirements, a `srfi-<n>` identifier is a derived probe cond-expand
-  resolves on demand rather than a bare feature, so `(features)` is
-  unchanged. SRFI 261 (the fileless naming convention) reports `srfi-261`
-  true (#1649).
+- **Linux s390x and ppc64le** — both architectures cross-compile with zero
+  runtime code changes and pass the full battery (unit, thottam, R7RS
+  1395/1395, `run-all.sh`) under QEMU user-mode and on real-kernel Alpine
+  VMs. s390x is the first big-endian target: the endian-explicit `.sbc`
+  codec round-trips unchanged, so the s390x CI job now guards byte-order
+  correctness permanently. The native LLVM backend stays aarch64/x86_64-only
+  (#1657).
 
 #### Windows x86_64 support
 
@@ -42,11 +39,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   e2e; releases ship `kaappi-x86_64-windows.exe`,
   `thottam-x86_64-windows.exe`, and `libkaappi_rt-x86_64-windows.lib`
   (stripped — the #1607 strip crash is aarch64-only), with a
-  post-release acceptance leg on windows-latest.
+  post-release acceptance leg on windows-latest (#1651).
 
-#### SRFI 271 (Random port libraries)
+#### `srfi-<n>` cond-expand feature identifiers
 
-- **SRFI 271 (Random port libraries)** — `(import (srfi 271))` gives
+- **`srfi-<n>` cond-expand feature identifiers** — each supported SRFI can
+  now be probed without attempting an import, e.g.
+  `(cond-expand (srfi-1 (import (srfi 1))) (else …))`. The identifier is
+  derived from the supported-SRFI set (never hardcoded): `srfi-<n>` is true
+  iff SRFI *n* is available to this VM, answered through the same check as
+  `(library (srfi <n>))`, so built-in, portable, `--sandbox` and WASM
+  answers all match what `(import (srfi <n>))` would do. Works in both
+  expression- and `define-library`-level `cond-expand`. Like `(library …)`
+  requirements, a `srfi-<n>` identifier is a derived probe cond-expand
+  resolves on demand rather than a bare feature, so `(features)` is
+  unchanged. SRFI 261 (the fileless naming convention) reports `srfi-261`
+  true (#1649).
+
+#### SRFI 250 (Insertion-ordered Hash Tables)
+
+- **SRFI 250 (Insertion-ordered Hash Tables)** — `(import (srfi 250))`
+  provides hash tables that preserve first-insertion order across iteration,
+  folding, and conversion, with the full API: constructors, the bidirectional
+  cursor interface, ordered `fold-left`/`fold-right`, and destructive set
+  operations (#1647).
+
+#### SRFI 254 (Ephemerons and Guardians)
+
+- **SRFI 254 (Ephemerons and Guardians)** — ephemerons (key/value pairs
+  whose value is retained only while the key is reachable other than through
+  the value), guardians (post-mortem resurrection for finalization), transport
+  cell guardians, and `current-hash` (stable identity hash). Ephemerons and
+  guardians integrate with the GC: a `processWeakRefs` pass after strong
+  marking breaks ephemerons whose keys are unreachable and resurrects guarded
+  objects. On this non-moving collector `current-hash` is a stable identity
+  hash and transport cell guardians are degenerate (#1643).
+
+#### SRFI 261 (Portable SRFI Library References)
+
+- **SRFI 261 (Portable SRFI Library References)** — `(srfi srfi-<n>)` and
+  `(srfi <mnemonic>-<n>)` (e.g. `(srfi lists-1)`, `(srfi vectors-133)`)
+  resolve to `(srfi <n>)` as an import-resolver fallback. Literal
+  registry/file names win, sub-library tails pass through, and the trailing
+  number alone is authoritative. No library file — it is a pure naming
+  convention (#1650).
+
+#### SRFI 263 (Prototype Object System)
+
+- **SRFI 263 (Prototype Object System)** — a Self-inspired prototype object
+  system: `(srfi 263)` for the core message-passing/reflection protocol,
+  `(srfi 263 syntax)` for `define-object`/`derive-object`/`copy-object`/
+  `set-method!` sugar. Ported from the reference implementation with
+  corrections for derive, copy, and unhandled-message dispatch (#1640).
+
+#### SRFI 267 (Raw String Syntax)
+
+- **SRFI 267 (Raw String Syntax)** — raw strings (`#"X"..."X"`) are string
+  literals that interpret no escape sequences, with a per-literal delimiter.
+  The lexical syntax is built into the reader; the `(srfi 267)` library adds
+  port procedures (`read-raw-string`, `write-raw-string`,
+  `generate-delimiter`, etc.) (#1642).
+
+#### SRFI 271 (Random Port Libraries)
+
+- **SRFI 271 (Random Port Libraries)** — `(import (srfi 271))` gives
   cryptographic-quality random binary input ports drawn from OS entropy;
   `(import (srfi 271 determinized))` adds reproducible, deterministic ports
   backed by a xoshiro256** generator whose state can be captured, compared,
@@ -55,7 +111,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `random-port-initialization-error?` condition. States have a write/read-
   invariant external representation. Random ports are ordinary R7RS binary
   input ports, so `read-u8`, `read-bytevector`, and `u8-ready?` operate on
-  them directly. See `lib/srfi/271*.sld` and `tests/scheme/srfi/srfi271.scm`.
+  them directly. See `lib/srfi/271*.sld` and `tests/scheme/srfi/srfi271.scm`
+  (#1641).
+
+#### Native compilation guard
+
+- **`kaappi compile` now refuses on unsupported architectures** instead of
+  silently producing a segfaulting binary — `emitLlvmFile` exits with a
+  clear error naming the arch and pointing at the interpreter. `kaappi
+  doctor` reports a single `WARN` instead of the misleading PASS trio
+  (#1659).
 
 ### Fixed
 
@@ -66,6 +131,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (script directory, `~/.kaappi/lib`, exe-relative `lib`) once 16 explicit
   ones existed — vanished. Both now grow dynamically. Same silent-data-loss
   shape as the CLI-argument cap fixed in #1652.
+- **Two macro-hygiene bugs fixed** (#1648) — (1) a `let-syntax` sibling
+  passed as an argument to another macro went undefined; now only siblings a
+  transformer actually free-references in its template are suppressed.
+  (2) A named let's loop gensym was incorrectly re-renamed by hygiene when
+  riding through another macro's template; `__nlet` gensyms are now excluded
+  from renaming.
 
 ## [0.19.0] - 2026-07-18
 
