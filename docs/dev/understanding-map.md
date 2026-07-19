@@ -30,7 +30,7 @@ and you re-serialize yourself as the bottleneck the tooling removed.
 
 ## The decision rule
 
-```
+```text
 understanding priority ≈ expected touches × boundary leakiness × centrality
 ```
 

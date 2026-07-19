@@ -316,10 +316,12 @@ are considered, and a comma-separated list of issue numbers to skip.
 
 Prediction-with-commitment comprehension quiz on a core-tier subsystem
 from [understanding-map.md](understanding-map.md) — the practice half of
-the cognitive-debt policy that document defines. Protocol: silently read
-the current sources (not the docs), ask 3–5
+the cognitive-debt policy that document defines. Protocol: silently
+prepare — the map section is the syllabus, the current sources are
+ground truth, and the relevant `docs/dev/` pages are read last, purely
+to detect doc/code drift — then ask 3–5
 prediction/invariant/design/debugging questions, require committed
-answers before revealing anything, then grade with evidence — live runs
+answers before revealing anything, and grade with evidence — live runs
 and `file:line` citations, never recall. Results append to a per-user
 ledger at `~/.kaappi/quiz-ledger.md`, kept outside the repo deliberately
 (survives worktrees, stays private). Doc-vs-code drift and

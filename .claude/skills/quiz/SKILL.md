@@ -10,19 +10,26 @@ commitment before revelation**. A committed wrong answer, corrected with
 evidence, builds more model than any explainer (the hypercorrection
 effect). This is a calibration instrument, not an exam.
 
-The argument is a subsystem: one of the core-tier names in
-`docs/dev/understanding-map.md` (values, gc, ir, continuations, hygiene,
-fibers, threads) or a `src/` file. Only core-tier subsystems are quizzed
-by default — not knowing fenced-tier internals is the point of the fence;
-quiz one only if explicitly asked. With no argument: read the ledger,
-list the core-tier subsystems least recently quizzed, let the user pick.
+The argument is a subsystem alias or a `src/` file. Aliases are the
+canonical ledger keys, one per core-tier section of
+`docs/dev/understanding-map.md`: `values` (§1), `gc` (§2), `ir` (§3),
+`continuations` (§4), `hygiene` (§5), `fibers` (§6), `threads` (§7).
+A `src/` file argument resolves to the core-tier section whose
+**Where** line lists it and is quizzed under that section's alias; a
+file listed by no core section is fenced-tier — quizzed only if
+explicitly asked, with the file itself as the syllabus and its path as
+the ledger key. Only core-tier subsystems are quizzed by default: not
+knowing fenced-tier internals is the point of the fence. With no
+argument: read the ledger, list the aliases least recently quizzed,
+let the user pick.
 
 ## Workflow
 
 ### Step 1: Prepare (silently)
 
-1. Read the subsystem's section in `docs/dev/understanding-map.md` — its
-   "Theory" list is the syllabus.
+1. Read the resolved core-tier section in `docs/dev/understanding-map.md`
+   — its "Theory" list is the syllabus. (For an explicitly requested
+   fenced-tier file, the file itself is the syllabus.)
 2. Read the actual sources. Questions and answers are grounded in the
    code as it is **today**, never in docs or your memory of them.
 3. Read the relevant `docs/dev/` pages *last*, looking for drift: if doc
