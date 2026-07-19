@@ -28,6 +28,7 @@ const lsp_diagnostic = @import("lsp_diagnostic.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
 const native_compiler = @import("native_compiler.zig");
+const llvm_emit = @import("llvm_emit.zig");
 
 pub const version = @import("build_options").version;
 
@@ -343,6 +344,23 @@ fn collectPackageManager(r: *Report) void {
 
 fn collectNativeBackend(r: *Report) void {
     const a = r.allocator();
+
+    // #1656: on an arch the LLVM backend can't target (riscv64, s390x, ppc64le),
+    // `kaappi compile` refuses — native compilation is unavailable, by design.
+    // Report that once, honestly, instead of running the c-compiler / archive /
+    // smoke-link probes below, which would all PASS and falsely imply native
+    // builds work here. WARN keeps exit 0: the install is healthy for the
+    // interpreter tier, which is fully supported on every arch.
+    if (!llvm_emit.native_backend_supported) {
+        r.add(
+            "native-backend",
+            "arch",
+            .warn,
+            r.fmt("native compilation unavailable on {s} — the LLVM backend targets aarch64 and x86_64 only; the interpreter tier is fully supported", .{@tagName(builtin.cpu.arch)}),
+            "run programs with the interpreter: kaappi <file.scm>",
+        );
+        return;
+    }
 
     // C compiler discovery uses native_compiler's own search order, so the
     // finding names the driver `kaappi compile` will actually pick.

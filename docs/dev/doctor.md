@@ -19,7 +19,7 @@ dispatches it (`doctor.maybeRun`) before any VM, GC, or library setup exists.
 | `binary` | version, target triple, build mode, the running binary's path, and the `kaappi` a shell would pick from PATH (so a mismatch — "wrong binary on PATH" — is visible). |
 | `library` | the effective `.sld` search path in order: each `--lib-path`, the script directory (added per-run), `~/.kaappi/lib`, and the exe-relative `../lib` fallback — with whether each exists. |
 | `package-manager` | `thottam` on PATH; every package in `~/.kaappi/thottam.lock` has a matching source tree in `~/.kaappi/src`. |
-| `native-backend` | C-compiler discovery (`zig`/`cc`/`clang`/`gcc`), `libkaappi_rt.a` across the four documented locations, and a **smoke link** if both are found. |
+| `native-backend` | On an interpreter-tier arch (riscv64, s390x, ppc64le — where `kaappi compile` refuses, #1656) a single `arch` WARN says native compilation is unavailable and stops; otherwise C-compiler discovery (`zig`/`cc`/`clang`/`gcc`), the runtime archive (`libkaappi_rt.a`, or `kaappi_rt.lib` on Windows) across the four documented locations, and a **smoke link** if both are found. |
 | `repl` | `~/.kaappi` writable (where history is saved); terminal capabilities (`isatty`, `TERM`). |
 | `ffi` | every `.dylib`/`.so` in `~/.kaappi/lib` is `dlopen`-able (per-file result, with the `dlerror` on failure). |
 
