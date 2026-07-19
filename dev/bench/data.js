@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784494560265,
+  "lastUpdate": 1784498113073,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3e00924a667396a5d406c7998c3e6c64cbfe35d9",
-          "message": "Resolve portable SRFI libraries via exe-relative lib/ fallback (#1524)\n\n* Resolve portable SRFI libraries via exe-relative lib/ fallback\n\nresolveLibraryPath only checked cwd-relative paths, --lib-path, the\nrunning script's own directory, and ~/.kaappi/lib — none of which point\nat a `zig build`-produced binary's own source tree. A binary built from\nsource and run from any other directory, with no prior thottam/installer\nsetup, couldn't resolve portable (non-built-in) SRFI .sld libraries.\n\nAdd a shared exe-relative lib-dir lookup (kaappi_paths.getExeRelativeLibDir),\nmirroring the <exe_dir>/../lib search already used to find libkaappi_rt.a\nfor the native backend. build.zig now installs lib/ into zig-out/lib/\nalongside the exe so the two line up, and main.zig adds that directory as\na last-resort fallback after ~/.kaappi/lib so an existing install is never\nshadowed. native_compiler.zig's near-duplicate local copy now delegates to\nthe shared helper instead of duplicating the platform-specific lookup.\n\nFixes #1523.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address PR #1524 review nits: macOS realpath, vacuous test, dup import\n\n- kaappi_paths.getExeRelativeLibDir: _NSGetExecutablePath can return a\n  symlinked or relative path (e.g. a Homebrew Cellar symlink), which would\n  derive ../lib from the wrong tree. Resolve it via std.c.realpath first,\n  falling back to the raw path if that fails. Verified against a synthetic\n  symlinked-bin/kaappi -> real/bin/kaappi layout.\n- Reject a Linux readlink(\"/proc/self/exe\") result that exactly fills the\n  buffer, symmetric with the macOS branch's overflow handling.\n- The getExeRelativeLibDir unit test silently passed if the function\n  returned null instead of exercising the /lib suffix check; assert\n  non-null explicitly.\n- main.zig: hoist the two function-local @import(\"kaappi_paths.zig\") in\n  mainImpl's library-path block into one.\n\nFlagged by CodeRabbit and by manual review on PR #1524.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T20:27:54Z",
-          "tree_id": "e81673c69d8a275585de6441e4bf4eb60914badc",
-          "url": "https://github.com/kaappi/kaappi/commit/3e00924a667396a5d406c7998c3e6c64cbfe35d9"
-        },
-        "date": 1783976212106,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.081547,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.440964,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.946833,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.441979,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006748,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053019,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510684,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068134,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.256529,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.991209,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.538011,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477079,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.7702,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.81156,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046403,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03701,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2e6a9f78575611414bf84139c6cb425ef5d1f2e",
+          "message": "Implement SRFI 258 (uninterned symbols) (#1675)\n\nAdd string->uninterned-symbol, symbol-interned?, and\ngenerate-uninterned-symbol as the built-in (srfi 258) library. An\nuninterned symbol is a symbol never eqv? to any other, even one built\nfrom the same name — useful for macro programming and guaranteed-unique\nidentifiers.\n\nSymbols already compare by object identity, so equality needed no new\ncode: two uninterned symbols from equal strings, and an uninterned\nsymbol versus its like-named interned twin, are all distinct for free.\nThe only new state is a Symbol.interned flag. allocUninternedSymbol\nbypasses the interning table, so an uninterned symbol is an ordinary\ncollectable object (swept once unreachable) rather than a permanent\nroot; deep copy preserves uninterned-ness across SRFI-18 thread\nboundaries. Per the SRFI, an uninterned symbol has no readable external\nrepresentation: write emits an unreadable #<uninterned-symbol name> form\nand read rejects it, deliberately breaking write/read invariance.\n\nThe gensym counter for generate-uninterned-symbol is a 32-bit atomic\n(wasm32 has no 64-bit atomics); wrap-around is harmless since identity\nis guaranteed by allocation, not the name.\n\nThe library registers through the Lib enum, so kaappi features, the\nsrfi-258 cond-expand id, and (import (srfi 258)) plus the SRFI 261\nfallbacks all derive automatically. Now 83 SRFIs (11 built-in).\n\nCloses #1670.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T02:48:16+05:30",
+          "tree_id": "71755bde84bfa0201258ac8960cac901d14db33c",
+          "url": "https://github.com/kaappi/kaappi/commit/b2e6a9f78575611414bf84139c6cb425ef5d1f2e"
+        },
+        "date": 1784498112064,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.067213,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.298857,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.039554,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.965326,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006717,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054774,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.563387,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07116,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.205429,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.163666,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.499286,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.476004,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.760517,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.912516,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045491,
             "unit": "seconds"
           }
         ]
