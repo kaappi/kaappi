@@ -538,13 +538,13 @@ const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, don't ren
 const BINDING_FLAG: u32 = 0x20000000; // identifier is in binding position
 const NESTED_SR_FLAG: u32 = 0x10000000; // inside a nested syntax-rules template
 const LET_PAIR_FLAG: u32 = 0x08000000; // template is a single let-binding (var init) pair
-// Quasiquote nesting depth (0-3, saturating). Symbols under `quasiquote` are
+// Quasiquote nesting depth (0-7, saturating). Symbols under `quasiquote` are
 // DATA — they must not be hygiene-renamed — but a depth-matching `unquote`
-// re-enters expression territory where renaming resumes. Two bits suffice for
-// any realistic nesting; like the flag bits above, they assume expansion scope
-// ids stay below the flag region.
-const QQ_DEPTH_MASK: u32 = 0x06000000;
-const QQ_DEPTH_ONE: u32 = 0x02000000;
+// re-enters expression territory where renaming resumes. Three bits cover any
+// realistic template nesting; like the flag bits above, they assume expansion
+// scope ids stay below the flag region.
+const QQ_DEPTH_MASK: u32 = 0x07000000;
+const QQ_DEPTH_ONE: u32 = 0x01000000;
 
 // Provenance marker for pattern-var values substituted into a NESTED
 // syntax-rules template (a generated macro's spec). When that generated
@@ -564,8 +564,16 @@ pub fn isUsertextPair(v: Value) bool {
 }
 
 pub fn unwrapUsertext(v: Value) Value {
+    // Construction never stacks wrappers (both wrap sites skip values that
+    // are already marked), so a legitimate chain is exactly one layer. The
+    // bound defends against user data forged as marker pairs — including a
+    // cyclic #0=(__hyg-usertext . #0#) — which must not hang the walk. The
+    // marker name lives in the __hyg_ namespace the expander already
+    // reserves (renameForHygiene never renames it), so forged data is
+    // out-of-contract in the same way forged __hyg_N_x identifiers are.
     var cur = v;
-    while (isUsertextPair(cur)) cur = types.cdr(cur);
+    var hops: u8 = 0;
+    while (isUsertextPair(cur) and hops < 64) : (hops += 1) cur = types.cdr(cur);
     return cur;
 }
 
@@ -770,7 +778,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         if (unary and std.mem.eql(u8, hname, "quasiquote")) {
             const in_plain_quote = (intro_scope & QUOTE_FLAG) != 0 and qq_depth == 0;
             if (!in_plain_quote) {
-                const new_depth = if (qq_depth < 3) qq_depth + 1 else 3;
+                const new_depth = if (qq_depth < 7) qq_depth + 1 else 7;
                 const sub_scope = (intro_scope & ~QQ_DEPTH_MASK) | QUOTE_FLAG | (new_depth * QQ_DEPTH_ONE);
                 const new_inner = try instantiateTemplate(gc, types.car(q_rest), bindings, sub_scope, literals, macro_keyword, globals, macros);
                 var ni_root = new_inner;

@@ -1047,7 +1047,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
                     };
                     var expanded_stripped = expanded;
                     if (expander.isUsertextPair(expanded_stripped)) expanded_stripped = expander.unwrapUsertext(expanded_stripped);
-                    if (types.isPair(expanded_stripped)) expander.stripUsertextMarkers(vm.gc, expanded_stripped);
+                    if (types.isPair(expanded_stripped) or types.isVector(expanded_stripped)) expander.stripUsertextMarkers(vm.gc, expanded_stripped);
                     const s = printer.valueToString(allocator, expanded_stripped, .write) catch "";
                     defer if (s.len > 0) allocator.free(s);
                     writeStdout(s);

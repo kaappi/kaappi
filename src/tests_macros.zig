@@ -958,3 +958,49 @@ test "user text spliced into a vector literal is unwrapped" {
         \\  (if (equal? (vb foo) 'foo) 42 0))
     , 42);
 }
+
+test "macro expanding directly to a vector literal is stripped" {
+    // When the WHOLE expansion is a vector (not a pair), the compile-boundary
+    // strip call sites must still run — gating on isPair alone let a marker
+    // inside #(e) leak into the vector constant.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax vb2
+        \\    (syntax-rules ()
+        \\      ((_ e)
+        \\       (let-syntax ((g (syntax-rules () ((_) #(e)))))
+        \\         (vector-ref (g) 0)))))
+        \\  (if (equal? (vb2 foo) 'foo) 42 0))
+    , 42);
+}
+
+test "forged cyclic usertext-marker datum does not hang unwrap" {
+    // User data shaped like the internal provenance marker is out-of-contract
+    // (the __hyg_ namespace is reserved by the expander), but a cyclic forgery
+    // #0=(__hyg-usertext . #0#) must still terminate: unwrapUsertext bounds
+    // its chain walk. The datum simply flows through as (some) datum.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax id (syntax-rules () ((_ x) x)))
+        \\  (define c '#0=(__hyg-usertext . #0#))
+        \\  (if (pair? (id c)) 42 0))
+    , 42);
+}
+
+test "nested quasiquote template matches the directly written form" {
+    // The template walk tracks quasiquote nesting (3 bits, 0-7, saturating);
+    // a nested tower with depth-matching unquotes must expand to exactly what
+    // the same expression means written directly — renaming suppressed in the
+    // data layers, substitution and expression re-entry intact at depth 0.
+    // (Towers whose unquotes fully unwind at depth >= 3 cannot be validated
+    // end-to-end: the runtime quasiquote evaluator rejects them, macro or
+    // no macro — a separate pre-existing limitation.)
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax q2
+        \\    (syntax-rules ()
+        \\      ((_ e) ``(a ,,e))))
+        \\  (equal? (q2 (+ 40 2))
+        \\          ``(a ,,(+ 40 2))))
+    );
+}

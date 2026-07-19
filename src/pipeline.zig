@@ -194,7 +194,7 @@ fn expandForm(vm: *VM, expr: Value, depth: u16) error{OutOfMemory}!Value {
         };
         var stripped = expanded;
         if (expander.isUsertextPair(stripped)) stripped = expander.unwrapUsertext(stripped);
-        if (types.isPair(stripped)) expander.stripUsertextMarkers(vm.gc, stripped);
+        if (types.isPair(stripped) or types.isVector(stripped)) expander.stripUsertextMarkers(vm.gc, stripped);
         return expandForm(vm, stripped, depth + 1);
     }
 

@@ -188,7 +188,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     if (expander.isUsertextPair(expanded_root)) {
         expanded_root = expander.unwrapUsertext(expanded_root);
     }
-    if (types.isPair(expanded_root)) {
+    if (types.isPair(expanded_root) or types.isVector(expanded_root)) {
         expander.stripUsertextMarkers(self.gc, expanded_root);
     }
     try self.scanSetTargets(expanded_root);
