@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784463652613,
+  "lastUpdate": 1784477720860,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "413c1b823ef993eac2c90c6d1080db8be4e83c3c",
-          "message": "docs: refresh LLVM backend Lambda Strategy for the tiered emitter (#1501)\n\nThe \"Lambda Strategy\" section and the node-output table described lambdas as\nalways serialized to source and evaluated via kaappi_eval at runtime. That has\nbeen stale since the native closure tier landed: named/top-level and\nclosed/capturing lambdas now compile to real LLVM functions.\n\nRewrite the section to match src/llvm_emit_lambda.zig's three tiers (capturing\nclosure, closed/named native function, eval fallback), and document what is\ncompiled natively (fixed arity, variadic rest params, by-value closures,\nself-tail-call loops) and the precise eval-fallback triggers. Also de-stale the\nadjacent table rows for call/define/set!/let so let/let* are no longer lumped\nwith the genuinely eval-only forms.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-13T15:42:16+05:30",
-          "tree_id": "76806f3d39d55b919ca714d5be9dd1c969a5f415",
-          "url": "https://github.com/kaappi/kaappi/commit/413c1b823ef993eac2c90c6d1080db8be4e83c3c"
-        },
-        "date": 1783939012288,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.057551,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.8119,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924796,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.451033,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007267,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052844,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.513238,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069509,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.178395,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.987491,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514285,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.47496,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.747629,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.882975,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045575,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045596,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b68e1456cde8548b04db36fda21f9bf3e7bc7f12",
+          "message": "Add CI guard that fails on non-final SRFIs (#1671)\n\nKaappi intends to ship only SRFIs that have reached final status, but nothing\nenforced it — a stray lib/srfi/<n>.sld for a draft or withdrawn SRFI (or one\nthat gets withdrawn later) would go unnoticed. An audit of the current 78\nimplementations against the canonical registry found them all final; this keeps\nit that way.\n\ntools/check-srfi-status.sh cross-references two derived sources so there is no\nsecond list to drift: the implemented set from `kaappi features --json`\n(builtin + portable, plus SRFI 261 which has no .sld), and each SRFI's status\nfrom admin/srfi-data.scm in the srfi-common repo (what srfi.schemers.org itself\nrenders). The registry is fetched rather than vendored so a newly added SRFI is\nvalidated against its real current status, not a snapshot a contributor could\nmismark.\n\nWired into the test job on one matrix leg, reusing its built binary; kept out\nof run-all.sh since that runs in every leg and this makes a network request.\nExit 77 (SKIP, registry unreachable) maps to a CI warning so a network blip\nnever reds an unrelated change, while a genuine non-final SRFI exits 1.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-19T20:31:05+05:30",
+          "tree_id": "bdcab7161917df36e6dc53009457df703a29db54",
+          "url": "https://github.com/kaappi/kaappi/commit/b68e1456cde8548b04db36fda21f9bf3e7bc7f12"
+        },
+        "date": 1784477718578,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.168209,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.982019,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.720627,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.453636,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005196,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04094,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.398713,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053371,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.617459,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.550975,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.168319,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.375711,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.354432,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.357808,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035445,
             "unit": "seconds"
           }
         ]
