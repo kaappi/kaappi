@@ -39,6 +39,18 @@ fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u32 {
     return expander.LITERAL_UNBOUND;
 }
 
+/// Is `name` a local of the compiler's CURRENT frame (this function's
+/// register file, not an enclosing lambda's)? Same-frame names keep the
+/// rename + captured-locals slot-alias path, which is shadow-proof; only
+/// cross-frame definition-site locals are kept unrenamed by the expander.
+fn resolveSameFrameLocal(ctx: ?*const anyopaque, name: []const u8) bool {
+    const self: *const Compiler = @ptrCast(@alignCast(ctx.?));
+    for (self.locals.items) |local| {
+        if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return true;
+    }
+    return false;
+}
+
 pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, transformer: Value, dst: u16, is_tail: bool) CompileError!void {
     if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
         self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
@@ -157,6 +169,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     const use_check = expander.UseSiteBindingCheck{
         .ctx = @ptrCast(self),
         .resolve_fn = &resolveLocalSkipAliases,
+        .frame_resolve_fn = &resolveSameFrameLocal,
     };
     const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros, use_check) catch |err| {
         self.gc.no_collect -= 1;
@@ -170,6 +183,14 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     self.gc.pushRoot(&expanded_root);
     defer self.gc.popRoot();
     self.gc.no_collect -= 1;
+    // Unwrap user-text provenance markers before compiling; specs of macros
+    // this expansion defines (syntax-rules subtrees) keep theirs.
+    if (expander.isUsertextPair(expanded_root)) {
+        expanded_root = expander.unwrapUsertext(expanded_root);
+    }
+    if (types.isPair(expanded_root)) {
+        expander.stripUsertextMarkers(self.gc, expanded_root);
+    }
     try self.scanSetTargets(expanded_root);
     const saved_locals_len = self.locals.items.len;
     try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
@@ -534,6 +555,8 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
     if (cand_count == 0) return;
     var bound: [64][]const u8 = undefined;
     var bound_count: usize = 0;
+    var local_refs: [64][]const u8 = undefined;
+    var local_ref_count: usize = 0;
     for (cand_names[0..cand_count]) |cname| {
         const in_globals = if (self.globals) |g| g.contains(cname) else false;
         const in_def_env = if (tx.def_env) |env| env.contains(cname) else false;
@@ -545,6 +568,15 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
                 bound_count += 1;
             }
         }
+        if (in_locals and !in_macros and local_ref_count < 64) {
+            local_refs[local_ref_count] = cname;
+            local_ref_count += 1;
+        }
+    }
+    if (local_ref_count > 0) {
+        tx.def_site_local_refs = self.gc.allocator.alloc([]const u8, local_ref_count) catch
+            return CompileError.OutOfMemory;
+        @memcpy(tx.def_site_local_refs, local_refs[0..local_ref_count]);
     }
     if (bound_count == 0) return;
     tx.bound_free_refs = self.gc.allocator.alloc([]const u8, bound_count) catch
@@ -586,7 +618,10 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     while (lit != types.NIL) {
         if (!types.isPair(lit)) return CompileError.InvalidSyntax;
         if (lit_count >= 32) return CompileError.InvalidSyntax;
-        literals_buf[lit_count] = types.car(lit);
+        // A generating macro may splice a user identifier into this spec's
+        // literal list (SRFI 257's if-new-var) — unwrap the provenance
+        // marker so the literal is the bare identifier.
+        literals_buf[lit_count] = expander.unwrapUsertext(types.car(lit));
         lit_count += 1;
         lit = types.cdr(lit);
     }
@@ -627,7 +662,14 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
         for (literals_buf[0..lit_count], 0..) |lv, li| {
             slots[li] = if (types.isSymbol(lv)) blk: {
                 const lname = types.symbolName(lv);
-                if (self.resolveBindingId(lname)) |bid| break :blk bid;
+                // Resolve through the full lexical chain with the SAME rules
+                // as the use-site check (resolveLocalSkipAliases): a literal
+                // bound in an ENCLOSING function frame must record that
+                // binding id, or a use in a nested lambda would compare
+                // def=unbound vs use=bound and wrongly reject (SRFI 257's
+                // if-new-var inside generated backtracking lambdas).
+                const bid = resolveLocalSkipAliases(@ptrCast(self), lname);
+                if (bid != expander.LITERAL_UNBOUND) break :blk bid;
                 for (extra_bound) |eb| {
                     if (std.mem.eql(u8, eb, lname)) break :blk expander.LITERAL_BOUND_PENDING;
                 }
@@ -659,6 +701,14 @@ fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.C
             if (std.mem.eql(u8, cap.name, base)) best_cap = cap;
         }
         if (best_cap) |cap| {
+            // A __hyg_ name that is macro-bound is a renamed let-syntax
+            // KEYWORD, not a variable reference — its base name matching a
+            // captured local is a coincidence (e.g. SRFI 257's template macro
+            // `k` vs a user variable `k`). Injecting the alias would shadow
+            // the macro for the rest of the body (compileForm suppresses a
+            // macro when a same-named local resolves), rerouting macro calls
+            // into the user's variable.
+            if (self.lookupMacro(name) != null) return;
             var already = false;
             for (self.locals.items) |loc| {
                 if (std.mem.eql(u8, loc.name, name)) {
@@ -667,11 +717,25 @@ fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.C
                 }
             }
             if (!already) {
+                // Keep the definition-time snapshot SLOT (a later same-named
+                // binding must not hijack the alias — hygiene points at the
+                // def-site binding), but take the CURRENT boxing status of
+                // that slot: the variable may have been boxed since the
+                // snapshot (a lambda captured it), and the alias must read
+                // through the box exactly like a direct reference would.
+                var is_boxed = false;
+                for (self.locals.items) |live| {
+                    if (live.slot == cap.slot and live.is_boxed) {
+                        is_boxed = true;
+                        break;
+                    }
+                }
                 try self.locals.append(self.gc.allocator, .{
                     .name = name,
                     .depth = self.scope_depth,
                     .slot = cap.slot,
                     .binding_id = compiler_mod.freshBindingId(),
+                    .is_boxed = is_boxed,
                 });
             }
             return;

@@ -792,3 +792,142 @@ test "named-let loop gensym survives re-expansion through a macro" {
         \\  (build 4))
     , 4);
 }
+
+test "let-syntax template reaches an enclosing frame's local (#1644)" {
+    // A let-syntax macro defined inside a nested lambda whose template
+    // references an OUTER function's local: the reference was hygiene-renamed
+    // and the captured-locals slot alias only covers the innermost frame, so
+    // __hyg_N_u came out undefined. renameForHygiene now keeps a template
+    // free reference unrenamed when the transformer recorded it as a
+    // definition-site lexical local (def_site_local_refs) and the name is
+    // not resolvable in the current frame — the regular local/upvalue path
+    // then reaches the enclosing frame.
+    try th.expectEval(
+        \\(begin
+        \\  (define (f u)
+        \\    (lambda ()
+        \\      (let-syntax ((mm (syntax-rules () ((_ x) (u x)))))
+        \\        (mm 5))))
+        \\  ((f (lambda (v) (+ v 37)))))
+    , 42);
+}
+
+test "same-frame def-site local stays shadow-proof under keep-plain" {
+    // The companion guarantee to the previous test: when the definition-site
+    // local IS in the current frame, the rename + captured-locals slot alias
+    // path is kept, so a user rebinding of the same name between definition
+    // and use does not capture the template's reference (R7RS 4.3.1).
+    try th.expectEval(
+        \\(begin
+        \\  (define (f u)
+        \\    (let-syntax ((mm (syntax-rules () ((_) (u 1)))))
+        \\      (let ((u (lambda (x) 0)))
+        \\        (mm))))
+        \\  (f (lambda (x) 42)))
+    , 42);
+}
+
+test "generated macro name colliding with a user variable stays a macro (#1644)" {
+    // SRFI 257's submatch protocol generates let-syntax macros named `k`
+    // while user code often has a variable `k` in scope. The hygienic-capture
+    // alias injection saw the renamed keyword __hyg_N_k, stripped it to `k`,
+    // matched the captured user local, and injected a local alias — which
+    // SHADOWED the macro (compileForm suppresses a macro when a same-named
+    // local resolves), rerouting the macro call into the user's variable.
+    // The injection now skips names that are macro-bound.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax outer
+        \\    (syntax-rules ()
+        \\      ((_ sub)
+        \\       (let-syntax ((k (syntax-rules () ((_ v) (+ v 2)))))
+        \\         (sub k)))))
+        \\  (define-syntax call40 (syntax-rules () ((_ m) (m 40))))
+        \\  (define (f k) (outer call40))
+        \\  (f (lambda (x) 0)))
+    , 42);
+}
+
+test "captured-local alias reads through a box created by a later capture" {
+    // When an inner lambda captures an outer local, the local is boxed at
+    // closure creation. Hygienic-capture aliases injected for that local now
+    // copy the slot's CURRENT boxing status (and markLocalBoxedBySlot flips
+    // every same-slot alias), so the alias reads the value through the box
+    // instead of yielding the box object itself.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (f u)
+        \\    (define (snap) u)
+        \\    (let-syntax ((mm (syntax-rules () ((_) (u 2)))))
+        \\      (list (procedure? u) (mm) (procedure? (snap)))))
+        \\  (equal? (f (lambda (x) (* x 21))) (list #t 42 #t)))
+    );
+}
+
+test "quasiquote data symbols in templates are not hygiene-renamed" {
+    // Symbols under `quasiquote` in a macro template are data, like plain
+    // quote — they leaked as __hyg_N_fst when the template was instantiated.
+    // A depth-matching unquote switches back to expression territory where
+    // renaming (and pattern-var substitution) resumes.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax tag
+        \\    (syntax-rules () ((_ e) `(fst ,e `(nested ,ignore)))))
+        \\  (equal? (tag (+ 40 2)) '(fst 42 (quasiquote (nested (unquote ignore))))))
+    );
+}
+
+test "renamed template token still matches an unbound syntax-rules literal" {
+    // cm-match's template emits marker tokens (`<...>`) that a helper macro
+    // declares as literals. The token is template-introduced, so hygiene
+    // renames it (__hyg_N_<...>); the literal comparison now strips the
+    // prefix and accepts the match when the literal is unbound on both
+    // sides — the rename existed precisely because the name had no binding.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax use (syntax-rules () ((_ m) (m tok))))
+        \\  (define-syntax probe
+        \\    (syntax-rules (tok) ((_ tok) 42) ((_ x) 0)))
+        \\  (use probe))
+    , 42);
+}
+
+test "user text spliced through generated macros keeps its identity (#1644)" {
+    // The SRFI 257 CPS protocol: user identifiers ride through pattern-var
+    // substitutions into GENERATED macros' specs, across many expansion
+    // generations. Each generation used to re-walk the spliced text as
+    // template material, renaming the same identifier under a different
+    // scope each time and severing binders from references. Spliced chunks
+    // are now wrapped in a provenance marker (USERTEXT_MARKER), instantiated
+    // in substitute-don't-rename mode, and unwrapped at the compile boundary.
+    // Distilled: `use` builds a macro whose spec embeds the user expression
+    // (u 40), which must still see the caller's `u` when it finally expands.
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax use
+        \\    (syntax-rules ()
+        \\      ((_ e)
+        \\       (let-syntax ((go (syntax-rules () ((_ v) (+ v e)))))
+        \\         (go 2)))))
+        \\  (define (f u) (use (u 40)))
+        \\  (f (lambda (x) x)))
+    , 42);
+}
+
+test "syntax-rules literal bound in an enclosing frame matches across lambdas" {
+    // literal_bound recorded a literal's definition-site binding with a
+    // same-frame-only lookup while the use-site check walks the whole
+    // lexical chain, so a literal bound in an ENCLOSING function frame
+    // compared def=unbound vs use=bound and was rejected. This broke SRFI
+    // 257's non-linear patterns: if-new-var's generated matcher runs inside
+    // generated backtracking lambdas, and the repeated variable's equality
+    // branch was never taken. Both sides now resolve through the chain.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (f p)
+        \\    ((lambda ()
+        \\       (let-syntax ((hit? (syntax-rules (p) ((_ p) #t) ((_ x) #f))))
+        \\         (hit? p)))))
+        \\  (f 1))
+    );
+}

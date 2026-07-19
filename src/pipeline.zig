@@ -192,7 +192,10 @@ fn expandForm(vm: *VM, expr: Value, depth: u16) error{OutOfMemory}!Value {
             // to expand and diagnose.
             else => return expr,
         };
-        return expandForm(vm, expanded, depth + 1);
+        var stripped = expanded;
+        if (expander.isUsertextPair(stripped)) stripped = expander.unwrapUsertext(stripped);
+        if (types.isPair(stripped)) expander.stripUsertextMarkers(vm.gc, stripped);
+        return expandForm(vm, stripped, depth + 1);
     }
 
     const kw = types.stripHygienicPrefix(name);

@@ -463,6 +463,12 @@ pub const Transformer = struct {
     let_syntax_peer_names: [][]const u8 = &.{},
     let_syntax_peer_vals: []Value = &.{},
     bound_free_refs: [][]const u8 = &.{},
+    // Template free references that were lexically bound (compiler locals,
+    // including enclosing frames) at macro definition time. renameForHygiene
+    // keeps these unrenamed when the use site cannot reach them via the
+    // captured-locals slot alias (i.e. the reference crosses a lambda frame),
+    // so they resolve through the normal local/upvalue path instead.
+    def_site_local_refs: [][]const u8 = &.{},
 };
 
 pub const ErrorObject = struct {
