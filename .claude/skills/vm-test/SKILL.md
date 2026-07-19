@@ -88,11 +88,18 @@ Select the two test executables **by `file` signature, not by mtime** — a
 later host build leaves newer wrong-arch binaries in the cache:
 
 ```bash
+rm -f ./unit-tests ./thottam-tests          # drop any stale staged copies first
 UNIT=$(file .zig-cache/o/*/unit-tests     2>/dev/null | grep "$SIG" | head -1 | cut -d: -f1)
 THOTTAM=$(file .zig-cache/o/*/thottam-tests 2>/dev/null | grep "$SIG" | head -1 | cut -d: -f1)
-[ -n "$UNIT" ] && [ -n "$THOTTAM" ] || { echo "no $SIG test binaries found — did 'zig build test' run?"; }
-cp "$UNIT" ./unit-tests; cp "$THOTTAM" ./thottam-tests
+if [ -z "$UNIT" ] || [ -z "$THOTTAM" ]; then
+  echo "no $SIG test binaries found — did 'zig build test -Dtarget=$TARGET' run?" >&2
+else
+  cp "$UNIT" ./unit-tests; cp "$THOTTAM" ./thottam-tests
+fi
 ```
+
+The `rm` first, then guard, means a missing target build fails closed — no
+empty `cp`, and no stale binary from an earlier run left behind to ship.
 
 **OpenBSD only** — patch the two test binaries so they survive BTCFI
 enforcement (installed binaries in `zig-out` are auto-patched by the build;
@@ -124,10 +131,14 @@ failed" — the `tar .` above already includes it.
 ### 5. Run on the box
 
 Install the one-time dependencies, then run the suites. See **Per-VM
-specifics** below for the exact `DEPS` and `RUNPREFIX` (ulimits) per box.
-Keep steps as separate SSH calls so no single call trips the ~14-minute Bash
-tool timeout, and redirect the long Scheme run to a file on the box so
-results survive a dropped stream.
+specifics** below for the exact `DEPS`, `CC`, `BASH`, and `RUNPREFIX`
+(ulimits) per box. Keep steps as separate SSH calls so no single call trips
+the ~14-minute Bash tool timeout, and redirect the long Scheme run to a file
+on the box so results survive a dropped stream.
+
+`$RUNPREFIX` contains semicolons (`ulimit …; ulimit …;`), so each remote
+command is wrapped in a `{ …; }` group — otherwise the `;` breaks the `&&`
+chain and a failing suite is masked by the last command's status.
 
 ```bash
 # 5a. one-time deps + FFI fixture ($DEPS and $CC are per-VM; see specifics)
@@ -135,11 +146,13 @@ ssh "$ALIAS" "cd $DEST && $DEPS && $CC -shared -fPIC \
   tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so"
 
 # 5b. unit + thottam suites  ($RUNPREFIX raises ulimits on openbsd/netbsd; empty elsewhere)
-ssh "$ALIAS" "cd $DEST && $RUNPREFIX ./unit-tests && $RUNPREFIX ./thottam-tests"
+ssh "$ALIAS" "cd $DEST && { $RUNPREFIX ./unit-tests; } && { $RUNPREFIX ./thottam-tests; }"
 
-# 5c. Scheme suites → file on the box (keep the connection alive)
+# 5c. Scheme suites → file on the box, propagating run-all.sh's real exit status
+#     ($BASH is bare 'bash' except netbsd, where it's /usr/pkg/bin/bash)
 ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=40 "$ALIAS" \
-  "cd $DEST && bash tests/scheme/run-all.sh > /tmp/kaappi-vm-results.txt 2>&1; echo EXIT: \$?"
+  "cd $DEST && { $RUNPREFIX $BASH tests/scheme/run-all.sh > /tmp/kaappi-vm-results.txt 2>&1; \
+    status=\$?; echo EXIT: \$status; exit \$status; }"
 
 # 5d. fetch results
 ssh "$ALIAS" "cat /tmp/kaappi-vm-results.txt"
@@ -167,30 +180,34 @@ shut down afterward:
 
 ## Per-VM specifics
 
-Fill in `DEPS` and `RUNPREFIX` for step 5 from here.
+Copy the block for the chosen VM — it sets everything step 5 reads
+(`CC`, `BASH`, `DEPS`, `RUNPREFIX`).
 
 **freebsd** — base `cc`, bash/rsync/python already present; repo at `~/kaappi`.
+
 ```bash
 ALIAS=freebsd; TARGET=aarch64-freebsd; SIG=FreeBSD; DEST='~/kaappi'
-CC=cc; DEPS='doas pkg install -y bash'; RUNPREFIX=''
+CC=cc; BASH=bash; DEPS='doas pkg install -y bash'; RUNPREFIX=''
 ```
 
 **openbsd** — needs bash; raise the tiny default rlimits or the unit binary
 OOMs (DebugAllocator never reuses freed VA). Remember the nobtcfi patch in
 step 3.
+
 ```bash
 ALIAS=openbsd; TARGET=aarch64-openbsd; SIG=OpenBSD; DEST='~/kaappi'
-CC=cc; DEPS='doas pkg_add -I bash'
+CC=cc; BASH=bash; DEPS='doas pkg_add -I bash'
 RUNPREFIX='ulimit -s $(ulimit -Hs); ulimit -d $(ulimit -Hd);'
 ```
 
 **netbsd** — base `cc` is GCC (fine for the FFI fixture; the native backend
 needs pkgsrc clang, not exercised here). bash isn't installed by default and
-the non-login PATH lacks `/usr/pkg/bin`, so use full paths. Only 4 GiB RAM
-with no swap, so the unit suite needs a swapfile.
+the non-login PATH lacks `/usr/pkg/bin`, so pin its full path in `BASH` and
+`DEPS`. Only 4 GiB RAM with no swap, so the unit suite needs a swapfile.
+
 ```bash
 ALIAS=netbsd; TARGET=aarch64-netbsd; SIG=NetBSD; DEST='~/kaappi'
-CC=cc; DEPS='doas /usr/pkg/bin/pkgin -y install bash'
+CC=cc; BASH=/usr/pkg/bin/bash; DEPS='doas /usr/pkg/bin/pkgin -y install bash'
 RUNPREFIX='ulimit -s $(ulimit -Hs); ulimit -d $(ulimit -Hd);'
 # One-time, if the unit suite is OOM-killed ("out of swap"):
 #   ssh netbsd 'doas sh -c "dd if=/dev/zero of=/swapfile bs=1m count=6144 && \
@@ -201,12 +218,13 @@ RUNPREFIX='ulimit -s $(ulimit -Hs); ulimit -d $(ulimit -Hd);'
 present, but the FFI fixture needs a compiler from `build-base` and Alpine
 ships no `cc` alias, so use `gcc`. Emulated and slow; give the unit suite
 memory headroom. First run has no repo — step 4's `mkdir -p` handles it.
+
 ```bash
 # s390x:
 ALIAS=alpine;         TARGET=s390x-linux-musl;       SIG='IBM S/390'; DEST='~/kaappi'
 # ppc64le:
 ALIAS=alpine-ppc64le; TARGET=powerpc64le-linux-musl; SIG=PowerPC;     DEST='~/kaappi'
-CC=gcc; DEPS='sudo apk add --no-cache build-base'; RUNPREFIX=''
+CC=gcc; BASH=bash; DEPS='sudo apk add --no-cache build-base'; RUNPREFIX=''
 ```
 
 Deep detail for each port lives in `docs/dev/{freebsd,openbsd,netbsd}.md`
@@ -225,12 +243,16 @@ reference-machine quirks are in the `reference-win11-vm` memory.
 2. **Build on the Mac:** `zig build -Dtarget=aarch64-windows`,
    `zig build lib -Dtarget=aarch64-windows`,
    `zig build test -Dtarget=aarch64-windows` (a clean compile gate anywhere).
-   Select `unit-tests.exe`/`thottam-tests.exe` from `.zig-cache` by newest
-   mtime among the Windows PE files.
+   Select `unit-tests.exe`/`thottam-tests.exe` from `.zig-cache` **by PE
+   machine type, not mtime** — an `x86_64-windows` build (see the x64 note
+   below) leaves same-named PE files in the cache. Match the arch, e.g.
+   `file .zig-cache/o/*/unit-tests.exe | grep -i aarch64` (use `x86-64` for
+   the x64 target), newest match wins.
 3. **Ship** into `C:\tmp` (must exist — tests write `/tmp/...` → `\tmp`).
-   Keep PowerShell off the binary stdin with a `cmd` wrapper, and suppress
-   AppleDouble files:
+   Create the staging subdir first (`tar -C` won't make it), keep PowerShell
+   off the binary stdin with a `cmd` wrapper, and suppress AppleDouble files:
    ```bash
+   ssh win11 'cmd /c "if not exist C:\tmp\kaappi-vm mkdir C:\tmp\kaappi-vm"'
    COPYFILE_DISABLE=1 tar czf - <files> \
      | ssh win11 'cmd /c "tar -xzf - -C C:\tmp\kaappi-vm"'
    ```
