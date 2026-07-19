@@ -497,6 +497,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
+                    // SRFI 248 empty-continuation?: this native is entered via a
+                    // tail call, so raise/raise-continuable reached here in tail
+                    // context of the enclosing thunk (see VM.native_call_was_tail).
+                    self.native_call_was_tail = true;
                     const result = native.func(nargs_slice) catch |err| {
                         if (self.profile_mode) {
                             native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
@@ -691,6 +695,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
+                    self.native_call_was_tail = true; // SRFI 248: tail apply
                     const result = native.func(flat_args[0..count]) catch |err| {
                         if (err == error.ContinuationInvoked) {
                             if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
@@ -956,6 +961,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     };
                     if (arity_ok and base + @as(u16, nargs) + 1 < self.registers.len) {
                         const args = self.registers[base + 1 .. base + 1 + nargs];
+                        self.native_call_was_tail = false; // SRFI 248: regular call
                         const result = native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
                                 if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
@@ -1070,6 +1076,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
+                    self.native_call_was_tail = true; // SRFI 248: tail call
                     const result = if (!self.profile_mode)
                         native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
@@ -1228,6 +1235,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const nargs_slice = &[_]Value{cont_val};
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
+                    self.native_call_was_tail = true; // SRFI 248: tail call
                     const result = native.func(nargs_slice) catch |err| {
                         if (err == error.ContinuationInvoked) {
                             if (resumesHere(self, target_frame_count, scope_root_seq)) continue;

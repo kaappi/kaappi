@@ -35,6 +35,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
+    // SRFI 248 (minimal delimited continuations): building blocks for the
+    // portable (srfi 248) library. Not for direct use — see lib/srfi/248.sld.
+    .{ .name = "%call-with-unwind-handler", .func = &callWithUnwindHandlerFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_248_primitives) },
+    .{ .name = "%unwind-raise-empty?", .func = &unwindRaiseEmptyFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_248_primitives) },
+    .{ .name = "%pop-unwind-handler!", .func = &popUnwindHandlerFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_248_primitives) },
 };
 
 // ---------------------------------------------------------------------------
@@ -51,7 +56,47 @@ pub fn raiseFn(args: []const Value) PrimitiveError!Value {
         primitives_io.writeStderr("\n");
         return PrimitiveError.TypeError; // bare-ok: no VM for raise
     };
+    // SRFI 248: a sticky (unwind) handler catches raise the same way it
+    // catches raise-continuable — invoked in place so the handler can capture
+    // the delimited continuation before the stack unwinds.
+    if (vm.handler_count > 0 and vm.handler_stack[vm.handler_count - 1].sticky) {
+        return dispatchStickyUnwind(vm, args[0], false);
+    }
     vm.current_exception = args[0];
+    return PrimitiveError.ExceptionRaised;
+}
+
+/// SRFI 248: invoke the current sticky (unwind) handler in place, WITHOUT
+/// popping it. Because it stays on the handler stack, a delimited continuation
+/// captured while it runs snapshots it, so resuming that continuation re-arms
+/// the prompt (reset0 semantics). Latches emptiness for empty-continuation?.
+/// `continuable` distinguishes raise-continuable (a normal handler return is
+/// its value) from raise (a normal return is a secondary error per R7RS — the
+/// SRFI 248 handler always escapes via shift, so this only fires on misuse).
+fn dispatchStickyUnwind(vm: *vm_mod.VM, obj: Value, continuable: bool) PrimitiveError!Value {
+    const entry = vm.handler_stack[vm.handler_count - 1];
+    // The delimited continuation is empty iff the raise is in tail context of
+    // the guarded thunk: the raise itself is a tail call (native_call_was_tail)
+    // AND no non-tail frame sits between the prompt and the raise. The sticky
+    // handler was installed one frame below the thunk (%call-with-unwind-handler
+    // pushes it, then calls the thunk via callThunk), so a pure tail chain keeps
+    // frame_count at entry.frame_count + 1; any intervening non-tail call adds a
+    // frame. The immediate tail bit alone is not enough — a raise in tail
+    // position of a helper that was itself called non-tail is not empty.
+    vm.pending_raise_empty = vm.native_call_was_tail and
+        (vm.frame_count == entry.frame_count + 1);
+    const handler = entry.handler;
+    const result = vm.callHandler(handler, obj, 0) catch |err| {
+        return err;
+    };
+    if (continuable) return result;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var msg = gc.allocString("exception handler returned from non-continuable exception") catch
+        return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+    vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }
 
@@ -69,6 +114,10 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
         vm.current_exception = args[0];
         return PrimitiveError.ExceptionRaised;
     }
+    // SRFI 248: sticky handler — invoke in place without popping.
+    if (vm.handler_stack[vm.handler_count - 1].sticky) {
+        return dispatchStickyUnwind(vm, args[0], true);
+    }
     const handler = vm.handler_stack[vm.handler_count - 1].handler;
     vm.popHandler();
     const result = vm.callHandler(handler, args[0], 0) catch |err| {
@@ -77,6 +126,28 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
     };
     vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
     return result;
+}
+
+/// Convert a natively-propagating VM error (undefined variable, type error,
+/// arity, ...) into the Scheme error object a handler or guard clause sees.
+/// This is the single boundary where the error's stable diagnostic code gets
+/// stamped onto the object — that is what makes `error-object-code` able to
+/// recover it (KEP-0005 §4, #1508). `runtimeErrorCode` maps the Zig error to
+/// its curated code and yields `.uncategorized` (→ #f) for anything without
+/// one. Shared by with-exception-handler and %call-with-unwind-handler so the
+/// two error-coding boundaries cannot drift apart.
+///
+/// The returned object is *unrooted* — root it before allocating again.
+fn nativeErrorToErrorObject(vm: *vm_mod.VM, gc: *memory.GC, err: anyerror) PrimitiveError!Value {
+    const detail = vm.getErrorDetail();
+    var msg_str = if (detail.len > 0)
+        gc.allocString(detail) catch return PrimitiveError.OutOfMemory
+    else
+        gc.allocString("error") catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg_str);
+    defer gc.popRoot();
+    return gc.allocErrorObjectCoded(msg_str, types.NIL, diagnostics.runtimeErrorCode(err)) catch
+        return PrimitiveError.OutOfMemory;
 }
 
 fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
@@ -118,22 +189,8 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         }
         vm.popHandler();
         // Convert VM-level errors into Scheme exceptions so guard can catch them.
-        // This is the single boundary where a natively-propagating runtime error
-        // (undefined variable, type error, arity, ...) becomes the error object a
-        // guard clause sees, so it is where the error's stable diagnostic code
-        // gets stamped onto the object — that is what makes `error-object-code`
-        // able to recover it (KEP-0005 §4, #1508). `runtimeErrorCode` maps the
-        // Zig error to its curated code and yields `.uncategorized` (→ #f) for
-        // anything without one.
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const detail = vm.getErrorDetail();
-        var msg_str = if (detail.len > 0)
-            gc.allocString(detail) catch return PrimitiveError.OutOfMemory
-        else
-            gc.allocString("error") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg_str);
-        defer gc.popRoot();
-        const err_obj = gc.allocErrorObjectCoded(msg_str, types.NIL, diagnostics.runtimeErrorCode(err)) catch return PrimitiveError.OutOfMemory;
+        const err_obj = try nativeErrorToErrorObject(vm, gc, err);
         var handler_root = handler;
         gc.pushRoot(&handler_root);
         defer gc.popRoot();
@@ -149,6 +206,86 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
     // Normal return -- pop the handler
     vm.popHandler();
     return result;
+}
+
+/// SRFI 248 %call-with-unwind-handler: like with-exception-handler, but installs
+/// a *sticky* handler (raise/raise-continuable invoke it in place without
+/// popping). The portable (srfi 248) library wraps this in a Filinski
+/// shift/reset delimiter so the handler receives a delimited continuation.
+///
+/// The thunk's raise/raise-continuable are dispatched to `handler` in place by
+/// dispatchStickyUnwind (the handler shifts away, surfacing here as
+/// ContinuationInvoked, which we propagate). A native runtime error (car of a
+/// non-pair, unbound variable, ...) is not routed through the handler stack, so
+/// we catch it here, turn it into a coded error object, and hand it to the
+/// handler with an empty delimited continuation (the stack has already unwound).
+fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const handler = args[0];
+    const thunk = args[1];
+
+    if (!types.isProcedure(handler)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[0]);
+    if (!types.isProcedure(thunk)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[1]);
+
+    vm.pushHandlerSticky(handler) catch return PrimitiveError.OutOfMemory;
+
+    const result = vm.callThunk(thunk) catch |err| {
+        if (err == vm_mod.VMError.ContinuationInvoked) {
+            // The handler shifted away to the enclosing reset*, whose
+            // continuation restore already re-set the handler stack (and the
+            // library popped the sticky handler via %pop-unwind-handler!), so
+            // popping here would corrupt the restored state.
+            return PrimitiveError.ContinuationInvoked;
+        }
+        vm.popHandler();
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        var handler_root = handler;
+        gc.pushRoot(&handler_root);
+        defer gc.popRoot();
+
+        var exc: Value = undefined;
+        if (err == vm_mod.VMError.ExceptionRaised) {
+            exc = vm.current_exception orelse types.FALSE;
+            vm.current_exception = null;
+        } else {
+            exc = try nativeErrorToErrorObject(vm, gc, err);
+        }
+        gc.pushRoot(&exc);
+        defer gc.popRoot();
+        // The guarded computation has unwound, so the delimited continuation the
+        // handler will capture is empty.
+        vm.pending_raise_empty = true;
+        return vm.callHandler(handler_root, exc, 0) catch |herr| {
+            return herr;
+        };
+    };
+
+    vm.popHandler();
+    return result;
+}
+
+/// SRFI 248 %unwind-raise-empty?: #t when the delimited continuation captured
+/// for the raise/raise-continuable that most recently reached a sticky handler
+/// is empty (the raise was in tail context of the guarded thunk). Backs
+/// empty-continuation?.
+fn unwindRaiseEmptyFn(_: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    return if (vm.pending_raise_empty) types.TRUE else types.FALSE;
+}
+
+/// SRFI 248 %pop-unwind-handler!: remove the current sticky (unwind) handler
+/// from the *live* handler stack. The library calls this from inside the shift,
+/// after the delimited continuation has been captured (so the snapshot still
+/// carries the handler and a resume re-arms the prompt), but before running the
+/// user handler body — otherwise that body's own raise/raise-continuable would
+/// re-enter the same sticky handler and loop. No-op if the top handler is not
+/// sticky, so it can never disturb an ordinary handler.
+fn popUnwindHandlerFn(_: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    if (vm.handler_count > 0 and vm.handler_stack[vm.handler_count - 1].sticky) {
+        vm.handler_count -= 1;
+    }
+    return types.VOID;
 }
 
 fn errorObjectP(args: []const Value) PrimitiveError!Value {

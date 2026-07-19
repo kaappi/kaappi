@@ -672,11 +672,11 @@ pub const SavedFrame = struct {
     seq: u64,
 };
 
-/// Saved exception handler for continuation capture.
-pub const SavedHandler = struct {
-    handler: Value,
-    frame_count: usize,
-};
+/// Saved exception handler for continuation capture. Deliberately the *same*
+/// type as the live `ExceptionHandler` so `captureContinuation` can hand the
+/// live handler stack straight to `allocContinuation` — no per-capture
+/// conversion buffer on a path that runs once per call/cc.
+pub const SavedHandler = ExceptionHandler;
 
 /// Saved dynamic-wind record.
 pub const WindRecord = struct {
@@ -705,6 +705,11 @@ pub const INITIAL_FIBER_FRAME_CAPACITY: usize = 32;
 pub const ExceptionHandler = struct {
     handler: Value,
     frame_count: usize,
+    // SRFI 248 (with-unwind-handler): when true, raise/raise-continuable
+    // invoke this handler in place *without* popping it, so a continuation
+    // captured during handling snapshots the handler and a later resume
+    // re-arms it. Ordinary (scheme base) handlers leave this false.
+    sticky: bool = false,
 };
 
 pub const CallFrame = struct {

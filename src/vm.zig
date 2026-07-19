@@ -187,6 +187,14 @@ pub const VM = struct {
     handler_count: usize = 0,
     native_reentry_depth: u16 = 0,
     current_exception: ?Value = null,
+    // SRFI 248 empty-continuation?: set by the bytecode dispatch loop just
+    // before it enters a native via a *tail* call, cleared before a regular
+    // call. When a sticky (unwind) handler catches, raise/raise-continuable
+    // combine it with the handler's frame_count baseline to decide whether the
+    // delimited continuation is empty, latched into `pending_raise_empty` for
+    // `%unwind-raise-empty?` to read.
+    native_call_was_tail: bool = false,
+    pending_raise_empty: bool = false,
     wind_stack: [MAX_WINDS]types.WindRecord = undefined,
     wind_count: usize = 0,
     continuation_invoked: bool = false,
@@ -701,6 +709,18 @@ pub const VM = struct {
         self.handler_stack[self.handler_count] = .{
             .handler = handler,
             .frame_count = self.frame_count,
+        };
+        self.handler_count += 1;
+    }
+
+    /// SRFI 248: push a sticky (unwind) handler that raise/raise-continuable
+    /// invoke without popping. See `types.ExceptionHandler.sticky`.
+    pub fn pushHandlerSticky(self: *VM, handler: Value) VMError!void {
+        if (self.handler_count >= MAX_HANDLERS) return VMError.StackOverflow;
+        self.handler_stack[self.handler_count] = .{
+            .handler = handler,
+            .frame_count = self.frame_count,
+            .sticky = true,
         };
         self.handler_count += 1;
     }

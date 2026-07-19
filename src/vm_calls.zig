@@ -598,6 +598,9 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMErro
 
     const args = vm.registers[base + 1 .. base + 1 + nargs];
     vm.last_error_detail_len = 0;
+    // SRFI 248: a regular (non-tail) call — clear the tail latch so
+    // raise/raise-continuable does not misreport an empty continuation.
+    vm.native_call_was_tail = false;
 
     const native_start = if (vm.profile_mode) clockNs() else 0;
 
@@ -725,6 +728,7 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
         const native = types.toObject(handler_val).as(types.NativeFn);
         const args = [1]Value{arg};
         vm.last_error_detail_len = 0;
+        vm.native_call_was_tail = false; // SRFI 248: re-entrant, not a tail call
         const result = native.func(&args) catch |err| {
             return mapNativeError(vm, err, native.name, &args);
         };
@@ -754,6 +758,7 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
     } else if (types.isNativeFn(thunk_val)) {
         const native = types.toObject(thunk_val).as(types.NativeFn);
         const empty_args: []const Value = &.{};
+        vm.native_call_was_tail = false; // SRFI 248: re-entrant, not a tail call
         const result = native.func(empty_args) catch |err| {
             return mapNativeError(vm, err, native.name, empty_args);
         };
@@ -767,6 +772,7 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
 }
 
 pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
+    vm.native_call_was_tail = false; // SRFI 248: apply-style call, not a tail call
     if (types.isFfiFunction(proc)) {
         const ffi_fn = types.toObject(proc).as(types.FfiFunction);
         if (args.len != ffi_fn.param_count) {

@@ -45,15 +45,11 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
         };
     }
 
-    // Convert handlers to SavedHandlers
-    var saved_handlers: [MAX_HANDLERS]types.SavedHandler = undefined;
-    for (vm.handler_stack[0..vm.handler_count], 0..) |h, i| {
-        saved_handlers[i] = .{
-            .handler = h.handler,
-            .frame_count = h.frame_count,
-        };
-    }
-
+    // SavedHandler *is* ExceptionHandler, so the live handler stack is passed
+    // straight through — allocContinuation copies it into the snapshot's
+    // backing buffer. (An intermediate [MAX_HANDLERS]SavedHandler buffer here
+    // would cost a multi-kilobyte stack frame on every single call/cc.)
+    //
     // The snapshot below copies the contiguous [0, max_reg) register range,
     // which spans dead gaps between live frame windows. Scrub stale pointers
     // out of those gaps first so the snapshot can't outlive their targets
@@ -64,7 +60,7 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
         vm.registers[0..max_reg],
         saved_frames[0..vm.frame_count],
         vm.frame_count,
-        saved_handlers[0..vm.handler_count],
+        vm.handler_stack[0..vm.handler_count],
         vm.handler_count,
         vm.wind_stack[0..vm.wind_count],
         vm.wind_count,
@@ -198,12 +194,7 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VME
     vm.frame_count = cont.frame_count;
 
     // Restore handler stack
-    for (cont.handlers[0..cont.handler_count], 0..) |saved_handler, i| {
-        vm.handler_stack[i] = .{
-            .handler = saved_handler.handler,
-            .frame_count = saved_handler.frame_count,
-        };
-    }
+    @memcpy(vm.handler_stack[0..cont.handler_count], cont.handlers[0..cont.handler_count]);
     vm.handler_count = cont.handler_count;
 
     // Restore wind stack
