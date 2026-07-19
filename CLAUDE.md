@@ -628,6 +628,8 @@ detailed checklists for GC write barriers, rooting, and compiler form additions.
 | `/do-linux-test` | Full test suite on real x86-64 Linux via DigitalOcean droplet |
 | `/do-stress-test` | Unit suite under `-Dgc-stress=true` on a DigitalOcean droplet (3-hour lifetime) |
 | `/do-gate-benchmark` | KEP gate-campaign statistical benchmark (`benchmarks/gate/`) on a Linux x86_64 reference machine via DigitalOcean droplet |
+| `/parallel-issues` | Group open GitHub issues into parallel sets for concurrent Claude Code sessions |
+| `/quiz` | Prediction-with-commitment comprehension quiz on a core-tier subsystem (`docs/dev/understanding-map.md`); answers verified against code and live runs, results logged to `~/.kaappi/quiz-ledger.md` |
 
 ### Ecosystem plugin (`kaappi-dev`)
 

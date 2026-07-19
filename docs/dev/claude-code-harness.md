@@ -305,6 +305,26 @@ dataset (PR #1580); see the skill file for the full lesson set (droplet
 tier-restriction gotcha, three bash-guard string-match footguns, splitting a
 run around a per-machine workload cap).
 
+### `/parallel-issues`
+
+Groups open GitHub issues into sets that can be worked concurrently by
+separate Claude Code sessions without file-level conflicts. Optional
+arguments: a label (or comma-separated labels) restricting which issues
+are considered, and a comma-separated list of issue numbers to skip.
+
+### `/quiz`
+
+Prediction-with-commitment comprehension quiz on a core-tier subsystem
+from [understanding-map.md](understanding-map.md) — the practice half of
+the cognitive-debt policy that document defines. Protocol: silently read
+the current sources (not the docs), ask 3–5
+prediction/invariant/design/debugging questions, require committed
+answers before revealing anything, then grade with evidence — live runs
+and `file:line` citations, never recall. Results append to a per-user
+ledger at `~/.kaappi/quiz-ledger.md`, kept outside the repo deliberately
+(survives worktrees, stays private). Doc-vs-code drift and
+user-beats-code disagreements surface as findings to file or fix.
+
 ## Ecosystem Plugin (`kaappi-dev`)
 
 The `infra/` repo hosts a Claude Code plugin called `kaappi-dev` that provides
