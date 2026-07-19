@@ -825,4 +825,8 @@ test "top-level cond-expand malformed-form parity with the compiler (#1661)" {
     // An improper clause-list tail reached without a match is the syntax error
     // the compiler reports for the same form in expression position.
     try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (no-such-feature 1) . junk)"));
+
+    // An improper selected clause body is likewise rejected, rather than
+    // silently splicing the proper prefix and dropping the tail.
+    try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (else 1 . junk))"));
 }

@@ -206,9 +206,12 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
 // error; a proper but unsatisfied list (no matching clause, no else) yields
 // void; and — like the compiler — a matched clause returns immediately without
 // inspecting later clauses, so trailing clauses after a match are not validated.
-// The one case needing an explicit check is an improper clause-list tail reached
-// without a match (e.g. `(cond-expand (x 1) . junk)`): the compiler rejects it,
-// so we do too rather than silently yield void.
+// Two structural cases need an explicit check because handleTopLevelBegin (shared
+// with top-level begin) silently ignores improper tails while the compiler
+// rejects them: an improper clause-list tail reached without a match (e.g.
+// `(cond-expand (x 1) . junk)`), and an improper selected clause body (e.g.
+// `(cond-expand (else 1 . junk))`). Both are validated here so cond-expand's own
+// structure matches the compiler; begin's own leniency is left untouched.
 fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
     var clauses = clauses_val;
     while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
@@ -217,11 +220,21 @@ fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
         const feature_req = types.car(clause);
         const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
         if (is_else or vm_library.evalLibFeatureReq(vm, feature_req)) {
-            return handleTopLevelBegin(vm, types.cdr(clause));
+            const body = types.cdr(clause);
+            if (!isProperList(body)) return VMError.CompileError;
+            return handleTopLevelBegin(vm, body);
         }
     }
     if (clauses != types.NIL) return VMError.CompileError;
     return types.VOID;
+}
+
+// A proper (nil-terminated) list? Used to reject improper clause bodies before
+// splicing them, matching the compiler's rejection of the same malformed form.
+fn isProperList(list: Value) bool {
+    var rest = list;
+    while (types.isPair(rest)) rest = types.cdr(rest);
+    return rest == types.NIL;
 }
 
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
