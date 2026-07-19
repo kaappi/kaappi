@@ -2,6 +2,7 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const types = @import("types.zig");
 const ffi = @import("ffi.zig");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 
 // A C-ABI function with a real `_Bool` parameter. In safe builds (the default)
@@ -165,4 +166,111 @@ test "ffi callback error state is consumed by the failing call (#1185)" {
 
     _ = try ctx.vm.eval("(ffi-callback-release bad)");
     _ = try ctx.vm.eval("(ffi-callback-release good)");
+}
+
+// ---------------------------------------------------------------------------
+// ffi-open failure diagnostics: report the load error of the candidate that
+// exists (or the name the user asked for), never the "no such file" of
+// whichever fallback probe happened to run last
+// ---------------------------------------------------------------------------
+
+/// Evals `(ffi-open "<target>")` under a guard and returns the raised error
+/// message. The slice points into ctx's heap — assert on it before
+/// evaluating anything else.
+fn ffiOpenErrorMessage(ctx: *th.TestContext, target: []const u8) ![]const u8 {
+    var src_buf: [1400]u8 = undefined;
+    const src = try std.fmt.bufPrint(
+        &src_buf,
+        "(guard (e (#t (error-object-message e))) (ffi-open \"{s}\") 'no-error)",
+        .{target},
+    );
+    const caught = try ctx.vm.eval(src);
+    try std.testing.expect(types.isString(caught));
+    const s = types.toObject(caught).as(types.SchemeString);
+    return s.data[0..s.len];
+}
+
+test "ffi-open: existing unloadable file's own error is reported, not a probe's" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "garbage-lib", .data = "not a shared library" });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var target_buf: [1200]u8 = undefined;
+    const target = try std.fmt.bufPrint(&target_buf, "{s}/garbage-lib", .{dir_path});
+    // Backslashes would be escape characters inside the Scheme string
+    // literal; Win32 accepts forward slashes.
+    std.mem.replaceScalar(u8, target, '\\', '/');
+
+    const msg = try ffiOpenErrorMessage(&ctx, target);
+    // The report is about the file that exists…
+    try std.testing.expect(std.mem.indexOf(u8, msg, "garbage-lib") != null);
+    // …not about a suffixed or home-prefixed candidate that never existed.
+    try std.testing.expect(std.mem.indexOf(u8, msg, "garbage-lib.so") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "garbage-lib.dylib") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "garbage-lib.dll") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "lib//") == null);
+}
+
+test "ffi-open: bare name hitting an unloadable file under KAAPPI_HOME/lib reports that file's error" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "lib");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "lib/kaappi-test-home-garbage", .data = "not a shared library" });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    // Point getHome's KAAPPI_HOME override at the tmp dir for the duration.
+    var old_buf: [1024]u8 = undefined;
+    const old_home: ?[]const u8 = if (platform.getenv("KAAPPI_HOME")) |v| blk: {
+        const s = std.mem.sliceTo(v, 0);
+        if (s.len > old_buf.len) break :blk null;
+        @memcpy(old_buf[0..s.len], s);
+        break :blk old_buf[0..s.len];
+    } else null;
+    try platform.setEnv(std.testing.allocator, "KAAPPI_HOME", dir_path);
+    defer if (old_home) |v| {
+        platform.setEnv(std.testing.allocator, "KAAPPI_HOME", v) catch {};
+    } else {
+        platform.unsetEnv(std.testing.allocator, "KAAPPI_HOME") catch {};
+    };
+
+    const msg = try ffiOpenErrorMessage(&ctx, "kaappi-test-home-garbage");
+    // The middle-of-probe-order candidate that exists is the subject…
+    try std.testing.expect(std.mem.indexOf(u8, msg, "kaappi-test-home-garbage") != null);
+    // …not the .dylib/.so/.dll probes that ran (and missed) after it.
+    try std.testing.expect(std.mem.indexOf(u8, msg, "kaappi-test-home-garbage.") == null);
+}
+
+test "ffi-open: name not found anywhere reports the requested name plus probe note" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const msg = try ffiOpenErrorMessage(&ctx, "kaappi-no-such-lib-zz");
+    try std.testing.expect(std.mem.indexOf(u8, msg, "kaappi-no-such-lib-zz") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "also tried") != null);
+}
+
+test "ffi-open: a path with separators is not re-searched under home lib" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const msg = try ffiOpenErrorMessage(&ctx, "/kaappi-no-such-dir/libnope");
+    try std.testing.expect(std.mem.indexOf(u8, msg, "libnope") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "also tried") != null);
+    // The note must not claim a home-dir probe, and no doubled
+    // "<home>/lib/<path>" mashup may appear anywhere in the message.
+    try std.testing.expect(std.mem.indexOf(u8, msg, "/lib/)") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "lib//") == null);
 }

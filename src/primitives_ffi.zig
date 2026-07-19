@@ -28,6 +28,75 @@ fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
     }
 }
 
+/// dlopen(3) treats a name containing a slash as a pathname (relative or
+/// absolute) rather than a search key. The <home>/lib/ fallback in ffiOpen
+/// mirrors that distinction: prepending the fallback dir to a path would
+/// probe nonsense like "<home>/lib//opt/foo/libbar.dylib.so".
+fn hasPathSeparator(name: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, name, '/') != null) return true;
+    return platform.is_windows and std.mem.indexOfScalar(u8, name, '\\') != null;
+}
+
+/// platform.dl_suffixes joined with "/" (e.g. ".dylib/.so/.so.6"), for the
+/// "also tried" note in ffiOpen's not-found diagnostic.
+const dl_suffix_list = blk: {
+    var s: []const u8 = "";
+    for (platform.dl_suffixes, 0..) |suffix, i| {
+        if (i > 0) s = s ++ "/";
+        s = s ++ suffix;
+    }
+    break :blk s;
+};
+
+/// Failure diagnostics for ffiOpen's candidate probing. dlerror(3) only
+/// remembers the most recent failure, so without snapshots the fallback
+/// probes would bury the interesting error under a "no such file" for a
+/// candidate path the user never asked for. Two snapshots are kept: the
+/// as-is attempt's error (the name the user actually passed), and the
+/// error of the first candidate that exists on disk but still failed to
+/// load — a code-signing, architecture, or file-format rejection is the
+/// failure that matters, wherever it fell in the probe order.
+const DlOpenDiag = struct {
+    first_buf: [256]u8 = undefined,
+    first_len: usize = 0,
+    real_buf: [256]u8 = undefined,
+    real_len: usize = 0,
+    real_cand_buf: [512]u8 = undefined,
+    real_cand_len: usize = 0,
+
+    fn noteFailure(self: *DlOpenDiag, candidate: [:0]const u8, is_first: bool) void {
+        // Read dlerror before the existence probe: reading consumes the
+        // pending error, and on Windows the text is rendered from
+        // GetLastError() at read time, which the probe's own syscalls
+        // would overwrite.
+        const err_msg = platform.dlError() orelse return;
+        const text = std.mem.span(err_msg);
+        if (is_first) self.first_len = copyInto(&self.first_buf, text);
+        if (self.real_len == 0 and platform.pathExists(candidate)) {
+            self.real_len = copyInto(&self.real_buf, text);
+            self.real_cand_len = copyInto(&self.real_cand_buf, candidate);
+        }
+    }
+
+    fn firstErr(self: *const DlOpenDiag) ?[]const u8 {
+        return if (self.first_len > 0) self.first_buf[0..self.first_len] else null;
+    }
+
+    fn realErr(self: *const DlOpenDiag) ?[]const u8 {
+        return if (self.real_len > 0) self.real_buf[0..self.real_len] else null;
+    }
+
+    fn realCand(self: *const DlOpenDiag) []const u8 {
+        return self.real_cand_buf[0..self.real_cand_len];
+    }
+
+    fn copyInto(dst: []u8, src: []const u8) usize {
+        const n = @min(dst.len, src.len);
+        @memcpy(dst[0..n], src[0..n]);
+        return n;
+    }
+};
+
 /// (ffi-open path-or-#f)
 /// Opens a shared library. Pass #f for the default process (all linked symbols).
 fn ffiOpen(args: []const Value) PrimitiveError!Value {
@@ -42,18 +111,22 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 
     if (!types.isString(args[0])) return primitives.typeError("ffi-open", "string", args[0]);
     const str = types.toObject(args[0]).as(types.SchemeString);
+    const name = str.data[0..str.len];
 
     // Build null-terminated name
     var buf: [256]u8 = undefined;
     if (str.len >= buf.len) return primitives.typeError("ffi-open", "string shorter than 256 bytes", args[0]);
-    @memcpy(buf[0..str.len], str.data[0..str.len]);
+    @memcpy(buf[0..str.len], name);
     buf[str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(buf[0..str.len :0]);
 
+    var diag: DlOpenDiag = .{};
+
     // Try the name as-is
     if (platform.dlOpen(cname)) |handle| {
-        return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+        return gc.allocFfiLibrary(handle, name) catch return PrimitiveError.OutOfMemory;
     }
+    diag.noteFailure(buf[0..str.len :0], true);
 
     // Try platform library suffixes. ".so.6" covers glibc's core libraries
     // (libm, libc), where the unversioned .so is a linker script that
@@ -64,41 +137,80 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
             buf[str.len + suffix.len] = 0;
             const cname2: [*:0]const u8 = @ptrCast(buf[0 .. str.len + suffix.len :0]);
             if (platform.dlOpen(cname2)) |handle| {
-                return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+                return gc.allocFfiLibrary(handle, name) catch return PrimitiveError.OutOfMemory;
             }
+            diag.noteFailure(buf[0 .. str.len + suffix.len :0], false);
         }
     }
 
-    // Try $KAAPPI_HOME/lib/ (or ~/.kaappi/lib/) as a fallback for installed packages
+    // Try $KAAPPI_HOME/lib/ (or ~/.kaappi/lib/) as a fallback for installed
+    // packages — but only for bare names: dlopen(3) treats a name with a
+    // path separator as a pathname, not something to re-search elsewhere.
     const kaappi_paths = @import("kaappi_paths.zig");
     var home_buf: [256]u8 = undefined;
-    if (kaappi_paths.getHome(&home_buf)) |kaappi_home| {
-        const lib_prefix = "/lib/";
-        const home_suffixes: []const []const u8 =
-            if (comptime platform.is_windows) &.{ "", ".dll" } else &.{ "", ".dylib", ".so" };
-        for (home_suffixes) |suffix| {
-            if (kaappi_home.len + lib_prefix.len + str.len + suffix.len < 512) {
-                var pbuf: [512]u8 = undefined;
-                @memcpy(pbuf[0..kaappi_home.len], kaappi_home);
-                @memcpy(pbuf[kaappi_home.len..][0..lib_prefix.len], lib_prefix);
-                @memcpy(pbuf[kaappi_home.len + lib_prefix.len ..][0..str.len], str.data[0..str.len]);
-                @memcpy(pbuf[kaappi_home.len + lib_prefix.len + str.len ..][0..suffix.len], suffix);
-                const total = kaappi_home.len + lib_prefix.len + str.len + suffix.len;
-                pbuf[total] = 0;
-                const pname: [*:0]const u8 = @ptrCast(pbuf[0..total :0]);
-                if (platform.dlOpen(pname)) |handle| {
-                    return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+    var searched_home: ?[]const u8 = null;
+    if (!hasPathSeparator(name)) {
+        if (kaappi_paths.getHome(&home_buf)) |kaappi_home| {
+            searched_home = kaappi_home;
+            const lib_prefix = "/lib/";
+            const home_suffixes: []const []const u8 =
+                if (comptime platform.is_windows) &.{ "", ".dll" } else &.{ "", ".dylib", ".so" };
+            for (home_suffixes) |suffix| {
+                if (kaappi_home.len + lib_prefix.len + str.len + suffix.len < 512) {
+                    var pbuf: [512]u8 = undefined;
+                    @memcpy(pbuf[0..kaappi_home.len], kaappi_home);
+                    @memcpy(pbuf[kaappi_home.len..][0..lib_prefix.len], lib_prefix);
+                    @memcpy(pbuf[kaappi_home.len + lib_prefix.len ..][0..str.len], name);
+                    @memcpy(pbuf[kaappi_home.len + lib_prefix.len + str.len ..][0..suffix.len], suffix);
+                    const total = kaappi_home.len + lib_prefix.len + str.len + suffix.len;
+                    pbuf[total] = 0;
+                    const pname: [*:0]const u8 = @ptrCast(pbuf[0..total :0]);
+                    if (platform.dlOpen(pname)) |handle| {
+                        return gc.allocFfiLibrary(handle, name) catch return PrimitiveError.OutOfMemory;
+                    }
+                    diag.noteFailure(pbuf[0..total :0], false);
                 }
             }
         }
     }
 
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (platform.dlError()) |err_msg| {
+    if (diag.realErr()) |err| {
+        // A candidate exists on disk but refused to load — report its
+        // error, prefixed with the path when the platform's dlerror text
+        // (e.g. Windows' bare "Win32 error N") doesn't already name it.
+        const cand = diag.realCand();
+        if (std.mem.indexOf(u8, err, cand) == null) {
+            vm.setErrorDetail("ffi-open: {s}: {s}", .{ cand, err });
+        } else {
+            vm.setErrorDetail("ffi-open: {s}", .{err});
+        }
+    } else if (diag.firstErr()) |err| {
+        // No candidate existed anywhere: report the as-is attempt's error
+        // — it is about the name the user actually asked for — plus a
+        // note about the other candidates probed.
+        const plain_note = " (also tried " ++ dl_suffix_list ++ " suffixes)";
+        var note_buf: [384]u8 = undefined;
+        const note: []const u8 = if (searched_home) |home|
+            std.fmt.bufPrint(&note_buf, " (also tried {s} suffixes and {s}/lib/)", .{ dl_suffix_list, home }) catch plain_note
+        else
+            plain_note;
+        // Clamp the dlerror text so the note survives the detail buffer:
+        // dyld's multi-path "tried:" list alone can overflow it, and the
+        // tail of that list is the least useful part of the message.
+        const overhead = "ffi-open: ".len + note.len + "cannot open '': ".len + name.len;
+        const room = vm.last_error_detail.len -| overhead;
+        const err_clamped = err[0..@min(err.len, room)];
+        if (std.mem.indexOf(u8, err_clamped, name) == null) {
+            vm.setErrorDetail("ffi-open: cannot open '{s}': {s}{s}", .{ name, err_clamped, note });
+        } else {
+            vm.setErrorDetail("ffi-open: {s}{s}", .{ err_clamped, note });
+        }
+    } else if (platform.dlError()) |err_msg| {
         const msg = std.mem.span(err_msg);
         vm.setErrorDetail("ffi-open: {s}", .{msg});
     } else {
-        vm.setErrorDetail("ffi-open: cannot open '{s}'", .{str.data[0..str.len]});
+        vm.setErrorDetail("ffi-open: cannot open '{s}'", .{name});
     }
     return PrimitiveError.TypeError; // bare-ok: detail set above
 }
