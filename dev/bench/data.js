@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784568610569,
+  "lastUpdate": 1784571331916,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9bc79a2a6a20e51807ac61bea798858518b98ae7",
-          "message": "Compile the LLVM native backend at -O2 with an IR-verify safety net (#1532)\n\nThe linker was invoked with no -O flag, so LLVM compiled the emitter's\ndeliberately naive IR at -O0 — none of the optimization that is the reason to\nuse LLVM ran. Every immediate was `add i64 0, K`, let-bindings and shadow-stack\nroot slots and args arrays went through alloca/load/store, and if/and/or became\nlong br/phi chains, all left in place.\n\nPass -O2 in tryLink (kaappi compile), the `zig build native` step, the\ndocumented manual flow, and the e2e harness so mem2reg/instcombine/simplifycfg/\nconstant-folding collapse this. Root-slot allocas whose address escapes into\nkaappi_gc_push_root correctly stay in memory for GC scanning.\n\nAdd the paired safety net: hand-written IR that passes -O0 can hide\nwell-formedness bugs that break or miscompile under -O2's stricter verifier and\npasses. tests/e2e/run-e2e.sh now verifies every emitted .ll before linking,\nchoosing opt -passes=verify, llvm-as, or (typical on CI, where neither is on\nPATH) zig cc -c — the same bundled LLVM that links the binary, so the step never\nsilently no-ops. The verifier runs without -w so no malformed-IR diagnostic is\nhidden; -w stays on the user-facing compile, where it only silences cosmetic\nwarnings (a hard verifier error still fails regardless).\n\ne2e stays green (24/24, native output diffs identically against the\ninterpreter); a new tak.scm locks in the -O2 native path on multi-way recursion.\nfib(38) runs 1.11x faster (-O0 1.605s -> -O2 1.441s); the IR shrinks (fib 67 ->\n51 instruction lines, all `add i64 0,K` immediates folded). Larger gains need\nLTO to inline the runtime primitives, tracked separately as #1493.\n\nCloses #1492.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T15:50:37+05:30",
-          "tree_id": "f3ec57e6f0647c836ad8afe5bc5373b476510bc7",
-          "url": "https://github.com/kaappi/kaappi/commit/9bc79a2a6a20e51807ac61bea798858518b98ae7"
-        },
-        "date": 1784026472921,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.348989,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.339414,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.91493,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.430202,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006338,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054042,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.501162,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069425,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.348304,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.941458,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.594865,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438538,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.825884,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.691371,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044627,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042685,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5b9049e4d141660b016e805267ee887066dbe50",
+          "message": "Root heap locals in prettyPrint tests against gc-stress sweeps (#1685)\n\nThe fuzz workflow's gc-stress variant crashed in \"prettyPrint clause form\nindentation\" (run 29720271494, issue #1682): the test held clause1 in an\nunrooted Zig local while the next makeList allocated, and under\n-Dgc-stress=true that allocation's collection swept clause1's pairs. The\nfinal makeList then slice-rooted the dangling value and markValueInner\nsegfaulted reading the freed header.\n\nThe bug usually hides: the freed Pair slot is typically reused by the very\nnext same-size allocation, so the dangling clause1 aliases clause2 and the\noutput silently becomes (cond (#f 2) (#f 2)) — which the old startsWith\nassertion accepted. That is why twelve prior scheduled fuzz runs passed.\nThe assertion is now an exact string compare, so under gc-stress the\nunrooted variant fails in both failure modes (content mismatch or crash).\n\nAlso root `body` in the neighboring body-form test, which stayed safe only\nbecause allocSymbol happens never to collect.\n\nFixes #1682\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T23:14:17+05:30",
+          "tree_id": "4350531545ce8405a9cb6531c72320f45ff8a665",
+          "url": "https://github.com/kaappi/kaappi/commit/e5b9049e4d141660b016e805267ee887066dbe50"
+        },
+        "date": 1784571330341,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.956971,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.649937,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.933151,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.577101,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006388,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05478,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507972,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069799,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.613269,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.008713,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.601928,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430574,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.851179,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.64506,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043299,
             "unit": "seconds"
           }
         ]
