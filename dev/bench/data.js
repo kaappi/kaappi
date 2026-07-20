@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784582818192,
+  "lastUpdate": 1784584018191,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2893437433dbcfc754488624b7a64ed727bc6778",
-          "message": "Add regression test for nested-wait dirty-snapshot hazard (#1490) (#1536)\n\nIssue #1490 is the same dirty-snapshot dispatch corruption as #1487, already\nfixed by the generic `driving` guard in #1521 (which merged ~10h after #1490\nwas filed). It reaches the hazard through a distinct trigger, though:\nreactor-timer theft. A spawned fiber's blocking wait, nested inside another\nfiber's live `thread-sleep!` drive, parks in the reactor bounded by the\nnearest timer in the shared heap -- which is the *ancestor's* own sleep\ntimer. That timer pop flips the ancestor `.suspended`; without the `driving`\nguard the nested drive would then re-dispatch the ancestor from its stale,\nmid-native-call snapshot, surfacing as `panic: integer overflow` in\ninvokeEscape.\n\nThe existing regression test (mutex-nested-dispatch-dirty-snapshot-1487.scm)\nonly exercises the mutex-unlock wake trigger, and the local channel wait\npaths #1490 names had no coverage. This adds an end-to-end test over all four\nblocking primitives (channel-receive, full-bounded channel-send, mutex-lock!,\ncondition-variable wait), each nested under a thread-sleep! loop -- also\ncompleting the condvar/channel end-to-end repro deliberately deferred in\n#1521's review.\n\nVerified via A/B (scheduleForDispatch -> scheduleImpl(false)): every scenario\ncrashes without the guard and passes with it.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T13:30:55Z",
-          "tree_id": "70bc0e816efeb6aad7bbddf90f2911922975ff1b",
-          "url": "https://github.com/kaappi/kaappi/commit/2893437433dbcfc754488624b7a64ed727bc6778"
-        },
-        "date": 1784037340718,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.2898,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.89474,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.911326,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.428838,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006369,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054086,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.503355,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069699,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.385955,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.955635,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.589243,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434188,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.881448,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.467774,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045488,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044849,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8209892aee9952a2d62b473d73610ac8322d0f38",
+          "message": "Add CLAUDE.md for docs/dev/ directory (#1708)\n\nGives Claude Code quick orientation when working inside developer\ndocumentation — directory layout, key documents by task, and conventions\nfor adding or editing docs.\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T02:12:50+05:30",
+          "tree_id": "c6aefe127bb375451489ec36e51018b1239ac38b",
+          "url": "https://github.com/kaappi/kaappi/commit/8209892aee9952a2d62b473d73610ac8322d0f38"
+        },
+        "date": 1784584016627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.98823,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.024997,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.913726,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.409326,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006751,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052579,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50679,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068049,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.286511,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.962409,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.517688,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.472067,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.706647,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.825647,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045377,
             "unit": "seconds"
           }
         ]
