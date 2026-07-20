@@ -1175,7 +1175,11 @@ test "prettyPrint body form indentation" {
     var plus_args: [11]Value = undefined;
     plus_args[0] = plus_sym;
     for (plus_args[1..], 0..) |*slot, i| slot.* = body_items[i];
-    const body = try gc.makeList(&plus_args);
+    var body = try gc.makeList(&plus_args);
+    // Root across the allocations below — unrooted locals are swept under
+    // -Dgc-stress=true (#1682).
+    gc.pushRoot(&body);
+    defer gc.popRoot();
 
     const define_sym = try gc.allocSymbol("define");
     const name_sym = try gc.allocSymbol("name");
@@ -1196,7 +1200,11 @@ test "prettyPrint clause form indentation" {
     // (cond (#t 1) (#f 2))
     const cond_sym = try gc.allocSymbol("cond");
     const clause1_items = [_]Value{ types.TRUE, types.makeFixnum(1) };
-    const clause1 = try gc.makeList(&clause1_items);
+    var clause1 = try gc.makeList(&clause1_items);
+    // clause1 must stay rooted while the next makeList allocates: under
+    // -Dgc-stress=true that collection sweeps unrooted locals (#1682).
+    gc.pushRoot(&clause1);
+    defer gc.popRoot();
     const clause2_items = [_]Value{ types.FALSE, types.makeFixnum(2) };
     const clause2 = try gc.makeList(&clause2_items);
     const cond_items = [_]Value{ cond_sym, clause1, clause2 };
@@ -1204,5 +1212,5 @@ test "prettyPrint clause form indentation" {
 
     const s = try prettyPrint(std.testing.allocator, form, 15);
     defer std.testing.allocator.free(s);
-    try std.testing.expect(std.mem.startsWith(u8, s, "(cond\n"));
+    try std.testing.expectEqualStrings("(cond\n  (#t 1)\n  (#f 2))", s);
 }
