@@ -273,7 +273,16 @@ jobs:
         run: KAAPPI_WASM=release/kaappi.wasm bash tests/acceptance/test-wasm.sh
 
   test-install-script:
-    runs-on: ubuntu-latest
+    # The installer's platform detection is where per-OS bugs have historically
+    # lived, so exercise it on every OS/arch pair GitHub hosts. riscv64, s390x
+    # and ppc64le are absent because no runner executes them natively — and
+    # they are interpreter-tier, so the archive assertions below would not
+    # apply there anyway.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
