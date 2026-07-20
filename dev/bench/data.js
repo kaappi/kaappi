@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784579647365,
+  "lastUpdate": 1784582818192,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "328ca95ea31a2231a5fdd29bf22520448495e251",
-          "message": "Add KEP-0003 acceptance-gate classification worksheet (#1474) (#1538)\n\nThe gate is a \"reading, not an argument\" of the #1472 §6 dataset, which\ndoes not exist yet (only the P3 eyeball benchmark landed in #1535). Build\nthe reading instrument now, from the frozen keps §5-§6 protocol, so that\nwhen the gate campaign produces the CSV the classification is pure\nfill-in-the-blanks with no room for post-hoc judgement: every gate and\nsupporting cell enumerated, each rule wired to its exact cells and CI\nbound, per-machine precedence and two-machine agreement as a mechanical\nprocedure. All data slots are empty placeholders; no numbers fabricated.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T18:45:31+05:30",
-          "tree_id": "ef88ff92af504dac94bd1da5667615aa0d773147",
-          "url": "https://github.com/kaappi/kaappi/commit/328ca95ea31a2231a5fdd29bf22520448495e251"
-        },
-        "date": 1784036291524,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.062417,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.766881,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.458791,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006902,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053479,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510707,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068104,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.262302,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.983827,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.529656,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.474136,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.754821,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.764479,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044725,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043671,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf764591cd2d569965d4c08434fd6b552c3b6ec6",
+          "message": "Document 16 excluded final SRFIs with rationale (#1707)\n\n* Document 16 excluded final SRFIs with rationale\n\nRecord which final SRFIs are excluded from implementation and why,\nso the decision isn't relitigated. Two categories: 7 meta/ecosystem\nSRFIs already covered by existing Kaappi features, and 9 non-standard\nreader syntax SRFIs that would fundamentally alter the parser.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* Reference SRFI exclusions doc and roadmap from CLAUDE.md\n\nAdd a summary line at the end of the SRFI libraries section pointing to\ndocs/dev/srfi-exclusions.md and the implementation roadmap (issues\n#1691–#1706, four milestones).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T02:05:21+05:30",
+          "tree_id": "db82600c4cad0cca4a536a1a7351df2218a780a4",
+          "url": "https://github.com/kaappi/kaappi/commit/bf764591cd2d569965d4c08434fd6b552c3b6ec6"
+        },
+        "date": 1784582816832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.987622,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.336411,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.917399,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.360712,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006742,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053185,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507099,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068073,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.287931,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.965493,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514985,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.472276,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.754872,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.748405,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044849,
             "unit": "seconds"
           }
         ]
