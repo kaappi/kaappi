@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784579327826,
+  "lastUpdate": 1784579647365,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a27d2f82514e1cee900aa5292cdbd6ef40bd65ea",
-          "message": "Add stable KP diagnostic codes to every error path (#1534)\n\nA diagnostic's message string was its only identity: a tool — an AI agent,\na CI gate, an editor — had to substring-match prose that is free to be\nreworded, and some paths leaked raw Zig error names straight to the user\n(`read error: error.UnexpectedChar`). This is the keystone of the machine\nlegibility campaign (#1503): give every user-facing diagnostic a stable\n`KP`-prefixed handle so the code is the contract and the message is free to\nimprove.\n\nIntroduce `src/diagnostics.zig`: a comptime registry binding each diagnostic\nto a code (the enum ordinal is the KP number), a message template, a prose\nexplanation for a later `kaappi explain`, and a severity. A comptime gate\nfails the build on any duplicate, missing, or empty-field entry — the KEP's\nregistry-integrity check, enforced at build time. Text output gains the code\n(`error[KP3001]: ...`), keeping the stage word for the human reader.\n\nErrors reach the reporting layer two ways. Native `VMError`s are coded from\nthe escaping error; errors raised as objects (division by zero, `error`,\n`raise`) carry their code on a new `ErrorObject.code` field, stamped at the\nraise site and lifted to the reporter by noteUncaughtException — the robust\nrepresentation the Phase-4 `error-object-code` accessor will reuse. High-\ntraffic diagnostics are coded first; the long tail shows the generic KP3000\nuncaught-exception until migrated, and no path ever regresses to leaking a\nZig name. `error_type` and the R7RS error accessors are untouched.\n\nDesign record: KEP-0005. Policy and contributor guide: docs/dev/diagnostics.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T11:56:54Z",
-          "tree_id": "3e63454ead3f03bb40b6eaf22f5a6bf02fec50bb",
-          "url": "https://github.com/kaappi/kaappi/commit/a27d2f82514e1cee900aa5292cdbd6ef40bd65ea"
-        },
-        "date": 1784031842808,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.055521,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.780565,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.923699,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.435788,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006729,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052878,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.517498,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067824,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.257953,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.987178,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514474,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.479239,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.740906,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.845601,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048505,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045185,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f72e5479d527c4f84e567657d15ab09fb0925512",
+          "message": "Fuzz report: file pre-fuzz unit-test failures per variant with the failing test names (#1689)\n\n* Report fuzz-job unit-test failures under per-variant titles with test names\n\nFollow-up to #1682, closes #1688. When the fuzz job failed without a\ncrash marker, the report job filed everything under the shared \"Fuzz CI:\ninfrastructure or build failure\" issue, even though fuzz-run.log already\nnamed the crashing test — triage started from \"toolchain download, apt\nflake, runner OOM?\" when the answer was in the downloaded artifact.\n\nThe report job's fuzz routing is now three-way: crash marker → finding\nissue (unchanged); no marker but the log's test summary counts a\nfailed/crashed/leaked test → a dedicated deduped issue per variant\n(\"Fuzz CI: unit-test failure (gc-stress variant)\") with the failing test\nnames extracted from the error lines and panic-trace frames, plus the\ntargeted hint that a gc-stress-only crash usually means a GC rooting bug\n(.claude/rules/gc-safety.md, #1401, #1682); anything else keeps the\nshared infra issue. The variant comes from the failed build command\nechoed at the end of the log, not the artifact directory name, which the\nsingle-artifact download layout makes unreliable (#1584, #1620). Both\nmatrix variants classify independently when both fail.\n\nThe log excerpt is also anchored by pattern now instead of tail -c 2000:\nthe #1682 crash trace only made the excerpt because it happened to sit\nat the end of the log. The excerpt starts at the first test-failure\nreport, compile diagnostic, or Build Summary line (raw tail as\nfallback), bounded head+tail when the failure section is long.\n\nValidated with a local harness: the filing script extracted from the\nYAML, a stubbed gh, and nine synthetic artifacts/ layouts (flattened and\nper-name, both variants, marker present, dedup-append, mixed\nunit-test+flake, oversized section, missing artifacts, diff-job\nregression).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Classify the other variant's log even when one variant crashed\n\nReview follow-up (CodeRabbit on #1689): the crash-marker branch ran\nexclusively, so when variant A found a fuzz crash while variant B\nindependently failed (unit-test failure or flake), B's failure was\nsilently dropped — neither filed nor collected for the infra issue.\n\nThe crash finding is still filed first, but every uploaded fuzz-run.log\nis now classified; only logs sitting next to a crash marker (that\nvariant IS the finding already filed) are skipped, which also stops a\nsecond crashing variant's log from being misread as a unit-test\nfailure. A crash with no other logs files exactly the finding issue, as\nbefore. The residual gap — a variant that died before uploading any\nartifact while the other crashed — is not detectable from artifacts\nalone, since the aggregate needs.fuzz.result does not say which matrix\nlegs failed.\n\nHarness gains the two scenarios: crash + other-variant unit-test\nfailure files both issues; crash + other-variant flake files the\nfinding plus the infra issue with the flake log excerpted.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T20:00:25Z",
+          "tree_id": "5908be958937441d9fbf441f8a851863fbee2da5",
+          "url": "https://github.com/kaappi/kaappi/commit/f72e5479d527c4f84e567657d15ab09fb0925512"
+        },
+        "date": 1784579646009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.28008,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.910464,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.966686,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.461132,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006416,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054339,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.531623,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07109,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.596127,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.996885,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574359,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432686,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811318,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.637871,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043671,
             "unit": "seconds"
           }
         ]
