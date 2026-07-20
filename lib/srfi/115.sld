@@ -177,6 +177,11 @@
     ;; offers the longest alternative first, a non-greedy one the shortest.
     ;; Without this, `(regexp-matches (rx (* any) "b") "ab")' failed -- (* any)
     ;; swallowed the whole string and nothing could hand a character back.
+    ;;
+    ;; This buys correctness at the usual price: quantifiers nested over the
+    ;; same span, as in `(: (* (* #\a)) #\b)', backtrack exponentially, since
+    ;; the outer repetition has exponentially many ways to partition what the
+    ;; inner one matched. See the SRFI 115 note in CONFORMANCE.md.
     (define (%run-done pos groups) (cons pos groups))
 
     ;; Does `node' match a single character at `pos'? Used both by %run and by

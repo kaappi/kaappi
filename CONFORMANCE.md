@@ -136,7 +136,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 98 | Environment variables |
 | 111 | Boxes |
 | 113 | Sets and bags |
-| 115 | Scheme regular expressions |
+| 115 | Scheme regular expressions § |
 | 116 | Immutable list library |
 | 117 | Queues based on lists |
 | 125 | Intermediate hash tables |
@@ -176,6 +176,20 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
 | 271 | Random port libraries |
+
+§ SRFI 115 is matched by a backtracking interpreter, not by the reference
+implementation's NFA, so it shares the cost profile of every backtracking
+regexp engine: a pattern that nests quantifiers over the same span — the
+classic `(: (* (* #\a)) #\b)` — takes time exponential in the input length
+(about 16 s at 22 characters), because the outer repetition has exponentially
+many ways to partition what the inner one already matched. Ordinary patterns
+are unaffected, and repetition of a single-character body is scanned
+iteratively rather than recursively, so `(* any)` over a multi-megabyte string
+costs no stack. Don't build a regexp out of untrusted input. Some SRE forms are
+also still unimplemented (look-behind, `grapheme`/`bog`/`eog`, `title-case`,
+char-set intersection/difference); `w/ascii` and `w/unicode` are accepted but
+do not restrict their char sets, and submatches are addressable by index only,
+not by the name given in `(-> name ...)`. See kaappi#1681.
 
 SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
 ancestor loops, because `resend` restarts the lookup skipping only the original
