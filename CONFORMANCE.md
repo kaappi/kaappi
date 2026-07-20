@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-84 SRFIs supported. 11 built-in (native Zig), 72 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+85 SRFIs supported. 11 built-in (native Zig), 73 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,7 +97,7 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (72 libraries)
+### Portable SRFIs (73 libraries)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 257 misc), (srfi 257 box), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -168,6 +168,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 232 | Flexible curried procedures |
 | 233 | INI files |
 | 235 | Combinators |
+| 248 | Minimal delimited continuations ‡ |
 | 250 | Insertion-ordered hash tables |
 | 259 | Tagged procedures with type safety |
 | 257 | Simple Extendable Pattern Matcher with Backtracking ‡ |
@@ -190,3 +191,15 @@ and `box` sublibraries are complete.
 (so raw-string literals work in any source file), while the port procedures
 (`read-raw-string`, `write-raw-string`, `generate-delimiter`, …) load from the
 `.sld` on `(import (srfi 267))`.
+
+‡ SRFI 248's `with-unwind-handler` prompt is layered over stack-copying
+`call/cc` via a sticky exception handler, with two caveats. (1) Delimited
+continuations are effectively single-shot: each captured `k` may be resumed at
+most once — re-entering it twice crosses a native frame that cannot be
+re-entered after it returns, the same restriction as continuations captured
+under native drivers (see README.md "Known limitations → Continuations"). Every
+SRFI 248 idiom — coroutine generators, `for-each->fold`, effect handlers —
+invokes each `k` once. (2) The handler runs at the raise point rather than after
+unwinding to `with-unwind-handler`, so a handler side effect and a
+dynamic-wind after-thunk of the guarded body run in the opposite order to what
+the SRFI wording implies; the captured continuation itself is unaffected.

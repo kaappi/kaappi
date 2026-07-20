@@ -63,6 +63,11 @@ pub const Lib = enum {
     srfi_254_ephemerons_and_guardians,
     srfi_258,
     srfi_260,
+    // SRFI 248 (minimal delimited continuations): the two VM primitives the
+    // portable `(srfi 248)` .sld builds on. Kept in their own importable
+    // sub-library so the .sld can pull them in (the registry shadows a same
+    // named .sld, so the public `(srfi 248)` must stay file-only).
+    srfi_248_primitives,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
     /// for this tag, so `addExportsForLib` never picks these specs up.
@@ -102,6 +107,7 @@ pub const Lib = enum {
             .srfi_254_ephemerons_and_guardians => "srfi.254.ephemerons-and-guardians",
             .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
+            .srfi_248_primitives => "srfi.248.primitives",
             .internal => "kaappi.internal",
         };
     }

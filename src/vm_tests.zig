@@ -22,6 +22,7 @@ test {
     _ = @import("tests_srfi254.zig");
     _ = @import("tests_srfi258.zig");
     _ = @import("tests_srfi260.zig");
+    _ = @import("tests_srfi248.zig");
     _ = @import("tests_fibers.zig");
     _ = @import("tests_ffi.zig");
     _ = @import("tests_bytecode_cache.zig");

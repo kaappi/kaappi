@@ -27,7 +27,7 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
 — 634 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
-84 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
+85 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
 
@@ -216,7 +216,7 @@ symbols, and **multi-line input** with automatic paren balancing.
 
 ### Beyond the standard
 
-- **84 SRFIs** — 11 built-in, 72 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer (full list in [CONFORMANCE.md](CONFORMANCE.md))
+- **85 SRFIs** — 11 built-in, 73 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer (full list in [CONFORMANCE.md](CONFORMANCE.md))
 - **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops ([details](docs/dev/llvm-backend.md))
 - **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable
 - **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C
@@ -394,6 +394,25 @@ captured in tight inner loops. Continuations captured in one top-level REPL
 expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
 
+SRFI 248's delimited continuations (`with-unwind-handler`, and the extended
+`guard`) are built on this `call/cc` via a sticky exception handler, with two
+observable caveats:
+
+- **Single-shot** — each captured delimited continuation may be resumed at most
+  once. Every SRFI 248 idiom (coroutine generators, `for-each->fold`, effect
+  handlers) resumes each `k` once, so this does not affect them; resuming the
+  same `k` twice fails because it re-enters a native frame that has already
+  returned.
+- **Handler timing** — the handler runs at the raise point rather than after
+  unwinding to `with-unwind-handler`, so a handler side effect (and, since
+  `guard` is built on it, a `guard` clause) runs *before* a `dynamic-wind`
+  after-thunk of the guarded body, where R7RS-small runs it after. All the
+  effects still happen; only their order differs. See
+  [CONFORMANCE.md](CONFORMANCE.md) for details.
+
+Both are limited to SRFI 248; plain `call/cc`, `dynamic-wind`, and the built-in
+`guard` are unaffected unless you import `(srfi 248)`.
+
 ### Fibers
 
 Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
@@ -470,7 +489,7 @@ R7RS-small and is not implemented.
 
 ### SRFI coverage
 
-84 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
+85 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
 linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
 [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
 
