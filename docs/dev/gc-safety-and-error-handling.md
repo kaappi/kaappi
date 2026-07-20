@@ -107,6 +107,20 @@ This turns "rare, timing-dependent" rooting and barrier bugs into
 deterministic failures. Every new allocation pattern in a loop should
 also get a stress test — see `tests/scheme/smoke/gc-rooting-stress.scm`.
 
+`-Dgc-stress=true` builds go further and make marking-time use-after-free
+itself deterministic (#1687). Freeing an object stamps its header with the
+reserved `memory.FREED_OWNER` owner id (in Debug builds too, after the
+`0xAA` poison), and the freed slot is held in a per-GC quarantine —
+released oldest-first, only past `GC.quarantine_max_bytes`, and only
+between a later collection's mark and sweep phases. A dangling value that
+reaches the mark phase then panics with
+`GC: marking freed object (use-after-free)` rather than being skipped as a
+foreign-owned object (the poisoned owner byte never matches the marking
+GC's id) or silently aliasing a live object recycled into the same slot —
+the two escape modes that let the #1682 dangling-local bug survive twelve
+nightly stress runs. Release builds compile out both the stamp/check and
+the quarantine.
+
 ### Where to look
 
 The `reverse` function in `primitives.zig` is a clean reference

@@ -66,5 +66,10 @@ gc.popRoot();
 
 Stress-test with `-Dgc-stress=true` to force collection on every allocation.
 In Debug builds, freed objects are poisoned with `0xAA` to catch use-after-free.
+Debug and gc-stress builds additionally stamp freed headers with the
+`memory.FREED_OWNER` sentinel, and gc-stress builds quarantine freed slots
+across a collection — so marking a dangling value panics deterministically
+with `GC: marking freed object (use-after-free)` instead of segfaulting by
+luck or silently aliasing a recycled object (#1687).
 
 Rationale and full patterns: `docs/dev/gc-safety-and-error-handling.md`.

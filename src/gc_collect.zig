@@ -67,6 +67,9 @@ fn minorCollect(gc: *GC) void {
         markObjectContents(gc, obj);
     }
     processWeakRefs(gc);
+    // #1687: between mark and sweep, so slots the sweep is about to
+    // quarantine can't be released before the next mark phase checks them.
+    gc.quarantineReleaseToCap();
     sweepYoung(gc);
     pruneRememberedSet(gc);
 }
@@ -313,6 +316,8 @@ fn fullCollect(gc: *GC) void {
     clearOldMarks(gc);
     markRoots(gc);
     processWeakRefs(gc);
+    // #1687: see minorCollect.
+    gc.quarantineReleaseToCap();
     sweep(gc);
     sweepOld(gc);
     gc.remembered_set.clearRetainingCapacity();
@@ -416,6 +421,13 @@ fn processWeakRefs(gc: *GC) void {
 fn weakReachable(gc: *GC, v: Value) bool {
     if (!types.isPointer(v)) return true;
     const obj = types.toObject(v);
+    // #1687: same freed-header trap as markValueInner — this probe runs in
+    // the same mark phase, and a dangling ephemeron key would otherwise be
+    // "not reachable", silently broken, and never marked (so never caught).
+    if (comptime memory_mod.uaf_detection) {
+        if (obj.owner == memory_mod.FREED_OWNER)
+            @panic("GC: marking freed object (use-after-free)");
+    }
     if (obj.owner != gc.id) return true;
     return obj.flags.marked;
 }
@@ -716,6 +728,16 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
     while (true) {
         if (!types.isPointer(cur)) return;
         const obj = types.toObject(cur);
+        // #1687: a freed header is stamped FREED_OWNER before its slot is
+        // released (and, under gc-stress, the slot is quarantined so this
+        // read stays defined). Marking one means a dangling value reached
+        // the mark phase — an unrooted-local bug like #1682. Panic here,
+        // deterministically, instead of letting the foreign-owner skip
+        // below absorb it silently.
+        if (comptime memory_mod.uaf_detection) {
+            if (obj.owner == memory_mod.FREED_OWNER)
+                @panic("GC: marking freed object (use-after-free)");
+        }
         // Never mark or trace an object owned by another GC. Its owner keeps
         // it alive (shared globals are marked by the parent, interned symbols
         // are never swept, a thread's thunk is extra-rooted until join), and
@@ -1050,7 +1072,23 @@ inline fn poisonAndDestroy(gc: *GC, comptime T: type, ptr: *T) void {
     if (builtin.mode == .Debug) {
         @memset(@as([*]u8, @ptrCast(ptr))[0..@sizeOf(T)], 0xAA);
     }
-    gc.allocator.destroy(ptr);
+    if (comptime memory_mod.uaf_detection) {
+        // Stamp AFTER the poison so the sentinel survives it. A later mark
+        // of this dead header then panics deterministically in
+        // markValueInner instead of being absorbed by the foreign-owner
+        // skip (#1687). Every heap type places its Object header in a
+        // `header` field.
+        ptr.header.owner = memory_mod.FREED_OWNER;
+    }
+    if (comptime memory_mod.free_quarantine) {
+        // Withhold the slot from the allocator so a dangling value marked
+        // after this sweep still reads the sentinel instead of a recycled
+        // live object. Released by quarantineReleaseToCap after a later
+        // mark phase.
+        gc.quarantinePut(@ptrCast(ptr), @sizeOf(T), .of(T));
+    } else {
+        gc.allocator.destroy(ptr);
+    }
 }
 
 pub fn freeObject(gc: *GC, obj: *Object) void {

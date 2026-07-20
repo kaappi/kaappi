@@ -226,6 +226,9 @@ fn resetForReuse(gc: *memory.GC) void {
     gc.bytes_allocated = 0;
     gc.symbols.clearRetainingCapacity();
     gc.remembered_set.clearRetainingCapacity();
+    // In gc-stress builds freeObject quarantines each slot (#1687); this GC
+    // never collects, so nothing else would ever release them.
+    gc.quarantineDrain();
 }
 
 pub const SharedChannel = struct {
