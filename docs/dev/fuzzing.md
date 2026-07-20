@@ -154,6 +154,8 @@ phase failing (zig's `N pass, M fail|crash` test summary) is filed per
 variant as `Fuzz CI: unit-test failure (<variant> variant)` with the
 failing test names extracted from the log — under gc-stress that usually
 means a GC rooting bug (`.claude/rules/gc-safety.md`, #1401, #1682).
+Both matrix variants are classified independently: a crash in one
+variant does not swallow the other variant's failure.
 Remaining marker-less failures — toolchain flakes, build failures,
 job-level timeouts (a possible hang) — are collected under a single
 shared issue titled `Fuzz CI: infrastructure or build

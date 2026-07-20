@@ -528,38 +528,45 @@ jobs:
           oracle_marker=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sort | head -1 || true)
           oracle_dir=$(dirname "${oracle_marker:-artifacts/oracle-diff-divergences/absent}")
 
-          # The fuzz job routes three ways: crash marker → finding issue; no
-          # marker but a log whose test summary counts a failure ("N pass,
-          # M fail|crash|leak (T total)" step line or "N/M tests passed
-          # (K failed|crashed|leaked)" Build Summary line) → per-variant
-          # unit-test issue (#1688); anything else (no log at all, or a log
-          # without the signature: setup death, build failure, timeout) →
-          # the shared infrastructure issue.
+          # The fuzz job routes three ways: crash marker → finding issue; a
+          # log whose variant has no marker but whose test summary counts a
+          # failure ("N pass, M fail|crash|leak (T total)" step line or "N/M
+          # tests passed (K failed|crashed|leaked)" Build Summary line) →
+          # per-variant unit-test issue (#1688); anything else (no log at
+          # all, or a log without the signature: setup death, build failure,
+          # timeout) → the shared infrastructure issue. The buckets are not
+          # exclusive: both matrix variants can fail in the same run, and a
+          # crash in one variant must not swallow the other variant's
+          # independent failure, so every log is classified — only logs
+          # sitting next to a crash marker (that variant is the finding
+          # already filed) are skipped.
           if [ "$RESULT_FUZZ" = failure ]; then
             if [ -n "$crash" ]; then
               report_finding fuzz \
                 'Fuzz CI: bounded fuzzing found a crash' \
                 "$fuzz_dir" \
                 'A fuzz target found a crash. The encoded crashing input (a serialized Smith decision stream) is `.zig-cache/f/crash` inside the artifact; `fuzz-run.log` is the fuzzer transcript. Replay it per the runbook.'
-            else
-              fuzz_unexplained=""
-              fuzz_logs=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort || true)
-              if [ -z "$fuzz_logs" ]; then
-                fuzz_unexplained=1
-              else
-                # Both matrix variants can fail and upload a log each;
-                # classify every log independently.
-                while IFS= read -r flog; do
-                  if grep -qE '[0-9]+ pass, .*[0-9]+ (fail|crash|leak)|tests passed \([0-9]+ (failed|crashed|leaked)' "$flog"; then
-                    report_unit_test_failure "$flog"
-                  else
-                    fuzz_unexplained=1
-                    fuzz_dir=$(dirname "$flog") # infra excerpt shows this log
-                  fi
-                done <<< "$fuzz_logs"
-              fi
-              [ -z "$fuzz_unexplained" ] || infra_jobs="$infra_jobs fuzz"
             fi
+            fuzz_unexplained=""
+            fuzz_logs=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort || true)
+            if [ -z "$fuzz_logs" ]; then
+              # No log at all: setup death or job-level timeout — unless the
+              # crash marker already explains the job's failure.
+              [ -n "$crash" ] || fuzz_unexplained=1
+            else
+              while IFS= read -r flog; do
+                if [ -f "$(dirname "$flog")/.zig-cache/f/crash" ]; then
+                  continue # this variant IS the crash finding filed above
+                fi
+                if grep -qE '[0-9]+ pass, .*[0-9]+ (fail|crash|leak)|tests passed \([0-9]+ (failed|crashed|leaked)' "$flog"; then
+                  report_unit_test_failure "$flog"
+                else
+                  fuzz_unexplained=1
+                  fuzz_dir=$(dirname "$flog") # infra excerpt shows this log
+                fi
+              done <<< "$fuzz_logs"
+            fi
+            [ -z "$fuzz_unexplained" ] || infra_jobs="$infra_jobs fuzz"
           fi
 
           check_job "$RESULT_NATIVE" native-diff \
