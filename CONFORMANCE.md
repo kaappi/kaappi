@@ -185,11 +185,16 @@ classic `(: (* (* #\a)) #\b)` — takes time exponential in the input length
 many ways to partition what the inner one already matched. Ordinary patterns
 are unaffected, and repetition of a single-character body is scanned
 iteratively rather than recursively, so `(* any)` over a multi-megabyte string
-costs no stack. Don't build a regexp out of untrusted input. Some SRE forms are
-also still unimplemented (look-behind, `grapheme`/`bog`/`eog`, `title-case`,
-char-set intersection/difference); `w/ascii` and `w/unicode` are accepted but
-do not restrict their char sets, and submatches are addressable by index only,
-not by the name given in `(-> name ...)`. See kaappi#1681.
+costs no stack. Don't build a regexp out of untrusted input.
+
+The SRE syntax itself is complete. Three named char sets carry Unicode range
+tables inside `lib/srfi/115.sld` (titlecase, symbol, and the UAX #29 grapheme
+break classes) because R7RS `(scheme char)` exposes no general category
+predicate and the library is portable Scheme; regenerate them with
+`tools/gen_srfi115_charsets.py` after a Unicode version bump. `punctuation`,
+`graphic`, `printing` and `control` remain ASCII approximations in a Unicode
+context. `digit` and `*$` are chibi extensions, not SRFI 115 names, and are
+correctly rejected.
 
 SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
 ancestor loops, because `resend` restarts the lookup skipping only the original
