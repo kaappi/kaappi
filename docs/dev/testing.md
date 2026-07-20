@@ -99,6 +99,18 @@ scale their iteration count down via `@import("build_options").gc_stress`
 (see `tests_records.zig` for the pattern) so the stress suite stays
 tractable.
 
+Stress builds also detect marking-time use-after-free deterministically
+(#1687): freeing an object stamps its header's `owner` with the reserved
+`memory.FREED_OWNER` sentinel, and the freed slot is quarantined (withheld
+from the allocator, released only after a later collection's mark phase,
+capped at `GC.quarantine_max_bytes`). Marking a dangling value therefore
+panics with `GC: marking freed object (use-after-free)` on the first run —
+it can no longer be silently absorbed by the foreign-owner skip or hidden
+by the freed slot being recycled into a live same-size object, the two
+modes that let #1682 pass twelve nightly stress runs. Plain Debug builds
+stamp and check the sentinel too (best-effort, without the quarantine);
+release builds compile both features out.
+
 ---
 
 ## Scheme Integration Tests

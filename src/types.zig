@@ -218,6 +218,9 @@ pub const Object = struct {
     /// closures being executed), and writing mark bits on those would corrupt
     /// the parent GC's mark state — under-marking sweeps live objects (#958).
     /// Fits in existing struct padding, so it adds no size.
+    /// In Debug/gc-stress builds, freeing the object stamps this field with
+    /// `memory.FREED_OWNER` so a later mark of the dead header panics
+    /// deterministically instead of being skipped as foreign (#1687).
     owner: u32 = 0,
     next: ?*Object = null,
     // Force 8-byte alignment so all heap objects satisfy the pointer tag

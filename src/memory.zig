@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const platform = @import("platform.zig");
 const types = @import("types.zig");
 const diagnostics = @import("diagnostics.zig");
@@ -55,13 +56,37 @@ pub const GcStats = struct {
 
 pub var symbol_mutex: std.atomic.Mutex = .unlocked;
 
+/// Sentinel stamped into `Object.owner` when the object's header slot is
+/// freed (#1687). `nextGcId` never returns it, so a mark-phase read of this
+/// value is proof of use-after-free: the #958 foreign-owner skip would
+/// otherwise silently absorb the dangling reference (a Debug-poisoned owner
+/// byte reads as some other GC's id). Stamped and checked only when
+/// `uaf_detection` is set; release builds never see it.
+pub const FREED_OWNER: u32 = 0xFFFF_FFFF;
+
+/// Gate for the freed-owner sentinel (#1687): stamp freed headers and panic
+/// when marking reaches one. Debug and gc-stress builds only, so release
+/// builds pay nothing on the mark hot path.
+pub const uaf_detection: bool = builtin.mode == .Debug or build_options.gc_stress;
+
+/// Gate for the free-quarantine (#1687): under `-Dgc-stress=true`, freed
+/// header slots are withheld from the allocator until after a later
+/// collection's mark phase, so a dangling root marked one collection later
+/// still reads the FREED_OWNER sentinel instead of a recycled live object
+/// (the silent-aliasing mode that hid #1682 for twelve nightly runs).
+pub const free_quarantine: bool = build_options.gc_stress;
+
 /// Monotonic source of unique GC ids (see `GC.id`). Never reused, so a live
 /// GC can never collide with a dead thread's id. Starts at 1 so 0 is never a
-/// valid id.
+/// valid id, and skips FREED_OWNER so a freed header can never masquerade as
+/// a live GC's object.
 var next_gc_id: u32 = 0;
 
 fn nextGcId() u32 {
-    return @atomicRmw(u32, &next_gc_id, .Add, 1, .monotonic) + 1;
+    while (true) {
+        const id = @atomicRmw(u32, &next_gc_id, .Add, 1, .monotonic) +% 1;
+        if (id != 0 and id != FREED_OWNER) return id;
+    }
 }
 
 pub fn spinLock(m: *std.atomic.Mutex) void {
@@ -138,6 +163,25 @@ pub const GC = struct {
     /// Live only within a single collection.
     pending_ephemerons: std.ArrayList(Value) = .empty,
     pending_guardians: std.ArrayList(Value) = .empty,
+    /// #1687 free-quarantine (gc-stress builds only; see `free_quarantine`).
+    /// FIFO of freed header slots withheld from the allocator: entries before
+    /// `quarantine_head` are already released. Slots are appended by
+    /// gc_collect's poisonAndDestroy and released oldest-first — only once
+    /// the held bytes exceed `quarantine_max_bytes`, and only after a mark
+    /// phase — so every entry survives at least one full mark after its free
+    /// and a dangling value marked then still reads the FREED_OWNER sentinel.
+    quarantine: std.ArrayList(QuarantineEntry) = .empty,
+    quarantine_head: usize = 0,
+    quarantine_bytes: usize = 0,
+    /// Cap on withheld bytes. A field (not a const) so tests can shrink it to
+    /// exercise eviction without freeing megabytes.
+    quarantine_max_bytes: usize = 4 << 20,
+
+    pub const QuarantineEntry = struct {
+        ptr: [*]u8,
+        len: usize,
+        alignment: std.mem.Alignment,
+    };
 
     pub const INITIAL_ROOT_CAPACITY: usize = 1024;
     pub const MAX_ROOT_CAPACITY: usize = 65536;
@@ -189,6 +233,10 @@ pub const GC = struct {
         // could not track themselves (see `foreign_symbols`). No other thread
         // runs at deinit — every child has joined — so this needs no lock.
         for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
+        // The freeObject calls above append to the quarantine in gc-stress
+        // builds; give every slot back before the allocator is torn down.
+        self.quarantineDrain();
+        self.quarantine.deinit(self.allocator);
         self.foreign_symbols.deinit(self.allocator);
         self.symbols.deinit();
         self.allocator.free(self.root_buffer);
@@ -1410,6 +1458,59 @@ pub const GC = struct {
         self.root_count -= 1;
     }
 
+    // -- #1687 free-quarantine (see the `quarantine` field) --
+
+    /// Withhold a freed header slot from the allocator. Called by
+    /// poisonAndDestroy in place of `destroy` when `free_quarantine` is set;
+    /// the slot's Object.owner has already been stamped FREED_OWNER. If the
+    /// entry can't be recorded, release the slot immediately rather than
+    /// aborting the sweep — detection degrades, correctness doesn't.
+    pub fn quarantinePut(self: *GC, ptr: [*]u8, len: usize, alignment: std.mem.Alignment) void {
+        self.quarantine.append(self.allocator, .{ .ptr = ptr, .len = len, .alignment = alignment }) catch {
+            self.allocator.rawFree(ptr[0..len], alignment, @returnAddress());
+            return;
+        };
+        self.quarantine_bytes += len;
+    }
+
+    fn quarantineReleaseOldest(self: *GC) void {
+        const e = self.quarantine.items[self.quarantine_head];
+        self.quarantine_head += 1;
+        self.quarantine_bytes -= e.len;
+        self.allocator.rawFree(e.ptr[0..e.len], e.alignment, @returnAddress());
+        if (self.quarantine_head == self.quarantine.items.len) {
+            self.quarantine.clearRetainingCapacity();
+            self.quarantine_head = 0;
+        }
+    }
+
+    /// Release quarantined slots oldest-first until at most
+    /// `quarantine_max_bytes` remain. Called between a collection's mark and
+    /// sweep phases (gc_collect.zig), so slots freed by the upcoming sweep are
+    /// never eviction candidates before the *next* mark has had a chance to
+    /// trip the FREED_OWNER sentinel on them.
+    pub fn quarantineReleaseToCap(self: *GC) void {
+        if (comptime !free_quarantine) return;
+        while (self.quarantine_bytes > self.quarantine_max_bytes)
+            self.quarantineReleaseOldest();
+        // Compact once the released prefix dominates so the list doesn't
+        // grow by its own dead entries.
+        const items = self.quarantine.items;
+        if (self.quarantine_head > 0 and self.quarantine_head >= items.len / 2) {
+            const remaining = items.len - self.quarantine_head;
+            std.mem.copyForwards(QuarantineEntry, items[0..remaining], items[self.quarantine_head..]);
+            self.quarantine.shrinkRetainingCapacity(remaining);
+            self.quarantine_head = 0;
+        }
+    }
+
+    /// Release every quarantined slot. Used at GC teardown and by the arena
+    /// resets (shared_channel.zig, bench_channel.zig) that free objects on a
+    /// GC which never collects.
+    pub fn quarantineDrain(self: *GC) void {
+        while (self.quarantine.items.len > 0) self.quarantineReleaseOldest();
+    }
+
     pub const RootedSlot = struct {
         gc: *GC,
         idx: usize,
@@ -1581,6 +1682,66 @@ test "rootedScope release" {
     scope.release();
     try std.testing.expectEqual(@as(usize, 1), gc.extra_roots.items.len);
     try std.testing.expectEqual(types.makeFixnum(1), gc.extra_roots.items[0]);
+}
+
+// The #1687 tests read a freed object's header after the sweep. That read is
+// defined ONLY because the quarantine keeps the slot resident (withheld from
+// the allocator), which is why every one of them skips unless the
+// free-quarantine is compiled in.
+
+test "sweep stamps freed headers with the freed-owner sentinel (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    const v = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    const obj = types.toObject(v);
+    try std.testing.expectEqual(gc.id, obj.owner);
+
+    gc.collect(); // unrooted → swept → slot quarantined, owner stamped
+    try std.testing.expectEqual(FREED_OWNER, obj.owner);
+    try std.testing.expectEqual(@as(usize, @sizeOf(Pair)), gc.quarantine_bytes);
+}
+
+test "quarantined slot survives a later mark phase un-recycled (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    const dead = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    const dead_obj = types.toObject(dead);
+    gc.collect(); // frees `dead`, quarantines its slot
+
+    // A new allocation must not land in the withheld slot (the silent
+    // aliasing that hid #1682), and a second collection's release point
+    // (after mark, under the byte cap) must keep the sentinel readable.
+    var live = try gc.allocPair(types.makeFixnum(2), types.NIL);
+    gc.pushRoot(&live);
+    defer gc.popRoot();
+    try std.testing.expect(types.toObject(live) != dead_obj);
+    gc.collect();
+    try std.testing.expectEqual(FREED_OWNER, dead_obj.owner);
+}
+
+test "quarantine evicts oldest-first once over the byte cap (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+    gc.quarantine_max_bytes = @sizeOf(Pair); // hold at most one pair slot
+
+    _ = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    gc.collect(); // slot A quarantined; at the cap, not over it
+    try std.testing.expectEqual(@as(usize, @sizeOf(Pair)), gc.quarantine_bytes);
+
+    _ = try gc.allocPair(types.makeFixnum(2), types.NIL);
+    gc.collect(); // release point sees only A (≤ cap); sweep adds B
+    try std.testing.expectEqual(@as(usize, 2 * @sizeOf(Pair)), gc.quarantine_bytes);
+
+    gc.collect(); // now over the cap: A (oldest) is released, B stays
+    try std.testing.expectEqual(@as(usize, @sizeOf(Pair)), gc.quarantine_bytes);
 }
 
 test "mark worklist retains capacity across collections" {

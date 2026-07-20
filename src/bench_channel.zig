@@ -130,6 +130,9 @@ fn freeArena(gc: *memory.GC) void {
     gc.old_objects = null;
     gc.object_count = 0;
     gc.bytes_allocated = 0;
+    // In gc-stress builds freeObject quarantines each slot (#1687); this
+    // arena GC never collects, so nothing else would ever release them.
+    gc.quarantineDrain();
 }
 
 // --------------------------------------------------------------------------
