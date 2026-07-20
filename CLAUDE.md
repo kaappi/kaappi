@@ -320,6 +320,12 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
+Of the 208 final SRFIs in the registry, 85 are implemented, 107 are tracked for
+future implementation (issues #1691–#1706, organized into four milestones by
+difficulty), and 16 are excluded — see `docs/dev/srfi-exclusions.md` for the
+full rationale (7 meta/ecosystem SRFIs already covered by existing features,
+9 non-standard reader syntax SRFIs that would fundamentally alter the parser).
+
 ## Zig 0.16 patterns
 
 These differ from earlier Zig versions and are easy to get wrong:
