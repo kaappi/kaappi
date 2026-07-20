@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784571331916,
+  "lastUpdate": 1784574421731,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b464e02480147ccf565190f7190d845ac56423bb",
-          "message": "Clear stale gap registers before fiber suspension snapshot (#1529) (#1533)\n\nmarkVMRoots marks a running fiber's registers per frame window and skips\nthe dead \"gap\" slots between windows, but saveCurrentFiber copies the\ncontiguous register span and markFiberState marks it contiguously. A gap\nslot's stale pointer — freed during the fiber's run because per-frame\nmarking never protected it — was copied into the fiber's saved snapshot\non suspension, and a later collection while the fiber was parked traced\nthat dangling pointer, a GC use-after-free (sibling of the call/cc bug\nfixed in #1464/#1528).\n\nMove clearGapRegisters (the allocation-free ordered sweep from #1528) to\na shared VM method and call it in saveCurrentFiber before the register\nmemcpy; captureContinuation now calls the same method. Scrubbing dead gap\nslots to UNDEFINED is behavior-preserving because no frame ever reads\nthem. Adds a gc-stress regression test that segfaults without the scrub.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T16:08:05+05:30",
-          "tree_id": "0d133607e92613c69f7d08c20c1fb4eb90a42780",
-          "url": "https://github.com/kaappi/kaappi/commit/b464e02480147ccf565190f7190d845ac56423bb"
-        },
-        "date": 1784027144602,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.361988,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.204196,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.903569,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.40409,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006334,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053697,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.499444,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069393,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.41092,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.96064,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.598438,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432013,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.857396,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.643883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043938,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043299,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1d1b2d04b09d4ec816ae426eff697d9f219ff18",
+          "message": "Root test locals held across never-collecting allocations (#1682 follow-up) (#1686)\n\nExhaustive audit of every unit-test file for the silent variant of the\n#1682 use-after-free (an unrooted heap local swept under -Dgc-stress=true,\nthen aliased by the next same-size allocation so shape-only assertions\nstill pass): no live instance exists. The #1401 campaign plus the rooting\ndiscipline in the newer test files already cover every collecting-call\nsite; the seeming hits fall to gc.enabled = false (tests_srfi254,\ntests_srfi258) or to allocation paths that never call maybeCollect.\n\nTwo sites do hold a heap value across an allocating call that merely\n*happens* never to collect, the situation PR #1685 roots `body` for:\n\n- \"bignum compare\" holds `a` across a second parseBignumString, which\n  builds its Bignum via raw create+trackObject with no maybeCollect.\n- The bytecode-cache mid-run-GC test holds f0/f1 across further\n  makeReturnConstFunc calls, safe only because allocFunction never\n  collects.\n\nRoot both per that convention so neither silently breaks if those paths\never gain a collection point. Verified with the full unit suite and with\n-Dgc-stress=true filtered to the two files (Debug and ReleaseSafe).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T18:34:29Z",
+          "tree_id": "5debc6630ed28765c29e9c0974110b9fb7d8ae10",
+          "url": "https://github.com/kaappi/kaappi/commit/a1d1b2d04b09d4ec816ae426eff697d9f219ff18"
+        },
+        "date": 1784574419444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.980452,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.79294,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.911932,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.443658,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006713,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053142,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508113,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067543,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.307188,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.971421,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.530153,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.469229,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.703887,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.614534,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044519,
             "unit": "seconds"
           }
         ]
