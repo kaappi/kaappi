@@ -165,7 +165,12 @@ zig cc -w out.ll -o program -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread  # link
 
 `kaappi compile` locates `libkaappi_rt.a` via `KAAPPI_LIB_DIR` env var,
 `<exe_dir>/../lib/`, `zig-out/lib/`, or `/usr/local/lib/`. It searches
-PATH for a C compiler (zig cc, cc, clang, gcc).
+PATH for a C compiler (zig cc, cc, clang, gcc). `~/.kaappi/lib` is
+deliberately **not** in that list — it is thottam's Scheme-library and
+FFI-`dlopen` directory, so an archive placed there is invisible to
+`kaappi compile`. The install script therefore puts it in
+`<INSTALL_DIR>/../lib` (`~/.local/lib` by default), landing on the
+`<exe_dir>/../lib` entry with no env var set.
 
 **Features compiled natively:** arithmetic, comparisons, if/and/or/when/unless,
 let/let*, lambda (with closures and variadic parameters), self-tail-call
@@ -451,6 +456,18 @@ That repo is exclusively for end-user documentation — no dev docs there.
 **Developer/contributor docs** (architecture, testing, adding-features,
 postmortems) live in `docs/dev/` in this repo. This is the single source
 of truth for contributor documentation.
+
+**The install script lives in that repo too** — `docs/install.sh`, served at
+**https://kaappi-lang.org/install.sh**, which is the `curl … | bash` line in
+`README.md` and the only copy anyone runs. There is deliberately **no copy in
+this repo**: one existed until 0.22.0, was served and tested by nothing, and
+drifted three commits behind the real one — so "fix install.sh" here shipped
+nothing to users, which is how the missing `libkaappi_rt.a` install went
+unnoticed. Edit it there. The `test-install-script` job in
+`.github/workflows/post-release.yml` curls and tests the live script after
+every release, across `ubuntu-latest`, `ubuntu-24.04-arm`, and `macos-latest`.
+Adding a platform means teaching its `detect_platform` the `uname` spelling
+and its `rt_artifact` case — `docs/dev/porting.md` Stage 6.
 
 ## Package manager (thottam)
 

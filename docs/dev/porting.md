@@ -253,6 +253,17 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
       notarizes; Windows ships unstripped until #1613's toolchain bump).
 - [ ] Smoke-test a release artifact on a real machine (the post-release
       workflow checksums but does not yet execute all targets).
+- [ ] Teach the installer the new platform. It does **not** live in this
+      repo — it is `docs/install.sh` in
+      [kaappi.github.io](https://github.com/kaappi/kaappi.github.io), served
+      at <https://kaappi-lang.org/install.sh>, which is the only copy anyone
+      runs. It needs a `detect_platform` arm mapping `uname` output to the
+      `release.yml` artifact name (these disagree more often than you would
+      expect — NetBSD's `uname -m` reports the kernel port, FreeBSD and
+      OpenBSD report `amd64` for x86_64, Linux reports `ppc64le` where the
+      artifacts spell out `powerpc64le`), and, for an aarch64/x86_64 target,
+      an arm in the `rt_artifact` case so `libkaappi_rt.a` installs and
+      `kaappi compile` works.
 - [ ] Write `docs/dev/<os>.md` modeled on [windows.md](windows.md):
       the mapping architecture, each deliberate degradation and *why*,
       the feature identifier, how to test on a real machine, known gaps

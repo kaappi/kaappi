@@ -25,7 +25,7 @@ problems. Everything else worked through the existing POSIX paths.
 | `src/native_compiler.zig` | C-compiler discovery probes `clang` before `cc` on NetBSD — base cc is GCC, which cannot consume the `.ll` the backend emits. |
 | `src/llvm_emit.zig` | `aarch64-unknown-netbsd` / `x86_64-unknown-netbsd` module triples. |
 | `src/main.zig`, `src/kaappi_lsp.zig`, `src/runtime_exports.zig` | Call `normalizeFpEnvBestEffort()` at startup. |
-| `install.sh` | `NetBSD` platform detection — **`uname -m` reports the kernel port (`evbarm`, `amd64`), not the CPU**, so the NetBSD arm reads `uname -p`; download via base `ftp`, checksums via base `sha256`. |
+| `docs/install.sh` (in [kaappi.github.io](https://github.com/kaappi/kaappi.github.io)) | `NetBSD` platform detection — **`uname -m` reports the kernel port (`evbarm`, `amd64`), not the CPU**, so the NetBSD arm reads `uname -p`; download via base `ftp`, checksums via base `sha256`. |
 | CI + release | `netbsd-test` job in `ci.yml`; two `release.yml` matrix rows (`x86_64-netbsd`, `aarch64-netbsd`). |
 
 ## Versioned libc symbols: the port's defining problem
