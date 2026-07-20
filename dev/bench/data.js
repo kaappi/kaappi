@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784533870552,
+  "lastUpdate": 1784565750157,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e86f2319532a35b644d9ff9b4ccf1fea284118f",
-          "message": "Clear stale gap registers before call/cc continuation capture (#1464) (#1528)\n\n* Clear stale gap registers before call/cc continuation capture\n\nA full call/cc continuation snapshots the contiguous register range\n[0, max_reg), where max_reg is the highest live frame end. That range\nspans \"gap\" registers between live frame windows — slots vacated by\nreturned frames that still hold that frame's last heap pointer.\n\nmarkVMRoots only marks per-frame windows, so it never keeps a gap\ntarget alive; under gc-stress the collector frees it, leaving the gap\nregister dangling. captureContinuation copied the gap verbatim into the\nsnapshot, and marking that continuation later dereferenced the freed\nobject — a GC use-after-free the fuzz workflow hit as a segfault in\nmarkValueInner reading obj.owner (issue #1464).\n\nScrub the dead gap slots to UNDEFINED before the snapshot so it covers\nexactly what the root marker protects. Restore copies the snapshot back\nverbatim and no frame ever reads a gap slot, so this is\nbehavior-preserving.\n\nThe same contiguous-vs-per-frame inconsistency exists in the fiber\nsave/mark path (saveCurrentFiber + markFiberState); that sibling is\ntracked separately.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Make gap-register clearing allocation-free\n\nThe first cut allocated a per-capture bool bitmap and scanned the full\n[0, max_reg) range, regressing the call_cc benchmark ~1.9x (a tight\ncapture loop pays that cost on every call/cc).\n\nFrame bases are non-decreasing — every call places its callee's frame\npast the caller's base, and continuation restore preserves that order —\nso a single ordered sweep tracking the highest covered register finds\nthe gaps with no scratch buffer and touches only the gap slots. A debug\nassert guards the ordering invariant. The call_cc micro-benchmark is\nnow indistinguishable from baseline; the full suite stays green under\n-Dgc-stress=true.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T13:35:24+05:30",
-          "tree_id": "9b8e726da683419e8cfc953937d3c6784ee8c5a8",
-          "url": "https://github.com/kaappi/kaappi/commit/5e86f2319532a35b644d9ff9b4ccf1fea284118f"
-        },
-        "date": 1784017887131,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.446558,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.00399,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.907314,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.55037,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006476,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053896,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.518164,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069352,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.414555,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.011509,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.566264,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429483,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.861097,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.635428,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042889,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043622,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad7435469bf7c5368eeae99820b7d62dec6fad1b",
+          "message": "Remove the duplicate install script (#1683)\n\n* Remove the duplicate install script\n\ninstall.sh in this repo was served by nothing: no build step, no workflow,\nno release artifact referenced it. The only copy anyone runs is\ndocs/install.sh in kaappi.github.io, served at kaappi-lang.org/install.sh,\nwhich is also what the post-release workflow curls and tests.\n\nKeeping a second copy was not free. The two had drifted — the served copy\nwas three hardening commits ahead (KAAPPI_VERSION/KAAPPI_NO_VERIFY, redirect\nbased tag discovery that avoids the API rate limit, a safe stdlib swap) —\nso \"fix install.sh\" in this repo shipped nothing to users, which is exactly\nhow the missing libkaappi_rt.a install went unnoticed. A stale pointer in\ndocs is a wrong sentence; a stale script is a wrong executable that looks\nauthoritative.\n\ndocs/dev/porting.md's Stage 6 now says where the installer lives and what a\nnew platform needs from it — it never mentioned the installer at all, which\nis how the uname-vs-artifact name mismatches (NetBSD's kernel port, the BSDs'\namd64, Linux's ppc64le) keep having to be rediscovered. docs/dev/netbsd.md's\nporting-surface table points at the real path.\n\nThe post-release workflow now asserts the full chain after each release —\narchive present, doctor clean, and a compiled binary that runs — so the\ninstaller regressing to interpreter-only cannot pass CI again. It needs a\nZig step: the runner's cc is GCC, which cannot consume the IR the backend\nemits, and cc_search_order picks it ahead of the preinstalled clang.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Run the install-script check on every hosted OS/arch\n\nThe installer's platform detection is where its bugs have historically\nlived — NetBSD's uname reporting the kernel port, the BSDs' amd64, Linux's\nppc64le against the artifacts' powerpc64le — and it was only ever exercised\non ubuntu-latest. macOS additionally resolves the exe path through\n_NSGetExecutablePath + realpath rather than /proc/self/exe, which is what\nthe new libkaappi_rt.a assertions depend on to find <exe>/../lib.\n\nriscv64, s390x and ppc64le are left out: no hosted runner executes them\nnatively, and they are interpreter-tier, so there is no archive to assert.\n\nfail-fast is off so one platform's failure does not mask another's.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Record in CLAUDE.md that install.sh lives in the docs repo\n\nNothing in this repo pointed at the installer after its stale duplicate was\ndeleted, so the next session to be asked about it would rediscover the same\ntrap. Names the real path, why no copy lives here, and what CI checks it.\n\nAlso states the other half explicitly in the native-backend section: the\nruntime archive search does not include ~/.kaappi/lib, so an archive placed\nthere is invisible to kaappi compile. That is exactly the wrong conclusion\nthe search-order list invites, and it is what the Windows install docs got\nwrong until this branch.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T16:07:26Z",
+          "tree_id": "2627b5cfdb4a0152c757aac26ef0f02713a15ddb",
+          "url": "https://github.com/kaappi/kaappi/commit/ad7435469bf7c5368eeae99820b7d62dec6fad1b"
+        },
+        "date": 1784565747189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.993642,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.871761,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.915373,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.438947,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006752,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053816,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506911,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06904,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.301267,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.970286,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.530925,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.47666,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.713081,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.796586,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045251,
             "unit": "seconds"
           }
         ]
