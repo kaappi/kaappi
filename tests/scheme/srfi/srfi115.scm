@@ -85,6 +85,10 @@
 (let ((m (regexp-search '(: bow ($ (+ alphabetic)) eow) "hello world")))
   (check "bow/eow" (regexp-match-submatch m 1) "hello"))
 
+;; nwb — a position that is not a word boundary
+(check-true "nwb" (and (regexp-search '(: nwb "foo" nwb) "xfoox") #t))
+(check-false "nwb at boundary" (and (regexp-search '(: nwb "foo" nwb) " foo ") #t))
+
 ;; Extract
 (check "extract" (regexp-extract '(+ alphabetic) "hello 42 world") '("hello" "world"))
 
@@ -92,9 +96,27 @@
 (check "split" (regexp-split " " "hello world foo") '("hello" "world" "foo"))
 (check "split comma" (regexp-split ", " "a, b, c") '("a" "b" "c"))
 
-;; Partition
+;; Partition — no trailing "" when the string ends with a match (chibi's
+;; reference behaviour; Kaappi used to append one).
 (let ((p (regexp-partition '(+ numeric) "abc123def456")))
-  (check "partition" p '("abc" "123" "def" "456" "")))
+  (check "partition" p '("abc" "123" "def" "456")))
+(check "partition trailing text"
+  (regexp-partition '(+ numeric) "abc123def") '("abc" "123" "def"))
+
+;; A regexp that can match the empty string must not split at every position:
+;; empty matches are skipped, and the index handed to the fold is where the
+;; previous match ended, not where the search resumed.
+(check "split nullable"
+  (regexp-split '(* numeric) "abc123def456ghi789") '("abc" "def" "ghi" ""))
+(check "partition nullable"
+  (regexp-partition '(* numeric) "abc123def456ghi") '("abc" "123" "def" "456" "ghi"))
+(check "partition nullable empty string" (regexp-partition '(* numeric) "") '(""))
+(check "extract nullable"
+  (regexp-extract '(* numeric) "abc123def456ghi789") '("123" "456" "789"))
+
+;; A list whose head is a string is the char set of its characters
+(check "split char-set list" (regexp-split '(",;") "a,,b") '("a" "" "b"))
+(check "split char-set list trailing" (regexp-split '(",;") "a,,b,") '("a" "" "b" ""))
 
 ;; Replace
 (check "replace" (regexp-replace "world" "hello world" "there") "hello there")
@@ -104,6 +126,42 @@
 (check-true "range az" (regexp-matches? '(+ (/ "az")) "hello"))
 (check-false "range az fail" (regexp-matches? '(+ (/ "az")) "HELLO"))
 (check-true "range AZaz" (regexp-matches? '(+ (/ "azAZ")) "helloWORLD"))
+;; (/ ...) also takes characters — these used to be dropped, leaving an
+;; empty range that matched nothing.
+(check-true "range chars" (regexp-matches? '(+ (/ #\a #\z)) "hello"))
+(check-false "range chars fail" (regexp-matches? '(+ (/ #\a #\z)) "HELLO"))
+(check-true "range mixed" (regexp-matches? '(+ (/ "az" #\0 #\9)) "h3ll0"))
+
+;; Case folding reaches named classes, not just literal characters
+(check-true "nocase class" (regexp-matches? '(w/nocase (* lower)) "abcD"))
+(check-false "case class" (regexp-matches? '(* lower) "abcD"))
+(check-true "nocase range" (regexp-matches? '(w/nocase (+ (/ "af"))) "BeeF"))
+
+;; Repetition must backtrack: a greedy operator has to give characters back
+;; when what follows cannot match otherwise.
+(check-true "backtrack star" (regexp-matches? '(: (* any) "b") "ab"))
+(check "backtrack submatch"
+  (regexp-match->list (regexp-matches '(: "<" ($ (* any)) ">" (* any))
+                                      "<em>Hello World</em>"))
+  '("<em>Hello World</em>" "em>Hello World</em"))
+(check "backtrack two groups"
+  (regexp-match->list
+    (regexp-matches '(: (* any) ($ "foo" (* any)) ($ "bar" (* any))) "fooxbarfbar"))
+  '("fooxbarfbar" "fooxbarf" "bar"))
+
+;; Non-greedy repetition prefers the shortest match
+(check "non-greedy star"
+  (regexp-match->list (regexp-matches '(: "<" ($ (*? any)) ">" (* any))
+                                      "<em>Hello World</em>"))
+  '("<em>Hello World</em>" "em"))
+(check "non-greedy optional"
+  (regexp-match->list (regexp-matches '(: ($ (?? "a")) (* any)) "aaa"))
+  '("aaa" ""))
+(check "non-greedy repeated"
+  (regexp-match->list (regexp-matches '(: ($ (**? 1 3 "a")) (* any)) "aaa"))
+  '("aaa" "a"))
+;; An open-ended upper bound is spelled #f, and used to raise a type error
+(check-true "open-ended repeat" (regexp-matches? '(** 1 #f "a") "aaa"))
 
 ;; Complement
 (check-true "compl" (regexp-matches? '(+ (~ numeric)) "hello"))

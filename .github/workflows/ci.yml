@@ -100,6 +100,12 @@ jobs:
         run: bash tests/scheme/run-all.sh
         env:
           KAAPPI_TEST_SKIP: ${{ matrix.optimize == 'Debug' && 'callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm' || '' }}
+          # Debug is 10-20x slower on allocation-heavy work, so the 60s
+          # per-file default is the wrong budget for it: the macro-expansion
+          # suites (srfi257*.scm) already sit within seconds of the cliff on a
+          # fast laptop. The timeout is here to catch hangs, not to race the
+          # slowest legitimate suite.
+          KAAPPI_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '240' || '' }}
 
       - name: Sandbox escape tests
         run: bash tests/scheme/sandbox/sandbox-escape.sh

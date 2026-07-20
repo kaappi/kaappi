@@ -41,7 +41,7 @@
       (cond
         ((string? sre) (list 'lit sre))
         ((char? sre) (list 'chr sre))
-        ((and (symbol? sre) (memq sre '(bos eos bol eol bow eow))) (list 'assert sre))
+        ((and (symbol? sre) (memq sre '(bos eos bol eol bow eow nwb))) (list 'assert sre))
         ((eq? sre 'any) (list 'any))
         ((eq? sre 'nonl) (list 'nonl))
         ((symbol? sre)
@@ -52,22 +52,31 @@
         (else
          (let ((h (car sre)))
            (cond
+             ;; A list whose head is a string is a char set spelled out by its
+             ;; characters, e.g. (",;") -- SRFI 115's <cset-sre> shorthand.
+             ((string? h) (list 'chars h))
              ((or (eq? h 'seq) (eq? h ':))
               (cons 'seq (map (lambda (s) (%csre s gc)) (cdr sre))))
              ((eq? h 'or)
               (cons 'alt (map (lambda (s) (%csre s gc)) (cdr sre))))
              ((or (eq? h '?) (eq? h 'optional))
-              (list 'opt (%cbody (cdr sre) gc)))
+              (list 'opt (%cbody (cdr sre) gc) #t))
+             ((or (eq? h '??) (eq? h 'non-greedy-optional))
+              (list 'opt (%cbody (cdr sre) gc) #f))
              ((or (eq? h '*) (eq? h 'zero-or-more))
-              (list 'star (%cbody (cdr sre) gc)))
+              (list 'rep 0 #f (%cbody (cdr sre) gc) #t))
+             ((or (eq? h '*?) (eq? h 'non-greedy-zero-or-more))
+              (list 'rep 0 #f (%cbody (cdr sre) gc) #f))
              ((or (eq? h '+) (eq? h 'one-or-more))
-              (list 'plus (%cbody (cdr sre) gc)))
+              (list 'rep 1 #f (%cbody (cdr sre) gc) #t))
              ((or (eq? h '=) (eq? h 'exactly))
-              (list 'exactly (cadr sre) (%cbody (cddr sre) gc)))
+              (list 'rep (cadr sre) (cadr sre) (%cbody (cddr sre) gc) #t))
              ((or (eq? h '>=) (eq? h 'at-least))
-              (list 'at-least (cadr sre) (%cbody (cddr sre) gc)))
+              (list 'rep (cadr sre) #f (%cbody (cddr sre) gc) #t))
              ((or (eq? h '**) (eq? h 'repeated))
-              (list 'repeat (cadr sre) (caddr sre) (%cbody (cdddr sre) gc)))
+              (list 'rep (cadr sre) (caddr sre) (%cbody (cdddr sre) gc) #t))
+             ((or (eq? h '**?) (eq? h 'non-greedy-repeated))
+              (list 'rep (cadr sre) (caddr sre) (%cbody (cdddr sre) gc) #f))
              ((or (eq? h '$) (eq? h 'submatch))
               (let ((gn (car gc))) (set-car! gc (+ gn 1))
                 (list 'group gn (%cbody (cdr sre) gc))))
@@ -93,26 +102,42 @@
       (if (null? (cdr sres)) (%csre (car sres) gc)
           (cons 'seq (map (lambda (s) (%csre s gc)) sres))))
 
+    ;; (/ <range-spec> ...) takes strings and/or characters; the flattened
+    ;; character sequence is read off in pairs, so (/ "az" #\0 #\9) is the same
+    ;; set as (/ "az09"). Characters used to be dropped silently, which turned
+    ;; the SSRE-generated (char-range #\0 #\9) into a set matching nothing.
     (define (%build-ranges specs)
-      (let loop ((specs specs) (ranges '()))
-        (if (null? specs) ranges
-            (let ((spec (car specs)))
-              (if (string? spec)
-                  (let sloop ((i 0) (r ranges))
-                    (if (>= (+ i 1) (string-length spec)) (loop (cdr specs) r)
-                        (sloop (+ i 2)
-                               (cons (cons (char->integer (string-ref spec i))
-                                           (char->integer (string-ref spec (+ i 1)))) r))))
-                  (loop (cdr specs) ranges))))))
+      (let ((chars
+             (let loop ((specs specs) (acc '()))
+               (if (null? specs) (reverse acc)
+                   (let ((spec (car specs)))
+                     (cond
+                       ((char? spec) (loop (cdr specs) (cons spec acc)))
+                       ((string? spec)
+                        (loop (cdr specs)
+                              (let sloop ((i 0) (acc acc))
+                                (if (>= i (string-length spec)) acc
+                                    (sloop (+ i 1) (cons (string-ref spec i) acc))))))
+                       (else (error "regexp: invalid character range" spec))))))))
+        (let loop ((cs chars) (ranges '()))
+          (if (or (null? cs) (null? (cdr cs))) ranges
+              (loop (cddr cs)
+                    (cons (cons (char->integer (car cs))
+                                (char->integer (cadr cs))) ranges))))))
 
     ;;; Match interpreter
 
-    (define (%match-class c name)
+    ;; Under case folding (w/nocase) a class stands for its case-closure, so
+    ;; `lower' also accepts #\D: it is the set of characters whose downcased
+    ;; form is lowercase, not the set of lowercase characters.
+    (define (%match-class c name cf)
       (cond
         ((or (eq? name 'alphabetic) (eq? name 'alpha)) (char-alphabetic? c))
         ((or (eq? name 'numeric) (eq? name 'num)) (char-numeric? c))
-        ((or (eq? name 'lower-case) (eq? name 'lower)) (char-lower-case? c))
-        ((or (eq? name 'upper-case) (eq? name 'upper)) (char-upper-case? c))
+        ((or (eq? name 'lower-case) (eq? name 'lower))
+         (char-lower-case? (if cf (char-downcase c) c)))
+        ((or (eq? name 'upper-case) (eq? name 'upper))
+         (char-upper-case? (if cf (char-upcase c) c)))
         ((or (eq? name 'whitespace) (eq? name 'white) (eq? name 'space)) (char-whitespace? c))
         ((or (eq? name 'alphanumeric) (eq? name 'alphanum) (eq? name 'alnum))
          (or (char-alphabetic? c) (char-numeric? c)))
@@ -139,121 +164,155 @@
                               (< pos end) (%char-word? (string-ref str pos))))
         ((eq? kind 'eow) (and (> pos 0) (%char-word? (string-ref str (- pos 1)))
                               (or (= pos end) (not (%char-word? (string-ref str pos))))))
+        ;; nwb holds wherever bow/eow do not: both neighbours are word
+        ;; characters, or neither is (the ends of the range count as non-word).
+        ((eq? kind 'nwb)
+         (eq? (and (> pos 0) (%char-word? (string-ref str (- pos 1))) #t)
+              (and (< pos end) (%char-word? (string-ref str pos)) #t)))
         (else #f)))
 
-    (define (%run-seq parts str pos end groups cf)
-      (if (null? parts) (cons pos groups)
-          (let ((r (%run (car parts) str pos end groups cf)))
-            (if r (%run-seq (cdr parts) str (car r) end (cdr r) cf) #f))))
+    ;; The matcher is continuation-passing so that repetition can backtrack:
+    ;; %run offers each way its node can match to (k pos groups), in preference
+    ;; order, and yields the first non-#f answer k returns. A greedy operator
+    ;; offers the longest alternative first, a non-greedy one the shortest.
+    ;; Without this, `(regexp-matches (rx (* any) "b") "ab")' failed -- (* any)
+    ;; swallowed the whole string and nothing could hand a character back.
+    (define (%run-done pos groups) (cons pos groups))
 
-    (define (%run-alt parts str pos end groups cf)
+    ;; Does `node' match a single character at `pos'? Used both by %run and by
+    ;; the iterative repetition path below.
+    (define (%match-one node str pos end cf)
+      (and (< pos end)
+           (let ((tag (car node)) (c (string-ref str pos)))
+             (cond
+               ((eq? tag 'chr) (%cm c (cadr node) cf))
+               ((eq? tag 'any) #t)
+               ((eq? tag 'nonl) (and (not (char=? c #\newline)) (not (char=? c #\return))))
+               ((eq? tag 'class) (%match-class c (cadr node) cf))
+               ((eq? tag 'range) (%match-range c (cadr node) cf))
+               ((eq? tag 'chars) (%match-chars c (cadr node) cf))
+               ((eq? tag 'nocase) (%match-one (cadr node) str pos end #t))
+               ((eq? tag 'case) (%match-one (cadr node) str pos end #f))
+               ((eq? tag 'alt)
+                (let loop ((ps (cdr node)))
+                  (and (pair? ps)
+                       (or (%match-one (car ps) str pos end cf) (loop (cdr ps))))))
+               ((eq? tag 'compl)
+                (not (%run (cadr node) str pos end '() cf %run-done)))
+               (else #f)))))
+
+    ;; A node that always consumes exactly one character and captures nothing
+    ;; can be repeated by scanning, so `(* any)' over a long string costs no
+    ;; stack -- only the general path below nests one frame per iteration.
+    (define (%single-char-node? node)
+      (let ((tag (car node)))
+        (cond
+          ((memq tag '(chr any nonl class range chars compl)) #t)
+          ((memq tag '(nocase case)) (%single-char-node? (cadr node)))
+          ((eq? tag 'alt) (%every %single-char-node? (cdr node)))
+          (else #f))))
+
+    (define (%every pred ls)
+      (or (null? ls) (and (pred (car ls)) (%every pred (cdr ls)))))
+
+    (define (%match-range c ranges cf)
+      (let ((try (lambda (ch)
+                   (let ((ci (char->integer ch)))
+                     (let loop ((rs ranges))
+                       (cond
+                         ((null? rs) #f)
+                         ((and (>= ci (caar rs)) (<= ci (cdar rs))) #t)
+                         (else (loop (cdr rs)))))))))
+        (or (try c) (and cf (or (try (char-downcase c)) (try (char-upcase c)))))))
+
+    (define (%match-chars c s cf)
+      (let loop ((i 0))
+        (cond
+          ((= i (string-length s)) #f)
+          ((%cm c (string-ref s i) cf) #t)
+          (else (loop (+ i 1))))))
+
+    (define (%run-seq parts str pos end groups cf k)
+      (if (null? parts) (k pos groups)
+          (%run (car parts) str pos end groups cf
+                (lambda (p g) (%run-seq (cdr parts) str p end g cf k)))))
+
+    (define (%run-alt parts str pos end groups cf k)
       (if (null? parts) #f
-          (let ((r (%run (car parts) str pos end groups cf)))
-            (if r r (%run-alt (cdr parts) str pos end groups cf)))))
+          (or (%run (car parts) str pos end groups cf k)
+              (%run-alt (cdr parts) str pos end groups cf k))))
 
-    (define (%run-star inner str pos end groups cf)
-      (let ((r (%run inner str pos end groups cf)))
-        (if (and r (> (car r) pos))
-            (%run-star inner str (car r) end (cdr r) cf)
-            (cons pos groups))))
+    ;; (rep lo hi body greedy?); hi of #f means unbounded. The (> p pos)
+    ;; guard on optional iterations keeps a nullable body from looping.
+    (define (%run-rep lo hi inner str pos end groups cf greedy k)
+      (if (%single-char-node? inner)
+          (%run-rep1 lo hi inner str pos end groups cf greedy k)
+          (cond
+            ((> lo 0)
+             (%run inner str pos end groups cf
+                   (lambda (p g)
+                     (%run-rep (- lo 1) (and hi (- hi 1)) inner
+                               str p end g cf greedy k))))
+            ((and hi (<= hi 0)) (k pos groups))
+            (else
+             (let ((more (lambda ()
+                           (%run inner str pos end groups cf
+                                 (lambda (p g)
+                                   (and (> p pos)
+                                        (%run-rep 0 (and hi (- hi 1)) inner
+                                                  str p end g cf greedy k)))))))
+               (if greedy (or (more) (k pos groups)) (or (k pos groups) (more))))))))
 
-    (define (%run-plus inner str pos end groups cf)
-      (let ((first (%run inner str pos end groups cf)))
-        (if (not first) #f (%run-star inner str (car first) end (cdr first) cf))))
+    ;; Repetition of a single-character body: count the longest run available,
+    ;; then offer lengths to k from the preferred end.
+    (define (%run-rep1 lo hi inner str pos end groups cf greedy k)
+      (let* ((limit (if hi (min end (+ pos hi)) end))
+             (most (let loop ((p pos))
+                     (if (and (< p limit) (%match-one inner str p end cf))
+                         (loop (+ p 1))
+                         (- p pos)))))
+        (and (>= most lo)
+             (if greedy
+                 (let loop ((n most))
+                   (and (>= n lo) (or (k (+ pos n) groups) (loop (- n 1)))))
+                 (let loop ((n lo))
+                   (and (<= n most) (or (k (+ pos n) groups) (loop (+ n 1)))))))))
 
-    (define (%run-exactly n inner str pos end groups cf)
-      (if (= n 0) (cons pos groups)
-          (let ((r (%run inner str pos end groups cf)))
-            (if r (%run-exactly (- n 1) inner str (car r) end (cdr r) cf) #f))))
-
-    (define (%run-at-least n inner str pos end groups cf)
-      (if (> n 0)
-          (let ((r (%run inner str pos end groups cf)))
-            (if r (%run-at-least (- n 1) inner str (car r) end (cdr r) cf) #f))
-          (%run-star inner str pos end groups cf)))
-
-    (define (%run-repeat i lo hi inner str pos end groups cf)
-      (cond
-        ((= i hi) (cons pos groups))
-        ((< i lo)
-         (let ((r (%run inner str pos end groups cf)))
-           (if r (%run-repeat (+ i 1) lo hi inner str (car r) end (cdr r) cf) #f)))
-        (else
-         (let ((r (%run inner str pos end groups cf)))
-           (if (and r (> (car r) pos))
-               (%run-repeat (+ i 1) lo hi inner str (car r) end (cdr r) cf)
-               (cons pos groups))))))
-
-    (define (%run compiled str pos end groups cf)
+    (define (%run compiled str pos end groups cf k)
       (let ((tag (car compiled)))
         (cond
           ((eq? tag 'lit)
            (let* ((s (cadr compiled)) (slen (string-length s)))
-             (if (> (+ pos slen) end) #f
-                 (let loop ((i 0))
-                   (if (= i slen) (cons (+ pos slen) groups)
-                       (if (%cm (string-ref str (+ pos i)) (string-ref s i) cf)
-                           (loop (+ i 1)) #f))))))
-          ((eq? tag 'chr)
-           (if (and (< pos end) (%cm (string-ref str pos) (cadr compiled) cf))
-               (cons (+ pos 1) groups) #f))
-          ((eq? tag 'any) (if (< pos end) (cons (+ pos 1) groups) #f))
-          ((eq? tag 'nonl)
-           (if (and (< pos end) (not (char=? (string-ref str pos) #\newline))
-                    (not (char=? (string-ref str pos) #\return)))
-               (cons (+ pos 1) groups) #f))
-          ((eq? tag 'class)
-           (if (and (< pos end) (%match-class (string-ref str pos) (cadr compiled)))
-               (cons (+ pos 1) groups) #f))
-          ((eq? tag 'range)
-           (if (< pos end)
-               (let ((ci (char->integer (if cf (char-downcase (string-ref str pos))
-                                             (string-ref str pos)))))
-                 (let loop ((rs (cadr compiled)))
-                   (cond
-                     ((null? rs) #f)
-                     ((and (>= ci (caar rs)) (<= ci (cdar rs))) (cons (+ pos 1) groups))
-                     (else (loop (cdr rs))))))
-               #f))
-          ((eq? tag 'chars)
-           (if (< pos end)
-               (let ((c (if cf (char-downcase (string-ref str pos)) (string-ref str pos)))
-                     (s (cadr compiled)))
-                 (let loop ((i 0))
-                   (cond
-                     ((= i (string-length s)) #f)
-                     ((char=? c (string-ref s i)) (cons (+ pos 1) groups))
-                     (else (loop (+ i 1))))))
-               #f))
+             (and (<= (+ pos slen) end)
+                  (let loop ((i 0))
+                    (if (= i slen) (k (+ pos slen) groups)
+                        (and (%cm (string-ref str (+ pos i)) (string-ref s i) cf)
+                             (loop (+ i 1))))))))
+          ((memq tag '(chr any nonl class range chars))
+           (and (%match-one compiled str pos end cf) (k (+ pos 1) groups)))
           ((eq? tag 'assert)
-           (if (%run-assert (cadr compiled) str pos end) (cons pos groups) #f))
-          ((eq? tag 'seq) (%run-seq (cdr compiled) str pos end groups cf))
-          ((eq? tag 'alt) (%run-alt (cdr compiled) str pos end groups cf))
+           (and (%run-assert (cadr compiled) str pos end) (k pos groups)))
+          ((eq? tag 'seq) (%run-seq (cdr compiled) str pos end groups cf k))
+          ((eq? tag 'alt) (%run-alt (cdr compiled) str pos end groups cf k))
           ((eq? tag 'opt)
-           (let ((r (%run (cadr compiled) str pos end groups cf)))
-             (if r r (cons pos groups))))
-          ((eq? tag 'star) (%run-star (cadr compiled) str pos end groups cf))
-          ((eq? tag 'plus) (%run-plus (cadr compiled) str pos end groups cf))
-          ((eq? tag 'exactly)
-           (%run-exactly (cadr compiled) (caddr compiled) str pos end groups cf))
-          ((eq? tag 'at-least)
-           (%run-at-least (cadr compiled) (caddr compiled) str pos end groups cf))
-          ((eq? tag 'repeat)
-           (%run-repeat 0 (cadr compiled) (caddr compiled) (cadddr compiled)
-                        str pos end groups cf))
+           (if (caddr compiled)
+               (or (%run (cadr compiled) str pos end groups cf k) (k pos groups))
+               (or (k pos groups) (%run (cadr compiled) str pos end groups cf k))))
+          ((eq? tag 'rep)
+           (%run-rep (cadr compiled) (caddr compiled) (cadddr compiled)
+                     str pos end groups cf (car (cddddr compiled)) k))
           ((eq? tag 'group)
-           (let ((r (%run (caddr compiled) str pos end groups cf)))
-             (if r (cons (car r) (append (cdr r) (list (list (cadr compiled) pos (car r)))))
-                 #f)))
-          ((eq? tag 'nocase) (%run (cadr compiled) str pos end groups #t))
-          ((eq? tag 'case) (%run (cadr compiled) str pos end groups #f))
+           (let ((gn (cadr compiled)))
+             (%run (caddr compiled) str pos end groups cf
+                   (lambda (p g) (k p (append g (list (list gn pos p))))))))
+          ((eq? tag 'nocase) (%run (cadr compiled) str pos end groups #t k))
+          ((eq? tag 'case) (%run (cadr compiled) str pos end groups #f k))
           ((eq? tag 'look)
-           (if (%run (cadr compiled) str pos end groups cf) (cons pos groups) #f))
+           (and (%run (cadr compiled) str pos end groups cf %run-done) (k pos groups)))
           ((eq? tag 'neglook)
-           (if (%run (cadr compiled) str pos end groups cf) #f (cons pos groups)))
+           (and (not (%run (cadr compiled) str pos end groups cf %run-done)) (k pos groups)))
           ((eq? tag 'compl)
-           (if (or (>= pos end) (%run (cadr compiled) str pos end groups cf)) #f
-               (cons (+ pos 1) groups)))
+           (and (%match-one compiled str pos end cf) (k (+ pos 1) groups)))
           (else (error "regexp: unknown tag" tag)))))
 
     ;;; Public API
@@ -277,19 +336,24 @@
                         (vector-set! vec (car g) (list (cadr g) (caddr g))))) groups)
         (%make-regexp-match str vec)))
 
+    ;; Anchoring the whole string is part of the continuation, not a test on
+    ;; the result: a pattern that can match a prefix must be free to backtrack
+    ;; until it reaches `end' before regexp-matches gives up.
+    (define (%run-anchored r str start end)
+      (%run (%regexp-compiled r) str start end '() #f
+            (lambda (p g) (and (= p end) (cons p g)))))
+
     (define (regexp-matches? re str . rest)
       (let* ((start (if (null? rest) 0 (car rest)))
-             (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest)))
-             (r (%ensure re))
-             (m (%run (%regexp-compiled r) str start end '() #f)))
-        (and m (= (car m) end))))
+             (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest))))
+        (and (%run-anchored (%ensure re) str start end) #t)))
 
     (define (regexp-matches re str . rest)
       (let* ((start (if (null? rest) 0 (car rest)))
              (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest)))
              (r (%ensure re))
-             (m (%run (%regexp-compiled r) str start end '() #f)))
-        (if (and m (= (car m) end))
+             (m (%run-anchored r str start end)))
+        (if m
             (%build-match str (cons (list 0 start end) (cdr m)) (%regexp-num-groups r))
             #f)))
 
@@ -299,7 +363,7 @@
              (r (%ensure re)))
         (let loop ((i start))
           (if (> i end) #f
-              (let ((m (%run (%regexp-compiled r) str i end '() #f)))
+              (let ((m (%run (%regexp-compiled r) str i end '() #f %run-done)))
                 (if m (%build-match str (cons (list 0 i (car m)) (cdr m)) (%regexp-num-groups r))
                     (loop (+ i 1))))))))
 
@@ -316,6 +380,11 @@
         (if (> i (regexp-match-count m)) (reverse r)
             (loop (+ i 1) (cons (regexp-match-submatch m i) r)))))
 
+    ;; The index handed to kons/finish is where the *previous* match ended, not
+    ;; where this search started: after an empty match the search cursor skips a
+    ;; character, but the unmatched text still begins back at the previous end.
+    ;; Conflating the two made regexp-split/-partition return a run of empty
+    ;; strings for any regexp that can match the empty string.
     (define (regexp-fold re kons knil str . rest)
       (let* ((finish (if (null? rest) (lambda (i m s acc) acc) (car rest)))
              (rest2 (if (null? rest) '() (cdr rest)))
@@ -323,44 +392,55 @@
              (rest3 (if (null? rest2) '() (cdr rest2)))
              (end (if (null? rest3) (string-length str) (car rest3)))
              (r (%ensure re)))
-        (let loop ((i start) (acc knil))
-          (if (> i end) (finish i #f str acc)
-              (let ((m-obj (regexp-search r str i end)))
-                (if (not m-obj) (finish i #f str acc)
-                    (let ((ms (regexp-match-submatch-start m-obj 0))
-                          (me (regexp-match-submatch-end m-obj 0)))
-                      (let ((acc2 (kons i m-obj str acc)))
-                        (if (= me ms)
-                            (if (>= me end) (finish me m-obj str acc2) (loop (+ me 1) acc2))
-                            (loop me acc2))))))))))
+        (let loop ((i start) (from start) (acc knil))
+          (let ((m-obj (and (< i end) (regexp-search r str i end))))
+            (if (not m-obj) (finish from #f str acc)
+                (let ((ms (regexp-match-submatch-start m-obj 0))
+                      (me (regexp-match-submatch-end m-obj 0)))
+                  (loop (if (and (= me ms) (< me end)) (+ me 1) me)
+                        me
+                        (kons from m-obj str acc))))))))
 
     (define (regexp-extract re str . rest)
       (let* ((start (if (null? rest) 0 (car rest)))
              (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest))))
-        (reverse
-          (regexp-fold re
-            (lambda (i m s acc)
-              (let ((sub (regexp-match-submatch m 0)))
-                (if (and sub (> (string-length sub) 0)) (cons sub acc) acc)))
-            '() str (lambda (i m s acc) acc) start end))))
+        (regexp-fold re
+          (lambda (i m s acc)
+            (let ((sub (regexp-match-submatch m 0)))
+              (if (and sub (> (string-length sub) 0)) (cons sub acc) acc)))
+          '() str (lambda (i m s acc) (reverse acc)) start end)))
 
+    ;; split/partition carry the left edge of the pending piece in (car acc) and
+    ;; ignore empty matches, so a nullable regexp splits on its real matches.
     (define (regexp-split re str . rest)
       (let* ((start (if (null? rest) 0 (car rest)))
              (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest))))
-        (reverse
-          (regexp-fold re
-            (lambda (i m s acc) (cons (substring s i (regexp-match-submatch-start m 0)) acc))
-            '() str (lambda (i m s acc) (cons (substring s i end) acc)) start end))))
+        (regexp-fold re
+          (lambda (i m s acc)
+            (let ((ms (regexp-match-submatch-start m 0))
+                  (me (regexp-match-submatch-end m 0)))
+              (if (= ms me) acc
+                  (cons me (cons (substring s (car acc) ms) (cdr acc))))))
+          (list start) str
+          (lambda (i m s acc) (reverse (cons (substring s (car acc) end) (cdr acc))))
+          start end)))
 
     (define (regexp-partition re str . rest)
       (let* ((start (if (null? rest) 0 (car rest)))
              (end (if (or (null? rest) (null? (cdr rest))) (string-length str) (cadr rest))))
-        (reverse
-          (regexp-fold re
-            (lambda (i m s acc)
-              (cons (regexp-match-submatch m 0)
-                    (cons (substring s i (regexp-match-submatch-start m 0)) acc)))
-            '() str (lambda (i m s acc) (cons (substring s i end) acc)) start end))))
+        (regexp-fold re
+          (lambda (i m s acc)
+            (let ((ms (regexp-match-submatch-start m 0))
+                  (me (regexp-match-submatch-end m 0)))
+              (if (= ms me) acc
+                  (cons me (cons (regexp-match-submatch m 0)
+                                 (cons (substring s (car acc) ms) (cdr acc)))))))
+          (list start) str
+          (lambda (i m s acc)
+            (reverse (if (or (< i end) (null? (cdr acc)))
+                         (cons (substring s (car acc) end) (cdr acc))
+                         (cdr acc))))
+          start end)))
 
     (define (%apply-subst subst m-obj str)
       (cond

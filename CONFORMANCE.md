@@ -99,7 +99,7 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 ### Portable SRFIs (73 libraries)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 257 misc), (srfi 257 box), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
 | SRFI | Title |
 |------|-------|
@@ -171,7 +171,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 248 | Minimal delimited continuations ‡ |
 | 250 | Insertion-ordered hash tables |
 | 259 | Tagged procedures with type safety |
-| 257 | Simple Extendable Pattern Matcher with Backtracking ‡ |
+| 257 | Simple Extendable Pattern Matcher with Backtracking |
 | 263 | Prototype Object System |
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
@@ -181,11 +181,6 @@ SRFI 263 note: `(resend #f ...)` from a method inherited from a *non-immediate*
 ancestor loops, because `resend` restarts the lookup skipping only the original
 receiver — a distinct-origin lookup the finalized SRFI never specified. Resending
 to an explicit target, and resend from a directly-overriding method, both work.
-
-‡ SRFI 257's optional `(srfi 257 rx)` sublibrary is not yet provided. It
-builds on SRFI 264 (Scheme Regular Expressions), which is now available, so
-the rx integration is tracked as a follow-up. The main library and the `misc`
-and `box` sublibraries are complete.
 
 † SRFI 267 is a hybrid: the `#"X"…"X"` lexical syntax is built into the reader
 (so raw-string literals work in any source file), while the port procedures

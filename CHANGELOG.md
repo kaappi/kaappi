@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### SRFI 257 `rx` sublibrary (regexp match patterns)
+
+- **`(srfi 257 rx)`** — the optional sublibrary of SRFI 257, matching strings
+  against regexps written either as SRFI 115 SREs or as SRFI 264 SSRE strings:
+  `~/`, `~/sub`, `~/any`, `~/all`, `~/all+`, `~/etc`, `~/etc+`, `~/etcse`,
+  `~/extracted`, `~/split`, `~/partitioned`, plus `rx` re-exported from SRFI
+  115. Subpatterns bind the submatch strings, so
+  `(match s ((~/ "([a-z]*):([0-9]*)" _ name num) ...))` destructures a match in
+  the pattern itself. Ported from Sergei Egorov's MIT-licensed reference
+  implementation; the full upstream conformance suite (113 cases) passes
+  (#1679).
+
 #### SRFI 264 (String Syntax for Scheme Regular Expressions)
 
 - **SRFI 264 (String Syntax for Scheme Regular Expressions)** — SSRE, a compact,
@@ -43,6 +55,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   guaranteed by a process-global atomic counter and the name's unpredictability
   by 128 bits of OS entropy. See `src/primitives_srfi260.zig` and
   `tests/scheme/srfi/srfi260.scm` (#1674).
+
+### Fixed
+
+#### SRFI 115 (Scheme regular expressions)
+
+Found by the SRFI 257 `rx` conformance suite, which drove every one of these
+(#1679):
+
+- **Repetition now backtracks.** The matcher was possessive: `(* any)` consumed
+  everything it could and nothing could hand a character back, so
+  `(regexp-matches (rx (* any) "b") "ab")` returned `#f` and any pattern with a
+  greedy operator before a literal silently failed to match. `%run` is now
+  continuation-passing — it offers each way a node can match to a continuation
+  and takes the first that lets the rest of the pattern through. Repetition of a
+  single-character body still scans iteratively, so `(* any)` over a long string
+  costs no stack.
+- **Non-greedy operators** `(?? ...)`, `(*? ...)` and `(**? ...)` are supported;
+  they previously raised "unknown SRE", which also made every SSRE non-greedy
+  quantifier (`a*?`, `a+?`, `a{2,4}?`) unusable.
+- **An open-ended upper bound** — `(** 1 #f "a")` — raised a type error instead
+  of repeating without limit.
+- **`(/ ...)` accepts characters**, not just strings: `(/ #\0 #\9)` used to build
+  an empty range that matched nothing, which is the form SRFI 264 generates for
+  `[0-9]`.
+- **`(",;")`** — a list whose head is a string is SRFI 115's char-set shorthand
+  for the characters of that string; it raised "unknown SRE".
+- **`nwb`** (not-a-word-boundary) is supported; it raised "unknown character
+  class".
+- **`w/nocase` reaches named classes and ranges**, so `(w/nocase (* lower))`
+  matches `"abcD"` and `(w/nocase (+ (/ "af")))` matches `"BeeF"`.
+- **`regexp-split`, `regexp-partition` and `regexp-fold` on a regexp that can
+  match the empty string.** The index handed to `regexp-fold`'s `kons` is now
+  where the previous match ended rather than where the search resumed, and
+  split/partition skip empty matches, so
+  `(regexp-split '(* numeric) "abc123def")` is `("abc" "def")` instead of a run
+  of empty strings. `regexp-partition` also no longer appends a trailing `""`
+  when the string ends with a match, matching the reference implementation.
 
 ## [0.20.0] - 2026-07-19
 
