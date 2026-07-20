@@ -927,7 +927,12 @@ test "bignum compare" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const a = try parseBignumString(&gc, "99999999999999999999999999999999", 10);
+    // Root a across the second parse: it stays valid today only because
+    // parseBignumString builds its Bignum without maybeCollect, and this
+    // must not silently break if that path ever collects (#1682).
+    var a = try parseBignumString(&gc, "99999999999999999999999999999999", 10);
+    gc.pushRoot(&a);
+    defer gc.popRoot();
     const b = try parseBignumString(&gc, "99999999999999999999999999999998", 10);
     try std.testing.expectEqual(@as(i8, 1), compare(a, b));
     try std.testing.expectEqual(@as(i8, -1), compare(b, a));
