@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-20
+
 ### Added
 
 #### SRFI 257 (Simple Extendable Pattern Matcher with Backtracking)
@@ -91,7 +93,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by 128 bits of OS entropy. See `src/primitives_srfi260.zig` and
   `tests/scheme/srfi/srfi260.scm` (#1674).
 
+#### SRFI 259 and SRFI 229 (Tagged Procedures)
+
+- **SRFI 259 (Tagged Procedures with Type Safety)** and its foundation
+  **SRFI 229 (Tagged Procedures)** — `(import (srfi 259))` provides
+  `define-procedure-tag`, which binds a constructor/predicate/accessor triple
+  for attaching type-safe tags to procedures. Multiple protocols can tag the
+  same procedure independently: each protocol's key is private and unforgeable,
+  so no code can read another protocol's tag. Re-tagging preserves other
+  protocols' tags and re-wraps the original underlying procedure directly
+  (no nesting). Built as a portable layer over `(srfi 229)`, which ships as
+  the verbatim MIT-licensed reference implementation by Marc
+  Nieper-Wißkirchen. Documented caveat: the portable design retains every
+  tagged procedure in a global list for identity tracking, so tagged
+  procedures are never garbage-collected (#1673).
+
 ### Fixed
+
+#### Top-level cond-expand
+
+- **Top-level `cond-expand` now splices into top-level context.** Previously
+  it was compiled as an ordinary expression, so `(import ...)` inside a
+  matched clause was mis-compiled — `(cond-expand (srfi-1 (import (srfi 1)))
+  (else ...))` raised "undefined variable 'srfi'" even though the import's
+  side effect still ran. `handleTopLevelForm` now recognizes `cond-expand`
+  and splices the selected clause's body through `handleTopLevelBegin`,
+  matching the R7RS 4.2.1 requirement that top-level `cond-expand` expands
+  in top-level context (#1661, #1663).
+
+#### FFI
+
+- **`ffi-open` reports the real dlopen failure.** Previously it reported
+  `dlerror()` only after the last probe path, so a library that existed but
+  failed to load (code-signing rejection, wrong architecture) was reported as
+  "no such file" for a fallback path the user never asked for. Now snapshots
+  per-candidate failures and reports the first candidate that exists on disk
+  but failed, with the other probed paths listed (#1662).
 
 #### Macro expander and hygiene
 
