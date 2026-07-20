@@ -65,9 +65,18 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
     defer vm.deinit();
 
     // Three independent top-level thunks, each returning a distinct fixnum —
-    // standing in for a program's sequence of top-level forms.
+    // standing in for a program's sequence of top-level forms. Root each
+    // across the next helper call: they stay valid today only because
+    // allocFunction happens never to collect, and this must not silently
+    // break if that changes (#1682).
     const f0 = try makeReturnConstFunc(&gc, 111);
+    var f0_root = types.makePointer(&f0.header);
+    gc.pushRoot(&f0_root);
+    defer gc.popRoot();
     const f1 = try makeReturnConstFunc(&gc, 222);
+    var f1_root = types.makePointer(&f1.header);
+    gc.pushRoot(&f1_root);
+    defer gc.popRoot();
     const f2 = try makeReturnConstFunc(&gc, 333);
 
     var funcs_arr = [_]*Function{ f0, f1, f2 };
