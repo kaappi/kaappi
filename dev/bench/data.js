@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784574421731,
+  "lastUpdate": 1784579327826,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2043de60a22461ed894e0ec7f6397ac48f2ada0",
-          "message": "Add A/B/C/D envelope-cost benchmark matrix (KEP-0002 Phase 7) (#1535)\n\nGrows src/bench_channel.zig from the Phase 1 single-lever harness into the\nfull P3 elision-lever matrix (research/open-problems.md P3) that the Phase 7\nA/B/C/D decision is pre-registered against: (A) per-message GC struct as\nshipped, (B) reusable per-channel arena, (C) immediates skip the envelope,\n(D) refcounted immutable side-heap for large payloads. A counting allocator\nreports true allocations/message and a printer evaluates the pre-registered\ncriteria mechanically.\n\nThe point of the matrix is the decision it records, not the raw numbers:\n\n- (C) ships -- the immediate fast path is 28-120x on fixnums and erases the\n  two fixed allocations (GC struct + ~8 KiB root buffer) that lever A pays\n  per message even for a zero-object fixnum payload.\n- (B) is a ship candidate whose verdict is build-mode sensitive: it clears\n  the >= 30%-on-all-small-messages bar under both safety-on builds\n  (ReleaseSafe 57-98%, Debug 65-99%) but dips the 1 KiB string to ~26% under\n  ReleaseFast. Since the shipped binary is ReleaseSafe (protocol §4.5) the\n  operative reading is \"replace A\", conditioned on the pre-registered second\n  clause -- a real arena in shared_channel.zig surviving gc-stress/leak with\n  no lifetime rule leaking outside that file -- which this micro-benchmark\n  does not settle.\n- (D) is measured only (2.6-2.8x on 64 KiB, 8->2 allocations, no copy-out);\n  its shipping decision belongs to the KEP-0003 gate (#1474).\n\nThis is the envelope-cost half of #1472, at the eyeball benchmark tier (like\nbench-fibers/bench-reactor), on one machine (macOS aarch64). The parallel-map\ngate campaign, the Linux run, the lever-B arena prototype, shipping C, and the\nKEP-0002 UQ 1 amendment remain. Full write-up and caveats in\ndocs/dev/kep-0002-phase7-envelope-benchmarks.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T16:40:17+05:30",
-          "tree_id": "edd187e57f8d6088b2b77ab60a975188edce4c78",
-          "url": "https://github.com/kaappi/kaappi/commit/b2043de60a22461ed894e0ec7f6397ac48f2ada0"
-        },
-        "date": 1784029261248,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.073962,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.77298,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.91355,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407114,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006943,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052828,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507234,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068894,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.263933,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.991257,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.512644,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.470714,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.74841,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765908,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045608,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044519,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10b56fe4d4870a905e9536e69aac165ea50af1b0",
+          "message": "Detect mark-time use-after-free deterministically under gc-stress (#1687) (#1690)\n\nThe #1682 dangling-local bug survived twelve nightly gc-stress runs\nbecause both existing defenses structurally miss marking-time UAF: the\nDebug 0xAA poison makes a freed header's owner read as some other GC's\nid, so markValueInner's #958 foreign-owner skip silently absorbs it, and\nwhen the freed slot is recycled by the next same-size allocation the\nowner is valid again and the corruption is invisible.\n\nTwo mechanisms close those escape modes, comptime-gated so release\nbuilds pay nothing:\n\n- Freed-owner sentinel (Debug or gc-stress): poisonAndDestroy stamps\n  Object.owner with the reserved FREED_OWNER id (0xFFFF_FFFF, skipped by\n  nextGcId) after the poison memset, and markValueInner/weakReachable\n  panic with \"GC: marking freed object (use-after-free)\" on reading it —\n  a deterministic, attributable failure instead of a lucky segfault.\n\n- Free-quarantine (gc-stress only): freed header slots are withheld from\n  the allocator and released oldest-first, only past a 4 MiB per-GC cap\n  and only between a later collection's mark and sweep phases, so every\n  slot survives at least one full mark after its free and the sentinel\n  stays readable instead of the slot aliasing a recycled live object.\n  GC.deinit and the two arena resets that never collect\n  (shared_channel.resetForReuse, bench_channel.freeArena) drain it.\n\nVerified per the issue's acceptance criterion: both the synthetic\nunrooted-local-into-makeList case and the actual #1682 test with its\n#1685 rooting fix reverted panic with the freed-object message on 8/8\ngc-stress runs (previously: twelve silent runs before one crash). Full\nunit suite green in normal, Debug, and gc-stress builds; wasm/Linux/\nWindows/FreeBSD cross-compiles and the stress binary's Scheme smoke +\nSRFI-254 weak-ref suites all pass.\n\nCloses #1687\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T01:25:42+05:30",
+          "tree_id": "a5953a2ffaeba5451d658a9f1002f86df73bc6f4",
+          "url": "https://github.com/kaappi/kaappi/commit/10b56fe4d4870a905e9536e69aac165ea50af1b0"
+        },
+        "date": 1784579326254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.271046,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.093734,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.969513,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.461018,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006411,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054798,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.54007,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070744,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.58533,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.993798,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.588764,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437098,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.80456,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.653055,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045185,
             "unit": "seconds"
           }
         ]
