@@ -40,6 +40,9 @@
   (regexp-fold re kons '() str finish))
 
 (define (regexp-search-all/list-of-submatch-lists re str)
+  ;; A circular list, deliberately: ~/all does not fail when nothing matched,
+  ;; so every subpattern must see '() no matter how many the caller wrote.
+  ;; Only ~list*'s finite prefix walk ever touches it -- never print it.
   (define (empty-lists) ; returned on no matches
     (let ((el (list '()))) (set-cdr! el el) el))
   (define (kons i m str acc)
@@ -51,7 +54,10 @@
 
 ; Kaappi addition: see the header note. Same as the list-of-submatch-lists
 ; variant above, but a run with no matches yields '() rather than a circular
-; list of empty lists, so ~/all+'s ~pair? guard can reject it.
+; list of empty lists, so ~/all+'s ~pair? guard can reject it. Kept as a
+; separate copy rather than factored together with it: everything else in this
+; file is verbatim upstream, and keeping it that way is what lets the library
+; be re-synced against the reference by diffing.
 (define (regexp-search-all re str)
   (define (kons i m str acc)
     (let ((l (regexp-match->list m)))
