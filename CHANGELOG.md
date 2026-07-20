@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### SRFI 257 (Simple Extendable Pattern Matcher with Backtracking)
+
+- **SRFI 257 — Simple Extendable Pattern Matcher with Backtracking** —
+  `(import (srfi 257))` provides `match` with non-linear patterns (a pattern
+  variable may appear more than once, and its occurrences must match `equal?`
+  values) and backtracking through `(=> next)` / `(=> next back)` clause
+  guards. Nearly every pattern is built from a small core and is
+  user-extensible via `define-match-pattern` and
+  `define-record-match-pattern`. Two sublibraries ship with it:
+  `(srfi 257 misc)` adds `~etc+`, `~etc=`, `~etc**`, the SRFI-241-style
+  catamorphism matcher `cm-match`, and the `syntax-rules`-like `sr-match`;
+  `(srfi 257 box)` adds `~box?` and `~box` over SRFI 111 boxes. Ported from
+  Sergei Egorov's MIT-licensed reference implementation (with two upstream
+  reference bugs fixed); 111 of the reference suite's 112 assertions pass —
+  the exception compares boxes with `equal?`, which is
+  implementation-specific. Porting it also surfaced seven general expander
+  defects, fixed under "Macro expander and hygiene" below (#1644).
+
 #### SRFI 257 `rx` sublibrary (regexp match patterns)
 
 - **`(srfi 257 rx)`** — the optional sublibrary of SRFI 257, matching strings
@@ -20,6 +38,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the pattern itself. Ported from Sergei Egorov's MIT-licensed reference
   implementation; the full upstream conformance suite (113 cases) passes
   (#1679).
+
+#### SRFI 248 (Minimal Delimited Continuations)
+
+- **SRFI 248 — Minimal Delimited Continuations** — `(import (srfi 248))`
+  provides `with-unwind-handler`, `empty-continuation?`, and an extended
+  `guard` taking an optional second identifier — `(guard (c k clause …)
+  body …)` — bound to a delimited continuation for the rest of the guarded
+  thunk, up to and including the `with-unwind-handler` call; enough to write
+  coroutine generators, `for-each->fold`, and effect handlers in portable
+  Scheme. R7RS's single-variable `guard` is unchanged. The prompt is a Filinski
+  shift/reset over Kaappi's stack-copying `call/cc`, enabled by a new
+  *sticky* VM exception handler that `raise` and `raise-continuable` invoke
+  in place without popping, so a continuation captured while the handler runs
+  re-arms the prompt when resumed (reset0 semantics). Two documented caveats:
+  a delimited continuation is effectively single-shot (resuming the same `k`
+  twice crosses a native frame), and the handler runs at the raise point
+  rather than after unwinding — see CONFORMANCE.md (#1669).
 
 #### SRFI 264 (String Syntax for Scheme Regular Expressions)
 
@@ -57,6 +92,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `tests/scheme/srfi/srfi260.scm` (#1674).
 
 ### Fixed
+
+#### Macro expander and hygiene
+
+Surfaced by the SRFI 257 port — the reference `match` is a CPS protocol of
+macro-generating macros, which exercises corners of `syntax-rules` that
+ordinary macros never reach. All seven are general expander defects, not
+SRFI-257-specific, and each ships with a regression test in
+`src/tests_macros.zig` (#1644):
+
+- **Spliced user text was re-renamed on every expansion generation.** A
+  pattern variable's value substituted into a nested `syntax-rules` template
+  got a fresh scope each generation, severing binders from their references —
+  the root cause of broken non-linear patterns. Substituted values now carry
+  `__hyg-usertext` provenance markers, are instantiated in
+  substitute-don't-rename mode, and are stripped at the compile boundary.
+- **`let-syntax` templates could not reference an enclosing function's
+  locals.** Transformers now record definition-site lexical free refs
+  (`def_site_local_refs`), and `renameForHygiene` leaves them unrenamed when
+  the current frame cannot resolve them, so the normal upvalue path applies.
+  Same-frame refs keep the shadow-proof rename+alias path.
+- **A `syntax-rules` literal bound in an enclosing frame compared
+  incorrectly.** `literal_bound` now resolves a literal's definition-site
+  binding through the full lexical chain, matching the use-site check — which
+  is what non-linear pattern variables inside generated backtracking lambdas
+  depend on.
+- **A hygiene-renamed, unbound identifier did not match an unbound
+  `syntax-rules` literal of its base name**, so tokens like `cm-match`'s
+  `<...>` / `<_>` never matched.
+- **Hygienic-capture alias injection could shadow a generated `let-syntax`
+  macro** whose base name collided with a user variable; macro-bound names are
+  now skipped.
+- **Injected aliases ignored boxing.** They now copy the slot's current
+  `is_boxed`, and `markLocalBoxedBySlot` flips every local sharing that slot.
+- **Quasiquote template symbols were hygiene-renamed.** They are data, and are
+  now left alone; nesting depth is tracked (0-7, saturating) so a
+  depth-matching `unquote` resumes expression mode.
 
 #### SRFI 115 (Scheme regular expressions)
 

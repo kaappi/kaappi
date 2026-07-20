@@ -117,9 +117,10 @@ the leakiness measurement.
   collection (`computeBoundFreeRefs`, PR #1344), why renaming is the hard
   part, and where the current model's edges are.
 - **Why core:** the one subsystem where bugs proved effectively unbounded —
-  SRFI-257 was dropped (#1644) because each expander fix uncovered more.
-  Judging which macro bugs are fixable vs. structural requires a real
-  model, not pattern-matching on past fixes.
+  the first attempt at SRFI-257 (#1644) was abandoned because each expander
+  fix uncovered another; the port that eventually shipped (PR #1678) took
+  seven of them. Judging which macro bugs are fixable vs. structural
+  requires a real model, not pattern-matching on past fixes.
 
 ### 6. Fibers & the I/O reactor (KEP-0001)
 
