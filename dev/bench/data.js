@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784521027826,
+  "lastUpdate": 1784533870552,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a3f3618367c489a8390860247d191f597bd2219e",
-          "message": "Add fd->port to give a raw fd reactor-integrated I/O (#1478) (#1527)\n\nkaappi-net's TCP sockets never reach the fiber I/O reactor: tcp-recv/tcp-send\nare bare blocking send(2)/recv(2) FFI calls and poll-read/poll-write are a raw\nfcntl+poll(2) wrapper, none of which touch Reactor.register/waitForFd. So\nkaappi-http's http-listen-fiber layers a fixed 1ms poll-then-sleep loop on top\n-- a ~1ms tax on every request even fully uncontended (747 vs 3329 req/s at\nconcurrency=1 in the KEP-0001 Phase 7 benchmarks).\n\nThe blocker was crossing the FFI boundary: the reactor and waitForFd are\nVM-internal, and a standalone \"wait on this fd\" primitive can't work under the\npark/re-execution protocol -- it never drains the fd, so a re-executed park\nre-parks forever. The primitives that do work (readOneByte/portWriteBytes) do\ntry-syscall-then-wait-on-EAGAIN as one unit, and every port fd > 2 already\nflips to O_NONBLOCK lazily and suspends the fiber on the reactor.\n\nSo expose that machinery directly: (fd->port fd) wraps a raw descriptor as a\nbidirectional binary port. A kaappi-net socket fd (from tcp-accept/tcp-connect,\nalready plain integers) becomes a normal reactor-integrated port -- read-u8/\nread-bytevector!/write-bytevector suspend the fiber on EAGAIN instead of\nbusy-polling, no C changes needed. The port owns the fd (close-port closes it,\nwakes parked fibers, unregisters from the reactor); fd 0/1/2 are refused to\npreserve the standard streams' blocking semantics. Lives in (kaappi ffi), which\nFFI socket libraries already import.\n\nTests (tests_port_io.zig): a reader fiber on an fd->port pipe parks on the\nreactor and wakes exactly when the peer writes; fd 0/1/2 and non-fixnums are\nrejected. Green under -Dgc-stress=true and the full unit suite.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T04:32:56Z",
-          "tree_id": "3ce5e014a2a252341b804fc538d39eabf004d13e",
-          "url": "https://github.com/kaappi/kaappi/commit/a3f3618367c489a8390860247d191f597bd2219e"
-        },
-        "date": 1784005377878,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.086167,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.526862,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931487,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.44145,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006825,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0528,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508781,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067723,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.198317,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.978025,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514907,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.480214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.751677,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.819143,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045751,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045914,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "0687dc40a50acc4b6c870c5c69c407973c55a13f",
+          "message": "Release v0.21.0\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T12:36:56+05:30",
+          "tree_id": "7fcb72049611f3ebdc96c149330446a35f45a370",
+          "url": "https://github.com/kaappi/kaappi/commit/0687dc40a50acc4b6c870c5c69c407973c55a13f"
+        },
+        "date": 1784533868668,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329331,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.954391,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.973215,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.589273,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006498,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05454,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511352,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070531,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.646771,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.00724,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596225,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437622,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.831128,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.678571,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043622,
             "unit": "seconds"
           }
         ]
