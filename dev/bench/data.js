@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784500592939,
+  "lastUpdate": 1784521027826,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7177dbb17497500170b60b06afb6e4d49148028e",
-          "message": "Make fiber scheduling O(1) with a ready ring and free-slot list (#1477) (#1525)\n\nFiberScheduler did an O(fiber count) linear scan on the dispatch hot path\nand again on every spawn:\n\n- schedule()/scheduleForDispatch() round-robin-scanned the whole `fibers`\n  array (mostly parked io_waiting fibers on a busy server) to find the next\n  runnable fiber, on every dispatch.\n- addFiber() scanned the array for a reusable slot on every spawn, so\n  spawning N live fibers was O(n^2).\n- Two more O(n) scans hid on the same tick: anyIoWaiting() scanned all\n  fibers to gate the reactor poll, and yield's advisory `schedule() == null`\n  check scanned them again.\n\nReplace all four with incremental O(1) bookkeeping:\n\n- A ready ring (FIFO of runnable slot indices) fed by markRunnable at every\n  transition to .created/.suspended, consumed round-robin by the dispatch\n  paths. Each Fiber carries its stable `sched_idx` (so wakes enqueue in O(1))\n  and a `queued` flag (so the ring can't accumulate duplicates).\n- A free-slot list fed by retireSlot at every .completed/.errored\n  transition, so addFiber reuses a vacated slot without scanning (and appends\n  straight away when none is free). Slot 0 (main) is never recycled.\n- anyIoWaiting() now reads the reactor's registration count in O(1).\n- yield's advisory check uses a new non-consuming anyRunnable() peek.\n\nThe ring and free list are pure accelerators: the dispatch paths keep the\noriginal O(n) round-robin scan as an authoritative fallback, so correctness\nnever depends on markRunnable coverage (any status set directly without it —\nmuch test code — still dispatches correctly, just via the scan). The\nadvisory peek is ring-only by design to stay O(1); a missed enqueue there\nonly costs a yield that no-ops when it could have rotated, never correctness.\n\nDriving fibers (#1487) are dropped from the ring rather than dispatched,\nconsistent with \"only the parked fiber's own loop ever consumes its wake\";\nthe fallback scan still finds them for plain schedule()/anyRunnable.\n\nMeasured with a two-worker ping-pong among N channel-blocked siblings\n(ns per real dispatch): baseline 416 / 4143 / 25996 at N=100 / 1000 / 5000;\nafter, a flat ~170 regardless of N — O(n) -> O(1), 154x at N=5000. Full unit\nsuite, R7RS (1395), and Scheme suite (449 files) green, including under\n-Dgc-stress=true for the fiber/scheduler/srfi18/port tests.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T09:50:08+05:30",
-          "tree_id": "7588c0a63aa6ec8e5107fa7ecba65153d5d2f1ff",
-          "url": "https://github.com/kaappi/kaappi/commit/7177dbb17497500170b60b06afb6e4d49148028e"
-        },
-        "date": 1784004578404,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.345646,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.176216,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.971121,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.533747,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006361,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055437,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504477,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069805,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.344469,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.967894,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.577242,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.439114,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.841525,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.7046,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043521,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037074,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4d02495f55e05e5e0b393d7ab81f363d3263a25",
+          "message": "Implement SRFI 248 (minimal delimited continuations) (#1677)\n\nAdd (srfi 248): with-unwind-handler, empty-continuation?, and the extended\ntwo-variable guard, as a Filinski shift/reset over Kaappi's stack-copying\ncall/cc.\n\nEnabling VM change: a \"sticky\" exception handler (ExceptionHandler.sticky).\nraise/raise-continuable invoke it in place without popping, so a call/cc\nsnapshot taken while it handles includes it and resuming re-arms the prompt\n(reset0 semantics) — what lets coroutine generators work across yields.\nempty-continuation? combines the immediate tail-call latch (native_call_was_tail,\nset by every tail-call opcode) with the sticky handler's frame_count baseline,\nso a raise in tail position of a non-tail-called helper is correctly non-empty.\n\nSavedHandler is now the same type as ExceptionHandler, so captureContinuation\nhands the live handler stack straight to allocContinuation instead of building\na [MAX_HANDLERS]SavedHandler buffer on the stack of every call/cc. That buffer\npredates this branch; dropping it makes the continuations benchmark ~1.4x\nfaster than main rather than ~1.2x slower.\n\nThe public (srfi 248) is a portable lib/srfi/248.sld; the three helper\nprimitives (%call-with-unwind-handler, %unwind-raise-empty?,\n%pop-unwind-handler!) ship in a built-in sub-library (srfi 248 primitives)\nthat the .sld imports and does not re-export.\n\nAll SRFI 248 examples pass — coroutine generators, for-each->fold, effect\nhandlers, and empty-continuation?. Three documented caveats: delimited\ncontinuations are single-shot (resuming the same k twice crosses a native\nframe), the handler runs at the raise point rather than after unwinding, and\nthe metacontinuation cell is per-VM (not fiber-local).\n\nTests: tests/scheme/srfi/srfi248.scm (SRFI-64) and src/tests_srfi248.zig.\n\nCloses #1669.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T09:12:43+05:30",
+          "tree_id": "2e3315f0e1d9ce61ab77ce043985683293f71870",
+          "url": "https://github.com/kaappi/kaappi/commit/a4d02495f55e05e5e0b393d7ab81f363d3263a25"
+        },
+        "date": 1784521025759,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.321863,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.735022,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.94078,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.713705,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006382,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054352,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507821,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070835,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.634813,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.00487,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.608372,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435409,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.831269,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.652418,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045914,
             "unit": "seconds"
           }
         ]
