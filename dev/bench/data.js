@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784565750157,
+  "lastUpdate": 1784568610569,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ef88d7e64596938ddeb87626b9a2b3e6c263e0bc",
-          "message": "Bound fuzz eval by instruction count under gc-stress (#1531)\n\nThe grammar/native/portable generator-coverage gates and the differential-\noracle regression gate in tests_fuzz.zig were unconditionally skipped under\n-Dgc-stress=true. A full collection on every allocation slows evaluation by\norders of magnitude, so the fixed 100 ms per-program deadline degenerated\ninto \"did it time out\" rather than measuring whether the generator produces\nvalid programs — a gc-stress build lost these regression gates entirely.\n\nA gc-stress build executes the *same* number of bytecode instructions as a\nnormal build; only wall-clock time changes. So bound by instruction count\nthere instead: evalNormalized sets vm.instruction_limit (2M, ~50x the largest\ncorrect generator program measured over 300 seeds and well under the >10M\nloop-heavy tail the gates intentionally count as misses) and keeps only a\nloose wall-clock backstop. Normal builds are unchanged — the limit stays null\nand the 100 ms deadline applies as before. runUntil checks the limit inside\nthe existing per-1024-instruction block, so the hot path is untouched.\n\nUnder gc-stress the gates now measure generator correctness: grammar 56/60,\nnative 60/60, portable 60/60, and the oracle compares 57/60 fixed-seed pairs\n(3 giant-loop seeds hit the budget on both paths) instead of 0.\n\nCloses #1447, #1448, #1449, #1450\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T15:50:16+05:30",
-          "tree_id": "b90bf5db44b51db2b29680784a1b70cecd3aefb0",
-          "url": "https://github.com/kaappi/kaappi/commit/ef88d7e64596938ddeb87626b9a2b3e6c263e0bc"
-        },
-        "date": 1784026343314,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.421673,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.804535,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.691257,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.443048,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006437,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04571,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.391807,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05657,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.03715,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.503312,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.357821,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430055,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.498674,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.077451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038728,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045251,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2c4a8fa0b9d3299689670c6de5be75e316ce8b1",
+          "message": "Close the remaining SRFI 115 gaps against the reference (#1681) (#1684)\n\nThe #1680 backtracking rewrite deliberately left every SRE form outside\nits scope. Chibi's own regexp test corpus (chibi is the SRFI 115 reference\nimplementation) flagged them; this closes all of them, entirely within the\nportable lib/srfi/115.sld.\n\nNewly implemented:\n- look-behind / neg-look-behind (%run-behind scans backwards, floored at\n  the search start, which is now threaded through the matcher; handles\n  variable-length bodies)\n- grapheme / bog / eog (full UAX #29: CR-LF, Hangul syllables including\n  conjoining jamo, regional-indicator pairs, combining marks)\n- title-case/title and symbol char sets\n- (&)/(and) and (-)/(difference) char-set operators\n- word as a whole word, and (word+ cset ...)\n\nSemantics fixed:\n- w/ascii / w/unicode now restrict/widen their char sets instead of being\n  no-ops\n- named submatch lookup: regexp-match-submatch et al. accept the (-> name)\n  symbol, first matched group of a repeated name wins, unknown errors\n- w/nocapture actually suppresses submatches\n- (~ a b ...) complements the union of its arguments, not their sequence\n\nEvery <cset-sre> compiles to a node %match-one decides, so ~/&/- never\nre-enter the backtracking matcher. The three Unicode properties (scheme\nchar) cannot answer -- Lt, S*, and the UAX #29 break classes -- ship as\nrange tables inside the .sld, generated by the new\ntools/gen_srfi115_charsets.py (regenerate on a Unicode version bump).\n\nChibi corpus 75/79; the 4 residual failures all use `digit`, a chibi\nextension not in SRFI 115 that Kaappi rightly rejects. Repo srfi115.scm\ngrown 90 -> 141 checks; full Scheme suite green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-20T22:25:54+05:30",
+          "tree_id": "b7919440e28fb355c483995cb524c71507bbf271",
+          "url": "https://github.com/kaappi/kaappi/commit/e2c4a8fa0b9d3299689670c6de5be75e316ce8b1"
+        },
+        "date": 1784568608879,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329983,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.877018,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.946735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.594924,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006388,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05474,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513547,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070333,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.581139,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.004578,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.597567,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433951,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.81431,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.621233,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042685,
             "unit": "seconds"
           }
         ]
