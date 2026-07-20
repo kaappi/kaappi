@@ -302,6 +302,29 @@ jobs:
           thottam --version | grep -F "${TAG#v}"
           echo '(display (+ 1 2))' | kaappi | grep -F '3'
 
+      # `kaappi compile` needs an LLVM-capable driver, and this runner's `cc`
+      # is GCC — which cannot consume the IR the backend emits, and is picked
+      # ahead of the preinstalled clang by cc_search_order (zig, cc, clang,
+      # gcc). Installing zig puts a usable driver first in that order.
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+
+      - name: Verify the native backend is installed and usable
+        # The installer must place libkaappi_rt.a where `kaappi compile` looks
+        # for it (<exe>/../lib). The script shipped no archive at all until
+        # 0.22.0, so a regression here silently costs every user the native
+        # backend — assert the whole chain, not just that the file exists.
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          test -f "$HOME/.local/lib/libkaappi_rt.a"
+          kaappi doctor | grep -F 'PASS  libkaappi_rt.a: found in'
+          kaappi doctor | grep -F 'PASS  smoke-link:'
+          echo '(display (* 6 7))' > /tmp/native-check.scm
+          kaappi compile /tmp/native-check.scm -o /tmp/native-check
+          /tmp/native-check | grep -F '42'
+
   summary:
     needs: [test-checksums, test-macos, test-linux-x86, test-linux-arm, test-windows-x64, test-wasm, test-install-script]
     if: always()

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The installer now installs the native backend's runtime archive** —
+  releases have published `libkaappi_rt-<target>.a` since 0.8.0, but the
+  install script never downloaded it, so anyone who installed via
+  `curl https://kaappi-lang.org/install.sh | bash` got an interpreter-only
+  install: `kaappi compile` failed to link, and `kaappi doctor` reported
+  `WARN libkaappi_rt.a: not found` with a fix ("install a release build that
+  ships libkaappi_rt.a") that no install path actually offered. The script now
+  fetches the archive, verifies it against `SHA256SUMS` like every other
+  artifact, and installs it to `<INSTALL_DIR>/../lib` — the `<exe>/../lib`
+  entry in the search order `kaappi compile` already uses, so no environment
+  variable is needed. Overridable with `LIB_INSTALL_DIR`. Skipped on the
+  interpreter-tier arches (riscv64, s390x, powerpc64le), where the LLVM
+  backend has no target triple and `kaappi compile` refuses regardless; a
+  release without the asset degrades to an interpreter-only install with a
+  warning rather than failing. The post-release workflow now asserts the whole
+  chain — archive present, `kaappi doctor` clean, and a compiled binary that
+  runs — so this cannot silently regress.
+
+### Changed
+
+- **`install.sh` no longer lives in this repo.** The only copy anyone runs is
+  `docs/install.sh` in
+  [kaappi.github.io](https://github.com/kaappi/kaappi.github.io), served at
+  <https://kaappi-lang.org/install.sh>; the copy here was served by nothing
+  and had silently drifted behind it by three hardening commits, making it a
+  trap for anyone who "fixed the installer" by editing it. `docs/dev/porting.md`
+  and `docs/dev/netbsd.md` now point at the real location.
+
 ## [0.21.0] - 2026-07-20
 
 ### Added
