@@ -257,10 +257,13 @@ jobs:
   # To avoid false-positive finding issues, filing is gated on the finding
   # marker actually being present in the uploaded artifacts — the encoded
   # crash input for the fuzz job, per-seed divergence files for the diff
-  # jobs. Failed jobs without their marker (toolchain/apt flakes, build or
-  # unit-test failures, job-level timeouts — a possible hang) are collected
-  # under a single "Fuzz CI: infrastructure or build failure" issue instead
-  # of wearing a divergence title.
+  # jobs. A fuzz job that failed without its marker but whose log shows the
+  # pre-fuzz unit-test phase failing is filed per variant as "Fuzz CI:
+  # unit-test failure (<variant> variant)" with the failing test names
+  # extracted from the log (#1688). Remaining marker-less failures
+  # (toolchain/apt flakes, build failures, job-level timeouts — a possible
+  # hang) are collected under a single "Fuzz CI: infrastructure or build
+  # failure" issue instead of wearing a divergence title.
   #
   # This is a SEPARATE job so the write-capable token never coexists with
   # execution of fuzzer-generated programs — the three jobs above keep
@@ -322,9 +325,41 @@ jobs:
             --color B60205 \
             --description "Automated report from the scheduled Fuzz workflow"
 
+          # log_excerpt LOG OUT — append the failure section of a zig build
+          # transcript to OUT: a few lines of context plus everything from
+          # the first failure anchor onward, bounded, with the raw tail as
+          # the fallback when no anchor appears. Excerpting by position
+          # (tail -c) only captured the #1682 crash trace because it
+          # happened to sit at the end of the log; anchoring on the failure
+          # pattern survives longer logs.
+          log_excerpt() {
+            lg="$1"; lout="$2"
+            # Anchors: a test-failure report ("error: '<test name>' ..."), a
+            # compile diagnostic ("src/x.zig:1:2: error: ..."), or the Build
+            # Summary — whichever comes first.
+            anchor=$(grep -nE -m1 "error: '|: error: |Build Summary:" "$lg" | cut -d: -f1 || true)
+            if [ -z "$anchor" ]; then
+              tail -c 2000 "$lg" >> "$lout"
+              return 0
+            fi
+            # Start 3 lines early: the "N pass, M crash (T total)" step line
+            # sits just above the first error line.
+            start=$((anchor - 3)); [ "$start" -ge 1 ] || start=1
+            tail -n "+$start" "$lg" > log-section.tmp
+            size=$(wc -c < log-section.tmp)
+            if [ "$size" -le 6000 ]; then
+              cat log-section.tmp >> "$lout"
+            else
+              head -c 4000 log-section.tmp >> "$lout"
+              printf '\n[... %s bytes omitted ...]\n' "$((size - 5500))" >> "$lout"
+              tail -c 1500 log-section.tmp >> "$lout"
+            fi
+          }
+
           # excerpt DIR OUT — append a bounded artifact listing plus the first
-          # divergence (or the fuzzer transcript tail) to OUT. Artifacts stay the
-          # authoritative copy; this is only enough to eyeball the finding.
+          # divergence (or the fuzzer transcript's failure section) to OUT.
+          # Artifacts stay the authoritative copy; this is only enough to
+          # eyeball the finding.
           excerpt() {
             dir="$1"; out="$2"
             if [ ! -d "$dir" ]; then
@@ -348,8 +383,8 @@ jobs:
             fi
             log=$(find "$dir" -name 'fuzz-run.log' | head -1 || true)
             if [ -n "$log" ]; then
-              printf '\nTail of `fuzz-run.log`:\n\n```\n' >> "$out"
-              tail -c 2000 "$log" >> "$out"
+              printf '\nExcerpt of `fuzz-run.log`:\n\n```\n' >> "$out"
+              log_excerpt "$log" "$out"
               printf '\n```\n' >> "$out"
             fi
             printf '</details>\n' >> "$out"
@@ -402,11 +437,55 @@ jobs:
             file_or_append "$title" finding-preamble.md "$fbody"
           }
 
+          # report_unit_test_failure LOG — the fuzz job failed in its pre-fuzz
+          # unit-test phase: zig's test summary in LOG counts a failed/crashed
+          # test, and no fuzz crash marker exists. File it under a per-variant
+          # title with the failing test names pulled from LOG, so real test
+          # bugs and toolchain flakes stop appending to each other's threads
+          # and triage starts from the test name instead of guessing (#1688).
+          # The variant is read from the failed build command echoed at the
+          # end of the log — artifact directory names are unreliable (see the
+          # layout note below).
+          report_unit_test_failure() {
+            utlog="$1"
+            if grep -q -- '-Dgc-stress=true' "$utlog"; then
+              variant=gc-stress
+              hint='The unit-test phase of `zig build test --fuzz=… -Dgc-stress=true` reported a failed/crashed test; bounded fuzzing produced no crash marker. A test that fails only under gc-stress (collection attempted on every allocation) usually means a GC rooting bug — a heap value held in a Zig local across an allocation without rooting; see `.claude/rules/gc-safety.md`, #1401, #1682. Reproduce with `zig build test -Dgc-stress=true`.'
+            else
+              variant=default
+              hint='The unit-test phase of `zig build test --fuzz=…` reported a failed/crashed test on the default build; bounded fuzzing produced no crash marker. Plain `zig build test` is likely broken at this commit — expect regular CI to be red too.'
+            fi
+            utbody="body-unit-test-$variant.md"
+            body_start "fuzz ($variant variant)" "$hint" "$utbody"
+            # zig prints one "error: '<name>' failed:/terminated ..." line per
+            # failing test; panic-trace frames ("0x... in test.NAME (binary)")
+            # are the backup for truncated logs. Both normalize to test.<name>.
+            utnames=$(
+              { sed -n "s/^error: '\([^']*test\.[^']*\)'.*/\1/p" "$utlog"
+                grep -oE ' in [A-Za-z0-9_.]*test\.[^(]+' "$utlog" | sed 's/^ in //' || true; } \
+                | sed 's/.*test\./test./; s/[[:space:]]*$//' | sort -u | head -10
+            )
+            if [ -n "$utnames" ]; then
+              {
+                printf '**Failing/crashed test(s):**\n\n'
+                printf '%s\n' "$utnames" | sed 's/^/- `/; s/$/`/'
+                printf '\n'
+              } >> "$utbody"
+            fi
+            excerpt "$(dirname "$utlog")" "$utbody"
+            printf 'Automated report from the [Fuzz workflow](%s): the `%s`-variant fuzz job failed in its pre-fuzz unit-test phase — a unit test failed or crashed before bounded fuzzing was reached. This is a real test failure, not a fuzz finding; unlike toolchain or runner flakes it should reproduce locally.\n\n' \
+              "$run_url" "$variant" > unit-test-preamble.md
+            printf '> [!NOTE]\n> Close this issue once the failing test is fixed (or the failure is otherwise explained); until then, further unit-test failures of the same variant append comments here instead of opening new issues.\n\n' \
+              >> unit-test-preamble.md
+            file_or_append "Fuzz CI: unit-test failure ($variant variant)" unit-test-preamble.md "$utbody"
+          }
+
           infra_jobs=""
 
-          # check_job RESULT JOB TITLE MARKER DIR HINT — route a failed job to its
-          # finding issue when the finding marker is present, or collect it for the
-          # shared infrastructure issue when it is not.
+          # check_job RESULT JOB TITLE MARKER DIR HINT — route a failed diff job
+          # to its finding issue when the finding marker is present, or collect
+          # it for the shared infrastructure issue when it is not. (The fuzz job
+          # routes through its own three-way classifier below.)
           check_job() {
             result="$1"; job="$2"; title="$3"; marker="$4"; dir="$5"; hint="$6"
             [ "$result" = failure ] || return 0
@@ -421,8 +500,9 @@ jobs:
           # encoded crash input for the fuzz job, per-seed divergence files for
           # the diff jobs. A failed job without its marker is a toolchain/apt
           # flake, a build or unit-test failure, or a job-level timeout (a
-          # possible hang) — those are reported below under an honest title
-          # instead of a finding one.
+          # possible hang) — those are reported below under honest titles
+          # instead of finding ones: fuzz-job unit-test failures per variant
+          # (#1688), everything else under the shared infrastructure issue.
           #
           # Layout: download-artifact v8 normally extracts each artifact into
           # artifacts/<artifact-name>/, but when the run produced exactly ONE
@@ -448,10 +528,46 @@ jobs:
           oracle_marker=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sort | head -1 || true)
           oracle_dir=$(dirname "${oracle_marker:-artifacts/oracle-diff-divergences/absent}")
 
-          check_job "$RESULT_FUZZ" fuzz \
-            'Fuzz CI: bounded fuzzing found a crash' \
-            "$crash" "$fuzz_dir" \
-            'A fuzz target found a crash. The encoded crashing input (a serialized Smith decision stream) is `.zig-cache/f/crash` inside the artifact; `fuzz-run.log` is the fuzzer transcript. Replay it per the runbook.'
+          # The fuzz job routes three ways: crash marker → finding issue; a
+          # log whose variant has no marker but whose test summary counts a
+          # failure ("N pass, M fail|crash|leak (T total)" step line or "N/M
+          # tests passed (K failed|crashed|leaked)" Build Summary line) →
+          # per-variant unit-test issue (#1688); anything else (no log at
+          # all, or a log without the signature: setup death, build failure,
+          # timeout) → the shared infrastructure issue. The buckets are not
+          # exclusive: both matrix variants can fail in the same run, and a
+          # crash in one variant must not swallow the other variant's
+          # independent failure, so every log is classified — only logs
+          # sitting next to a crash marker (that variant is the finding
+          # already filed) are skipped.
+          if [ "$RESULT_FUZZ" = failure ]; then
+            if [ -n "$crash" ]; then
+              report_finding fuzz \
+                'Fuzz CI: bounded fuzzing found a crash' \
+                "$fuzz_dir" \
+                'A fuzz target found a crash. The encoded crashing input (a serialized Smith decision stream) is `.zig-cache/f/crash` inside the artifact; `fuzz-run.log` is the fuzzer transcript. Replay it per the runbook.'
+            fi
+            fuzz_unexplained=""
+            fuzz_logs=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort || true)
+            if [ -z "$fuzz_logs" ]; then
+              # No log at all: setup death or job-level timeout — unless the
+              # crash marker already explains the job's failure.
+              [ -n "$crash" ] || fuzz_unexplained=1
+            else
+              while IFS= read -r flog; do
+                if [ -f "$(dirname "$flog")/.zig-cache/f/crash" ]; then
+                  continue # this variant IS the crash finding filed above
+                fi
+                if grep -qE '[0-9]+ pass, .*[0-9]+ (fail|crash|leak)|tests passed \([0-9]+ (failed|crashed|leaked)' "$flog"; then
+                  report_unit_test_failure "$flog"
+                else
+                  fuzz_unexplained=1
+                  fuzz_dir=$(dirname "$flog") # infra excerpt shows this log
+                fi
+              done <<< "$fuzz_logs"
+            fi
+            [ -z "$fuzz_unexplained" ] || infra_jobs="$infra_jobs fuzz"
+          fi
 
           check_job "$RESULT_NATIVE" native-diff \
             'Fuzz CI: VM vs native backend divergence' \
@@ -464,12 +580,12 @@ jobs:
             'Kaappi and Chibi Scheme disagreed on a portable-subset program. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{kaappi,chibi}.{out,err}`; `oracle-version.txt` records the oracle version. Triage protocol (Kaappi bug / oracle bug / generator leak) is in the header of `tests/fuzz/oracle-diff.sh`. Replay: `bash tests/fuzz/oracle-diff.sh <count> <base>`.'
 
           if [ -n "$infra_jobs" ]; then
-            printf 'Automated report from the [Fuzz workflow](%s): a job failed WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM), a build or unit-test failure unrelated to fuzzing, or a job-level timeout. A timeout can be a genuine hang: every generated program is individually time-bounded, so a whole job hitting its timeout is itself suspicious.\n\n' \
+            printf 'Automated report from the [Fuzz workflow](%s): a job failed WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM), a build failure, or a job-level timeout. (A fuzz-job unit-test failure is recognized from its log and filed separately as `Fuzz CI: unit-test failure (<variant> variant)`.) A timeout can be a genuine hang: every generated program is individually time-bounded, so a whole job hitting its timeout is itself suspicious.\n\n' \
               "$run_url" > infra-preamble.md
             printf '> [!NOTE]\n> Close this issue once the failed run is explained (or the underlying breakage is fixed); further artifact-less failures append comments here.\n\n' \
               >> infra-preamble.md
             body_start "${infra_jobs# }" \
-              'The failed job(s) uploaded no finding artifact, so this is not (necessarily) a fuzz finding. Check the run log for a setup or build step failure, a unit-test failure, or a job cancelled at its timeout.' \
+              'The failed job(s) uploaded no finding artifact, so this is not (necessarily) a fuzz finding. Check the run log for a setup or build step failure, a test failure the classifier did not recognize, or a job cancelled at its timeout.' \
               body-infra.md
             case " $infra_jobs " in
               *' fuzz '*) excerpt "$fuzz_dir" body-infra.md ;;

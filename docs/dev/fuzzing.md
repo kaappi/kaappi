@@ -143,13 +143,22 @@ on success, so crash state never leaks into the next run.
 fuzz pass, `native-diff`, or `oracle-diff`) is auto-filed as a GitHub
 issue by the trailing `report` job — one open issue per job, labeled
 `fuzz-finding`, containing the run link, a bounded artifact excerpt (the
-first divergent program plus both sides' output, or the fuzzer transcript
-tail), and replay instructions. A finding-titled issue is only filed when
-the finding marker is actually present in the uploaded artifacts (the
-encoded crash input for the fuzz job, per-seed divergence files for the
-diff jobs); failed jobs without their marker — toolchain flakes, build or
-unit-test failures, job-level timeouts (a possible hang) — are collected
-under a single shared issue titled `Fuzz CI: infrastructure or build
+first divergent program plus both sides' output, or the failure section
+of the run log, pattern-anchored on the first `error:`/Build Summary line
+rather than the raw tail — #1688), and replay instructions. A
+finding-titled issue is only filed when the finding marker is actually
+present in the uploaded artifacts (the encoded crash input for the fuzz
+job, per-seed divergence files for the diff jobs). A fuzz job that fails
+without its marker but whose `fuzz-run.log` shows the pre-fuzz unit-test
+phase failing (zig's `N pass, M fail|crash` test summary) is filed per
+variant as `Fuzz CI: unit-test failure (<variant> variant)` with the
+failing test names extracted from the log — under gc-stress that usually
+means a GC rooting bug (`.claude/rules/gc-safety.md`, #1401, #1682).
+Both matrix variants are classified independently: a crash in one
+variant does not swallow the other variant's failure.
+Remaining marker-less failures — toolchain flakes, build failures,
+job-level timeouts (a possible hang) — are collected under a single
+shared issue titled `Fuzz CI: infrastructure or build
 failure` instead. Marker detection must not assume where inside
 `artifacts/` a file lands: `download-artifact` normally extracts each
 artifact into its own named subdirectory, but a run with exactly one
