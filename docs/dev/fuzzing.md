@@ -101,12 +101,19 @@ allocate per iteration to scale their counts down via
 
 [`.github/workflows/fuzz.yml`](../../.github/workflows/fuzz.yml) runs a
 bounded fuzz pass daily at 02:47 UTC (scheduled away from the 05:17 UTC
-ecosystem nightly), in two variants:
+ecosystem nightly). The in-process `fuzz` targets run on **two native
+architectures** — `x86_64` (`ubuntu-latest`) and `arm64`
+(`ubuntu-24.04-arm`) — in two build variants each:
 
-| Variant | Build | Limit (per fuzz test) | Job timeout |
-|---------|-------|-----------------------|-------------|
-| `default` | standard `ReleaseSafe` test build | 2K runs | 55 min |
-| `gc-stress` | `-Dgc-stress=true` | 100 runs | 300 min |
+| Platform | Variant | Build | Limit (per fuzz test) | Job timeout |
+|----------|---------|-------|-----------------------|-------------|
+| x86_64 / arm64 | `default` | standard `ReleaseSafe` test build | 2K runs | 55 min |
+| x86_64 / arm64 | `gc-stress` | `-Dgc-stress=true` | 100 runs | 300 min |
+
+Both arches run natively because Zig 0.16's fuzzer only instruments the host
+(see [Cross-architecture coverage](#cross-architecture-coverage)). The `arm64`
+legs are not redundant: they exercise the NaN-box pointer assumptions, GC
+write barriers, and full-VM eval codegen on ARM's memory model and VA layout.
 
 The `gc-stress` variant runs the whole unit suite with a collection on
 every allocation before fuzzing, so its wall time is dominated by the test
@@ -140,12 +147,20 @@ accumulates instead of restarting from the seeds; the cache is only saved
 on success, so crash state never leaks into the next run.
 
 **How findings reach you:** any failed job in the workflow (the bounded
-fuzz pass, `native-diff`, or `oracle-diff`) is auto-filed as a GitHub
-issue by the trailing `report` job — one open issue per job, labeled
-`fuzz-finding`, containing the run link, a bounded artifact excerpt (the
-first divergent program plus both sides' output, or the failure section
-of the run log, pattern-anchored on the first `error:`/Build Summary line
-rather than the raw tail — #1688), and replay instructions. A
+fuzz pass, `native-diff`, `oracle-diff`, or `cross-diff`) is auto-filed as
+a GitHub issue by the trailing `report` job — one open issue **per
+platform/arch**, labeled `fuzz-finding`, containing the run link, a bounded
+artifact excerpt (the first divergent program plus both sides' output, or
+the failure section of the run log, pattern-anchored on the first
+`error:`/Build Summary line rather than the raw tail — #1688), and replay
+instructions. Because every leg is classified independently — the routing
+loops over every marker file rather than taking the first — a crash on
+`arm64` and a different crash on `x86_64`, or an `s390x` divergence and a
+`riscv64` one, each get their own attributed issue rather than one
+swallowing the others. Platform/arch is read from a file the job plants in
+its artifact (`fuzz-platform.txt` / `arch.txt`), never from the artifact
+directory name (which `download-artifact` erases when a run has a single
+artifact — the #1584/#1620 misfiling bug). A
 finding-titled issue is only filed when the finding marker is actually
 present in the uploaded artifacts (the encoded crash input for the fuzz
 job, per-seed divergence files for the diff jobs). A fuzz job that fails
@@ -323,6 +338,67 @@ source at a pinned tag+SHA (0.12 as of #1429 — Ubuntu noble's apt has 0.9.1
 which lacks features the generated programs use); the recorded version makes
 any divergence reproducible against the exact oracle. Gauche can be added
 later as a second, separately pinned opinion.
+
+## Cross-architecture coverage
+
+Bugs come in two classes, and only one is architecture-sensitive. Logic bugs
+in the reader, compiler, VM, and GC — and the miscompilations the opt-vs-no-opt
+and Chibi oracles catch — are the *same* defect on every CPU, so the host-arch
+targets find them once. The other class only appears off the host: **byte
+order** (the `.sbc` codec's `littleToNative` conversions are no-ops on
+little-endian x86_64, so an endian bug there is invisible until a big-endian
+machine runs it), **alignment**, **pointer width**, and **target-specific code
+generation** in the LLVM native backend. The fuzz workflow reaches those three
+ways:
+
+| Coverage | Where | Reaches |
+|----------|-------|---------|
+| In-process `fuzz` targets | `x86_64` + `arm64` (native) | ARM memory model, GC barriers, ARM eval codegen |
+| `native-diff`, `oracle-diff` | `x86_64` + `arm64` (native) | **aarch64 code generation** in the native backend; ARM conformance |
+| `cross-diff` | `s390x`, `riscv64`, `ppc64le` (QEMU) | **big-endian** (s390x) + alignment/codegen breadth |
+
+**Why the QEMU arches use a binary differential and not `--fuzz`.** Zig 0.16's
+coverage-guided fuzzer cannot instrument a cross-compiled target:
+`zig build test --fuzz -Dtarget=s390x-linux` fails with `no fuzz tests found`
+(reproduced with and without a `-Dtest-filter`), so the in-process targets in
+`src/tests_fuzz.zig` only ever run on the host arch. The corpus *seeds* still
+run on these arches — `ci.yml`'s `s390x-test` / `riscv64-test` / `ppc64le-test`
+jobs execute the whole unit suite, which replays each target's corpus once — so
+seed-level coverage exists; what cross-compiled fuzzing can't add is *mutation*
+beyond the seeds.
+
+[`tests/fuzz/cross-diff.sh`](../../tests/fuzz/cross-diff.sh) supplies the
+missing exploration a different way: for each seed it generates a
+portable-subset program (the same `kaappi-fuzz-gen --portable` used by the
+Chibi oracle) and runs it through the **native host `kaappi`** and the
+**cross-compiled target `kaappi` under QEMU binfmt**, comparing exit code and
+stdout. Because both sides are the *same interpreter* on a deterministic,
+fully-specified program, they must agree byte-for-byte — so any difference is
+definitively an architecture bug, never unspecified behavior. This is strictly
+tighter than the Chibi oracle (which must tolerate dialect differences) and is
+the ideal big-endian oracle: an endian bug anywhere in the VM, reader, printer,
+bignum, or hashing shows up as an s390x-vs-host stdout mismatch.
+
+```bash
+# Locally you need a target binary that runs here (QEMU binfmt, or a real box).
+zig build fuzz-gen                                   # host generator
+zig build && cp zig-out/bin/kaappi zig-out/bin/kaappi-host   # host kaappi
+zig build -Dtarget=s390x-linux                       # target kaappi (overwrites zig-out/bin/kaappi)
+HOST_KAAPPI=zig-out/bin/kaappi-host TARGET_KAAPPI=zig-out/bin/kaappi \
+  TARGET_LABEL=s390x bash tests/fuzz/cross-diff.sh 500 0
+```
+
+The `cross-diff` job runs 500 programs per target nightly with a rotating seed
+base (replayable via `workflow_dispatch` inputs `cross-diff-count` /
+`cross-diff-base`), and uploads divergences as
+`cross-diff-divergences-<target>`. A divergence is almost always (a) an
+architecture-specific Kaappi bug — on s390x, almost always endianness — or (b)
+the portable generator leaking non-portable behavior, fixed in
+`src/fuzz_gen_portable.zig`. Minimise it as ordinary Scheme, re-checking both
+arches at each shrink step, then add the minimised program as a `seed()` corpus
+entry on the **eval** target so the host suite guards it too. The native backend
+covers only aarch64/x86_64, so `cross-diff` uses the interpreter on the target;
+there is no native-backend differential on the QEMU arches.
 
 ## Turning a failure into a regression test
 
