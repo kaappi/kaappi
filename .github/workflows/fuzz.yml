@@ -1,13 +1,18 @@
 name: Fuzz
 
-# Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig, plus the
-# offline differential batches: VM vs native backend
-# (tests/fuzz/native-diff.sh) and Kaappi vs Chibi Scheme
-# (tests/fuzz/oracle-diff.sh). See docs/dev/fuzzing.md for the runbook
-# (running locally, and turning a failure into a regression test + corpus
-# entry). Failures are auto-filed as GitHub issues labeled `fuzz-finding`
-# by the trailing `report` job — see that job's comment for the dedup and
-# token-isolation design.
+# Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig — on both
+# native architectures, x86_64 and arm64 (Zig 0.16's fuzzer can't instrument
+# a cross-compiled target) — plus three offline differential batches: VM vs
+# native backend (tests/fuzz/native-diff.sh) and Kaappi vs Chibi Scheme
+# (tests/fuzz/oracle-diff.sh), both run per-arch on x86_64 + arm64; and the
+# cross-architecture batch (tests/fuzz/cross-diff.sh), which diffs the same
+# Kaappi build on the host vs a foreign arch under QEMU (s390x/riscv64/ppc64le)
+# to reach byte-order and codegen bugs the host-only fuzzer cannot. See
+# docs/dev/fuzzing.md for the runbook (running locally, cross-architecture
+# coverage, and turning a failure into a regression test + corpus entry).
+# Failures are auto-filed as GitHub issues labeled `fuzz-finding`, one per
+# platform/arch, by the trailing `report` job — see that job's comment for the
+# dedup, attribution, and token-isolation design.
 
 on:
   schedule:
@@ -35,24 +40,50 @@ on:
         description: 'First seed for the oracle batch (default: rotates per run).'
         required: false
         default: ''
+      cross-diff-count:
+        description: 'Number of programs for the cross-architecture (host vs QEMU target) batch.'
+        required: false
+        default: ''
+      cross-diff-base:
+        description: 'First seed for the cross-architecture batch (default: rotates per run).'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
+        # Zig 0.16's coverage-guided fuzzer instruments only the HOST arch —
+        # `zig build test --fuzz -Dtarget=…` fails with "no fuzz tests found" —
+        # so the in-process targets run NATIVELY, on both x86_64 and arm64. The
+        # aarch64 leg is not redundant: it re-exercises the NaN-box pointer
+        # assumptions and the GC write barriers on ARM's VA layout and memory
+        # model, and its full-VM eval paths cover ARM codegen the x86_64 leg
+        # cannot. Non-host architectures — above all the big-endian s390x
+        # canary — are unreachable by this fuzzer and are covered instead by
+        # the black-box `cross-diff` job below. See docs/dev/fuzzing.md
+        # ("Cross-architecture coverage").
         include:
           # The limit applies PER FUZZ TEST (7 targets currently). The eval,
           # token, and grammar targets build a full VM per input (~20-50 ms)
           # — and the differential target two of them — so they dominate the
           # wall time: locally 200 per target is a ~2 minute pass, so 2K per
           # target keeps a hosted runner well under the job timeout.
-          - variant: default
+          - platform: x86_64
+            runs-on: ubuntu-latest
+            variant: default
+            build-args: ''
+            limit: 2K
+            timeout: 55
+          - platform: arm64
+            runs-on: ubuntu-24.04-arm
+            variant: default
             build-args: ''
             limit: 2K
             timeout: 55
@@ -63,15 +94,25 @@ jobs:
           # collections (~35 min locally on M-series; budget more on a
           # hosted runner) — so the fuzz limit stays small and the timeout
           # generous. Throughput-sensitive fuzz targets skip themselves on
-          # stress builds (src/tests_fuzz.zig).
-          - variant: gc-stress
+          # stress builds (src/tests_fuzz.zig). Run on both arches: a rooting
+          # bug is arch-independent, but the pointer-tagging and write-barrier
+          # code it stresses is exactly where an ARM-specific fault would hide.
+          - platform: x86_64
+            runs-on: ubuntu-latest
+            variant: gc-stress
+            build-args: '-Dgc-stress=true'
+            limit: 100
+            timeout: 300
+          - platform: arm64
+            runs-on: ubuntu-24.04-arm
+            variant: gc-stress
             build-args: '-Dgc-stress=true'
             limit: 100
             timeout: 300
     steps:
-      # Both jobs in this workflow execute fuzzer-generated programs (and
-      # the native-diff job runs binaries compiled from them), so don't
-      # leave the GITHUB_TOKEN sitting in git config for the process tree.
+      # Every job in this workflow executes fuzzer-generated programs (and the
+      # native-diff job runs binaries compiled from them), so don't leave the
+      # GITHUB_TOKEN sitting in git config for the process tree.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
@@ -80,7 +121,7 @@ jobs:
         uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
-          cache-key: fuzz-${{ matrix.variant }}
+          cache-key: fuzz-${{ matrix.platform }}-${{ matrix.variant }}
 
       # Fuzzer state accumulates across runs when the cache is preserved:
       # f/ holds the discovered corpus, v/ the coverage bitmap. The rolling
@@ -93,9 +134,9 @@ jobs:
           path: |
             .zig-cache/f
             .zig-cache/v
-          key: fuzz-corpus-${{ matrix.variant }}-${{ github.run_id }}
+          key: fuzz-corpus-${{ matrix.platform }}-${{ matrix.variant }}-${{ github.run_id }}
           restore-keys: |
-            fuzz-corpus-${{ matrix.variant }}-
+            fuzz-corpus-${{ matrix.platform }}-${{ matrix.variant }}-
 
       # Zig 0.16's bounded fuzz mode does NOT propagate a fuzz-found crash
       # into the build's exit code — it saves the encoded crashing input to
@@ -107,12 +148,21 @@ jobs:
         env:
           FUZZ_LIMIT: ${{ inputs.limit || matrix.limit }}
           BUILD_ARGS: ${{ matrix.build-args }}
+          PLATFORM: ${{ matrix.platform }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           set -o pipefail
+          # Platform AND variant are written up front, so the report job can
+          # attribute a finding without parsing the log: x86_64 and arm64 run
+          # identical build commands (platform is otherwise invisible), and a
+          # default-vs-gc-stress crash on the same platform must stay two
+          # distinct issues rather than collapsing on a platform-only title.
+          echo "$PLATFORM" > fuzz-platform.txt
+          echo "$VARIANT" > fuzz-variant.txt
           rm -f .zig-cache/f/crash
           zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log
           if [ -f .zig-cache/f/crash ]; then
-            echo "::error::Fuzzing found a crash; encoded input saved to .zig-cache/f/crash"
+            echo "::error::Fuzzing found a crash on $PLATFORM; encoded input saved to .zig-cache/f/crash"
             exit 1
           fi
 
@@ -126,10 +176,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fuzz-artifacts-${{ matrix.variant }}
+          name: fuzz-artifacts-${{ matrix.platform }}-${{ matrix.variant }}
           path: |
             .zig-cache/f/crash
             fuzz-run.log
+            fuzz-platform.txt
+            fuzz-variant.txt
             .zig-cache/tmp/libfuzzer.log
           include-hidden-files: true
           retention-days: 90
@@ -144,8 +196,21 @@ jobs:
   # workflow_dispatch or locally with
   # `bash tests/fuzz/native-diff.sh <count> <base>`.
   native-diff:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        # The LLVM native backend supports aarch64 and x86_64 only, so both
+        # sides of this VM-vs-native diff run natively, one job per arch. The
+        # arm64 leg is the ONLY fuzz coverage of aarch64 code generation:
+        # the x86_64 leg never exercises the ARM instruction emitter, calling
+        # convention, or register allocator.
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -155,7 +220,7 @@ jobs:
         uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
-          cache-key: fuzz-native-diff
+          cache-key: fuzz-native-diff-${{ matrix.arch }}
 
       - name: Build interpreter, runtime library, and generator
         run: |
@@ -168,9 +233,15 @@ jobs:
           COUNT: ${{ inputs.native-diff-count }}
           BASE: ${{ inputs.native-diff-base }}
           RUN_NUMBER: ${{ github.run_number }}
+          ARCH: ${{ matrix.arch }}
         run: |
           count="${COUNT:-300}"
           base="${BASE:-$((RUN_NUMBER * 300))}"
+          # arch.txt lets the report job attribute the divergence even when
+          # download-artifact collapses the single-artifact layout into
+          # artifacts/ (the #1584 misfiling bug — never anchor on dir names).
+          mkdir -p native-diff-results
+          echo "$ARCH" > native-diff-results/arch.txt
           bash tests/fuzz/native-diff.sh "$count" "$base"
 
       # Each divergence comes with the program and both sides' stdout/stderr;
@@ -179,7 +250,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: native-diff-divergences
+          name: native-diff-divergences-${{ matrix.arch }}
           path: native-diff-results/
           retention-days: 90
           if-no-files-found: warn
@@ -192,8 +263,20 @@ jobs:
   # noble's apt ships 0.9.1 which is too old for the generated programs
   # (#1429). Bump the tag and SHA below when a newer release is needed.
   oracle-diff:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Chibi builds from source on both arches, so the external-oracle diff
+        # runs natively on each. The arm64 leg would catch an ARM-specific
+        # conformance bug in the portable subset that both x86_64 evaluation
+        # paths share — the class the external oracle exists to find.
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
     steps:
       # This job executes fuzzer-generated programs; don't leave the
       # GITHUB_TOKEN sitting in git config for the process tree.
@@ -205,7 +288,7 @@ jobs:
         uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
-          cache-key: fuzz-oracle-diff
+          cache-key: fuzz-oracle-diff-${{ matrix.arch }}
 
       - name: Install Chibi Scheme (the oracle)
         run: |
@@ -226,9 +309,14 @@ jobs:
           COUNT: ${{ inputs.oracle-diff-count }}
           BASE: ${{ inputs.oracle-diff-base }}
           RUN_NUMBER: ${{ github.run_number }}
+          ARCH: ${{ matrix.arch }}
         run: |
           count="${COUNT:-1000}"
           base="${BASE:-$((RUN_NUMBER * 1000))}"
+          # arch.txt attributes the divergence in the report job regardless of
+          # download-artifact's single-artifact layout collapse (#1584).
+          mkdir -p oracle-diff-results
+          echo "$ARCH" > oracle-diff-results/arch.txt
           bash tests/fuzz/oracle-diff.sh "$count" "$base"
 
       # Each divergence comes with the program, both sides' stdout/stderr,
@@ -240,8 +328,82 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: oracle-diff-divergences
+          name: oracle-diff-divergences-${{ matrix.arch }}
           path: oracle-diff-results/
+          retention-days: 90
+          if-no-files-found: warn
+
+  # Cross-architecture differential: the SAME Kaappi build on the host arch vs
+  # a foreign arch under QEMU. Zig 0.16's fuzzer cannot instrument a
+  # cross-compiled target (`zig build test --fuzz -Dtarget=…` → "no fuzz tests
+  # found"), so the in-process `fuzz` targets never reach non-host arches. This
+  # black-box binary diff does: it generates portable-subset programs (whose
+  # output is deterministic and arch-independent by construction) and runs each
+  # through the native host kaappi and the cross-compiled target kaappi run via
+  # QEMU binfmt, flagging any stdout or exit-code difference. Because both sides
+  # are the same interpreter, a difference is definitively an arch bug —
+  # s390x is the big-endian canary; riscv64 and ppc64le add alignment/codegen
+  # breadth. See tests/fuzz/cross-diff.sh and docs/dev/fuzzing.md.
+  cross-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: s390x-linux
+            label: s390x # big-endian — the byte-order canary
+          - target: riscv64-linux
+            label: riscv64
+          - target: powerpc64le-linux
+            label: ppc64le
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: fuzz-cross-diff-${{ matrix.label }}
+
+      # binfmt registration so the cross-compiled target binary runs here; the
+      # host generator and host kaappi are built natively (no emulation).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          platforms: ${{ matrix.label }}
+
+      - name: Build host + target kaappi and the host generator
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          zig build fuzz-gen                 # host-arch generator
+          zig build                          # host kaappi → zig-out/bin/kaappi
+          cp zig-out/bin/kaappi zig-out/bin/kaappi-host
+          zig build -Dtarget="$TARGET"       # target kaappi OVERWRITES zig-out/bin/kaappi
+
+      - name: Cross-architecture differential (host vs target)
+        env:
+          COUNT: ${{ inputs.cross-diff-count }}
+          BASE: ${{ inputs.cross-diff-base }}
+          RUN_NUMBER: ${{ github.run_number }}
+          TARGET_LABEL: ${{ matrix.label }}
+        run: |
+          count="${COUNT:-500}"
+          base="${BASE:-$((RUN_NUMBER * 500))}"
+          HOST_KAAPPI=zig-out/bin/kaappi-host TARGET_KAAPPI=zig-out/bin/kaappi \
+            TARGET_LABEL="$TARGET_LABEL" bash tests/fuzz/cross-diff.sh "$count" "$base"
+
+      # Each divergence ships as seed-<N>.scm plus seed-<N>.{host,target}.{out,err}
+      # and arch.txt; see docs/dev/fuzzing.md for the (mostly endianness) triage.
+      - name: Upload divergences
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cross-diff-divergences-${{ matrix.label }}
+          path: cross-diff-results/
           retention-days: 90
           if-no-files-found: warn
 
@@ -257,22 +419,25 @@ jobs:
   # To avoid false-positive finding issues, filing is gated on the finding
   # marker actually being present in the uploaded artifacts — the encoded
   # crash input for the fuzz job, per-seed divergence files for the diff
-  # jobs. A fuzz job that failed without its marker but whose log shows the
-  # pre-fuzz unit-test phase failing is filed per variant as "Fuzz CI:
-  # unit-test failure (<variant> variant)" with the failing test names
-  # extracted from the log (#1688). Remaining marker-less failures
-  # (toolchain/apt flakes, build failures, job-level timeouts — a possible
-  # hang) are collected under a single "Fuzz CI: infrastructure or build
-  # failure" issue instead of wearing a divergence title.
+  # jobs (native/oracle/cross). Every finding is filed PER platform/arch,
+  # attributed from a file the job plants (fuzz-platform.txt / arch.txt), so
+  # a failure on one architecture never swallows another's. A fuzz leg that
+  # failed without a crash marker but whose log shows the pre-fuzz unit-test
+  # phase failing is filed as "Fuzz CI: unit-test failure (<platform>
+  # <variant>)" with the failing test names extracted from the log (#1688).
+  # Remaining marker-less failures (toolchain/apt flakes, build failures,
+  # job-level timeouts — a possible hang) are collected under a single
+  # "Fuzz CI: infrastructure or build failure" issue instead of wearing a
+  # divergence title.
   #
   # This is a SEPARATE job so the write-capable token never coexists with
-  # execution of fuzzer-generated programs — the three jobs above keep
+  # execution of fuzzer-generated programs — the four jobs above keep
   # contents:read tokens and persist-credentials: false; this one runs no
   # generated code (artifact contents are only copied into issue text).
   report:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [fuzz, native-diff, oracle-diff]
+    needs: [fuzz, native-diff, oracle-diff, cross-diff]
     if: failure()
     permissions:
       issues: write
@@ -315,6 +480,7 @@ jobs:
           RESULT_FUZZ: ${{ needs.fuzz.result }}
           RESULT_NATIVE: ${{ needs.native-diff.result }}
           RESULT_ORACLE: ${{ needs.oracle-diff.result }}
+          RESULT_CROSSDIFF: ${{ needs.cross-diff.result }}
         run: |
           set -euo pipefail
 
@@ -437,26 +603,44 @@ jobs:
             file_or_append "$title" finding-preamble.md "$fbody"
           }
 
-          # report_unit_test_failure LOG — the fuzz job failed in its pre-fuzz
+          # platform_of DIR / variant_of DIR / arch_of DIR — the platform
+          # (x86_64/arm64), variant (default/gc-stress), or target arch a job
+          # wrote INTO its artifact, as fuzz-platform.txt / fuzz-variant.txt /
+          # arch.txt. This is the ONLY reliable attribution: the x86_64 and
+          # arm64 fuzz legs run identical build commands (so the log can't tell
+          # them apart), and download-artifact collapses a lone artifact into
+          # artifacts/ itself, erasing the artifact-name directory. Anchoring on
+          # a directory name is exactly the #1584/#1620 misfiling bug — always
+          # read it from the file the job planted. variant_of also keeps a log
+          # fallback (zig echoes the failing build command, which carries
+          # -Dgc-stress=true) for any artifact predating the planted file.
+          platform_of() { d="$1"; [ -f "$d/fuzz-platform.txt" ] && { tr -d '[:space:]' < "$d/fuzz-platform.txt"; return 0; }; echo unknown; }
+          arch_of()     { d="$1"; [ -f "$d/arch.txt" ]          && { tr -d '[:space:]' < "$d/arch.txt";          return 0; }; echo unknown; }
+          variant_of() {
+            d="$1"
+            [ -f "$d/fuzz-variant.txt" ] && { tr -d '[:space:]' < "$d/fuzz-variant.txt"; return 0; }
+            [ -f "$d/fuzz-run.log" ] && grep -q -- '-Dgc-stress=true' "$d/fuzz-run.log" && { echo gc-stress; return 0; }
+            echo default
+          }
+
+          # report_unit_test_failure LOG — a fuzz leg failed in its pre-fuzz
           # unit-test phase: zig's test summary in LOG counts a failed/crashed
-          # test, and no fuzz crash marker exists. File it under a per-variant
-          # title with the failing test names pulled from LOG, so real test
-          # bugs and toolchain flakes stop appending to each other's threads
-          # and triage starts from the test name instead of guessing (#1688).
-          # The variant is read from the failed build command echoed at the
-          # end of the log — artifact directory names are unreliable (see the
-          # layout note below).
+          # test, and no crash marker exists. Filed under a per-platform+variant
+          # title with the failing test names pulled from LOG, so real test bugs
+          # and toolchain flakes stop appending to each other's threads and
+          # triage starts from the test name (#1688). Platform and variant both
+          # come from the files the job planted (fuzz-platform.txt /
+          # fuzz-variant.txt), so a gc-stress unit-test failure is never
+          # mislabeled default.
           report_unit_test_failure() {
-            utlog="$1"
-            if grep -q -- '-Dgc-stress=true' "$utlog"; then
-              variant=gc-stress
+            utlog="$1"; utdir=$(dirname "$utlog"); plat=$(platform_of "$utdir"); variant=$(variant_of "$utdir")
+            if [ "$variant" = gc-stress ]; then
               hint='The unit-test phase of `zig build test --fuzz=… -Dgc-stress=true` reported a failed/crashed test; bounded fuzzing produced no crash marker. A test that fails only under gc-stress (collection attempted on every allocation) usually means a GC rooting bug — a heap value held in a Zig local across an allocation without rooting; see `.claude/rules/gc-safety.md`, #1401, #1682. Reproduce with `zig build test -Dgc-stress=true`.'
             else
-              variant=default
-              hint='The unit-test phase of `zig build test --fuzz=…` reported a failed/crashed test on the default build; bounded fuzzing produced no crash marker. Plain `zig build test` is likely broken at this commit — expect regular CI to be red too.'
+              hint='The unit-test phase of `zig build test --fuzz=…` reported a failed/crashed test; bounded fuzzing produced no crash marker. Plain `zig build test` is likely broken at this commit for this platform — expect regular CI to be red too. A failure on only one platform points at an architecture-specific bug.'
             fi
-            utbody="body-unit-test-$variant.md"
-            body_start "fuzz ($variant variant)" "$hint" "$utbody"
+            ut_label="$plat $variant"; utbody="body-unit-test-$plat-$variant.md"
+            body_start "fuzz ($ut_label)" "$hint" "$utbody"
             # zig prints one "error: '<name>' failed:/terminated ..." line per
             # failing test; panic-trace frames ("0x... in test.NAME (binary)")
             # are the backup for truncated logs. Both normalize to test.<name>.
@@ -472,115 +656,107 @@ jobs:
                 printf '\n'
               } >> "$utbody"
             fi
-            excerpt "$(dirname "$utlog")" "$utbody"
-            printf 'Automated report from the [Fuzz workflow](%s): the `%s`-variant fuzz job failed in its pre-fuzz unit-test phase — a unit test failed or crashed before bounded fuzzing was reached. This is a real test failure, not a fuzz finding; unlike toolchain or runner flakes it should reproduce locally.\n\n' \
-              "$run_url" "$variant" > unit-test-preamble.md
-            printf '> [!NOTE]\n> Close this issue once the failing test is fixed (or the failure is otherwise explained); until then, further unit-test failures of the same variant append comments here instead of opening new issues.\n\n' \
+            excerpt "$utdir" "$utbody"
+            printf 'Automated report from the [Fuzz workflow](%s): the `%s` fuzz job failed in its pre-fuzz unit-test phase — a unit test failed or crashed before bounded fuzzing was reached. This is a real test failure, not a fuzz finding; unlike toolchain or runner flakes it should reproduce locally on this platform.\n\n' \
+              "$run_url" "$ut_label" > unit-test-preamble.md
+            printf '> [!NOTE]\n> Close this issue once the failing test is fixed (or the failure is otherwise explained); until then, further unit-test failures of the same platform+variant append comments here instead of opening new issues.\n\n' \
               >> unit-test-preamble.md
-            file_or_append "Fuzz CI: unit-test failure ($variant variant)" unit-test-preamble.md "$utbody"
+            file_or_append "Fuzz CI: unit-test failure ($ut_label)" unit-test-preamble.md "$utbody"
           }
 
           infra_jobs=""
+          fuzz_dir="artifacts/fuzz-absent"
 
-          # check_job RESULT JOB TITLE MARKER DIR HINT — route a failed diff job
-          # to its finding issue when the finding marker is present, or collect
-          # it for the shared infrastructure issue when it is not. (The fuzz job
-          # routes through its own three-way classifier below.)
-          check_job() {
-            result="$1"; job="$2"; title="$3"; marker="$4"; dir="$5"; hint="$6"
-            [ "$result" = failure ] || return 0
-            if [ -n "$marker" ]; then
-              report_finding "$job" "$title" "$dir" "$hint"
-            else
-              infra_jobs="$infra_jobs $job"
-            fi
-          }
+          # Every finding is filed PER platform/arch: a crash on arm64 must not
+          # swallow a different crash on x86_64, nor an s390x divergence a
+          # riscv64 one. The routing is artifact-driven — it loops over every
+          # marker file rather than taking head -1 — so it scales to any number
+          # of platform legs without code changes. Markers stay per-job unique
+          # (fuzz: .zig-cache/f/crash; native: seed-*.{vm,nat}.*; oracle:
+          # seed-*.kaappi.*; cross: seed-*.host.*), so a whole-tree find never
+          # confuses one job's files for another's.
 
-          # Finding markers: a real finding always ships in the artifact — the
-          # encoded crash input for the fuzz job, per-seed divergence files for
-          # the diff jobs. A failed job without its marker is a toolchain/apt
-          # flake, a build or unit-test failure, or a job-level timeout (a
-          # possible hang) — those are reported below under honest titles
-          # instead of finding ones: fuzz-job unit-test failures per variant
-          # (#1688), everything else under the shared infrastructure issue.
-          #
-          # Layout: download-artifact v8 normally extracts each artifact into
-          # artifacts/<artifact-name>/, but when the run produced exactly ONE
-          # artifact it extracts into artifacts/ itself (the action's
-          # `artifacts.length === 1` special case) — and one failed job is the
-          # common case. So never anchor on the artifact-name directory: search
-          # all of artifacts/ for filenames only the owning job can produce
-          # (seed-*.kaappi.* vs seed-*.{vm,nat}.* keeps the two diff jobs'
-          # files apart even without directories), and derive each excerpt
-          # directory from the file that matched. Anchoring on the directory
-          # name is exactly how the seed-2788 (#1584) and seed-10294 (#1620)
-          # divergences got misfiled as "infrastructure or build failure".
-          crash=$(find artifacts -type f -path '*/.zig-cache/f/crash' 2>/dev/null | sort | head -1 || true)
-          if [ -n "$crash" ]; then
-            fuzz_dir="${crash%/.zig-cache/f/crash}"
-          else
-            # No crash, but a test-phase failure still uploads fuzz-run.log.
-            fuzz_log=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort | head -1 || true)
-            fuzz_dir=$(dirname "${fuzz_log:-artifacts/fuzz-artifacts-missing/fuzz-run.log}")
-          fi
-          native_marker=$(find artifacts -type f \( -name 'seed-*.vm.*' -o -name 'seed-*.nat.*' \) 2>/dev/null | sort | head -1 || true)
-          native_dir=$(dirname "${native_marker:-artifacts/native-diff-divergences/absent}")
-          oracle_marker=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sort | head -1 || true)
-          oracle_dir=$(dirname "${oracle_marker:-artifacts/oracle-diff-divergences/absent}")
-
-          # The fuzz job routes three ways: crash marker → finding issue; a
-          # log whose variant has no marker but whose test summary counts a
-          # failure ("N pass, M fail|crash|leak (T total)" step line or "N/M
-          # tests passed (K failed|crashed|leaked)" Build Summary line) →
-          # per-variant unit-test issue (#1688); anything else (no log at
-          # all, or a log without the signature: setup death, build failure,
-          # timeout) → the shared infrastructure issue. The buckets are not
-          # exclusive: both matrix variants can fail in the same run, and a
-          # crash in one variant must not swallow the other variant's
-          # independent failure, so every log is classified — only logs
-          # sitting next to a crash marker (that variant is the finding
-          # already filed) are skipped.
+          # ---- fuzz (native x86_64 + arm64 matrix) — three routes per leg ----
           if [ "$RESULT_FUZZ" = failure ]; then
-            if [ -n "$crash" ]; then
-              report_finding fuzz \
-                'Fuzz CI: bounded fuzzing found a crash' \
-                "$fuzz_dir" \
-                'A fuzz target found a crash. The encoded crashing input (a serialized Smith decision stream) is `.zig-cache/f/crash` inside the artifact; `fuzz-run.log` is the fuzzer transcript. Replay it per the runbook.'
+            crashes=$(find artifacts -type f -path '*/.zig-cache/f/crash' 2>/dev/null | sort || true)
+            crash_dirs=""
+            if [ -n "$crashes" ]; then
+              while IFS= read -r c; do
+                [ -n "$c" ] || continue
+                cdir="${c%/.zig-cache/f/crash}"; crash_dirs="$crash_dirs $cdir"
+                plat=$(platform_of "$cdir"); variant=$(variant_of "$cdir")
+                report_finding "fuzz-$plat-$variant" "Fuzz CI: bounded fuzzing found a crash ($plat $variant)" "$cdir" \
+                  "A fuzz target found a crash on the \`$plat $variant\` build. The encoded crashing input (a serialized Smith decision stream) is \`.zig-cache/f/crash\` inside the artifact; \`fuzz-run.log\` is the fuzzer transcript. Replay per the runbook, reproducing on $plat — a crash unique to one architecture usually points at endianness, alignment, or codegen rather than Scheme semantics; a gc-stress-only crash points at a GC rooting bug."
+              done <<< "$crashes"
             fi
-            fuzz_unexplained=""
+            # Each fuzz-run.log NOT beside a crash we just filed: a unit-test
+            # phase failure (per platform+variant), or, lacking that signature,
+            # infra. No log at all AND no crash means the job died in setup.
+            fuzz_infra=""
             fuzz_logs=$(find artifacts -type f -name 'fuzz-run.log' 2>/dev/null | sort || true)
-            if [ -z "$fuzz_logs" ]; then
-              # No log at all: setup death or job-level timeout — unless the
-              # crash marker already explains the job's failure.
-              [ -n "$crash" ] || fuzz_unexplained=1
+            if [ -z "$fuzz_logs" ] && [ -z "$crashes" ]; then
+              fuzz_infra=1
             else
               while IFS= read -r flog; do
-                if [ -f "$(dirname "$flog")/.zig-cache/f/crash" ]; then
-                  continue # this variant IS the crash finding filed above
-                fi
+                [ -n "$flog" ] || continue
+                ldir=$(dirname "$flog"); skip=""
+                for cd in $crash_dirs; do [ "$cd" = "$ldir" ] && skip=1; done
+                [ -n "$skip" ] && continue
                 if grep -qE '[0-9]+ pass, .*[0-9]+ (fail|crash|leak)|tests passed \([0-9]+ (failed|crashed|leaked)' "$flog"; then
                   report_unit_test_failure "$flog"
                 else
-                  fuzz_unexplained=1
-                  fuzz_dir=$(dirname "$flog") # infra excerpt shows this log
+                  fuzz_infra=1; fuzz_dir="$ldir"
                 fi
               done <<< "$fuzz_logs"
             fi
-            [ -z "$fuzz_unexplained" ] || infra_jobs="$infra_jobs fuzz"
+            [ -z "$fuzz_infra" ] || infra_jobs="$infra_jobs fuzz"
           fi
 
-          check_job "$RESULT_NATIVE" native-diff \
-            'Fuzz CI: VM vs native backend divergence' \
-            "$native_marker" "$native_dir" \
-            'A generated program behaved differently on the bytecode VM vs the LLVM native backend. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{vm,nat}.{out,err}` and `seed-<N>.compile.log`. The seed base is printed near the top of the job log; the same seed always regenerates the same program: `bash tests/fuzz/native-diff.sh <count> <base>`.'
+          # ---- native-diff (one finding per arch that diverged) ----
+          if [ "$RESULT_NATIVE" = failure ]; then
+            ndirs=$(find artifacts -type f \( -name 'seed-*.vm.*' -o -name 'seed-*.nat.*' \) 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
+            if [ -n "$ndirs" ]; then
+              while IFS= read -r nd; do
+                [ -n "$nd" ] || continue; arch=$(arch_of "$nd")
+                report_finding "native-diff-$arch" "Fuzz CI: VM vs native backend divergence ($arch)" "$nd" \
+                  "A generated program behaved differently on the bytecode VM vs the LLVM native backend on \`$arch\`. Each divergence ships as \`seed-<N>.scm\` plus \`seed-<N>.{vm,nat}.{out,err}\` and \`seed-<N>.compile.log\`. The seed base is printed near the top of the job log; the same seed always regenerates the same program: \`bash tests/fuzz/native-diff.sh <count> <base>\` on $arch. An aarch64-only divergence points at ARM code generation in the native backend."
+              done <<< "$ndirs"
+            else
+              infra_jobs="$infra_jobs native-diff"
+            fi
+          fi
 
-          check_job "$RESULT_ORACLE" oracle-diff \
-            'Fuzz CI: Kaappi vs Chibi oracle divergence' \
-            "$oracle_marker" "$oracle_dir" \
-            'Kaappi and Chibi Scheme disagreed on a portable-subset program. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{kaappi,chibi}.{out,err}`; `oracle-version.txt` records the oracle version. Triage protocol (Kaappi bug / oracle bug / generator leak) is in the header of `tests/fuzz/oracle-diff.sh`. Replay: `bash tests/fuzz/oracle-diff.sh <count> <base>`.'
+          # ---- oracle-diff (one finding per arch that diverged) ----
+          if [ "$RESULT_ORACLE" = failure ]; then
+            odirs=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
+            if [ -n "$odirs" ]; then
+              while IFS= read -r od; do
+                [ -n "$od" ] || continue; arch=$(arch_of "$od")
+                report_finding "oracle-diff-$arch" "Fuzz CI: Kaappi vs Chibi oracle divergence ($arch)" "$od" \
+                  "Kaappi and Chibi Scheme disagreed on a portable-subset program on \`$arch\`. Each divergence ships as \`seed-<N>.scm\` plus \`seed-<N>.{kaappi,chibi}.{out,err}\`; \`oracle-version.txt\` records the oracle version. Triage protocol (Kaappi bug / oracle bug / generator leak) is in the header of \`tests/fuzz/oracle-diff.sh\`. Replay: \`bash tests/fuzz/oracle-diff.sh <count> <base>\`."
+              done <<< "$odirs"
+            else
+              infra_jobs="$infra_jobs oracle-diff"
+            fi
+          fi
 
+          # ---- cross-diff (host vs foreign arch under QEMU; one per target) ----
+          if [ "$RESULT_CROSSDIFF" = failure ]; then
+            tdirs=$(find artifacts -type f -name 'seed-*.host.*' 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
+            if [ -n "$tdirs" ]; then
+              while IFS= read -r td; do
+                [ -n "$td" ] || continue; arch=$(arch_of "$td")
+                report_finding "cross-diff-$arch" "Fuzz CI: cross-architecture divergence ($arch vs host)" "$td" \
+                  "The SAME Kaappi build produced different output on \`$arch\` than on the host arch for a portable-subset program — an architecture-specific bug (on s390x, almost always endianness in the \`.sbc\` codec or other multi-byte serialization/hashing). Each divergence ships as \`seed-<N>.scm\` plus \`seed-<N>.{host,target}.{out,err}\`; \`arch.txt\` records the target. Replay: build both arches, then \`HOST_KAAPPI=… TARGET_KAAPPI=… TARGET_LABEL=$arch bash tests/fuzz/cross-diff.sh <count> <base>\`."
+              done <<< "$tdirs"
+            else
+              infra_jobs="$infra_jobs cross-diff"
+            fi
+          fi
+
+          # ---- shared infrastructure issue for marker-less failures ----
           if [ -n "$infra_jobs" ]; then
-            printf 'Automated report from the [Fuzz workflow](%s): a job failed WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM), a build failure, or a job-level timeout. (A fuzz-job unit-test failure is recognized from its log and filed separately as `Fuzz CI: unit-test failure (<variant> variant)`.) A timeout can be a genuine hang: every generated program is individually time-bounded, so a whole job hitting its timeout is itself suspicious.\n\n' \
+            printf 'Automated report from the [Fuzz workflow](%s): a job failed WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM), a build failure, or a job-level timeout. (A fuzz-job unit-test failure is recognized from its log and filed separately as `Fuzz CI: unit-test failure (<platform> <variant>)`.) A timeout can be a genuine hang: every generated program is individually time-bounded, so a whole job hitting its timeout is itself suspicious.\n\n' \
               "$run_url" > infra-preamble.md
             printf '> [!NOTE]\n> Close this issue once the failed run is explained (or the underlying breakage is fixed); further artifact-less failures append comments here.\n\n' \
               >> infra-preamble.md
