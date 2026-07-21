@@ -1,7 +1,7 @@
 ;; SRFI-129 (Titlecase procedures) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi129.scm
 
-(import (scheme base) (scheme char) (srfi 129) (srfi 64))
+(import (scheme base) (scheme char) (scheme process-context) (srfi 129) (srfi 64))
 
 (test-begin "srfi-129")
 

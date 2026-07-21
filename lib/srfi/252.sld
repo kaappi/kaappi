@@ -34,7 +34,7 @@
     (define min-inexact -3.4e38)
 
     (define max-size 64)
-    (define max-char 128)
+    (define max-char #x110000)
 
     (define special-number
       (append

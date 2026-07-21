@@ -1,7 +1,7 @@
 ;; SRFI-190 (Coroutine Generators) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi190.scm
 
-(import (scheme base) (srfi 158) (srfi 190) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 158) (srfi 190) (srfi 64))
 
 (test-begin "srfi-190")
 

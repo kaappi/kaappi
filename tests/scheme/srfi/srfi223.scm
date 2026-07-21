@@ -1,7 +1,7 @@
 ;; SRFI-223 (Generalized binary search) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi223.scm
 
-(import (scheme base) (srfi 223) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 223) (srfi 64))
 
 (test-begin "srfi-223")
 

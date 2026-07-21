@@ -1,7 +1,7 @@
 ;; SRFI-221 (Generator/accumulator sub-library) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi221.scm
 
-(import (scheme base) (scheme case-lambda)
+(import (scheme base) (scheme case-lambda) (scheme process-context)
         (srfi 41) (srfi 158) (srfi 221) (srfi 64))
 
 (test-begin "srfi-221")

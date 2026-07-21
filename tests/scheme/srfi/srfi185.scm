@@ -1,7 +1,7 @@
 ;; SRFI-185 (Linear adjustable-length strings) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi185.scm
 
-(import (scheme base) (srfi 185) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 185) (srfi 64))
 
 (test-begin "srfi-185")
 

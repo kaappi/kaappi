@@ -1,7 +1,7 @@
 ;; SRFI-234 (Topological Sorting) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi234.scm
 
-(import (scheme base) (srfi 234) (srfi 11) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 234) (srfi 11) (srfi 64))
 
 (define (list-index lst val)
   (let loop ((i 0) (l lst))

@@ -1,7 +1,7 @@
 ;; SRFI-162 (Comparators sublibrary) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi162.scm
 
-(import (scheme base) (srfi 128) (srfi 162) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 128) (srfi 162) (srfi 64))
 
 (test-begin "srfi-162")
 
