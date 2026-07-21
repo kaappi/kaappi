@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-105 SRFIs supported. 11 built-in (native Zig), 93 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+117 SRFIs supported. 11 built-in (native Zig), 105 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,7 +97,7 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (93 libraries)
+### Portable SRFIs (105 libraries)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -126,6 +126,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 41 | Streams |
 | 42 | Eager comprehensions |
 | 43 | Vector library |
+| 44 | Collections |
 | 45 | Primitives for iterative lazy algorithms |
 | 48 | Intermediate format strings |
 | 60 | Integers as bits |
@@ -136,6 +137,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 87 | => in case clauses |
 | 95 | Sorting and merging |
 | 98 | Environment variables |
+| 101 | Purely functional random-access pairs and lists |
 | 111 | Boxes |
 | 113 | Sets and bags |
 | 115 | Scheme regular expressions § |
@@ -158,12 +160,17 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 146 | Mappings |
 | 151 | Bitwise operations on exact integers |
 | 152 | String library (reduced) |
+| 153 | Ordered sets |
 | 158 | Generators and accumulators |
+| 161 | Unifiable boxes |
 | 162 | Comparators sublibrary |
 | 166 | Monadic formatting |
+| 167 | Ordered key value store |
+| 168 | Generic tuple store database |
 | 171 | Transducers |
 | 174 | POSIX timespecs |
 | 175 | ASCII character library |
+| 178 | Bitvector library |
 | 185 | Linear adjustable-length strings |
 | 189 | Maybe and Either |
 | 190 | Coroutine generators |
@@ -172,11 +179,16 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 196 | Range objects |
 | 197 | Pipeline operators |
 | 202 | Pattern-matching variant of the and-let* form |
+| 209 | Enums and enum sets |
 | 210 | Procedures and syntax for multiple values |
+| 214 | Flexvectors |
+| 217 | Integer sets |
 | 219 | Define higher-order lambda |
 | 221 | Generator/accumulator sub-library |
 | 222 | Compound objects |
 | 223 | Bisecting search |
+| 224 | Integer mappings |
+| 225 | Dictionaries |
 | 227 | Optional arguments |
 | 228 | Composing comparators |
 | 229 | Tagged procedures |
