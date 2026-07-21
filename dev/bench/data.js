@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784620904888,
+  "lastUpdate": 1784634166791,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "608b70f765e3c56da4f893fb4499d12efca153ac",
-          "message": "Box mutable captured variables in the native backend (#1497) (#1539)\n\nThe LLVM native closure tiers copied captured variables by value into the\n%upvalues array at closure-creation time. This diverged from the interpreter's\nby-location closure semantics whenever a captured binding was mutated after\ncapture (#1422), and forced the tiers to reject any closure body containing a\nset! or internal define — a whole class of counter/accumulator closures fell\nback to the interpreter.\n\nApply classic assignment conversion: a binding that is both captured by a\nnested lambda and mutated (by set!) is represented as a heap box. Closures\ncapture the box pointer by value; reads/writes go through kaappi_box_ref /\nkaappi_box_set. Because the pointer is immutable but the contents are shared,\na set! through any closure over the binding is visible to all of them, matching\nthe VM exactly. Only captured-and-mutated bindings are boxed; everything else\nkeeps the by-value fast path. A box is a pair (value . '()), so the GC needs no\nnew heap type.\n\nTwo latent bugs surfaced and are fixed:\n\n- bindParamsAsGlobals republished captures by value, so a boxed variable\n  captured by a lambda that itself falls back to eval (e.g. a variadic inner\n  lambda) reintroduced the #1422 snapshot. It now aborts native compilation of\n  the enclosing frame so the interpreter handles the whole thing.\n- emitLambdaFunction registered native_fns before body emission (for self-tail\n  resolution) without rolling back on failure, which could leave a call site\n  emitting a direct call to a @lambda_N that was never defined.\n\nBoxed frames disable the self-tail-call loop and lower non-tail so box roots\npop at a single ret. Verified under -Dgc-stress and KAAPPI_GC_THRESHOLD=1.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T20:28:18+05:30",
-          "tree_id": "0fb199943056f0110116db5c5331672319ff525b",
-          "url": "https://github.com/kaappi/kaappi/commit/608b70f765e3c56da4f893fb4499d12efca153ac"
-        },
-        "date": 1784042984521,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.070574,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.510741,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.974172,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.421811,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006862,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052983,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.513876,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068294,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.278317,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.985839,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513335,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.485189,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.751981,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.800219,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045454,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043261,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46d0a57f280a4bacf5a81ea60b345941e1128a62",
+          "message": "Extend fuzzing beyond x86_64 to ARM64 and big-endian targets (#1710)\n\n* Extend fuzzing beyond x86_64 to ARM64 and big-endian targets\n\nThe Fuzz workflow ran only on x86_64 Linux, so two bug classes had no\nfuzz coverage: aarch64 code generation in the LLVM native backend, and\nbyte-order bugs — the .sbc codec's littleToNative conversions are no-ops\non little-endian, so an endian bug there is invisible until a big-endian\nmachine runs it.\n\n- fuzz, native-diff, and oracle-diff now run natively on x86_64 AND arm64\n  (ubuntu-24.04-arm). The arm64 native-diff leg is the only fuzz coverage\n  of aarch64 codegen; the arm64 fuzz legs re-exercise the NaN-box pointer\n  assumptions and GC write barriers on ARM's memory model.\n\n- New cross-diff job (tests/fuzz/cross-diff.sh) diffs the same Kaappi build\n  on the host vs a foreign arch under QEMU (s390x/riscv64/ppc64le). Zig\n  0.16's fuzzer cannot instrument a cross-compiled target (\"no fuzz tests\n  found\"), so a black-box host-vs-target differential is the portable\n  substitute — and because both sides are the same interpreter on the\n  deterministic portable subset, any output difference is definitively an\n  architecture bug. s390x is the big-endian canary.\n\n- The report job files one finding issue per platform/arch, attributed\n  from a file each job plants in its artifact (fuzz-platform.txt/arch.txt)\n  rather than the artifact directory name, which download-artifact erases\n  for single-artifact runs. It loops over every marker so a crash on one\n  arch never swallows another's.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Attribute fuzz findings by variant, not just platform\n\nAddresses the CodeRabbit review on #1710. The fuzz job planted\nfuzz-platform.txt but never the variant, so two downstream problems in the\nreport job:\n\n- The crash title used only the platform, so a default-variant crash and a\n  gc-stress crash on the same platform collapsed into one issue thread.\n- report_unit_test_failure recovered the variant by grepping fuzz-run.log\n  for -Dgc-stress=true — coupled to zig's failure-output format.\n\nPlant fuzz-variant.txt alongside fuzz-platform.txt (matrix.variant is right\nthere), upload it, and add a variant_of() helper mirroring platform_of().\nThe crash title and job id now include the variant, and report_unit_test_\nfailure reads the planted file. variant_of keeps the log grep as a fallback\nfor artifacts predating the planted file — verified that zig does echo the\nfailing build command (with -Dgc-stress=true), so the fallback is real, not\njust defensive.\n\nReport-classifier scenario suite extended to 13 cases: same-platform\nboth-variant crashes now file two distinct issues, and the gc-stress\nlog-fallback path is covered.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T16:35:49+05:30",
+          "tree_id": "52f847817b68f84886d875be8f6d871f67dccc73",
+          "url": "https://github.com/kaappi/kaappi/commit/46d0a57f280a4bacf5a81ea60b345941e1128a62"
+        },
+        "date": 1784634164737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.296237,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.093734,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.997295,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.614108,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006408,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055847,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.552726,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071375,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.51794,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.120786,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.599706,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.432685,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.843847,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.651352,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04434,
             "unit": "seconds"
           }
         ]
