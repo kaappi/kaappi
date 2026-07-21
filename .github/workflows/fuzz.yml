@@ -149,12 +149,16 @@ jobs:
           FUZZ_LIMIT: ${{ inputs.limit || matrix.limit }}
           BUILD_ARGS: ${{ matrix.build-args }}
           PLATFORM: ${{ matrix.platform }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           set -o pipefail
-          # Written first, so the report job can attribute the platform even on
-          # a pre-fuzz unit-test failure (x86_64 and arm64 run identical build
-          # commands, so the log alone cannot tell them apart).
+          # Platform AND variant are written up front, so the report job can
+          # attribute a finding without parsing the log: x86_64 and arm64 run
+          # identical build commands (platform is otherwise invisible), and a
+          # default-vs-gc-stress crash on the same platform must stay two
+          # distinct issues rather than collapsing on a platform-only title.
           echo "$PLATFORM" > fuzz-platform.txt
+          echo "$VARIANT" > fuzz-variant.txt
           rm -f .zig-cache/f/crash
           zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log
           if [ -f .zig-cache/f/crash ]; then
@@ -177,6 +181,7 @@ jobs:
             .zig-cache/f/crash
             fuzz-run.log
             fuzz-platform.txt
+            fuzz-variant.txt
             .zig-cache/tmp/libfuzzer.log
           include-hidden-files: true
           retention-days: 90
@@ -598,32 +603,40 @@ jobs:
             file_or_append "$title" finding-preamble.md "$fbody"
           }
 
-          # platform_of DIR / arch_of DIR — the platform (x86_64/arm64) or arch
-          # (target label) a job wrote INTO its artifact, as fuzz-platform.txt /
+          # platform_of DIR / variant_of DIR / arch_of DIR — the platform
+          # (x86_64/arm64), variant (default/gc-stress), or target arch a job
+          # wrote INTO its artifact, as fuzz-platform.txt / fuzz-variant.txt /
           # arch.txt. This is the ONLY reliable attribution: the x86_64 and
           # arm64 fuzz legs run identical build commands (so the log can't tell
           # them apart), and download-artifact collapses a lone artifact into
-          # artifacts/ itself, erasing the artifact-name directory. Anchoring
-          # platform on a directory name is exactly the #1584/#1620 misfiling
-          # bug — always read it from the file the job planted.
+          # artifacts/ itself, erasing the artifact-name directory. Anchoring on
+          # a directory name is exactly the #1584/#1620 misfiling bug — always
+          # read it from the file the job planted. variant_of also keeps a log
+          # fallback (zig echoes the failing build command, which carries
+          # -Dgc-stress=true) for any artifact predating the planted file.
           platform_of() { d="$1"; [ -f "$d/fuzz-platform.txt" ] && { tr -d '[:space:]' < "$d/fuzz-platform.txt"; return 0; }; echo unknown; }
           arch_of()     { d="$1"; [ -f "$d/arch.txt" ]          && { tr -d '[:space:]' < "$d/arch.txt";          return 0; }; echo unknown; }
+          variant_of() {
+            d="$1"
+            [ -f "$d/fuzz-variant.txt" ] && { tr -d '[:space:]' < "$d/fuzz-variant.txt"; return 0; }
+            [ -f "$d/fuzz-run.log" ] && grep -q -- '-Dgc-stress=true' "$d/fuzz-run.log" && { echo gc-stress; return 0; }
+            echo default
+          }
 
           # report_unit_test_failure LOG — a fuzz leg failed in its pre-fuzz
           # unit-test phase: zig's test summary in LOG counts a failed/crashed
           # test, and no crash marker exists. Filed under a per-platform+variant
           # title with the failing test names pulled from LOG, so real test bugs
           # and toolchain flakes stop appending to each other's threads and
-          # triage starts from the test name (#1688). Platform comes from the
-          # planted fuzz-platform.txt; the variant (default/gc-stress) from the
-          # build command echoed in the log.
+          # triage starts from the test name (#1688). Platform and variant both
+          # come from the files the job planted (fuzz-platform.txt /
+          # fuzz-variant.txt), so a gc-stress unit-test failure is never
+          # mislabeled default.
           report_unit_test_failure() {
-            utlog="$1"; utdir=$(dirname "$utlog"); plat=$(platform_of "$utdir")
-            if grep -q -- '-Dgc-stress=true' "$utlog"; then
-              variant=gc-stress
+            utlog="$1"; utdir=$(dirname "$utlog"); plat=$(platform_of "$utdir"); variant=$(variant_of "$utdir")
+            if [ "$variant" = gc-stress ]; then
               hint='The unit-test phase of `zig build test --fuzz=… -Dgc-stress=true` reported a failed/crashed test; bounded fuzzing produced no crash marker. A test that fails only under gc-stress (collection attempted on every allocation) usually means a GC rooting bug — a heap value held in a Zig local across an allocation without rooting; see `.claude/rules/gc-safety.md`, #1401, #1682. Reproduce with `zig build test -Dgc-stress=true`.'
             else
-              variant=default
               hint='The unit-test phase of `zig build test --fuzz=…` reported a failed/crashed test; bounded fuzzing produced no crash marker. Plain `zig build test` is likely broken at this commit for this platform — expect regular CI to be red too. A failure on only one platform points at an architecture-specific bug.'
             fi
             ut_label="$plat $variant"; utbody="body-unit-test-$plat-$variant.md"
@@ -670,9 +683,10 @@ jobs:
             if [ -n "$crashes" ]; then
               while IFS= read -r c; do
                 [ -n "$c" ] || continue
-                cdir="${c%/.zig-cache/f/crash}"; crash_dirs="$crash_dirs $cdir"; plat=$(platform_of "$cdir")
-                report_finding "fuzz-$plat" "Fuzz CI: bounded fuzzing found a crash ($plat)" "$cdir" \
-                  "A fuzz target found a crash on the \`$plat\` build. The encoded crashing input (a serialized Smith decision stream) is \`.zig-cache/f/crash\` inside the artifact; \`fuzz-run.log\` is the fuzzer transcript. Replay per the runbook, reproducing on $plat — a crash unique to one architecture usually points at endianness, alignment, or codegen rather than Scheme semantics."
+                cdir="${c%/.zig-cache/f/crash}"; crash_dirs="$crash_dirs $cdir"
+                plat=$(platform_of "$cdir"); variant=$(variant_of "$cdir")
+                report_finding "fuzz-$plat-$variant" "Fuzz CI: bounded fuzzing found a crash ($plat $variant)" "$cdir" \
+                  "A fuzz target found a crash on the \`$plat $variant\` build. The encoded crashing input (a serialized Smith decision stream) is \`.zig-cache/f/crash\` inside the artifact; \`fuzz-run.log\` is the fuzzer transcript. Replay per the runbook, reproducing on $plat — a crash unique to one architecture usually points at endianness, alignment, or codegen rather than Scheme semantics; a gc-stress-only crash points at a GC rooting bug."
               done <<< "$crashes"
             fi
             # Each fuzz-run.log NOT beside a crash we just filed: a unit-test

@@ -149,26 +149,28 @@ on success, so crash state never leaks into the next run.
 **How findings reach you:** any failed job in the workflow (the bounded
 fuzz pass, `native-diff`, `oracle-diff`, or `cross-diff`) is auto-filed as
 a GitHub issue by the trailing `report` job — one open issue **per
-platform/arch**, labeled `fuzz-finding`, containing the run link, a bounded
-artifact excerpt (the first divergent program plus both sides' output, or
-the failure section of the run log, pattern-anchored on the first
-`error:`/Build Summary line rather than the raw tail — #1688), and replay
-instructions. Because every leg is classified independently — the routing
-loops over every marker file rather than taking the first — a crash on
-`arm64` and a different crash on `x86_64`, or an `s390x` divergence and a
-`riscv64` one, each get their own attributed issue rather than one
-swallowing the others. Platform/arch is read from a file the job plants in
-its artifact (`fuzz-platform.txt` / `arch.txt`), never from the artifact
-directory name (which `download-artifact` erases when a run has a single
-artifact — the #1584/#1620 misfiling bug). A
+platform+variant** (fuzz) or **per arch** (the diff jobs), labeled
+`fuzz-finding`, containing the run link, a bounded artifact excerpt (the
+first divergent program plus both sides' output, or the failure section of
+the run log, pattern-anchored on the first `error:`/Build Summary line
+rather than the raw tail — #1688), and replay instructions. Because every
+leg is classified independently — the routing loops over every marker file
+rather than taking the first — a crash on `arm64` and a different crash on
+`x86_64`, a `default`-variant crash and a `gc-stress` crash on the *same*
+platform, or an `s390x` divergence and a `riscv64` one, each get their own
+attributed issue rather than one swallowing the others. Platform, variant,
+and arch are each read from a file the job plants in its artifact
+(`fuzz-platform.txt` / `fuzz-variant.txt` / `arch.txt`), never from the
+artifact directory name (which `download-artifact` erases when a run has a
+single artifact — the #1584/#1620 misfiling bug). A
 finding-titled issue is only filed when the finding marker is actually
 present in the uploaded artifacts (the encoded crash input for the fuzz
 job, per-seed divergence files for the diff jobs). A fuzz job that fails
 without its marker but whose `fuzz-run.log` shows the pre-fuzz unit-test
-phase failing (zig's `N pass, M fail|crash` test summary) is filed per
-variant as `Fuzz CI: unit-test failure (<variant> variant)` with the
-failing test names extracted from the log — under gc-stress that usually
-means a GC rooting bug (`.claude/rules/gc-safety.md`, #1401, #1682).
+phase failing (zig's `N pass, M fail|crash` test summary) is filed as
+`Fuzz CI: unit-test failure (<platform> <variant>)` with the failing test
+names extracted from the log — under gc-stress that usually means a GC
+rooting bug (`.claude/rules/gc-safety.md`, #1401, #1682).
 Both matrix variants are classified independently: a crash in one
 variant does not swallow the other variant's failure.
 Remaining marker-less failures — toolchain flakes, build failures,
