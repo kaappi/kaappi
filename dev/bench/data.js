@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784584018191,
+  "lastUpdate": 1784620904888,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b52f873f85edaa19e87d0c59292038e32859dbb1",
-          "message": "Add --diagnostics=json structured diagnostic output (#1505) (#1537)\n\nAgents driving kaappi have had to scrape human-oriented error text. This\nexposes every read, expand, compile, and runtime diagnostic as JSON Lines\non stderr under `--diagnostics=json`, so tools can match on structure\ninstead of prose. Text mode stays the default and is unchanged.\n\nRather than invent a schema, each line is an LSP `Diagnostic` — the exact\nshape the language server already publishes. The serializer now lives in\none place (src/lsp_diagnostic.zig) that both the CLI reporting funnel and\nkaappi_lsp.zig call, so the two cannot drift; the LSP gains KP codes as a\nresult. `code` comes from the diagnostics registry (#1504), and a \"did you\nmean\" fix maps to `data.suggestions` with kind/replacement, carried\nstructurally on the VM so the JSON message stays clean.\n\nPositions are the LSP-standard zero-based coordinates and are points until\nspan tracking lands (#1506). The text snippet and backtrace are suppressed\nin JSON mode so stderr stays one parseable object per line.\n\nPart of #1503.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T14:29:22Z",
-          "tree_id": "cfcd9b02a23e9237c26261240ece1a4f90ab32aa",
-          "url": "https://github.com/kaappi/kaappi/commit/b52f873f85edaa19e87d0c59292038e32859dbb1"
-        },
-        "date": 1784041041243,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.055518,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.132201,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.930885,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.42145,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00675,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052808,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509853,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068161,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.222816,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.980654,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.702139,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.475842,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.768253,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.816284,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045877,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045377,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fe05ec92023362cf0920b925d24d3aab557a8190",
+          "message": "Add 15 portable SRFIs (Phase 1 — quick wins, high value) (#1709)\n\n* Add 15 portable SRFIs (67, 95, 129, 135, 162, 171, 185, 190, 194, 221, 223, 228, 234, 252, 253)\n\nSRFI Phase 1 — quick wins, high value. All are pure portable .sld\nimplementations with comprehensive test suites:\n\n- 67  Compare Procedures (195 tests)\n- 95  Sorting and Merging (62 tests)\n- 129 Titlecase (18 tests)\n- 135 Immutable Texts (106 tests)\n- 162 Comparators sublibrary (46 tests)\n- 171 Transducers with (srfi 171 meta) sub-library (48 tests)\n- 185 Linear adjustable-length strings (14 tests)\n- 190 Coroutine Generators (8 tests)\n- 194 Random data generators (11404 tests)\n- 221 Generator/accumulator sub-library (18 tests)\n- 223 Bisecting search (16 tests)\n- 228 Composing Comparators (82 tests)\n- 234 Topological sorting (13 tests)\n- 252 Property testing (105 tests)\n- 253 Data (type) checking (105 tests)\n\nTotal supported SRFIs: 85 → 100 (11 built-in + 88 portable + SRFI 261).\n\nCloses #1692, closes #1696.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* Address review: missing imports, ASCII-only char range, SRFI 261 count\n\n- Add (scheme process-context) import to 8 test files that use (exit 1)\n  without it (srfi129, srfi162, srfi171, srfi185, srfi190, srfi221,\n  srfi223, srfi234)\n- Raise SRFI 252 max-char from 128 to #x110000 so char/string/symbol\n  generators cover full Unicode (surrogate filter was already in place)\n- Mention SRFI 261 in CLAUDE.md SRFI libraries section to reconcile\n  the 11 + 88 + 1 = 100 count\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-21T07:24:41Z",
+          "tree_id": "f6c77e2c5618b7f16c1260e1de16653ed2db79d6",
+          "url": "https://github.com/kaappi/kaappi/commit/fe05ec92023362cf0920b925d24d3aab557a8190"
+        },
+        "date": 1784620903253,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.297555,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.818274,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.980399,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.579084,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006355,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054589,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.547167,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071151,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.497479,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.102959,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.568749,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.424914,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.81082,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.571877,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043261,
             "unit": "seconds"
           }
         ]
