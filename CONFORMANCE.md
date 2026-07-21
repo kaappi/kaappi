@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-100 SRFIs supported. 11 built-in (native Zig), 88 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+105 SRFIs supported. 11 built-in (native Zig), 93 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,7 +97,7 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (88 libraries)
+### Portable SRFIs (93 libraries)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -141,6 +141,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 115 | Scheme regular expressions § |
 | 116 | Immutable list library |
 | 117 | Queues based on lists |
+| 118 | Simple adjustable-size strings |
 | 125 | Intermediate hash tables |
 | 127 | Lazy sequences |
 | 128 | Comparators (reduced) |
@@ -149,6 +150,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 132 | Sort libraries |
 | 134 | Immutable deques |
 | 135 | Immutable texts |
+| 140 | Immutable strings |
 | 141 | Integer division |
 | 143 | Fixnums |
 | 144 | Flonums |
@@ -169,6 +171,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 195 | Multiple-value boxes |
 | 196 | Range objects |
 | 197 | Pipeline operators |
+| 202 | Pattern-matching variant of the and-let* form |
 | 210 | Procedures and syntax for multiple values |
 | 219 | Define higher-order lambda |
 | 221 | Generator/accumulator sub-library |
@@ -181,10 +184,12 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 233 | INI files |
 | 234 | Topological sorting |
 | 235 | Combinators |
+| 241 | Match |
 | 248 | Minimal delimited continuations ‡ |
 | 250 | Insertion-ordered hash tables |
 | 252 | Property testing |
 | 253 | Data (type) checking |
+| 255 | Restarting conditions |
 | 259 | Tagged procedures with type safety |
 | 257 | Simple Extendable Pattern Matcher with Backtracking |
 | 263 | Prototype Object System |
