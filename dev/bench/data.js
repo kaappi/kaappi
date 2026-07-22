@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784695679384,
+  "lastUpdate": 1784717947589,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ae167d1449fa80ff29df4c678776ead96d13cb9d",
-          "message": "Run the #809 300-capture stress test again (#1541)\n\nThe 300-variable-capture regression test for the u8→u16 upvalue_count\nwidening was skipped under -Dgc-stress=true because compiling that\nprogram once peaked ~7 GB RSS and OOM-killed the stress suite.\n\nThat blow-up was not inherent to the test: markValue reallocated its\nmark worklist on every call, and the testing allocator's metadata\nretention amplified the churn. #1436 made the worklist persistent, so\nthe peak is now a few tens of MB (verified: ~32 MB for this test in\nisolation under gc-stress). The skip outlived its cause — remove it so\nthe >255-upvalue boundary is covered under stress again.\n\nFixes #1451\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T22:30:26+05:30",
-          "tree_id": "34a09af37dbb749bda9298c7f42b74932722699a",
-          "url": "https://github.com/kaappi/kaappi/commit/ae167d1449fa80ff29df4c678776ead96d13cb9d"
-        },
-        "date": 1784050069325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.319249,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.190716,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.935661,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.51737,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006452,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054913,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.519199,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071007,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.719209,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.989005,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.572917,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427995,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.827404,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.639707,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045152,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04139,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f2f4930eb1f94a0d0cc72aed5f37eac419fb4eb",
+          "message": "Add 20 SRFI binding/control and misc libraries (closes SRFI Phase 2) (#1722)\n\n* Add SRFI 216 (SICP Prerequisites) and SRFI 238 (Codesets)\n\nSRFI 216: portable SICP compatibility shim (true/false/nil,\nthe-empty-stream, runtime, random, parallel-execute, test-and-set!,\ncons-stream, stream-null?), built on Kaappi's built-in SRFI 18 and\nSRFI 27. Deviates from the reference implementation's (runtime) (which\nmultiplies instead of dividing by jiffies-per-second) and its\noutput-capturing parallel-execute; both deviations are documented in\nthe file header along with the global-vs-local shared-state limitation\nof Kaappi's deep-copying SRFI-18 threads.\n\nSRFI 238: generic codeset lookup API (codeset?, codeset-symbols,\ncodeset-symbol, codeset-number, codeset-message) instantiated with\nthree portable codesets built from real ISO standards instead of the\nOS-sourced errno/signal codesets in the SRFI's own reference\nimplementations: 'iso3166 (70 verified countries), 'iso639 (183\nentries, essentially the complete ISO 639-1 alpha-2 set), and\n'iso15924 (88 verified scripts). The file header documents these as\nrepresentative, individually-verified subsets rather than exhaustive\nregistries.\n\n26 and 50 SRFI-64 tests pass respectively; full tests/scheme/srfi/\nsuite (99 files, ~27.9k tests) still passes with these two added.\n\n* Add SRFI 46, 203, and 242 as portable libraries\n\nSRFI 46 (Basic Syntax-rules Extensions) is a re-export: Kaappi's\nsyntax-rules already implements both specified extensions natively\n(custom ellipsis identifiers, tail patterns), verified against the\nspec's own examples.\n\nSRFI 203 (SICP Picture Language) implements the spec's actual minimal\nAPI (canvas lifecycle, draw-line, a placeholder rogers painter, and\nimage-file painters) using an in-memory SVG document as the canvas,\nsince Kaappi has no window system or image codec.\n\nSRFI 242 (The CFG Language) implements the static-label subset (cfg,\nexecute, halt, bind, label*, call). Dynamic labels (labels), finally,\npermute, and the define-cfg-syntax*/define-cfg-label* extension forms\nare out of scope — they need a dominance-based free-variable analysis\nand/or syntax-case-level macro extensibility that a portable\nsyntax-rules transformer can't reasonably provide. Rationale and an\nescape-hatch pattern for real loops are documented in the file header.\n\n* Add SRFI 156, 226, 236, and 239 as portable libraries\n\nSRFI 156 (Syntactic combiners for binary predicates) and SRFI 236\n(Evaluating expressions in an unspecified order) are direct ports of\nthe SRFIs' own portable reference implementations.\n\nSRFI 226 (Control Features) is enormous — 12 sub-libraries unifying\ndelimited continuations, continuation marks, parameters, fluids,\npromises, exceptions, and threads. This implements the reduced subset\nthat's honestly buildable as a portable library on Kaappi's existing\ncall/cc, dynamic-wind, and make-parameter: (srfi 226 control prompts)\n(escape-only, via call/cc), (srfi 226 control continuations)\n(non-composable continuations, continuation-barrier as a pass-through,\nunwind-protect), and (srfi 226 control times). Composable\ncontinuations, continuation marks, fluids, and the exceptions/\nconditions/threads libraries need either genuine new VM primitives or\nidentifier-macro support R7RS syntax-rules doesn't guarantee; scope\nand rationale are documented in lib/srfi/226/control/prompts.sld.\n\nSRFI 239 (Destructuring Lists) implements `list-case` from scratch\n(the SRFI's own sample implementation is R6RS-only) via a syntax-rules\nmacro that classifies clauses by head shape and dispatches on the\nscrutinee's pair/null/atom-ness, handling `_` placeholders without\never emitting a lambda with a duplicate parameter name.\n\nSRFI 206 (Auxiliary Syntax Keywords) is not implemented. Its own\nspec text states no portable syntax-rules-only implementation is\npossible — the core feature (auxiliary keywords from independent\nlibraries matching via free-identifier=?) needs identifier-property\nsupport at the expander level. A reduced shell that accepts the\nsyntax but drops that matching semantics would provide no real value\nover just writing an ordinary error-raising macro directly, so it's\nexcluded rather than shipped as a misleading stub.\n\n* Add SRFI 7, 188, 201, and 251 as portable libraries\n\n- SRFI 7 (feature-based program configuration language): a near-verbatim\n  port of the SRFI's own cond-expand-based reference macro, with an added\n  explicit else-error clause since Kaappi's cond-expand silently no-ops on\n  an unmatched clause instead of erroring.\n- SRFI 188 (splicing let-syntax/letrec-syntax): implemented as plain\n  delegates to the non-splicing forms. True splicing is confirmed\n  unachievable in Kaappi (its body scanner only recognizes a literal\n  leading define/define-record-type/define-syntax token, not a\n  macro-produced begin), matching the SRFI's own statement that no\n  portable R7RS implementation is possible.\n- SRFI 201 (syntactic extensions to core bindings): pattern-matching\n  lambda/define/let/let*/or, exported under the SRFI's own reference\n  names (mlambda, cdefine, named-match-let-values, match-let*-values,\n  or/values) rather than shadowing scheme-base's lambda/define/let/let*/or\n  directly. Shadowing those names with any non-trivial syntax-rules\n  transformer was found to trigger a real Kaappi engine bug (infinite\n  macro expansion, or a GC root-count underflow surfacing much later in\n  an unrelated library's define-record-type) -- documented in detail in\n  the library header.\n- SRFI 251 (mixing definitions with expressions in bodies): mixed-lambda/\n  mixed-define/mixed-let/mixed-let* implement the spec's T translation\n  (each maximal run of definitions opens a fresh nested scope) rather\n  than shadowing core forms, for the same reason as SRFI 201. Documents\n  two scope limitations found via testing against the SRFI's own worked\n  examples: the static forward-reference check isn't enforced, and a\n  body-local macro that produces a definition isn't recognized when used\n  from a nested scope different from where it was defined.\n\n70 SRFI-64 tests across the four suites, all passing.\n\n* Add SRFI 71 (Extended LET-syntax for multiple values)\n\nExtends let/let*/letrec so a binding can destructure the multiple\nvalues an expression returns, while staying backward compatible with\nordinary single-value bindings including named let.\n\nTwo Kaappi-specific engine constraints shaped the implementation,\ndocumented in the file header:\n\n- Once a library redefines a core special-form name, that name can't\n  be used to reach the original form from anywhere else in the same\n  program -- not via a separate helper library that never touches the\n  name (its reference gets silently recaptured by whatever shadows the\n  name at the final expansion site), and not via renaming on import\n  (see kaappi/kaappi#1718). So named let and letrec are built from\n  lambda/define only, which this library leaves untouched.\n- define-values does not provide letrec*-style mutual/forward\n  visibility the way plain define does, confirmed with zero macros\n  involved. So letrec's variables are pre-declared with plain define\n  (one per flattened name) and then assigned via call-with-values +\n  set!, not routed through define-values.\n\n* Add SRFI 86 (MU and NU simulating VALUES and CALL-WITH-VALUES)\n\nmu/nu are ported as-is (the spec's own two-line macros). alet/alet*\nimplement the binding-spec forms that compose cleanly with mu/nu's CPS\nstyle: plain bindings, multi-value destructure (wrapped and flat\nshorthand, proper and dotted-rest), escape procedures, mutually\nrecursive rec groups, and effects-only clauses. The Scsh-style\nopt/cat/key positional and keyword argument sub-language, the\nand-integration and whole-alet-as-procedure forms, and named alet/alet*\nare out of scope -- see the file header for what and why. alet and\nalet* are both sequential (left-to-right visibility) rather than alet\nbeing truly parallel, a scope reduction documented in the same header.\n\n* Add SRFI 165 (The Environment Monad)\n\nIndependent implementation (the spec links an external, dependency-\nheavy sample rather than inlining one). Environments are an\nassociation list wrapped in a record, keyed by the environment-variable\nobject via eq?; a computation wraps a plain (environment -> results)\nprocedure directly, since ask/local/fn/with all need direct environment\naccess that the compute-only make-computation surface can't provide on\nits own. define-computation-type (an O(1)-access optimization over what\nthis already provides, not new observable behavior) is not implemented.\n\n* Add SRFI 247 (Syntactic Monads)\n\ndefine-syntactic-monad threads a fixed set of state variables through\nlambda/define/case-lambda/let*-values/procedure-call/named-let-loop use\nsites at compile time. The spec's own sample implementation is R6RS\nsyntax-case only (source not inlined in the document); this is an\nindependent syntax-rules implementation, verified against every one of\nthe spec's own worked examples (all match exactly, including the\nlambda-parameter shadowing rule and the let-loop threading example).\n\nTwo Kaappi-specific engine quirks shaped the implementation, both\ndocumented in the file header and worth tracking upstream:\n- A syntax-rules definition generated by another macro's template,\n  whose own literals list includes `let` specifically, fails to\n  recognize `let` at the use site -- every other literal tried in the\n  identical nested shape (lambda, define, case-lambda, let*-values)\n  works fine. Routing dispatch through a second, non-nested macro\n  sidesteps it.\n- Re-collecting one ellipsis-bound pattern variable wholesale (via its\n  own nested ellipsis) from inside a different, sibling ellipsis's\n  per-iteration template doesn't expand correctly; resolving one\n  variable at a time via recursion instead does.\n\n* Add SRFI 5, 51, and 244 as portable libraries\n\nSRFI 5 (A compatible let form with signatures and rest arguments) is a\nfaithful port of the SRFI's own syntax-rules reference implementation;\nit redefines let directly (no scope reduction needed -- the reference\nalgorithm is already plain portable syntax-rules). Verified against\nboth the full regression suite and its own test suite with no\nregressions or delayed corruption from the let redefinition.\n\nSRFI 51 (Handling Rest List) is a direct port of the SRFI's own full\nreference implementation: rest-values plus the arg-and/arg-ands/\nerr-and/err-ands/arg-or/arg-ors/err-or/err-ors checking macros.\n\nSRFI 244 (Multiple-value Definitions) is a re-export: define-values is\nalready a built-in Kaappi special form, so this is a conformance\nstatement rather than new functionality, like SRFI 46.\n\nSRFI 212 (Aliases) is not implemented. Its own spec text states\nplainly: \"A portable Scheme implementation is not possible\" -- transferring\na binding so two identifiers share the same location, for any binding\ntype including syntax, needs syntax-case-level (or R6RS alias-native)\nidentifier/location introspection that a syntax-rules-only system can't\nprovide.\n\n* Update SRFI counts and exclusions for Phase 2 completion\n\n137 SRFIs now supported (up from 117): 11 built-in, 124 portable,\nplus SRFI 261 (import-resolver convention) and SRFI 226 (sub-libraries\nonly, no bare (srfi 226) file) as the two special-cased entries that\ndon't appear as bare numbers in kaappi features' scan.\n\nAdds SRFI 206 and 212 to docs/dev/srfi-exclusions.md as a new\n\"macro-system-dependent\" category (18 excluded total, up from 16) --\nboth SRFIs' own spec text states a portable syntax-rules-only\nimplementation isn't possible, gated on the same syntax-case-level\nwork tracked in KEP-0006/0007.\n\nCloses the SRFI Phase 2 milestone: issue #1691 (data structures) was\nalready merged; this closes #1698 (binding & control forms) and #1706\n(miscellaneous), both fully accounted for -- every listed SRFI is\neither implemented or explicitly excluded with rationale.\n\n* Address CodeRabbit review findings on PR #1722\n\nFixed:\n- SRFI 165: computation-each/computation-forked crashed on zero\n  computations (dereferenced (cdr '()) before the empty check)\n- SRFI 226: the default prompt tag is now always available, even before\n  any enclosing call-with-continuation-prompt, per spec (\"a continuation\n  prompt tagged with the default prompt tag is available in the initial\n  continuation of each thread\"). Documented, rather than fixed, that the\n  default abort handler only approximates the spec's \"reinstall the\n  prompt and resume\" semantics, since that needs composable\n  continuations this port explicitly excludes.\n- SRFI 238: codeset-symbol/-number/-message/-symbols now reject a\n  non-symbol codeset argument (\"it is an error to pass a codeset\n  argument of some other type\"), distinct from an unrecognized-but-valid\n  codeset symbol, which the spec says must stay lenient (treated as an\n  empty codeset).\n- SRFI 239: two bugs. A second clause of the same shape (pair/null/atom)\n  used to silently overwrite the first instead of being reported as a\n  mistake -- pair/null/atom are exhaustive and disjoint, so a shape\n  never legitimately needs two clauses. The atom clause's `_` now gets\n  the same discard-without-binding treatment the pair clause already\n  had, for consistency with the documented \"_ means don't bind this\"\n  contract (no independently observable behavior difference, since a\n  bound-but-unused `_` is behaviorally identical to an unbound one).\n- SRFI 216: added a genuine overlap/rendezvous test for\n  parallel-execute -- the existing tests (every thunk ran, a race lands\n  on a legal value, no lost updates under a lock) all also pass a\n  purely serial fake implementation. Verified the new test fails against\n  a hand-written serial fake before adding it.\n- SRFI 251: rewrote the named-mixed-let test. It previously nested its\n  definition inside a begin/if, making the named mixed-lambda's body a\n  single top-level form -- %251-body's one-form base case fired\n  immediately and returned it untranslated, exercising none of\n  %251-defs's actual collect-and-close-the-group logic. Verified the\n  new version by temporarily breaking that logic and confirming the\n  test catches it.\n- docs/dev/srfi-exclusions.md: removed dangling references to\n  keps/0006-explicit-renaming-macros.md and\n  keps/0007-full-syntax-case-support.md -- neither exists in the keps\n  repo (only KEPs 0001-0005 do) -- replaced with a reference to the\n  actually-tracked issue #1699. Removed the \"Revisiting these decisions\"\n  section entirely: pure roadmap/future-work commentary redundant with\n  each SRFI's own Why-excluded/Scope-of-change entries, against this\n  repo's own \"roadmap and future work go in issues, not docs\" rule.\n\nDeclined, after checking the actual spec text rather than the review\ncomment alone:\n- SRFI 238's codeset-symbol/codeset-number \"fast path\" (return code\n  as-is when it's already the target type) is spec-mandated, not a bug:\n  the spec says \"If code is a symbol, return it as-is,\" unconditioned on\n  codeset validity. Caught this by fetching the spec directly after an\n  initial (wrong) attempt to also gate the fast path on codeset\n  validity, which would have broken that guarantee.\n- SRFI 236's exact \"zero values\" test for zero-expression\n  `independently` is not a spec assertion (the spec leaves the result\n  unspecified) but a regression check on the ported reference\n  implementation's own deterministic behavior -- kept, with the test\n  description reworded to make that distinction explicit rather than\n  reading as a spec-conformance claim.\n\nFull regression: 1940/1940 Scheme tests pass, Zig unit suite passes.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-22T15:51:39+05:30",
+          "tree_id": "1168901441cb74bf0830a8e45aaaeb53fe06dbca",
+          "url": "https://github.com/kaappi/kaappi/commit/2f2f4930eb1f94a0d0cc72aed5f37eac419fb4eb"
+        },
+        "date": 1784717946008,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.362516,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.717401,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.951909,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.54422,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006309,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054065,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.52474,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070167,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.594203,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.027233,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578567,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430751,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.871583,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.592573,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043548,
             "unit": "seconds"
           }
         ]
