@@ -22,6 +22,22 @@
   (test-equal "oset-accumulate: values" '(-3 -2 -1) (oset->list s))
   (test-equal "oset-accumulate: terminate tag" 'finished tag))
 
+;; Regression: acc accumulates newest-generated-first; %build's keep-first?
+;; only means "first generated" if acc is reversed back to generation order
+;; first. Generates 1, then a duplicate-under-= 1.0, then 3 — the spec says
+;; "the first such element prevails," so the surviving representative must
+;; be the exact 1, not the later inexact 1.0.
+(let-values (((s tag)
+              (oset-accumulate
+                (lambda (terminate seed)
+                  (cond ((> seed 3) (terminate 'done))
+                        ((= seed 2) (values 1.0 (+ seed 1)))
+                        (else (values seed (+ seed 1)))))
+                num-cmp 1)))
+  (test-equal "oset-accumulate: first-generated duplicate representative wins" '(1 3) (oset->list s))
+  (test-assert "oset-accumulate: preserved duplicate is the first-generated (exact) one"
+    (exact? (oset-min-element s))))
+
 ;;; --- predicates ---
 (test-assert "oset?: true" (oset? (oset num-cmp 1)))
 (test-assert "oset-contains?: true" (oset-contains? (oset num-cmp 1 2 3) 2))

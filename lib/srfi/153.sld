@@ -111,7 +111,11 @@
         (lambda (terminate)
           (let loop ((seeds seeds) (acc '()))
             (call-with-values
-              (lambda () (apply proc (lambda (x) (terminate (%build comp acc #t) x)) seeds))
+              ;; acc is built newest-first via cons; reverse it before
+              ;; %build so keep-first? (#t: "the first such element
+              ;; prevails") actually means first-generated, not
+              ;; last-generated.
+              (lambda () (apply proc (lambda (x) (terminate (%build comp (reverse acc) #t) x)) seeds))
               (lambda (elt . new-seeds) (loop new-seeds (cons elt acc))))))))
 
     (define (oset-contains? s element) (and (member element (%oset-elements s) (%eq (oset-element-comparator s))) #t))
