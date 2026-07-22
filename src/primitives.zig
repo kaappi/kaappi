@@ -61,6 +61,7 @@ pub const Lib = enum {
     srfi_254_guardians,
     srfi_254_transport_cell_guardians,
     srfi_254_ephemerons_and_guardians,
+    srfi_192,
     srfi_258,
     srfi_260,
     // SRFI 248 (minimal delimited continuations): the two VM primitives the
@@ -105,6 +106,7 @@ pub const Lib = enum {
             .srfi_254_guardians => "srfi.254.guardians",
             .srfi_254_transport_cell_guardians => "srfi.254.transport-cell-guardians",
             .srfi_254_ephemerons_and_guardians => "srfi.254.ephemerons-and-guardians",
+            .srfi_192 => "srfi.192",
             .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
             .srfi_248_primitives => "srfi.248.primitives",
@@ -123,6 +125,7 @@ pub const Lib = enum {
             .kaappi_ffi,
             .srfi_18,
             .srfi_170,
+            .srfi_192,
             .internal,
             => false,
             else => true,
@@ -131,7 +134,7 @@ pub const Lib = enum {
 
     pub fn wasmAvailable(self: Lib) bool {
         return switch (self) {
-            .kaappi_ffi, .srfi_18, .srfi_170 => false,
+            .kaappi_ffi, .srfi_18, .srfi_170, .srfi_192 => false,
             else => true,
         };
     }

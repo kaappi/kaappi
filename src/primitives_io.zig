@@ -31,6 +31,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "close-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "close-input-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "close-output-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    // SRFI 192 (built-in, no .sld -- see lib.zig's Lib.canonicalName srfi_192)
+    .{ .name = "port-position", .func = &portPosition, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
+    .{ .name = "set-port-position!", .func = &setPortPositionBang, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_192) },
+    .{ .name = "port-has-port-position?", .func = &portHasPortPositionP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
+    .{ .name = "port-has-set-port-position!?", .func = &portHasPortPositionP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
     .{ .name = "read-char", .func = &readCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "peek-char", .func = &peekCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "read-line", .func = &readLineFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
@@ -684,6 +689,97 @@ fn closePort(args: []const Value) PrimitiveError!Value {
         if (port.fd > 2) _ = platform.close(port.fd);
     }
     port.is_open = false;
+    return types.VOID;
+}
+
+/// SRFI 192: current position as an exact-integer byte offset, for both
+/// string and fd-backed ports (the spec only *requires* an integer for
+/// binary ports and leaves textual ports implementation-defined; using
+/// one uniformly for every port kind is simple and well within spec).
+/// String ports track their own position for free (string_pos for
+/// input, string_out_len for output); an fd-backed port's *logical*
+/// position must correct the OS's raw lseek result for whatever this
+/// port's own software buffers have read ahead of (peek_byte,
+/// peek_extra, read_buf) or not yet flushed behind (write_buf) --
+/// otherwise position would silently drift from what a subsequent
+/// read-then-position or position-then-read pair would expect.
+fn portPosition(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("port-position", "port", args[0]);
+    const port = types.toObject(args[0]).as(types.Port);
+    if (port.is_string_port) {
+        const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_len);
+        return types.makeFixnum(pos);
+    }
+    const os_pos = platform.seek(port.fd, 0, platform.SEEK_CUR);
+    if (os_pos < 0) {
+        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("port-position: port does not support positioning", .{});
+        return PrimitiveError.InvalidArgument;
+    }
+    const ahead: i64 = @as(i64, @intCast(port.read_buf_len)) +
+        @as(i64, if (port.peek_byte != null) 1 else 0) +
+        @as(i64, port.peek_extra_len);
+    const behind: i64 = @intCast(port.write_buf_len - port.write_buf_start);
+    return types.makeFixnum(os_pos - ahead + behind);
+}
+
+fn portCanPosition(port: *types.Port) bool {
+    if (port.is_string_port) return true;
+    if (!port.is_open) return false;
+    return platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
+}
+
+fn portHasPortPositionP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("port-has-port-position?", "port", args[0]);
+    return if (portCanPosition(types.toObject(args[0]).as(types.Port))) types.TRUE else types.FALSE;
+}
+
+/// SRFI 192: reposition a port. Per spec, an output port is flushed
+/// first (even if the position won't change); a string port's position
+/// is just its own tracked cursor; an fd-backed port must discard any
+/// software read-ahead (it's stale once the underlying position jumps)
+/// before the actual seek. This implementation's scope: positions are
+/// always plain exact integers (byte offsets) -- the spec's opaque
+/// "implementation-dependent object" alternative for textual ports, and
+/// the dedicated i/o-invalid-position-error condition type for the
+/// out-of-range case, are not implemented; any failure (unsupported
+/// port or out-of-range position) raises an ordinary error.
+fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("set-port-position!", "port", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("set-port-position!", "exact integer", args[1]);
+    const pos = types.toFixnum(args[1]);
+    if (pos < 0) return primitives.typeError("set-port-position!", "non-negative exact integer", args[1]);
+    const port = types.toObject(args[0]).as(types.Port);
+
+    if (port.is_output and !port.is_string_port and port.write_buf_len > port.write_buf_start) {
+        try drainWriteBuffer(port);
+    }
+
+    if (port.is_string_port) {
+        if (port.is_input) {
+            const len = if (port.string_data) |d| d.len else 0;
+            if (pos > len) return PrimitiveError.InvalidArgument;
+            port.string_pos = @intCast(pos);
+        } else {
+            if (pos > port.string_out_len) return PrimitiveError.InvalidArgument;
+            port.string_out_len = @intCast(pos);
+        }
+        return types.VOID;
+    }
+
+    // Discard read-ahead lookahead: it describes bytes at the *old*
+    // position and is meaningless once we jump elsewhere.
+    port.peek_byte = null;
+    port.peek_extra_len = 0;
+    if (port.read_buf) |rb| {
+        if (memory.gc_instance) |gc| gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
+    const rc = platform.seek(port.fd, pos, platform.SEEK_SET);
+    if (rc < 0) {
+        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("set-port-position!: invalid position or port does not support positioning", .{});
+        return PrimitiveError.InvalidArgument;
+    }
     return types.VOID;
 }
 
