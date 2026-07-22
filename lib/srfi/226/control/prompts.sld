@@ -25,6 +25,19 @@
 ;;; there and applies its handler there — it does not support resuming
 ;;; back into the aborted computation (that would need composable
 ;;; continuations, out of scope here).
+;;;
+;;; Two further honest gaps from this same escape-only limitation: (1)
+;;; the spec's default abort handler, when none is supplied, reinstalls
+;;; the prompt and *resumes* the aborted computation's continuation with
+;;; no arguments — that resumption is exactly the composable-continuation
+;;; capability this port doesn't have, so the default handler here only
+;;; does the first-order approximation of "the aborted values become the
+;;; result of call-with-continuation-prompt" (matching the case where the
+;;; real default handler's resumed continuation would immediately return
+;;; those values anyway), without reinstalling the prompt for reuse
+;;; afterward; (2) aborting to an unavailable tag raises a plain R7RS
+;;; `error` rather than a Racket-style `&continuation` condition object,
+;;; since R7RS has no equivalent condition-type hierarchy to model it against.
 
 (define-library (srfi 226 control prompts)
   (export make-continuation-prompt-tag
@@ -51,7 +64,18 @@
     ;; Dynamically-scoped alist of (tag . escape-procedure), innermost
     ;; prompt first. A parameter (rather than a manually set!-mutated
     ;; list) so entries are automatically popped on any non-local exit.
-    (define %prompt-stack (make-parameter '()))
+    ;;
+    ;; Per spec, a prompt tagged with the default tag is available in the
+    ;; initial continuation of every thread, so the parameter's own
+    ;; default value pre-populates one entry for it. There is no real
+    ;; call/cc capture to escape to at this level (the "initial
+    ;; continuation" isn't something this library controls), so its
+    ;; escape procedure is just a plain values-returning passthrough --
+    ;; aborting to the default tag with nothing else installed simply
+    ;; yields the aborted values as an ordinary return, which is the
+    ;; closest honest approximation reachable without controlling the
+    ;; program's own entry point.
+    (define %prompt-stack (make-parameter (list (cons %default-prompt-tag (lambda vals (apply values vals))))))
 
     (define (call-with-continuation-prompt thunk . rest)
       (let* ((tag (if (pair? rest) (car rest) (default-continuation-prompt-tag)))

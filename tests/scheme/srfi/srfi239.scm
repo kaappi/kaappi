@@ -48,6 +48,33 @@
   'caught
   (guard (e (#t 'caught)) (list-case 5 (() 'null))))
 
+;;; --- duplicate clauses of the same shape are a reportable mistake ---
+;; Regression: a second clause of the same shape used to silently
+;; overwrite the first one instead of signaling a mistake.
+(test-equal "list-case: two (a . d) clauses signals an error"
+  'caught
+  (guard (e (#t 'caught))
+    (list-case '(1 2)
+      ((a . d) 'first)
+      ((a . d) 'second))))
+(test-equal "list-case: two () clauses signals an error"
+  'caught
+  (guard (e (#t 'caught))
+    (list-case '()
+      (() 'first)
+      (() 'second))))
+(test-equal "list-case: two atom clauses signals an error"
+  'caught
+  (guard (e (#t 'caught))
+    (list-case 5
+      (_ 'first)
+      (_ 'second))))
+;; Duplicate detection must not misfire on legitimate distinct-shape
+;; clauses regardless of the order they're given in.
+(test-equal "list-case: one clause per shape in any order still works"
+  'null
+  (list-case '() (_ 'atom) (() 'null) ((a . d) 'pair)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-239")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

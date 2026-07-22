@@ -6,7 +6,15 @@
 (test-begin "srfi-236")
 
 ;;; --- zero expressions: legal, unlike begin ---
-(call-with-values (lambda () (independently)) (lambda vals (test-equal "independently: zero expressions returns zero values" '() vals)))
+;; The spec itself says independently's result "is unspecified" (see the
+;; file header) -- this does NOT assert spec-mandated behavior. It pins
+;; down the ported reference implementation's own deterministic base
+;; case (a bare (values) call when no expressions remain) as a
+;; regression check, so an accidental future change to that base case
+;; doesn't go unnoticed.
+(call-with-values (lambda () (independently))
+  (lambda vals
+    (test-equal "independently: zero expressions returns zero values (this implementation's behavior, not a spec guarantee)" '() vals)))
 
 ;;; --- side effects all happen, regardless of order ---
 (let ((p (cons 0 0)))

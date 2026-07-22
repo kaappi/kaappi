@@ -38,6 +38,13 @@
   (let ((tag (make-continuation-prompt-tag)))
     (call-with-continuation-prompt (lambda () (abort-current-continuation tag 99)) tag)))
 
+;; Regression: per spec, a prompt tagged with the default tag is always
+;; available in the initial continuation, so this must not error even
+;; with zero enclosing call-with-continuation-prompt calls.
+(test-equal "abort-current-continuation: default tag is available with no enclosing prompt at all"
+  '(1 2)
+  (call-with-values (lambda () (abort-current-continuation (default-continuation-prompt-tag) 1 2)) list))
+
 (test-equal "abort-current-continuation: finds the nearest matching tag, skipping others"
   'inner
   (let ((outer (make-continuation-prompt-tag)) (inner (make-continuation-prompt-tag)))

@@ -267,7 +267,17 @@
     (define (codeset? obj)
       (and (memq obj '(iso3166 iso639 iso15924)) #t))
 
+    ;; Per spec: "It is an error to pass a codeset argument of some other
+    ;; type" (i.e. not even a symbol) -- distinct from "it is valid to
+    ;; pass a codeset symbol that does not refer to a known codeset",
+    ;; which is deliberately left lenient (treated as an empty codeset,
+    ;; via %codeset-table's `else #f`). Only the former is checked here.
+    (define (%check-codeset who codeset)
+      (if (not (symbol? codeset))
+          (error (string-append who ": codeset must be a symbol") codeset)))
+
     (define (codeset-symbols codeset)
+      (%check-codeset "codeset-symbols" codeset)
       (let ((table (%codeset-table codeset)))
         (if table (map car table) '())))
 
@@ -283,6 +293,7 @@
             (else (%by-number (cdr table) num))))
 
     (define (codeset-symbol codeset code)
+      (%check-codeset "codeset-symbol" codeset)
       (%check-code "codeset-symbol" code)
       (if (symbol? code)
           code
@@ -291,6 +302,7 @@
             (if entry (car entry) #f))))
 
     (define (codeset-number codeset code)
+      (%check-codeset "codeset-number" codeset)
       (%check-code "codeset-number" code)
       (if (and (integer? code) (exact? code))
           code
@@ -299,6 +311,7 @@
             (if entry (cadr entry) #f))))
 
     (define (codeset-message codeset code)
+      (%check-codeset "codeset-message" codeset)
       (%check-code "codeset-message" code)
       (let* ((table (%codeset-table codeset))
              (entry (and table

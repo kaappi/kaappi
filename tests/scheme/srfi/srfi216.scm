@@ -8,7 +8,7 @@
 ;; threads a single parallel-execute call starts).
 
 (import (scheme base) (scheme lazy) (scheme process-context)
-        (srfi 216) (srfi 64))
+        (srfi 18) (srfi 216) (srfi 64))
 
 (test-begin "srfi-216")
 
@@ -86,6 +86,42 @@
     (parallel-execute (lambda () (set! pe-race 'first))
                        (lambda () (set! pe-race 'second)))
     (memq pe-race '(first second))))
+
+;; Regression: none of the three tests above actually require concurrent
+;; execution -- a purely serial fake (run each thunk to completion, one
+;; after another) would pass all of them too: "every thunk has run" and
+;; the race both hold regardless of ordering, and lost updates need a
+;; real race to manifest at all. This test does require overlap: each
+;; thread announces arrival then waits (bounded) for the OTHER thread's
+;; arrival flag, recording whether its own wait succeeded within budget
+;; or timed out. A serial parallel-execute always deadlocks whichever
+;; thunk runs first (the other's flag can't be set until it starts,
+;; which a serial implementation delays until the first one returns),
+;; so at least one side's wait times out -- confirmed against a
+;; hand-written serial fake before adding this test, which reports #f
+;; for exactly that reason. Genuine concurrent execution lets both
+;; threads observe each other's flag within a few milliseconds.
+(define pe-arrived-1 #f)
+(define pe-arrived-2 #f)
+(define pe-rendezvous-1-ok #f)
+(define pe-rendezvous-2-ok #f)
+
+(define (pe-wait-for sees-flag?)
+  (let retry ((tries 0))
+    (cond ((sees-flag?) #t)
+          ((>= tries 2000) #f)
+          (else (thread-sleep! 0.001) (retry (+ tries 1))))))
+
+(test-assert "parallel-execute: two threads genuinely overlap (rendezvous)"
+  (begin
+    (parallel-execute
+      (lambda ()
+        (set! pe-arrived-1 #t)
+        (set! pe-rendezvous-1-ok (pe-wait-for (lambda () pe-arrived-2))))
+      (lambda ()
+        (set! pe-arrived-2 #t)
+        (set! pe-rendezvous-2-ok (pe-wait-for (lambda () pe-arrived-1)))))
+    (and pe-rendezvous-1-ok pe-rendezvous-2-ok)))
 
 ;;; --- test-and-set! ---
 

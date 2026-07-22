@@ -119,10 +119,12 @@
     (define (computation-each . comps)
       (%make-computation
         (lambda (env)
-          (let loop ((cs comps))
-            (if (null? (cdr cs))
-                (%run (car cs) env)
-                (begin (%run (car cs) env) (loop (cdr cs))))))))
+          (if (null? comps)
+              (values)
+              (let loop ((cs comps))
+                (if (null? (cdr cs))
+                    (%run (car cs) env)
+                    (begin (%run (car cs) env) (loop (cdr cs)))))))))
 
     (define (computation-each-in-list lst) (apply computation-each lst))
 
@@ -144,10 +146,12 @@
     (define (computation-forked . comps)
       (%make-computation
         (lambda (env)
-          (let loop ((cs comps))
-            (if (null? (cdr cs))
-                (%run (car cs) env)
-                (begin (%run (car cs) (computation-environment-copy env)) (loop (cdr cs))))))))
+          (if (null? comps)
+              (values)
+              (let loop ((cs comps))
+                (if (null? (cdr cs))
+                    (%run (car cs) env)
+                    (begin (%run (car cs) (computation-environment-copy env)) (loop (cdr cs)))))))))
 
     (define (computation-bind/forked comp . procs)
       (apply computation-bind

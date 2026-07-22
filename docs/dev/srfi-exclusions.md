@@ -337,11 +337,11 @@ from SRFI 4/160.
 ## Macro-system-dependent SRFIs (2)
 
 These require transferring or comparing bindings/identifiers in ways that
-`syntax-rules` alone cannot express — genuinely `syntax-case`-shaped gaps
-(see `keps/0006-explicit-renaming-macros.md` and
-`keps/0007-full-syntax-case-support.md`), not just missing library code.
-Both SRFIs' own specification text says as much directly, rather than this
-being Kaappi's own conclusion.
+`syntax-rules` alone cannot express — genuinely `syntax-case`-shaped gaps,
+not just missing library code. Both SRFIs' own specification text says as
+much directly, rather than this being Kaappi's own conclusion. Tracked
+macro/syntax-system extension work that touches the same expander surface
+is in issue #1699 (SRFI 72, 139, 147, 148, 149, 211, 213).
 
 | SRFI | Title | Reason |
 |------|-------|--------|
@@ -372,8 +372,8 @@ directly, with no import needed.
 
 **Scope of change:** Would need a `free-identifier=?`-consulted property
 table integrated into the expander's own literal-matching logic in
-`expander.zig` — comparable in scope to the `syntax-case`/explicit-renaming
-work tracked in KEP-0006/0007.
+`expander.zig` — the same identifier-property support SRFI 213 needs
+(issue #1699).
 
 ### SRFI 212 — Aliases
 
@@ -396,24 +396,4 @@ implementation), or expander access this codebase's `syntax-rules` doesn't
 have.
 
 **Scope of change:** Would need the same kind of expander-level identifier/
-location introspection as `syntax-case`-based systems provide — see
-KEP-0006/0007.
-
----
-
-## Revisiting these decisions
-
-If a compelling use case arises, any of these can be reconsidered. The reader
-syntax SRFIs are the harder lift — each one touches `reader_tokens.zig` and
-`reader.zig` at minimum, and the indentation-sensitive ones (49, 110, 119)
-would need an entirely separate parsing mode. The meta SRFIs are mostly
-no-ops because Kaappi already covers their intent through other mechanisms.
-
-SRFI 163 (array literals) is the most likely candidate for reconsideration,
-since it is a well-bounded reader addition that would become natural to
-implement once the typed array SRFIs (4, 160) are in place.
-
-SRFI 206 and 212 are gated on the same macro-system work as `syntax-case`
-support generally (KEP-0006/0007) — worth revisiting together with that,
-not in isolation, since both need genuine expander-level identifier
-introspection rather than a small bounded addition.
+location introspection as `syntax-case`-based systems provide.

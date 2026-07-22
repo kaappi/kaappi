@@ -69,6 +69,14 @@
 ;;; --- derived monadic procedures ---
 (test-equal "computation-each: yields the last computation's result" 3 (computation-run (computation-each (computation-pure 1) (computation-pure 2) (computation-pure 3))))
 (test-equal "computation-each-in-list" 2 (computation-run (computation-each-in-list (list (computation-pure 1) (computation-pure 2)))))
+;; Regression: computation-each with zero computations used to dereference
+;; (cdr '()) before the empty-list check could help.
+(test-equal "computation-each: zero computations yields zero values, not an error"
+  '()
+  (call-with-values (lambda () (computation-run (computation-each))) list))
+(test-equal "computation-each-in-list: zero computations yields zero values, not an error"
+  '()
+  (call-with-values (lambda () (computation-run (computation-each-in-list '()))) list))
 (test-equal "computation-bind: single proc" 10 (computation-run (computation-bind (computation-pure 5) (lambda (x) (computation-pure (* x 2))))))
 (test-equal "computation-bind: left-associates over multiple procs"
   11
@@ -95,6 +103,10 @@
           (computation-local (lambda (env) (computation-environment-update env a 999)) (computation-pure 'discarded))
           (computation-ask))
         (lambda (env) (computation-pure (computation-environment-ref env a)))))))
+;; Regression: same (cdr '()) bug as computation-each, for zero computations.
+(test-equal "computation-forked: zero computations yields zero values, not an error"
+  '()
+  (call-with-values (lambda () (computation-run (computation-forked))) list))
 
 ;; computation-bind/forked runs `comp` on a copy: comp's own environment
 ;; mutation (via computation-local) never escapes, since comp yields a

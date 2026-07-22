@@ -142,14 +142,25 @@
 
 ;;; --- named mixed-let also gets an interleaving-aware body ---
 
-(test-equal "named mixed-let with an interleaved definition mid-loop"
+;; Regression: the previous version of this test nested its (define
+;; next-acc ...) inside a (begin ...) inside the (if ...)'s else branch,
+;; making the named mixed-lambda's own body a *single* top-level form
+;; (the if expression). %251-body's base case ((_ e) e) fires
+;; immediately on a single form and returns it completely untranslated
+;; -- so that version exercised none of %251-defs's actual run-collection
+;; and group-closing-lambda logic for the named-let path at all (it
+;; passed only because Kaappi's own body compiler independently tolerates
+;; a nested define there, entirely unrelated to SRFI 251). This version
+;; gives the named mixed-lambda body three top-level forms -- a command,
+;; then a definition, then a command -- forcing %251-body through its
+;; command-passthrough rule and %251-defs through an actual
+;; collect-then-close-the-group step every iteration.
+(test-equal "named mixed-let: command, then a definition, then a command, each loop iteration"
   120
   (mixed-let loop ((n 5) (acc 1))
-    (if (= n 0)
-        acc
-        (begin
-          (define next-acc (* acc n))
-          (loop (- n 1) next-acc)))))
+    (when (< n 0) (error "n went negative"))
+    (define next-acc (* acc n))
+    (if (= n 0) acc (loop (- n 1) next-acc))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-251")

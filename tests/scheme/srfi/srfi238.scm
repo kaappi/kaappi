@@ -107,6 +107,21 @@
 (test-error "codeset-message: a list code is a type error"
   (codeset-message 'iso3166 (list 'US)))
 
+;; Regression: "it is an error to pass a codeset argument of some other
+;; type" (i.e. not even a symbol) -- distinct from an unrecognized-but-
+;; valid-symbol codeset, which stays lenient (see "unknown codeset"
+;; section above). A non-symbol codeset must be rejected even when code
+;; is already the fast-path type the affected procedure would otherwise
+;; return as-is.
+(test-error "codeset-symbol: a non-symbol codeset is a type error"
+  (codeset-symbol 42 'US))
+(test-error "codeset-number: a non-symbol codeset is a type error"
+  (codeset-number 42 840))
+(test-error "codeset-message: a non-symbol codeset is a type error"
+  (codeset-message 42 'US))
+(test-error "codeset-symbols: a non-symbol codeset is a type error"
+  (codeset-symbols 42))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-238")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
