@@ -46,9 +46,16 @@ jobs:
     # 15-18, macOS 18-23), so a 20-min cap leaves only minutes of headroom
     # and ordinary runner variance cancels healthy runs mid-suite — it hit
     # macOS ReleaseSafe repeatedly on main and then ubuntu ReleaseFast on
-    # PR #1635. 30 min is the hang-bound the Debug and riscv64 jobs
-    # already use; the timeout exists to catch hangs, not to race the
-    # suite.
+    # PR #1635. 30 min was the hang-bound the Debug and riscv64 jobs used;
+    # the timeout exists to catch hangs, not to race the suite. But by
+    # PR #1728 the Debug leg's own healthy runtime had crept up to 29-30.5
+    # min (measured directly: a clean run completed in 29:03, then two
+    # more timed out at 30:16 and 30:21 with no error in the log besides
+    # the runner terminating orphaned zig/build processes at the 30:00
+    # mark) -- the suite had grown enough that 30 min stopped being a
+    # hang-bound and started being exactly what the comment above says to
+    # avoid. Bumped to 40 to restore real headroom, same fix as the
+    # macOS/PR #1635 recurrence.
     timeout-minutes: ${{ matrix.timeout || 30 }}
     strategy:
       fail-fast: false
@@ -58,7 +65,7 @@ jobs:
         include:
           - os: ubuntu-latest
             optimize: Debug
-            timeout: 30
+            timeout: 40
           - os: ubuntu-latest
             optimize: ReleaseFast
 
