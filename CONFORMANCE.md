@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-117 SRFIs supported. 11 built-in (native Zig), 105 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file: `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+137 SRFIs supported. 11 built-in (native Zig), 124 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,16 +97,18 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (105 libraries)
+### Portable SRFIs (124 libraries, plus SRFI 226 as sub-libraries only)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
 | SRFI | Title |
 |------|-------|
 | 0 | Feature-based conditional expansion |
 | 2 | AND-LET* |
 | 4 | Homogeneous numeric vector datatypes |
+| 5 | A compatible let form with signatures and rest arguments |
 | 6 | Basic string ports |
+| 7 | Feature-based program configuration language |
 | 8 | receive: binding to multiple values |
 | 11 | Syntax for receiving multiple values |
 | 14 | Character-set library |
@@ -128,12 +130,16 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 43 | Vector library |
 | 44 | Collections |
 | 45 | Primitives for iterative lazy algorithms |
+| 46 | Basic Syntax-rules Extensions |
 | 48 | Intermediate format strings |
+| 51 | Handling rest list |
 | 60 | Integers as bits |
 | 61 | A more general cond clause |
 | 64 | A testing framework |
 | 67 | Compare procedures |
+| 71 | Extended LET-syntax for multiple values |
 | 78 | Lightweight testing |
+| 86 | MU and NU simulating VALUES & CALL-WITH-VALUES |
 | 87 | => in case clauses |
 | 95 | Sorting and merging |
 | 98 | Environment variables |
@@ -161,9 +167,11 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 151 | Bitwise operations on exact integers |
 | 152 | String library (reduced) |
 | 153 | Ordered sets |
+| 156 | Syntactic combiners for binary predicates |
 | 158 | Generators and accumulators |
 | 161 | Unifiable boxes |
 | 162 | Comparators sublibrary |
+| 165 | The Environment Monad |
 | 166 | Monadic formatting |
 | 167 | Ordered key value store |
 | 168 | Generic tuple store database |
@@ -172,16 +180,20 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 175 | ASCII character library |
 | 178 | Bitvector library |
 | 185 | Linear adjustable-length strings |
+| 188 | Splicing binding constructs for syntactic keywords |
 | 189 | Maybe and Either |
 | 190 | Coroutine generators |
 | 194 | Random data generators |
 | 195 | Multiple-value boxes |
 | 196 | Range objects |
 | 197 | Pipeline operators |
+| 201 | Syntactic Extensions to the Core Scheme Bindings |
 | 202 | Pattern-matching variant of the and-let* form |
+| 203 | A Simple Picture Language in the Style of SICP |
 | 209 | Enums and enum sets |
 | 210 | Procedures and syntax for multiple values |
 | 214 | Flexvectors |
+| 216 | SICP Prerequisites (Portable) |
 | 217 | Integer sets |
 | 219 | Define higher-order lambda |
 | 221 | Generator/accumulator sub-library |
@@ -189,6 +201,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 223 | Bisecting search |
 | 224 | Integer mappings |
 | 225 | Dictionaries |
+| 226 | Control Features (reduced scope) § |
 | 227 | Optional arguments |
 | 228 | Composing comparators |
 | 229 | Tagged procedures |
@@ -196,14 +209,21 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 233 | INI files |
 | 234 | Topological sorting |
 | 235 | Combinators |
+| 236 | Evaluating expressions in an unspecified order |
+| 238 | Codesets |
+| 239 | Destructuring Lists |
 | 241 | Match |
+| 242 | The CFG Language (reduced scope) § |
+| 244 | Multiple-value Definitions |
+| 247 | Syntactic Monads |
 | 248 | Minimal delimited continuations ‡ |
 | 250 | Insertion-ordered hash tables |
+| 251 | Mixing groups of definitions with expressions within bodies |
 | 252 | Property testing |
 | 253 | Data (type) checking |
 | 255 | Restarting conditions |
-| 259 | Tagged procedures with type safety |
 | 257 | Simple Extendable Pattern Matcher with Backtracking |
+| 259 | Tagged procedures with type safety |
 | 263 | Prototype Object System |
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
@@ -249,3 +269,16 @@ invokes each `k` once. (2) The handler runs at the raise point rather than after
 unwinding to `with-unwind-handler`, so a handler side effect and a
 dynamic-wind after-thunk of the guarded body run in the opposite order to what
 the SRFI wording implies; the captured continuation itself is unaffected.
+
+§ SRFI 226 (Control Features, 12 sub-libraries: prompts, continuations,
+shift-reset, continuation-marks, parameters, fluids, promises, exceptions,
+conditions, times, threads, thread-locals, interrupts) implements only
+`(srfi 226 control prompts)`, `(srfi 226 control continuations)` (escape-only,
+via Kaappi's own call/cc — no composable/re-entrant continuations), and
+`(srfi 226 control times)` — see the header of `lib/srfi/226/control/prompts.sld`
+for what's out of scope and why. SRFI 242 (The CFG Language) implements only the
+static-label subset (`cfg`, `execute`, `halt`, `bind`, `label*`, `call`) — dynamic
+labels (`labels`), `finally`, `permute`, and the `define-cfg-syntax*` extension
+forms need either a dominance-based free-variable analysis or syntax-case-level
+macro extensibility that a portable syntax-rules transformer can't provide; see
+the header of `lib/srfi/242.sld`.
