@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784717947589,
+  "lastUpdate": 1784753296361,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "63079083ff2d5d36e7f3d7e6c394a85518338832",
-          "message": "Unskip eval tail-call test under gc-stress via frame-depth proxy (#1540)\n\nThe #1253 regression test detected non-tail-called `eval` by forcing a\nframe-limit overflow, which is only decisive past MAX_FRAME_LIMIT (32768)\niterations. Every iteration recompiles the expression through `eval`, so\nunder -Dgc-stress=true that is millions of full collections — hours — and\nthe test was unconditionally skipped there (#1452), leaving no bound on\nwhen it might become practical again.\n\nOverflow-based detection is inherently unaffordable under stress: it needs\n>32768 compile-heavy iterations no matter how the count is tuned. Instead,\nobserve the guarded property (\"constant frame depth\") directly. A test-only\nobserver native records vm.frame_count at the base case of the recursion;\nrunning the loop at two very different iteration counts, a tail-called eval\nreuses its caller's frame so both depths match, while a non-tail-called eval\nwould push a frame per iteration and diverge. This is decisive with a few\nhundred iterations (910ms under gc-stress) and now runs on every build.\n\nVerified decisive by injecting the regression (eval in non-tail position):\ndepth grows 202 -> 2002 across the two counts and the test fails.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T22:30:08+05:30",
-          "tree_id": "9a3cec2046f7a0eb1928590fffa928fe403c77dd",
-          "url": "https://github.com/kaappi/kaappi/commit/63079083ff2d5d36e7f3d7e6c394a85518338832"
-        },
-        "date": 1784050117185,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.298789,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.477254,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.973109,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.490982,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006524,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054323,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.518938,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071087,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.69996,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.983621,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.598785,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.440946,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.836982,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.657527,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045203,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043548,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "860beb34eff127508a063d565c66814138ebf7f7",
+          "message": "Add 12 SRFI libraries, exclude 2, defer 1 (SRFI Phase 3) (#1728)\n\n* Add SRFI 30 and SRFI 62 wrapper libraries\n\nBoth are already-implemented R7RS reader syntax (nested block comments\nand datum comments); these are thin marker libraries with no exports\nso (import (srfi 30)) / (import (srfi 62)) succeed.\n\n* Add SRFI 169 (Underscores in numbers) and SRFI 270 (Hex float constants)\n\nBoth are genuine reader/lexer changes, not portable libraries:\n\n- SRFI 270: #x1.2p3-style hex float syntax in readIntegerWithRadix/\n  readHexFloatSuffix (reader_tokens.zig), sharing digit decoding with\n  string->number via bignum.parseHexFloat (bignum.zig), since the spec\n  requires string->number to also understand this syntax. The one new\n  procedure the spec adds, write-hexadecimal-float, is fully portable\n  (lib/srfi/270.sld) -- exact rational arithmetic via (exact x) gives a\n  flonum's precise value without needing raw bit access, so it round-trips\n  bit-exactly including subnormals, signed zero, and complex numbers.\n\n- SRFI 169: a single underscore as a digit separator strictly between two\n  digits anywhere in a numeric literal, in any radix. The digit-scanning\n  loops across reader_tokens.zig (readNumber's mantissa/exponent/\n  imaginary-part loops, readIntegerWithRadix, scanDenominatorDigits,\n  SRFI 270's readHexFloatSuffix) now tolerate an embedded underscore\n  without stopping the scan early; actual validation and stripping is\n  centralized in bignum.stripUnderscores, called from parseDecimalReal,\n  parseHexFloat, parseBignumString, and directly before each remaining\n  parseInt call. Misplaced underscores (leading, trailing, doubled, or\n  adjacent to a sign/./exponent-marker//radix-prefix) are rejected, not\n  silently accepted or dropped.\n\nFiled #1724 for a small pre-existing, unrelated gap noticed along the\nway: string->number's small-integer path inherits Zig std.fmt.parseInt's\nown (more permissive) underscore tolerance, wrongly accepting \"1__2\" as\n12 -- not something either SRFI asks to fix, since neither touches\nstring->number's decimal-integer path by design.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 70 (Numbers), excluding its incompatible NaN-comparison clause\n\nSRFI 70 predates R7RS and argues that 0/0 (NaN) should be an illegal\nargument to <, <=, >, >= rather than silently comparing false. R7RS\nlater overrode that stance explicitly (\"all the predicates return #f\"\non +nan.0), and Kaappi already implements the R7RS rule throughout its\narithmetic, so this port deliberately omits that clause and does not\ntouch =, <, <=, >, >= at all.\n\nWhat's implemented as a pure .sld wrapper (no engine changes): the four\nnew exact-floor/exact-ceiling/exact-truncate/exact-round convenience\nprocedures, and shadowed quotient/remainder/modulo/gcd/lcm/expt that\nextend their domain to exact rationals (quotient/remainder/modulo also\ninherit Kaappi's existing inexact-real support) and fix `(expt 0 n)`\nfor negative exact n to return +inf.0 instead of raising a\ndivision-by-zero error, while leaving inexact +/-0.0's existing\nIEEE-signed behavior untouched. Every case is verified against SRFI\n70's own worked examples and reference implementation.\n\n* Add SRFI 29 (Localization)\n\nMessage-bundle localization: declare-bundle!/localized-template with the\nspec's exact locale fallback (package+language+country -> +language ->\npackage-only), current-language/current-country/current-locale-details\naccessors, and best-effort store-bundle!/load-bundle! persistence via\n(scheme file) + SRFI 170's temp-file-prefix. Also exports a format that\nextends (srfi 28)'s directives with SRFI 29's ~N@* absolute positional\nreference, needed for translations that reorder arguments.\n\nResolves two spec inconsistencies (documented in the file header): the\nSpecification section's signature heading spells the store procedure\n\"store-bundle\" but every other occurrence including the reference\nimplementation uses \"store-bundle!\", used here; and \"Bundle Searching\"\nsays an exhausted fallback should raise an error while\nlocalized-template's own procedure spec and reference implementation\nreturn #f, followed here.\n\nUpdates the SRFI count/list in CLAUDE.md, README.md, and CONFORMANCE.md\n(124 -> 125 portable, 137 -> 138 total).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 54 (Formatting) and SRFI 94 (Type-Restricted Numerical Functions)\n\nSRFI 54 implements `cat`, a free-sequence (type-directed, order-independent)\nstring formatter, ported from the spec's reference implementation with its\ncustom syntax-rules argument-parsing macros replaced by an equivalent\n`%cat-extract` function threaded through `let*-values` — easier to verify\nline-by-line against the spec's worked examples, nearly all of which are\nreproduced verbatim in the test suite.\n\nSRFI 94 adds thin type-checking wrappers (real-exp, real-ln, real-log,\nreal-sin/cos/tan/asin/acos/atan, real-sqrt, real-expt, integer-sqrt,\ninteger-expt, integer-log, quo, rem, mod, ln) around existing Kaappi\nprimitives. It deliberately does not re-export the spec's other seven\nsame-named replacements (abs, atan, make-rectangular, make-polar, quotient,\nremainder, modulo): four already satisfy the restriction natively, and the\nother three (quotient/remainder/modulo) would create an R7RS-ambiguous\nbinding against (scheme base) — see the .sld header for the full rationale.\n\nAlso documents a real gap found in `expt`: a negative real base with a\nnon-integer exponent (e.g. `(expt -8 1/3)`) returns +nan.0 instead of the\ncorrect complex result, unlike `sqrt` which handles negative reals properly.\nreal-expt's guard avoids this path entirely, matching the spec's own\nreference implementation.\n\nUpdates the SRFI count/list in CLAUDE.md, README.md, and CONFORMANCE.md\n(137->139 supported, 124->126 portable). Related but not closed: #1697 and\n#1700 each batch several other SRFIs alongside 54 and 94.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 215 (Central Log Exchange)\n\nPortable (srfi 215): send-log plus the current-log-fields and\ncurrent-log-callback parameters, matching the spec's \"one procedure,\ntwo parameters, eight constants\" surface exactly (EMERGENCY..DEBUG,\n0-7). current-log-callback is a single dynamically-scoped slot with no\nregister/unregister API, per spec -- installed via parameterize or a\ndirect call, exactly like current-output-port. Its default value\nbuffers messages until a real callback replaces it, then flushes them\nin order via the parameter's converter (which Kaappi runs once per\nreplacement, never on parameterize's restore). Field values are\nwritten to a string unless already string?/bytevector?/exact-integer?/\nerror-object?; SEVERITY and MESSAGE are stored as given.\n\n44 SRFI-64 tests cover all eight severities, message structure,\nexplicit and ambient (current-log-fields) fields, value conversion,\nthe two spec-mandated error conditions, severity-based filtering\n(entirely the callback's own job, per spec), multiple receivers via a\nhand-rolled fan-out callback, and both forms of \"unregistering\" a\nreceiver. Full tests/scheme/run-all.sh suite (546 Scheme files + 1395\nR7RS tests) passes.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 207 (String-notated bytevectors) and fix kaappi fmt for it\n\n#u8\"...\" is a genuine reader change (readByteStringLiteral in\nreader_tokens.zig, a deliberately separate function from the ordinary\nstring reader since the escape grammar and direct-character rules\ndiffer: direct characters must be printable ASCII, and \\xHH; decodes to\nexactly one raw byte 0-255, not a UTF-8-encoded codepoint). Also adds\nthe four procedures most directly tied to the notation itself\n(bytestring, bytevector->hex-string, hex-string->bytevector,\nwrite-textual-bytestring) -- the full spec defines ~25 procedures across\nan independent bytestring-processing library (padding, trimming,\nsearch, join/split, base64) that issue #1705 didn't scope in and this\nport doesn't implement, documented as a deliberate reduction in the\nlibrary's header.\n\nkaappi fmt has its own separate comment-preserving lexer (fmt.zig) that\ndidn't know about #u8\"...\" at all -- its scanHash only matched #u8( (the\nlist form), so #u8\"hello\" fell through to scanAtom, which stops at any\ndelimiter including '\"', splitting one token into two (\"#u8\" then a\nseparate string). Its own round-trip safety net correctly caught this\nas \"formatting would change the program\" rather than silently\ncorrupting anything, but it needed the actual fix: a new scanHash arm\nthat recognizes the #u8\" prefix and delegates to scanString's existing\nescape-aware boundary scanning (which only needs to find the real\nclosing quote, not decode escape semantics, so it works unchanged for\nthis different escape grammar).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 180 (JSON)\n\nPortable JSON reader/writer built on SRFI 158's generator/accumulator\nabstraction (already in this codebase, used by other ports like\n(srfi 225)): json-generator turns JSON text into a stream of events via\na coroutine generator over a recursive-descent parser, json-fold is a\ngeneric foldts-style iterator over that stream, json-accumulator is the\nwriter-side mirror, and json-read/json-write are the convenience\nport-based entry points most callers use.\n\nType mapping: null <-> the symbol 'null, true/false <-> #t/#f, array <->\nvector, object <-> an alist keyed by symbols. Numbers are read via a\nstrict RFC 8259 character-by-character grammar check before handing the\nvalidated substring to string->number, so exactness follows Kaappi's own\nnumeric-literal rules for free. Strings handle all short escapes plus\n\\uXXXX including UTF-16 surrogate pair combination, rejecting unescaped\ncontrol characters and unpaired surrogates per RFC 8259.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 192 (Port Positioning)\n\nport-position, set-port-position!, port-has-port-position?, and\nport-has-set-port-position!? -- built-in (no lib/srfi/192.sld), gated\nbehind a new srfi_192 Lib tag. Positions are plain exact-integer byte\noffsets for every port kind; the spec's opaque \"implementation-dependent\nobject\" alternative for textual ports and the dedicated\ni/o-invalid-position-error condition type are not implemented (any\nfailure raises an ordinary error instead), documented in the primitives'\nown doc comments.\n\nString ports already tracked their own position for free (string_pos,\nstring_out_len). The real engine work is fd-backed ports: a new\nplatform.seek (POSIX lseek, Windows _lseeki64 -- wiring up a previously\ndead, unused extern -- and WASI fd_seek, which needs its own whence_t\nenum rather than a bare c_int, caught by the wasm32-wasi cross-compile\ncheck) plus correcting the OS's raw offset for whatever this port's own\nsoftware buffers have read ahead of (peek_byte, peek_extra, read_buf) or\nnot yet flushed behind (write_buf) -- otherwise position would silently\ndrift from what a subsequent read-then-position or position-then-read\npair expects. set-port-position! on an fd port discards the read-ahead\nbuffers (stale once the position jumps) and, per spec, flushes pending\nwrites first even when the position won't change.\n\nVerified: unit tests including a regression for the buffered-read-ahead\ncorrection and the flush-before-seek behavior; cross-compiled for\nwasm32-wasi, x86_64-windows, x86_64-linux, aarch64-macos.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Reconcile SRFI counts and exclusions for Phase 3\n\n149 SRFIs supported (12 built-in, 135 portable, plus SRFI 261's\nresolver convention and SRFI 226's sub-library-only libraries), up from\n137/11/124 -- Phase 3 added 12 implemented SRFIs (29, 30, 54, 62, 70,\n94, 169, 180, 192, 207, 215, 270) and 2 newly-excluded ones (58, 208).\n\ndocs/dev/srfi-exclusions.md: added SRFI 58 (Array Notation) to the\nexisting \"Non-standard reader syntax\" category next to SRFI 163, which\nalready documents the identical typed-array-infrastructure blocker;\nadded a new \"Value-representation-dependent SRFIs\" category for SRFI\n208 (NaN procedures), whose bit-level NaN introspection Kaappi's\nNaN-boxing value representation makes categorically unrepresentable,\nnot merely unimplemented. 18 excluded SRFIs -> 20.\n\nCONFORMANCE.md: added a detailed coverage section for the newly\nbuilt-in SRFI 192, and table rows plus reduced-scope footnote entries\nfor the newly portable SRFIs (70 and 207 ship a reduced scope; the\nother 10 are full implementations).\n\nAlso fixes a small inconsistency from three independent contributors\n(two background agents plus this integration pass) each partially\nupdating the same dense count paragraph in CLAUDE.md -- rewritten once,\ncompletely, from kaappi features --json's authoritative output rather\nthan merging partial edits.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review findings on PR #1728\n\nVerified each finding directly against current code (and spec text via\nindependent WebFetch where the finding hinged on spec interpretation)\nbefore fixing or declining, per established project practice.\n\nFixed (7 genuine bugs):\n\n- string->number: a hex float whose mantissa overflows i64 (radix 16)\n  fell into the plain-integer overflow fallback, which doesn't\n  understand '.'/'p' and wrongly returned #f. Check for hex-float\n  syntax before attempting the plain-integer parse.\n- bignum.parseHexFloat: a pathologically long exponent digit run\n  overflowed the i32 accumulator and panicked (a real crash) in the\n  default ReleaseSafe build. Cap accumulation; any exponent magnitude\n  this large already saturates to +inf.0/0.0 regardless.\n- port-position/set-port-position!/port-has-port-position?: didn't\n  check is_open, so a closed port's stale fd (reused by the OS for an\n  unrelated file) could be silently repositioned or reported as valid.\n- set-port-position!: discarded read-ahead/peek buffers before the\n  underlying seek was confirmed to succeed; reorder to discard only on\n  success.\n- Output string ports: set-port-position! plus a shorter write\n  truncated everything after the write instead of overwriting in\n  place, unlike a seekable fd-backed port's OS-provided lseek+write\n  semantics. Added a write-cursor (string_out_pos) independent of the\n  buffer's total extent (string_out_len).\n- SRFI 215 current-log-callback: the converter flushed buffered\n  messages in one pass, but proc isn't actually current yet while its\n  own flush runs -- a message proc sent reentrantly via send-log\n  landed back in the buffer and was stranded until some unrelated\n  future callback replacement. Loop the flush until the buffer is dry.\n  Confirmed by repro before fixing.\n- SRFI 215 current-log-callback: an invalid (non-procedure) argument\n  cleared the buffer before attempting to use it, permanently losing\n  already-buffered messages even though the install itself failed.\n  Validate proc before touching the buffer.\n\nFixed (1 real but narrower issue, given a more robust fix than the\nminimal one needed):\n\n- SRFI 215's default buffering callback grew without limit before any\n  real callback was ever installed. The spec permits any\n  \"implementation-defined number\" with no stated overflow behavior, and\n  the original unbounded choice was a deliberate, documented reading of\n  that clause -- but a program whose only SRFI-215 user is a dependency\n  that logs routinely, and which never itself installs a callback,\n  would leak memory for its entire run. Capped the buffer, dropping the\n  oldest half at once when full (O(1) amortized) to keep a rolling\n  window of recent activity instead of growing without bound or (with\n  naive one-at-a-time eviction) paying O(cap) per call indefinitely.\n\nFixed (2 confirmed nitpicks, mechanical and low-risk):\n\n- SRFI 207's bytevector<->hex-string and %ascii-string? used indexed\n  string-ref/string-set! loops; Kaappi strings are UTF-8 byte arrays\n  with no fast codepoint-index path, so string-ref/string-set! are\n  O(k) per call and an indexed loop over a whole string is O(n^2).\n  Confirmed by reading utf8IndexToByteOffset directly. Rewrote to walk\n  string->list/list->string sequentially (both genuinely O(n),\n  confirmed by reading their implementations too).\n- reader_tokens.zig's readByteStringLiteral repeated an identical\n  3-line whitespace-skip loop 4 times across its line-continuation\n  escape handling. Extracted skipIntralineWhitespace.\n\nDeclined (1 finding, doesn't hold up against the spec text):\n\n- SRFI 215's send-log validating SEVERITY range / MESSAGE type. Fetched\n  the spec directly: it enumerates exactly two required validations for\n  send-log (odd-length plist, non-symbol key) and is conspicuously\n  silent on severity/message types -- those constraints are documented\n  as properties of a well-formed message (what a correct caller\n  produces), not as input validation send-log itself must perform.\n  Adding it would be unrequested speculative validation.\n\nAll 10 findings were genuine and independently verified (a different\noutcome from some earlier review rounds in this project, e.g. PR #1722,\nwhere a finding didn't survive verification) -- 9 fixed, 1 declined\nwith spec citation. Every fix has a regression test that fails without\nit. Full suite green: zig build test, 1952/1952 Scheme tests (557\nfiles + 1395 R7RS), kaappi fmt corpus (727 files, zero drift).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* CI: bump Debug leg timeout from 30 to 40 minutes\n\nThe Debug leg has been running at its timeout ceiling with no real\nheadroom: a clean baseline run on this branch completed in 29:03, then\nafter this PR's own new tests landed, two consecutive reruns timed out\nat 30:16 and 30:21 -- both times the log shows nothing but the runner\nterminating orphaned zig/build processes at the 30:00 mark, not a test\nfailure. The suite has grown enough that the 30-min cap stopped being\na hang-bound (per the comment already at this call site) and started\nbeing exactly the \"race the suite\" problem that comment warns against.\nSame fix as the macOS/PR #1635 recurrence.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* CI: pin test job's check name independent of matrix.timeout\n\nThe test job had no explicit name, so GitHub auto-generated its check\nname from every matrix property present for a given combination --\nincluding include-only ones like timeout. Bumping the Debug leg's\ntimeout (30 -> 40, previous commit) silently renamed its check from\n\"test (ubuntu-latest, Debug, 30)\" to \"...Debug, 40\". Branch protection\nrequires that exact old string, so the renamed check can never be\nsatisfied again -- it sits \"Expected -- Waiting for status to be\nreported\" forever, blocking merge.\n\nPin the name to just os+optimize so a future timeout tweak can't repeat\nthis. The other four legs' names are unchanged (they already matched\nthis shape with no timeout override); only Debug's changes, from\n\"test (ubuntu-latest, Debug, 30)\" to \"test (ubuntu-latest, Debug)\" --\nbranch protection's required check list needs updating to match.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T01:41:22+05:30",
+          "tree_id": "cb7d4a064b8aa77ca733306e53069346d18db15c",
+          "url": "https://github.com/kaappi/kaappi/commit/860beb34eff127508a063d565c66814138ebf7f7"
+        },
+        "date": 1784753295360,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.976923,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.447585,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.92367,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.402175,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006723,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053532,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508897,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068301,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.290885,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.976158,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.535025,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.468936,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731031,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.771908,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044958,
             "unit": "seconds"
           }
         ]
