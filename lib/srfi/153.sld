@@ -47,8 +47,7 @@
     ;; "sortedness" is vacuous, so any consistent order (here: insertion
     ;; order, deduplicated) is as valid as any other. The spec's own
     ;; oset-map example constructs exactly such an oset over eq-comparator.
-    (define (%sort-for comp lst)
-      (if (comparator-ordered? comp) (%sort< (%lt comp) lst) lst))
+    ;; See %build below for where this fork actually happens.
 
     (define (%sort< lt lst)
       (define (merge a b)
@@ -72,8 +71,27 @@
              (%dedup eq (if keep-first? (cons (car lst) (cddr lst)) (cdr lst)) keep-first?))
             (else (cons (car lst) (%dedup eq (cdr lst) keep-first?)))))
 
+    ;; %dedup assumes duplicates are adjacent, which only holds once a list
+    ;; has been sorted. The unordered-comparator path in %build skips
+    ;; sorting entirely (there's nothing to sort by), so it needs an
+    ;; order-independent dedup instead, checking each element against every
+    ;; element already kept.
+    (define (%dedup-unordered eq lst keep-first?)
+      (cond
+        ((null? lst) '())
+        (keep-first?
+         (cons (car lst)
+               (%dedup-unordered eq (%remove-eq eq (car lst) (cdr lst)) keep-first?)))
+        ((%any-eq eq (car lst) (cdr lst))
+         (%dedup-unordered eq (cdr lst) keep-first?))
+        (else (cons (car lst) (%dedup-unordered eq (cdr lst) keep-first?)))))
+    (define (%remove-eq eq x lst) (if (null? lst) '() (if (eq x (car lst)) (%remove-eq eq x (cdr lst)) (cons (car lst) (%remove-eq eq x (cdr lst))))))
+    (define (%any-eq eq x lst) (and (pair? lst) (or (eq x (car lst)) (%any-eq eq x (cdr lst)))))
+
     (define (%build comp lst keep-first?)
-      (%make-oset comp (%dedup (%eq comp) (%sort-for comp lst) keep-first?)))
+      (if (comparator-ordered? comp)
+          (%make-oset comp (%dedup (%eq comp) (%sort< (%lt comp) lst) keep-first?))
+          (%make-oset comp (%dedup-unordered (%eq comp) lst keep-first?))))
 
     (define (oset comp . elements) (%build comp elements #t))
     (define (oset/ordered comp . elements) (%make-oset comp (%dedup (%eq comp) elements #t)))

@@ -39,6 +39,14 @@
 ;;;    internally, no laziness is actually lost.
 ;;;  - Hooks reuse SRFI 167's minimal hook object directly (`make-okvs-hook`
 ;;;    et al.) instead of defining a second one.
+;;;  - Prefixes must be pairwise non-prefixing across nstores sharing an
+;;;    engine/store: `%all-tuples` prefix-scans the packed bytes directly,
+;;;    so an nstore whose prefix is an initial subsequence of another's
+;;;    (e.g. `(list 0)` vs `(list 0 0)`) would have its scan pull in the
+;;;    other nstore's tuples too. Not an issue for the spec's own worked
+;;;    example (a single nstore), but real if multiple nstores are meant to
+;;;    coexist — give each a prefix no other nstore's prefix extends,
+;;;    e.g. by starting every nstore's prefix with its own unique tag.
 ;;;
 ;;; Bindings are represented as SRFI 146 hash-mappings (`(srfi 146 hash)`,
 ;;; i.e. `hashmap`), matching the spec's text ("a mapping of bindings")

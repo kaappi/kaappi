@@ -200,10 +200,8 @@
 
     (define (bitvector-map/bool f bv1 . bvs)
       (apply bitvector-map/int
-             (lambda ints (f (apply values-list->args (map (lambda (x) (= x 1)) ints))))
+             (lambda ints (apply f (map (lambda (x) (= x 1)) ints)))
              bv1 bvs))
-
-    (define (values-list->args . xs) xs)
 
     (define (bitvector-map!/int f bv1 . bvs)
       (let* ((all (cons bv1 bvs)) (len (%len bv1)) (dst (%bv-bytes bv1)))
@@ -212,7 +210,7 @@
 
     (define (bitvector-map!/bool f bv1 . bvs)
       (apply bitvector-map!/int
-             (lambda ints (f (apply values-list->args (map (lambda (x) (= x 1)) ints))))
+             (lambda ints (apply f (map (lambda (x) (= x 1)) ints)))
              bv1 bvs))
 
     (define (bitvector-map->list/int f bv1 . bvs)
@@ -425,7 +423,10 @@
       (let ((acc '()))
         (lambda (x)
           (if (eof-object? x)
-              (reverse-list->bitvector (reverse acc))
+              ;; acc accumulates newest-first; list->bitvector (not
+              ;; reverse-list->bitvector, which would reverse a second time)
+              ;; restores collection order.
+              (list->bitvector (reverse acc))
               (begin (set! acc (cons x acc)) (if #f #f))))))
 
     ;; --- bitwise combinators --------------------------------------------

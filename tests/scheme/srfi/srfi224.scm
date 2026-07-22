@@ -129,6 +129,17 @@
 (test-equal "fxmapping-union/combinator"
   30
   (fxmapping-ref (fxmapping-union/combinator (lambda (k a b) (+ a b)) (fxmapping 1 10) (fxmapping 1 20)) 1))
+;; Regression: the alist invariant is ascending key order; a right-hand
+;; mapping supplying a smaller key than the left-hand one must not corrupt
+;; that order.
+(test-equal "fxmapping-union: right-hand key smaller than left-hand"
+  '((1 . a) (2 . b))
+  (fxmapping->alist (fxmapping-union (fxmapping 2 'b) (fxmapping 1 'a))))
+;; Regression: fxmapping-intersection/combinator must actually combine
+;; values with proc, not just filter m1's entries unchanged.
+(test-equal "fxmapping-intersection/combinator"
+  30
+  (fxmapping-ref (fxmapping-intersection/combinator (lambda (k a b) (+ a b)) (fxmapping 1 10) (fxmapping 1 20)) 1))
 
 ;;; --- submappings ---
 (test-equal "fxmapping-closed-interval" '((2 . b) (3 . c)) (fxmapping->alist (fxmapping-closed-interval (fxmapping 1 'a 2 'b 3 'c 4 'd) 2 3)))

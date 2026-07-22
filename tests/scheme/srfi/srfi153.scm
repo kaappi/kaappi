@@ -61,6 +61,13 @@
 (test-equal "oset-map"
   '("bar" "baz" "foo")
   (oset->list (oset-map str-cmp symbol->string (oset (make-eq-comparator) 'foo 'bar 'baz))))
+
+;; Regression: duplicates are only guaranteed adjacent once sorted. The
+;; unordered-comparator path must still dedup correctly even though it has
+;; nothing to sort by.
+(test-equal "oset: dedup over an unordered comparator, non-adjacent duplicate"
+  2
+  (oset-size (oset (make-eq-comparator) 'a 'b 'a)))
 (test-equal "oset-fold" '(3 2 1) (oset-fold cons '() (oset num-cmp 1 2 3)))
 (test-equal "oset-fold/reverse" '(1 2 3) (oset-fold/reverse cons '() (oset num-cmp 1 2 3)))
 (test-equal "oset-filter" '(2 4) (oset->list (oset-filter even? (oset num-cmp 1 2 3 4))))

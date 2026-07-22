@@ -56,6 +56,12 @@
   (bitvector-fold-right/int (lambda (acc bit) (cons bit acc)) '() (bitvector 1 0 1)))
 (test-equal "bitvector-map/int" '(0 1 0) (bitvector->list/int (bitvector-map/int (lambda (b) (- 1 b)) (bitvector 1 0 1))))
 (test-equal "bitvector-map->list/bool" '(#f #t #f) (bitvector-map->list/bool (lambda (b) (not b)) (bitvector 1 0 1)))
+;; Regression: bitvector-map/bool and bitvector-map!/bool once passed f a
+;; single list argument instead of applying it to the bit booleans.
+(test-equal "bitvector-map/bool" '(0 1 0) (bitvector->list/int (bitvector-map/bool (lambda (b) (not b)) (bitvector 1 0 1))))
+(let ((bv (bitvector 1 0 1)))
+  (bitvector-map!/bool (lambda (b) (not b)) bv)
+  (test-equal "bitvector-map!/bool" '(0 1 0) (bitvector->list/int bv)))
 
 (let ((sum 0))
   (bitvector-for-each/int (lambda (b) (set! sum (+ sum b))) (bitvector 1 1 0 1))
@@ -110,10 +116,12 @@
           (reverse acc)
           (begin (set! acc (cons v acc)) (loop (gen)))))))
 
+;; Non-palindrome input: a double-reversal bug would round-trip (1 0 1)
+;; correctly by accident but reveals itself here.
 (test-equal "make-bitvector-accumulator"
-  '(1 0 1)
+  '(1 1 0)
   (let ((accum (make-bitvector-accumulator)))
-    (accum 1) (accum 0) (accum 1)
+    (accum 1) (accum 1) (accum 0)
     (bitvector->list/int (accum (eof-object)))))
 
 ;;; --- bitwise combinators ---

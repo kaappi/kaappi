@@ -253,8 +253,11 @@
     (define (fxmapping<? comp . ms) (%pairwise ms (lambda (a b) (and (%key-subset? a b) (< (fxmapping-size a) (fxmapping-size b))))))
     (define (fxmapping>? comp . ms) (%pairwise ms (lambda (a b) (and (%key-subset? b a) (> (fxmapping-size a) (fxmapping-size b))))))
 
+    ;; %build (not %make-fxmapping) is required here: a later mapping can
+    ;; supply a key smaller than one already folded in, which would leave
+    ;; the alist unsorted if built directly.
     (define (fxmapping-union m1 . ms)
-      (%make-fxmapping (fold-left-fxm (lambda (k v acc) (if (assv k acc) acc (append acc (list (cons k v))))) (%fxm-alist m1) (apply append (map %fxm-alist ms)))))
+      (%build (fold-left-fxm (lambda (k v acc) (if (assv k acc) acc (cons (cons k v) acc))) (%fxm-alist m1) (apply append (map %fxm-alist ms)))))
     (define (fxmapping-intersection m1 . ms) (fxmapping-filter (lambda (k v) (every (lambda (m) (fxmapping-contains? m k)) ms)) m1))
     (define (fxmapping-difference m1 . ms)
       (let ((u (apply fxmapping-union (car ms) (cdr ms))))
@@ -269,9 +272,18 @@
           (let ((existing (assv k (%fxm-alist acc))))
             (if existing (fxmapping-set acc k (proc k (cdr existing) v)) (fxmapping-adjoin acc k v))))
         m1 (apply append (map %fxm-alist ms))))
+    (define (%combine-across proc k acc ms)
+      (if (null? ms) acc (%combine-across proc k (proc k acc (fxmapping-ref (car ms) k)) (cdr ms))))
+
     (define (fxmapping-intersection/combinator proc m1 . ms)
-      (fxmapping-map (lambda (v) v)
-        (%build (filter (lambda (p) (every (lambda (m) (fxmapping-contains? m (car p))) ms)) (%fxm-alist m1)))))
+      (%build
+        (filter (lambda (p) p)
+                (map (lambda (p)
+                       (let ((k (car p)))
+                         (if (every (lambda (m) (fxmapping-contains? m k)) ms)
+                             (cons k (%combine-across proc k (cdr p) ms))
+                             #f)))
+                     (%fxm-alist m1)))))
 
     (define (fxmapping-open-interval m low high) (fxmapping-filter (lambda (k v) (and (> k low) (< k high))) m))
     (define (fxmapping-closed-interval m low high) (fxmapping-filter (lambda (k v) (and (>= k low) (<= k high))) m))
