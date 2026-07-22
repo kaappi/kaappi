@@ -64,6 +64,7 @@ pub const Lib = enum {
     srfi_192,
     srfi_258,
     srfi_260,
+    srfi_181,
     // SRFI 248 (minimal delimited continuations): the two VM primitives the
     // portable `(srfi 248)` .sld builds on. Kept in their own importable
     // sub-library so the .sld can pull them in (the registry shadows a same
@@ -109,6 +110,7 @@ pub const Lib = enum {
             .srfi_192 => "srfi.192",
             .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
+            .srfi_181 => "srfi.181",
             .srfi_248_primitives => "srfi.248.primitives",
             .internal => "kaappi.internal",
         };
@@ -225,6 +227,7 @@ pub const all_specs = core_specs ++
     @import("primitives_srfi254.zig").specs ++
     @import("primitives_srfi258.zig").specs ++
     @import("primitives_srfi260.zig").specs ++
+    @import("primitives_srfi181.zig").specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
     @import("primitives_random_port.zig").specs ++

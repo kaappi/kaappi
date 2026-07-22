@@ -685,6 +685,59 @@ pub const GC = struct {
         return types.makePointer(&port.header);
     }
 
+    /// SRFI 181: a port backed by user-supplied Scheme procedures. Up to 6
+    /// Values need protecting across the collection at once -- beyond
+    /// rootArgs2's 2-Value cap -- so this follows allocMultipleValues's
+    /// slice_roots template rather than rootArgs1/rootArgs2: point
+    /// slice_roots at a transient local array (it only needs to be valid
+    /// for the scan window, not to become the object's own storage) and
+    /// restore it before returning. Each *_proc is either a procedure or
+    /// types.FALSE ("absent"); callers validate procedure-ness before
+    /// calling this.
+    pub fn allocCustomPort(
+        self: *GC,
+        is_input: bool,
+        is_output: bool,
+        is_binary: bool,
+        read_proc: Value,
+        write_proc: Value,
+        get_position_proc: Value,
+        set_position_proc: Value,
+        close_proc: Value,
+        flush_proc: Value,
+    ) !Value {
+        var roots: [6]Value = .{ read_proc, write_proc, get_position_proc, set_position_proc, close_proc, flush_proc };
+        const saved_slice_roots = self.slice_roots;
+        self.slice_roots = &roots;
+        defer self.slice_roots = saved_slice_roots;
+        try self.maybeCollect();
+        const cb = try self.allocator.create(types.CustomBacking);
+        errdefer self.allocator.destroy(cb);
+        cb.* = .{
+            .read_proc = read_proc,
+            .write_proc = write_proc,
+            .get_position_proc = get_position_proc,
+            .set_position_proc = set_position_proc,
+            .close_proc = close_proc,
+            .flush_proc = flush_proc,
+        };
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = -1,
+            .is_input = is_input,
+            .is_output = is_output,
+            .is_open = true,
+            .name = "custom",
+            .owns_name = false,
+            .peek_byte = null,
+            .is_binary = is_binary,
+            .custom_backend = cb,
+        };
+        self.finishAlloc(&port.header, @sizeOf(Port) + @sizeOf(types.CustomBacking));
+        return types.makePointer(&port.header);
+    }
+
     /// A SRFI-271 random binary input port backed by `gen` (copied to the
     /// heap and owned by the port; freed in gc_collect's port sweep). No fd,
     /// no string buffer — reads come from gen.nextByte() via readOneByte.

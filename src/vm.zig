@@ -317,6 +317,20 @@ pub const VM = struct {
     /// (map/for-each callbacks, eval) sit between the fiber's bytecode and
     /// the scheduler, and a retry would corrupt them.
     dispatched_from_scheduler: bool = false,
+    /// SRFI 181: incremented/decremented (via defer) only around the
+    /// callWithArgs calls into a custom port's read!/write!/get-position/
+    /// set-position!/close/flush. Since those calls always run with
+    /// dispatched_from_scheduler forced false (nested runUntil, see above),
+    /// a callback that blocks on another port's fd or calls thread-sleep!
+    /// would otherwise fall into an unbounded recursive scheduler drive
+    /// (fiber.waitForFd's park-vs-drive branch) with a confirmed native-
+    /// stack-overflow risk under concurrent fibers. This narrow counter
+    /// (not the broader native_reentry_depth, which is incremented for
+    /// every reentrant call — with-exception-handler thunks, map/for-each
+    /// callbacks, apply — and would wrongly reject those already-working
+    /// patterns too) lets those two sites raise a specific, catchable
+    /// error instead, only for the case this SRFI introduces.
+    in_custom_port_callback: u16 = 0,
     /// For child OS threads (SRFI-18): points at the parent-heap fiber's
     /// `terminated` flag. Checked at the periodic dispatch-loop safepoint so
     /// thread-terminate! from another thread can stop this VM. Written by the
