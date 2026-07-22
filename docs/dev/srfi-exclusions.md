@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-16 final SRFIs are excluded from implementation. This document records which
+18 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -334,14 +334,66 @@ from SRFI 4/160.
 
 ---
 
-## Revisiting these decisions
+## Macro-system-dependent SRFIs (2)
 
-If a compelling use case arises, any of these can be reconsidered. The reader
-syntax SRFIs are the harder lift — each one touches `reader_tokens.zig` and
-`reader.zig` at minimum, and the indentation-sensitive ones (49, 110, 119)
-would need an entirely separate parsing mode. The meta SRFIs are mostly
-no-ops because Kaappi already covers their intent through other mechanisms.
+These require transferring or comparing bindings/identifiers in ways that
+`syntax-rules` alone cannot express — genuinely `syntax-case`-shaped gaps,
+not just missing library code. Both SRFIs' own specification text says as
+much directly, rather than this being Kaappi's own conclusion. Tracked
+macro/syntax-system extension work that touches the same expander surface
+is in issue #1699 (SRFI 72, 139, 147, 148, 149, 211, 213).
 
-SRFI 163 (array literals) is the most likely candidate for reconsideration,
-since it is a well-bounded reader addition that would become natural to
-implement once the typed array SRFIs (4, 160) are in place.
+| SRFI | Title | Reason |
+|------|-------|--------|
+| 206 | Auxiliary Syntax Keywords | Its core feature — independently-defined auxiliary keywords (like `else`/`=>`) matching via `free-identifier=?` across library boundaries — needs identifier-property support at the expander level. |
+| 212 | Aliases | Transferring a binding so two identifiers share one location, for any binding type including syntax, needs identifier/location introspection a syntax-rules-only system can't provide. |
+
+### SRFI 206 — Auxiliary Syntax Keywords
+
+**Author:** Marc Nieper-Wißkirchen (2020)
+
+Defines `define-auxiliary-syntax`, letting independently-authored libraries
+define auxiliary keywords (like `cond`'s `else`) that mutually match via
+`free-identifier=?` despite having no shared origin — normally, two
+separately-defined identifiers with the same name do *not* count as the same
+literal for `syntax-rules` matching purposes.
+
+**Why excluded:** The SRFI's own text states plainly: "No portable
+syntax-rules-only implementation is possible." The mechanism requires
+attaching a SRFI-213-style identifier property to each auxiliary keyword and
+having a matching macro's literal comparison consult that property instead of
+(or in addition to) ordinary hygienic identity — genuine identifier-property
+support at the macro-expander level, not something a library can add on top
+of `syntax-rules`. A reduced version that accepts the `define-auxiliary-syntax`
+syntax but silently drops the cross-library matching (its entire reason to
+exist) would be actively misleading rather than useful: everything it *could*
+do is already achievable by writing an ordinary error-raising `define-syntax`
+directly, with no import needed.
+
+**Scope of change:** Would need a `free-identifier=?`-consulted property
+table integrated into the expander's own literal-matching logic in
+`expander.zig` — the same identifier-property support SRFI 213 needs
+(issue #1699).
+
+### SRFI 212 — Aliases
+
+**Author:** John Cowan, Marc Nieper-Wißkirchen (2020)
+
+Defines `(alias identifier1 identifier2)`, transferring `identifier2`'s
+binding to `identifier1` so both share the same location — for any kind of
+binding (variable, syntax, pattern variable), not just values. Mutating one
+affects the other; unlike `define`, this is not a value copy.
+
+**Why excluded:** The SRFI's own text states plainly: "A portable Scheme
+implementation is not possible." True location-sharing across two
+independently-scoped identifier bindings — especially for *syntax* bindings,
+which `syntax-rules` has no way to introspect or reassign at all — is an
+expander-level primitive in every implementation that has it (Chez, Kawa,
+Unsyntax). A reduced version restricted to plain variables would still need
+either a box-indirection scheme that only works for variables declared with
+`alias` in mind from the start (not a faithful "alias an existing variable"
+implementation), or expander access this codebase's `syntax-rules` doesn't
+have.
+
+**Scope of change:** Would need the same kind of expander-level identifier/
+location introspection as `syntax-case`-based systems provide.
