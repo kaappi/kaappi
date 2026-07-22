@@ -449,17 +449,23 @@ pub fn portWriteBytes(port: *types.Port, bytes: []const u8) PrimitiveError!void 
 fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
     const gc = memory.gc_instance orelse return;
     var buf = port.string_out_buf orelse return;
-    const len = port.string_out_len;
+    // Write at the cursor (SRFI 192's string_out_pos), not always at the
+    // end: a prior set-port-position! may have moved it backward, in
+    // which case this must overwrite existing bytes in place rather than
+    // truncate them, matching how a seekable fd-backed output port
+    // already behaves via the OS's own lseek+write.
+    const pos = port.string_out_pos;
     const cap = port.string_out_cap;
-    if (len + bytes.len > cap) {
-        const new_cap = @max(cap * 2, len + bytes.len);
+    if (pos + bytes.len > cap) {
+        const new_cap = @max(cap * 2, pos + bytes.len);
         const new_buf = gc.allocator.realloc(buf, new_cap) catch return;
         port.string_out_buf = new_buf;
         buf = new_buf;
         port.string_out_cap = new_cap;
     }
-    @memcpy(buf[len .. len + bytes.len], bytes);
-    port.string_out_len = len + bytes.len;
+    @memcpy(buf[pos .. pos + bytes.len], bytes);
+    port.string_out_pos = pos + bytes.len;
+    port.string_out_len = @max(port.string_out_len, port.string_out_pos);
 }
 
 // ---------------------------------------------------------------------------
@@ -706,8 +712,12 @@ fn closePort(args: []const Value) PrimitiveError!Value {
 fn portPosition(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("port-position", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
+    // A closed fd-backed port's fd number may already have been reused by
+    // the OS for an unrelated, newly opened file; seeking on it would
+    // silently reposition that unrelated file instead of erroring.
+    if (!port.is_open) return primitives.typeError("port-position", "open port", args[0]);
     if (port.is_string_port) {
-        const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_len);
+        const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_pos);
         return types.makeFixnum(pos);
     }
     const os_pos = platform.seek(port.fd, 0, platform.SEEK_CUR);
@@ -723,8 +733,8 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
 }
 
 fn portCanPosition(port: *types.Port) bool {
-    if (port.is_string_port) return true;
     if (!port.is_open) return false;
+    if (port.is_string_port) return true;
     return platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
 }
 
@@ -749,6 +759,10 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
     const pos = types.toFixnum(args[1]);
     if (pos < 0) return primitives.typeError("set-port-position!", "non-negative exact integer", args[1]);
     const port = types.toObject(args[0]).as(types.Port);
+    // See portPosition: a closed fd's number may have been reused by the
+    // OS for an unrelated file, so seeking on it must not be allowed to
+    // silently reposition that unrelated file instead of erroring.
+    if (!port.is_open) return primitives.typeError("set-port-position!", "open port", args[0]);
 
     if (port.is_output and !port.is_string_port and port.write_buf_len > port.write_buf_start) {
         try drainWriteBuffer(port);
@@ -760,25 +774,35 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
             if (pos > len) return PrimitiveError.InvalidArgument;
             port.string_pos = @intCast(pos);
         } else {
+            // Move the write cursor only -- string_out_len (the buffer's
+            // total extent, what get-output-string reads up to) is
+            // untouched, so a subsequent write overwrites in place
+            // rather than truncating whatever came after the seek point.
             if (pos > port.string_out_len) return PrimitiveError.InvalidArgument;
-            port.string_out_len = @intCast(pos);
+            port.string_out_pos = @intCast(pos);
         }
         return types.VOID;
     }
 
+    // Seek first, discard stale read-ahead only after it succeeds: on a
+    // non-seekable port (or an out-of-range position) the seek fails and
+    // this returns an error, but bytes already read from the OS and
+    // buffered here are still valid at the port's *current* position --
+    // discarding them first would silently lose already-read data for no
+    // reason once the (failed) seek leaves the position unchanged.
+    const rc = platform.seek(port.fd, pos, platform.SEEK_SET);
+    if (rc < 0) {
+        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("set-port-position!: invalid position or port does not support positioning", .{});
+        return PrimitiveError.InvalidArgument;
+    }
     // Discard read-ahead lookahead: it describes bytes at the *old*
-    // position and is meaningless once we jump elsewhere.
+    // position and is meaningless once we've jumped elsewhere.
     port.peek_byte = null;
     port.peek_extra_len = 0;
     if (port.read_buf) |rb| {
         if (memory.gc_instance) |gc| gc.allocator.free(rb);
         port.read_buf = null;
         port.read_buf_len = 0;
-    }
-    const rc = platform.seek(port.fd, pos, platform.SEEK_SET);
-    if (rc < 0) {
-        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("set-port-position!: invalid position or port does not support positioning", .{});
-        return PrimitiveError.InvalidArgument;
     }
     return types.VOID;
 }

@@ -28,17 +28,22 @@
 ;;;
 ;;; Before any real callback is installed, the default
 ;;; current-log-callback buffers messages -- the spec permits "an
-;;; implementation-defined number"; this implementation never drops
-;;; any, since unbounded buffering is the simplest choice that can't
-;;; violate that clause. Replacing the callback -- via `parameterize`
-;;; or a direct call -- flushes anything buffered into the incoming
-;;; callback first, oldest message first, via the parameter's converter
-;;; procedure. That converter runs exactly once per replacement and
-;;; never on `parameterize`'s automatic restore (Kaappi's parameterize
-;;; desugaring saves/restores the already-converted old value directly,
-;;; without re-invoking the converter), so restoring a previous
-;;; callback on the way out of a dynamic extent can never re-trigger a
-;;; flush.
+;;; implementation-defined number" and says nothing about overflow
+;;; behavior, so this implementation caps the buffer and drops the
+;;; oldest messages once it's full, rather than growing without limit.
+;;; Replacing the callback -- via `parameterize` or a direct call --
+;;; flushes anything buffered into the incoming callback first, oldest
+;;; message first, via the parameter's converter procedure, looping
+;;; until nothing remains so a message the incoming callback itself logs
+;;; reentrantly during the flush is delivered too rather than stranded.
+;;; That converter runs exactly once per replacement and never on
+;;; `parameterize`'s automatic restore (Kaappi's parameterize desugaring
+;;; saves/restores the already-converted old value directly, without
+;;; re-invoking the converter), so restoring a previous callback on the
+;;; way out of a dynamic extent can never re-trigger a flush. The
+;;; converter also rejects a non-procedure replacement before touching
+;;; the buffer, so an invalid `(current-log-callback ...)` call leaves
+;;; anything already buffered recoverable by a later, valid install.
 ;;;
 ;;; send-log does not skip constructing a message when no receiver
 ;;; wants that severity -- the spec describes no such laziness. A
@@ -107,22 +112,56 @@
 
     ;; Messages sent while the default callback (below) is current, held
     ;; newest-first so buffering is a plain cons; flushing reverses once.
+    ;; Bounded by %max-buffered-messages so a program that never installs
+    ;; a real callback (e.g. a long-running server whose only SRFI-215
+    ;; user is a dependency that logs routinely) can't leak memory
+    ;; without limit -- the spec permits any "implementation-defined
+    ;; number" and says nothing about overflow behavior, so once the cap
+    ;; is hit the oldest half is dropped at once, keeping eviction cost
+    ;; O(1) amortized instead of O(cap) on every call past the cap.
+    (define %max-buffered-messages 1000)
     (define %buffered-messages '())
+    (define %buffered-message-count 0)
 
     ;; The default value of current-log-callback: buffers every message
-    ;; it's given, unconditionally and without limit, until replaced.
+    ;; it's given, up to %max-buffered-messages, until replaced.
     (define (%buffering-callback msg)
-      (set! %buffered-messages (cons msg %buffered-messages)))
+      (set! %buffered-messages (cons msg %buffered-messages))
+      (set! %buffered-message-count (+ %buffered-message-count 1))
+      (when (> %buffered-message-count %max-buffered-messages)
+        (let ((keep (quotient %max-buffered-messages 2)))
+          (set! %buffered-messages (%take %buffered-messages keep))
+          (set! %buffered-message-count keep))))
 
-    ;; current-log-callback's converter. Runs once whenever the
-    ;; callback is replaced (parameterize entry or a direct call):
-    ;; drains anything buffered by %buffering-callback into the
-    ;; incoming callback, oldest first, before it becomes current.
+    ;; Keeps the first n elements of lst (n <= (length lst)).
+    (define (%take lst n)
+      (if (or (= n 0) (null? lst))
+          '()
+          (cons (car lst) (%take (cdr lst) (- n 1)))))
+
+    ;; current-log-callback's converter. Runs once whenever the callback
+    ;; is replaced (parameterize entry or a direct call). Validates proc
+    ;; first, before touching the buffer, so an invalid replacement
+    ;; leaves already-buffered messages recoverable by a later, valid
+    ;; install rather than discarding them. Then drains anything
+    ;; buffered by %buffering-callback into proc, oldest first, looping
+    ;; until the buffer is dry rather than stopping after one pass: proc
+    ;; runs here, before the parameter's value actually becomes proc
+    ;; (that happens only once this converter returns), so a message
+    ;; proc sends reentrantly via send-log during the flush lands back
+    ;; in %buffered-messages instead of reaching proc directly. Looping
+    ;; catches that and delivers it within this same operation instead
+    ;; of stranding it until some later, unrelated callback replacement.
     (define (%install-log-callback proc)
-      (unless (null? %buffered-messages)
-        (let ((pending (reverse %buffered-messages)))
-          (set! %buffered-messages '())
-          (for-each proc pending)))
+      (unless (procedure? proc)
+        (error "current-log-callback: not a procedure" proc))
+      (let flush ()
+        (unless (null? %buffered-messages)
+          (let ((pending (reverse %buffered-messages)))
+            (set! %buffered-messages '())
+            (set! %buffered-message-count 0)
+            (for-each proc pending)
+            (flush))))
       proc)
 
     ;; The current log receiver. Analogous to current-output-port: a

@@ -664,6 +664,16 @@ fn matchesRawTerminator(self: *Reader, delim: []const u8) bool {
 /// a UTF-8 encoding of U+0089. The other escapes (`\a \b \t \n \r \" \\
 /// \|`, and the backslash-whitespace-newline-whitespace line
 /// continuation) match ordinary strings exactly.
+/// Advances past a run of spaces/tabs. Shared by the three
+/// readByteStringLiteral line-continuation escapes below (`\<newline>`,
+/// `\<return>`, and `\<space-or-tab>`), each of which skips intraline
+/// whitespace at more than one point in its own handling.
+fn skipIntralineWhitespace(self: *Reader) void {
+    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+        self.pos += 1;
+    }
+}
+
 pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
     self.pos += 1; // skip opening `"`
     self.token_buf.clearRetainingCapacity();
@@ -700,30 +710,22 @@ pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
                 },
                 '\n' => {
                     self.pos += 1;
-                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
-                        self.pos += 1;
-                    }
+                    skipIntralineWhitespace(self);
                     continue;
                 },
                 '\r' => {
                     self.pos += 1;
                     if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
-                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
-                        self.pos += 1;
-                    }
+                    skipIntralineWhitespace(self);
                     continue;
                 },
                 ' ', '\t' => {
                     self.pos += 1;
-                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
-                        self.pos += 1;
-                    }
+                    skipIntralineWhitespace(self);
                     if (self.pos < self.source.len and (self.source[self.pos] == '\n' or self.source[self.pos] == '\r')) {
                         if (self.source[self.pos] == '\r') self.pos += 1;
                         if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
-                        while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
-                            self.pos += 1;
-                        }
+                        skipIntralineWhitespace(self);
                         continue;
                     }
                     return ReadError.InvalidEscape;

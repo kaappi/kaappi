@@ -228,6 +228,75 @@
               "while receiver-1 installed"
               (cdr (assq 'MESSAGE (car receiver-1-log)))))
 
+;;; --- the default callback's buffer is bounded: past some implementation- ---
+;;; --- defined cap, the oldest buffered messages are dropped to keep the ---
+;;; --- most recent activity rather than growing without limit forever ---
+
+(let ((received '()))
+  ;; Send far more than any reasonable cap before installing a callback.
+  ;; current-log-callback is still at its module-level default here --
+  ;; nothing earlier in this file sends outside of a parameterize, so
+  ;; the buffer is provably empty going in.
+  (do ((i 0 (+ i 1))) ((= i 1500))
+    (send-log INFO (number->string i)))
+  (parameterize ((current-log-callback (lambda (msg)
+                                         (set! received (cons msg received)))))
+    #f)
+  (test-assert "far fewer than all 1500 sent messages survive: growth is bounded"
+               (< (length received) 1500))
+  (test-assert "at least some messages survive"
+               (> (length received) 0))
+  (test-equal "the most recently sent message survives (oldest, not newest, is dropped)"
+              "1499"
+              (cdr (assq 'MESSAGE (car received))))
+  (test-assert "the very first message sent is among those dropped"
+               (not (member "0" (map (lambda (m) (cdr (assq 'MESSAGE m))) received)))))
+
+;;; --- a callback that itself calls send-log while being flushed gets its ---
+;;; --- own reentrant message delivered too, rather than stranded in the ---
+;;; --- buffer until some later, unrelated callback replacement ---
+
+(let ((received '()))
+  (send-log INFO "buffered-before-reentrant-test")
+  (parameterize ((current-log-callback
+                  (lambda (msg)
+                    (set! received (cons msg received))
+                    (when (= (length received) 1)
+                      (send-log INFO "sent reentrantly during the flush")))))
+    #f)
+  (let ((ordered (reverse received)))
+    (test-equal "both the originally-buffered and the reentrantly-sent message arrive"
+                2
+                (length ordered))
+    (test-equal "the reentrant message is delivered within the same flush, not stranded"
+                "sent reentrantly during the flush"
+                (cdr (assq 'MESSAGE (cadr ordered))))))
+
+(let ((received-later '()))
+  (parameterize ((current-log-callback (lambda (msg)
+                                         (set! received-later
+                                               (cons msg received-later)))))
+    #f)
+  (test-equal "nothing was left stranded in the buffer after the reentrant flush"
+              0
+              (length received-later)))
+
+;;; --- installing a non-procedure is rejected, and doesn't discard ---
+;;; --- whatever was already buffered ---
+
+(send-log NOTICE "should survive a rejected install")
+(test-error "current-log-callback rejects a non-procedure"
+            (current-log-callback 42))
+(let ((received '()))
+  (parameterize ((current-log-callback (lambda (msg) (set! received (cons msg received)))))
+    #f)
+  (test-equal "the message buffered before the rejected install still survives"
+              1
+              (length received))
+  (test-equal "its content is intact"
+              "should survive a rejected install"
+              (cdr (assq 'MESSAGE (car received)))))
+
 ;; Direct-call removal: replacing current-log-callback outside of any
 ;; parameterize also "unregisters" whatever was current before -- here,
 ;; back to the (still-empty, since every prior send happened inside a

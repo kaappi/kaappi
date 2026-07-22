@@ -62,6 +62,35 @@
 (define (roundtrips? bv) (equal? bv (hex-string->bytevector (bytevector->hex-string bv))))
 (test-assert "round-trip via hex string: PNG header" (roundtrips? (bytestring 137 80 78 71 13 10 26 10)))
 
+;; Regression: bytevector->hex-string/hex-string->bytevector/%ascii-string?
+;; used indexed string-ref/string-set! loops, which are O(n) *per call* in
+;; Kaappi (strings are UTF-8 byte arrays with no fast codepoint-index path),
+;; making the whole loop O(n^2). Rewritten to walk string->list/list->string
+;; sequentially instead. A larger input exercises the rewritten iteration
+;; order (backward-building cons chain for the encoder, two-at-a-time list
+;; walk for the decoder) enough to catch an off-by-one that a handful of
+;; bytes could hide.
+(define %big-bv
+  (let ((bv (make-bytevector 1000)))
+    (do ((i 0 (+ i 1))) ((= i 1000) bv)
+      (bytevector-u8-set! bv i (modulo i 256)))))
+(define %big-hex (bytevector->hex-string %big-bv))
+(test-equal "bytevector->hex-string: output length is exactly 2x the input, at scale"
+  2000
+  (string-length %big-hex))
+(test-equal "bytevector->hex-string: first byte (0x00) encodes correctly"
+  "00"
+  (substring %big-hex 0 2))
+(test-equal "bytevector->hex-string: byte at index 255 (0xff) encodes correctly"
+  "ff"
+  (substring %big-hex 510 512))
+(test-equal "bytevector->hex-string: last byte (999 mod 256 = 0xe7) encodes correctly"
+  "e7"
+  (substring %big-hex 1998 2000))
+(test-equal "hex-string->bytevector: round-trips a larger input exactly"
+  %big-bv
+  (hex-string->bytevector %big-hex))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-207")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

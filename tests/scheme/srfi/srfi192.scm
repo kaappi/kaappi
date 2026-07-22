@@ -29,7 +29,42 @@
   (test-equal "string output port: position is the written length" 5 (port-position p))
   (set-port-position! p 0)
   (write-string "HELLO" p)
-  (test-equal "string output port: seek back then overwrite" "HELLO" (get-output-string p)))
+  (test-equal "string output port: seek back then overwrite (same length)" "HELLO" (get-output-string p)))
+
+;; Regression: a backward seek followed by a *shorter* write used to
+;; truncate everything after it (set-port-position! directly overwrote
+;; string_out_len, the buffer's total extent) instead of overwriting in
+;; place and preserving the untouched suffix -- inconsistent with how a
+;; seekable fd-backed output port already behaves for free via the OS's
+;; own lseek+write (verified directly: write "hello" to a file port,
+;; seek to 0, write "X", re-read the file -- it already read back
+;; "Xello", not "X", before this fix touched anything fd-related).
+(let ((p (open-output-string)))
+  (write-string "hello" p)
+  (set-port-position! p 0)
+  (write-string "X" p)
+  (test-equal "string output port: a shorter write after seeking back overwrites in place, preserving the suffix"
+    "Xello" (get-output-string p)))
+(let ((p (open-output-string)))
+  (write-string "hello" p)
+  (set-port-position! p 2)
+  (write-string "LL" p)
+  (test-equal "string output port: overwriting in the middle preserves both the prefix and the suffix"
+    "heLLo" (get-output-string p)))
+(let ((p (open-output-string)))
+  (write-string "hello" p)
+  (set-port-position! p 3)
+  (write-string "LOWORLD" p)
+  (test-equal "string output port: a write extending past the old end still overwrites the overlap and appends the rest"
+    "helLOWORLD" (get-output-string p)))
+(let ((p (open-output-string)))
+  (write-string "hello" p)
+  (set-port-position! p 2)
+  (test-equal "string output port: port-position after a seek reports the cursor, not the total length"
+    2 (port-position p))
+  (write-string "!" p)
+  (test-equal "string output port: port-position after a write from a seeked cursor advances from the cursor"
+    3 (port-position p)))
 
 ;;; --- binary (bytevector) ports ---
 
@@ -96,6 +131,38 @@
   (guard (e (#t #t)) (port-position "not-a-port") #f))
 (test-assert "set-port-position!: a non-integer position errors"
   (guard (e (#t #t)) (set-port-position! (open-input-string "hi") 1.5) #f))
+
+;; Regression: a closed fd-backed port's fd number can be reused by the OS
+;; for a completely unrelated, newly opened file. Operating on the closed
+;; port must error rather than silently repositioning that unrelated
+;; file. Provoked by opening/closing/reopening enough files that the OS
+;; is likely to hand back the just-freed fd number.
+(let ((path1 "/tmp/srfi192-closed-port-1.txt")
+      (path2 "/tmp/srfi192-closed-port-2.txt"))
+  (dynamic-wind
+    (lambda () #f)
+    (lambda ()
+      (call-with-output-file path1 (lambda (p) (write-string "0123456789" p)))
+      (call-with-output-file path2 (lambda (p) (write-string "abcdefghij" p)))
+      (let ((p1 (open-input-file path1)))
+        (read-char p1)
+        (close-port p1)
+        (test-assert "port-position: a closed port errors instead of reporting stale state"
+          (guard (e (#t #t)) (port-position p1) #f))
+        (test-assert "set-port-position!: a closed port errors instead of silently repositioning a reused fd"
+          (guard (e (#t #t)) (set-port-position! p1 5) #f))
+        (test-assert "port-has-port-position?: a closed port answers false, not true"
+          (not (port-has-port-position? p1))))
+      ;; The actual fd-reuse hazard: confirm a fresh port opened after the
+      ;; close still reads its own file from the start, unaffected by the
+      ;; (correctly rejected) attempted seek on the closed handle above.
+      (let ((p2 (open-input-file path2)))
+        (test-equal "a freshly opened port is unaffected by a rejected seek on a since-closed port"
+          #\a (read-char p2))
+        (close-port p2)))
+    (lambda ()
+      (when (file-exists? path1) (delete-file path1))
+      (when (file-exists? path2) (delete-file path2)))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-192")

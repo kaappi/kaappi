@@ -32,6 +32,37 @@
 (test-equal "string->number: still #f for garbage" #f (string->number "not-a-number" 16))
 (test-equal "string->number: ordinary hex integers still work" 26 (string->number "1a" 16))
 
+;; Regression: a hex float whose mantissa overflows i64 as a plain integer
+;; used to fall into the bignum-overflow fallback, which doesn't
+;; understand '.'/'p' and returned #f for an otherwise-valid hex float.
+(test-equal "string->number: hex float with an i64-overflowing mantissa"
+  (expt 16.0 17)
+  (string->number "#x100000000000000000.0p0"))
+(test-assert "string->number: hex float with an overflowing mantissa matches the reader"
+  (= (string->number "#x123456789abcdef01234.5p3") #x123456789abcdef01234.5p3))
+(test-equal "string->number: radix-16 argument, overflowing mantissa"
+  (expt 16.0 17)
+  (string->number "100000000000000000.0p0" 16))
+
+;; Regression: a pathologically long exponent digit run used to overflow
+;; the i32 accumulator and panic (a real crash, not just a wrong answer)
+;; in the default ReleaseSafe build. A digit run this long is always
+;; semantically equivalent to +inf.0/0.0 anyway (any exponent magnitude
+;; past ~1075 already saturates), so capping the accumulator changes no
+;; correct answer, only prevents the crash.
+(test-equal "reader: pathologically large positive exponent saturates instead of crashing"
+  +inf.0 #x1p99999999999999)
+(test-equal "reader: pathologically large negative exponent saturates instead of crashing"
+  0.0 #x1p-99999999999999)
+(test-equal "string->number: pathologically large positive exponent"
+  +inf.0 (string->number "1p99999999999999" 16))
+(test-equal "string->number: pathologically large negative exponent"
+  0.0 (string->number "1p-99999999999999" 16))
+;; A large but non-pathological exponent, comfortably below the cap,
+;; must still be computed exactly rather than also saturating.
+(test-equal "reader: a large but sane exponent is still exact" 1.0715086071862673e+301 #x1p1000)
+(test-equal "reader: a large but sane negative exponent is still exact" 9.332636185032189e-302 #x1p-1000)
+
 ;;; --- write-hexadecimal-float: round-trips through the reader ---
 
 (define (hex-float->string x)

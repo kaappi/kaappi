@@ -810,8 +810,15 @@ pub fn parseHexFloat(raw: []const u8) ?f64 {
         var exp_val: i32 = 0;
         var exp_any = false;
         while (i < s.len and std.ascii.isDigit(s[i])) : (i += 1) {
-            exp_val = exp_val * 10 + (s[i] - '0');
             exp_any = true;
+            // Cap well below i32's overflow point (and, separately, well
+            // past any exponent that could matter for a double -- a
+            // magnitude beyond roughly 1075 already saturates to
+            // +/-infinity or 0 below). Prevents a panic in ReleaseSafe/
+            // Debug on a pathological digit run like "p99999999999999";
+            // the eventual std.math.pow saturates the same way whether
+            // the exponent is exactly this or truly the digits' value.
+            if (exp_val < 1_000_000) exp_val = exp_val * 10 + (s[i] - '0');
         }
         if (!exp_any) return null;
         exp = if (exp_neg) -exp_val else exp_val;

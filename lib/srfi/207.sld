@@ -57,10 +57,15 @@
         ((and (string? arg) (%ascii-string? arg)) (string->utf8 arg))
         (else (%bytestring-fail "bytestring: invalid argument" arg))))
 
+    ;; Walks a list of characters, not indexed string-ref calls: Kaappi
+    ;; strings are UTF-8 byte arrays, so string-ref/string-set! locate the
+    ;; k-th codepoint by scanning from the start every time (O(k) per
+    ;; call) -- an indexed loop over a whole string is O(n^2), whereas
+    ;; string->list decodes each codepoint once, in one forward pass.
     (define (%ascii-string? s)
-      (let loop ((i 0))
-        (or (>= i (string-length s))
-            (and (< (char->integer (string-ref s i)) 128) (loop (+ i 1))))))
+      (let loop ((cs (string->list s)))
+        (or (null? cs)
+            (and (< (char->integer (car cs)) 128) (loop (cdr cs))))))
 
     (define (bytestring . args)
       (apply bytevector-append (map %arg->bytevector args)))
@@ -69,16 +74,21 @@
 
     (define %hex-digits "0123456789abcdef")
 
+    ;; Builds the result as a list of characters, back to front (so a
+    ;; single cons chain lands each byte's two digits in the right final
+    ;; order), then converts once via list->string -- writing into a
+    ;; string by increasing index via string-set! would be O(n^2) for the
+    ;; same reason noted on %ascii-string? above.
     (define (bytevector->hex-string bv)
-      (let* ((len (bytevector-length bv))
-             (out (make-string (* 2 len))))
-        (let loop ((i 0))
-          (if (>= i len)
-              out
+      (let ((len (bytevector-length bv)))
+        (let loop ((i (- len 1)) (acc '()))
+          (if (< i 0)
+              (list->string acc)
               (let ((b (bytevector-u8-ref bv i)))
-                (string-set! out (* 2 i) (string-ref %hex-digits (quotient b 16)))
-                (string-set! out (+ (* 2 i) 1) (string-ref %hex-digits (remainder b 16)))
-                (loop (+ i 1)))))))
+                (loop (- i 1)
+                      (cons (string-ref %hex-digits (quotient b 16))
+                            (cons (string-ref %hex-digits (remainder b 16))
+                                  acc))))))))
 
     (define (%hex-digit-value c)
       (cond
@@ -87,20 +97,25 @@
         ((and (char>=? c #\A) (char<=? c #\F)) (+ 10 (- (char->integer c) (char->integer #\A))))
         (else #f)))
 
+    ;; Walks the input as a list (see %ascii-string? above for why: an
+    ;; indexed string-ref loop over the whole string is O(n^2) here) two
+    ;; characters at a time, writing into the bytevector by increasing
+    ;; index -- bytevector-u8-set! has no such cost, since bytevectors are
+    ;; plain byte arrays with true O(1) indexing.
     (define (hex-string->bytevector s)
       (if (odd? (string-length s))
           (%bytestring-fail "hex-string->bytevector: odd number of hex digits" s)
           (let* ((len (quotient (string-length s) 2))
                  (out (make-bytevector len)))
-            (let loop ((i 0))
-              (if (>= i len)
+            (let loop ((cs (string->list s)) (i 0))
+              (if (null? cs)
                   out
-                  (let ((hi (%hex-digit-value (string-ref s (* 2 i))))
-                        (lo (%hex-digit-value (string-ref s (+ (* 2 i) 1)))))
+                  (let ((hi (%hex-digit-value (car cs)))
+                        (lo (%hex-digit-value (cadr cs))))
                     (if (and hi lo)
                         (begin
                           (bytevector-u8-set! out i (+ (* hi 16) lo))
-                          (loop (+ i 1)))
+                          (loop (cddr cs) (+ i 1)))
                         (%bytestring-fail "hex-string->bytevector: invalid hex digit" s))))))))
 
     ;; --- writer: the #u8"..." notation, escaping only what must be ---
