@@ -1190,6 +1190,13 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    // SRFI 270: string->number must understand hexadecimal floats.
+    if (radix == 16) {
+        if (bignum_mod.parseHexFloat(s)) |f| {
+            return applyExactness(gc, types.makeFlonum(f), exactness);
+        }
+    }
+
     if (radix == 10) {
         if (exactness == .exact) {
             if (try parseExactDecimal(gc, s)) |v| return v;
