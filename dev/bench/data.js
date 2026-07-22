@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784634166791,
+  "lastUpdate": 1784695679384,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "708a660b77b0d616de93be02f421b8a823d7219c",
-          "message": "Batch fd reads in readOneByte (#1460) (#1542)\n\nreadOneByte issued one read(2) syscall per byte on fd-backed ports, so\nevery byte-at-a-time consumer (read-bytevector, read-string, read-char,\nread-line, read-u8) paid k syscalls to read k bytes from a file or\nsocket.\n\nThe fd path now reads up to read_chunk_size (4096) bytes in a single\nread(2), returns the first byte, and stashes the remainder in the port's\nexisting read_buf. The consumption drain at the top of readOneByte hands\nthose out on subsequent calls, so a run of byte reads costs one syscall\nper burst instead of one per byte.\n\nThe batched leftovers compose with the existing park/stash machinery\nbecause read_buf is always empty at the fd path: every park point sits\npast the peek/read_buf/string drains, so a caller that parks later does\nso on a subsequent call after this buffer drains, where stashPartialRead\nprepends onto an empty read_buf. The fresh slice is allocated exactly\nn-1 bytes so rb.len == read_buf_len and the \"last read_buf_len bytes\"\nconsumption cursor starts at 0. read(2) short-returns whatever is\navailable, so a 1-byte interactive read never blocks to fill a chunk,\nand an n==1 read allocates nothing (byte-identical to the old path).\nreadDatumFn's incremental-parse loop already batched; it now shares the\nread_chunk_size constant.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T22:30:46+05:30",
-          "tree_id": "db54086b4a64f2b942ce3d966dabd5a9b7d8e66a",
-          "url": "https://github.com/kaappi/kaappi/commit/708a660b77b0d616de93be02f421b8a823d7219c"
-        },
-        "date": 1784050013895,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.289928,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.438313,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.955238,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.478035,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006683,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054589,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.516532,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070669,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.637284,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.110342,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.581259,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438559,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.832305,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.672147,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044301,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04434,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55e5bc6ae00d696fc49503f95a73d70d4e0660db",
+          "message": "Add 12 SRFI data-structure libraries: 44, 101, 153, 161, 167, 168, 178, 209, 214, 217, 224, 225 (#1712)\n\n* Add SRFI 44 (Collections) and SRFI 225 (Dictionaries)\n\nSRFI 44: generic collection operations (fold, size, contains?, add/delete,\netc.) dispatched via runtime type-case across list, vector, string, a new\nalist-map record, and the existing (srfi 69) hash-table / (srfi 113)\nset and bag. No object system in Kaappi, so dispatch is a closed set of\nconcrete types rather than Tiny-CLOS-style extensible generics.\n\nSRFI 225: a Dictionary Type Object (DTO) abstraction unifying alists and\nhash tables behind one generic dict-* API, built around dict-find-update!\nas the core primitive. Ships eqv-alist-dto, equal-alist-dto, and\nhash-table-dto/srfi-69-dto.\n\nBoth are independent library files with no shared dependency between them,\nfollowing the existing portable-SRFI conventions in lib/srfi/*.sld. Scope\ndecisions and naming-collision notes are documented in each file's header.\n\n239 tests pass for SRFI 44, 101 for SRFI 225.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 101 and SRFI 214 as portable libraries\n\nSRFI 101 (purely functional random-access pairs/lists): a genuine\nskew-binary random-access list implementation (Okasaki) giving O(1)\ncons/car/cdr and O(log n) list-ref/list-set/list-tail/length/list?,\nmatching the spec's stated complexity except for append (O(n), documented\nas likely unachievable at O(log n) for a generic persistent structure).\nShadows 44 (scheme base) identifiers within its own library scope.\n\nSRFI 214 (flexvectors): a mutable growable-vector record wrapping a\nnative vector backing store with capacity doubling, delegating read-only\nwhole-vector operations to the built-in (srfi 133).\n\nBoth include SRFI-64 test suites (120 assertions for 214, ~370 logical\nassertions expanding to 8779 with stress-test loops for 101), covering\nthe spec's own worked examples plus persistence and complexity-sensitive\nedge cases.\n\n* Add SRFI 167, 168, and 209 as portable libraries\n\nSRFI 167 (Ordered Key Value Store): in-memory okvs/engine implementation\nbacked by (srfi 146) mappings over bytevector keys ordered by (srfi 128)'s\nbytevector comparator. Transactions get real atomicity/rollback via\ncopy-on-write mapping snapshots, no locking needed since there is no\nconcurrent access. engine-pack/unpack implement an order-preserving\ntag+value encoding (booleans, exact integers, strings, symbols) modeled on\nthe FoundationDB tuple layer.\n\nSRFI 168 (Generic Tuple Store Database): nstore layered directly on SRFI\n167 — tuples are stored keys-only via engine-pack/okvs, queried via\nengine-prefix-range + in-memory pattern matching. Reproduces the SRFI's own\nblog/triplestore worked example end to end.\n\nSRFI 209 (Enums and Enum Sets): enum types/sets with a boolean\nmembership-vector representation. define-enum/define-enumeration required\nworking around an expander limitation where quoting a pattern variable\ndirectly inside a macro that is both self-recursive and generated by an\nenclosing macro doesn't substitute correctly — routing the lookup through\nthe flat (non-recursive) name-dispatch macro instead sidesteps it. Also\nhad to route enum<->enum-type's mutual reference through an id+registry\nindirection rather than direct record fields, since Kaappi's printer loops\non cyclic record fields and SRFI-64 prints every value it's given.\n\n74 + 26 + 125 = 225 test assertions across the three new suites, all\npassing; full existing tests/scheme/srfi/*.scm suite (125 files) still\ngreen.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 161, 178, and 217 as portable libraries\n\nSRFI 161 (Unifiable Boxes): union-find with path compression and union\nby rank, per the spec's own suggested implementation strategy.\n\nSRFI 178 (Bitvector library): a record wrapping a byte-per-bit\nbytevector, matching the spec's own reference strategy (\"a whole byte\nto represent each bit ... favoring simplicity/speed over compactness\").\n\nSRFI 217 (Integer Sets): a sorted, duplicate-free list wrapped in a\nrecord rather than the spec's Patricia-trie reference representation\n— correct and simple, trading the spec's near-constant-time complexity\nfor straightforward O(n) operations, documented in the file header.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add SRFI 153 and 224 as portable libraries\n\nBoth are records wrapping a sorted list (153: by the SRFI 128 comparator's\nordering predicate; 224: by fixnum key) rather than the specs' respective\nbalanced-tree/Patricia-trie reference representations — O(n) per operation\nin exchange for a straightforward, obviously-correct implementation.\nDocumented in each file's header.\n\nSRFI 153 additionally handles comparators with no ordering predicate\n(e.g. SRFI 128's eq-comparator): sortedness is vacuous for such a\ncomparator, so osets built on one just keep insertion order (deduplicated)\ninstead of erroring — needed because the spec's own oset-map example\nconstructs exactly such an oset.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Update SRFI counts for Phase 2 data-structure batch\n\n105 -> 117 total SRFIs (93 -> 105 portable), reflecting the 12 new\nlibraries added in this batch (44, 101, 153, 161, 167, 168, 178, 209,\n214, 217, 224, 225).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address review: dedup/rotation/ordering bugs surfaced by CodeRabbit\n\n- srfi/153: %dedup only removes adjacent duplicates, which only holds\n  once a list is sorted. The unordered-comparator path in %build skips\n  sorting (nothing to sort by for e.g. eq-comparator), so it needs an\n  order-independent dedup instead — fixes real duplicate leakage for\n  osets built on unordered comparators.\n- srfi/178: bitvector-map/bool and bitvector-map!/bool called f with a\n  single list argument instead of applying it to the bit booleans (a\n  broken values-list->args helper masqueraded as a splat). Both were\n  untested; added regression tests. make-bitvector-accumulator also\n  double-reversed its accumulator, silently correct only for palindrome\n  inputs — fixed and re-tested with a non-palindrome input.\n- srfi/224: fxmapping-union built its result with %make-fxmapping\n  directly instead of %build, breaking the ascending-key-order invariant\n  when a later mapping supplies a smaller key than one already folded\n  in. fxmapping-intersection/combinator never actually called proc to\n  combine values — it filtered m1's keys but kept m1's values unchanged.\n  Both fixed and regression-tested.\n- srfi/168: documented (not fixed) a real but narrower limitation —\n  nstore prefixes must be pairwise non-prefixing when multiple nstores\n  share an engine, since %all-tuples prefix-scans the packed bytes\n  directly. Not triggered by the spec's own worked example (a single\n  nstore); a real fix would need a redesigned key encoding with an\n  explicit prefix delimiter, which risks destabilizing the\n  already-verified reference example for a narrower edge case.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix oset-accumulate: preserve first-generated duplicate, not last\n\nacc is built newest-generated-first via cons, but was passed to %build's\nkeep-first?=#t unreversed — meaning \"keep the first element in the list\"\nactually kept the most-recently-generated duplicate, not the first, for\nany two generated elements equal per the comparator. The spec requires\n\"the first such element prevails.\" Reversing acc before %build fixes it.\n\nRegression test generates an exact 1, then an inexact 1.0 (equal under\nthe comparator's =, distinct objects), and confirms the exact 1 survives.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-22T09:43:11+05:30",
+          "tree_id": "81cbbe011a4ef6de05ff70602d40247850047114",
+          "url": "https://github.com/kaappi/kaappi/commit/55e5bc6ae00d696fc49503f95a73d70d4e0660db"
+        },
+        "date": 1784695677752,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.820336,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.670722,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.828306,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.865802,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006474,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.050833,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.437841,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.063865,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.757649,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.667716,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.461858,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.403921,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.65565,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.941937,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04139,
             "unit": "seconds"
           }
         ]
