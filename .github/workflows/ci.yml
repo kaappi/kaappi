@@ -41,6 +41,17 @@ jobs:
 
   test:
     needs: format
+    # Explicit name, deliberately NOT including matrix.timeout: this job's
+    # auto-generated name would otherwise fold in every matrix property
+    # present for a given combination (including include-only ones like
+    # timeout), so bumping the Debug leg's timeout below silently renamed
+    # its check from "test (ubuntu-latest, Debug, 30)" to "...Debug, 40" --
+    # and since branch protection requires that exact string, the renamed
+    # check can never be satisfied again (PR #1728 review response hit
+    # this directly: the old name sat "Expected -- Waiting for status to
+    # be reported" forever). Pinning the name to just os+optimize means a
+    # future timeout tweak can never repeat this.
+    name: test (${{ matrix.os }}, ${{ matrix.optimize }})
     runs-on: ${{ matrix.os }}
     # Successful runs of every leg sit at 15-23 min (Linux Release legs
     # 15-18, macOS 18-23), so a 20-min cap leaves only minutes of headroom
