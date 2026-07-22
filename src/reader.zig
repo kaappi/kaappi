@@ -32,6 +32,9 @@ pub const Token = union(enum) {
     fixnum: i64,
     flonum: f64,
     string: []const u8,
+    /// SRFI 207 string-notated bytevector literal, #u8"...": already-
+    /// decoded raw bytes (escapes resolved), ready for allocBytevector.
+    bytevector_bytes: []const u8,
     symbol: []const u8,
     character: u21,
     datum_label_def: u32,

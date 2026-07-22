@@ -523,13 +523,17 @@ pub fn readHash(self: *Reader) ReadError!Token {
             return .hash_lparen;
         },
         'u' => {
-            // #u8( bytevector literal
-            if (self.pos + 2 < self.source.len and
-                self.source[self.pos + 1] == '8' and
-                self.source[self.pos + 2] == '(')
-            {
-                self.pos += 3;
-                return .hash_u8_lparen;
+            // #u8( bytevector literal, or SRFI 207's #u8"..." string-
+            // notated form.
+            if (self.pos + 2 < self.source.len and self.source[self.pos + 1] == '8') {
+                if (self.source[self.pos + 2] == '(') {
+                    self.pos += 3;
+                    return .hash_u8_lparen;
+                }
+                if (self.source[self.pos + 2] == '"') {
+                    self.pos += 2;
+                    return readByteStringLiteral(self);
+                }
             }
             return ReadError.UnexpectedChar;
         },
@@ -644,6 +648,105 @@ fn matchesRawTerminator(self: *Reader, delim: []const u8) bool {
     if (self.pos + need > self.source.len) return false;
     if (!std.mem.eql(u8, self.source[self.pos + 1 .. self.pos + 1 + delim.len], delim)) return false;
     return self.source[self.pos + 1 + delim.len] == '"';
+}
+
+/// SRFI 207 string-notated bytevector: #u8"...". Deliberately a separate
+/// reader from the ordinary string reader (`readString` in reader.zig),
+/// not a shared/refactored one -- the grammar is similar but meaningfully
+/// different in two ways the spec is explicit about: (1) a direct
+/// (unescaped) byte must be printable ASCII (0x20-0x7E) other than `"`/
+/// `\`; anything else, including a valid multi-byte UTF-8 character, is
+/// a syntax error here (unlike ordinary strings, which accept any UTF-8
+/// text directly) -- the spec's own rationale gives `#u8"\xE000;"` as
+/// explicitly invalid to make this point. (2) `\xHH;` decodes to exactly
+/// one raw byte value 0-255, not a Unicode codepoint UTF-8-encoded into
+/// however many bytes that takes -- `\x89;` is the single byte 0x89, not
+/// a UTF-8 encoding of U+0089. The other escapes (`\a \b \t \n \r \" \\
+/// \|`, and the backslash-whitespace-newline-whitespace line
+/// continuation) match ordinary strings exactly.
+pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
+    self.pos += 1; // skip opening `"`
+    self.token_buf.clearRetainingCapacity();
+    while (self.pos < self.source.len) {
+        const c = self.source[self.pos];
+        if (c == '"') {
+            self.pos += 1;
+            return .{ .bytevector_bytes = self.token_buf.items };
+        }
+        if (c == '\\') {
+            self.pos += 1;
+            if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+            const esc = self.source[self.pos];
+            switch (esc) {
+                'n' => try appendByteStringByte(self, '\n'),
+                'r' => try appendByteStringByte(self, '\r'),
+                't' => try appendByteStringByte(self, '\t'),
+                'a' => try appendByteStringByte(self, 0x07),
+                'b' => try appendByteStringByte(self, 0x08),
+                '"' => try appendByteStringByte(self, '"'),
+                '\\' => try appendByteStringByte(self, '\\'),
+                '|' => try appendByteStringByte(self, '|'),
+                'x' => {
+                    self.pos += 1;
+                    const hex_start = self.pos;
+                    while (self.pos < self.source.len and self.source[self.pos] != ';') {
+                        self.pos += 1;
+                    }
+                    if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                    const hex_str = self.source[hex_start..self.pos];
+                    const byte_val = std.fmt.parseInt(u8, hex_str, 16) catch return ReadError.InvalidEscape;
+                    try appendByteStringByte(self, byte_val);
+                    // pos now points at ';', advanced below
+                },
+                '\n' => {
+                    self.pos += 1;
+                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                        self.pos += 1;
+                    }
+                    continue;
+                },
+                '\r' => {
+                    self.pos += 1;
+                    if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                        self.pos += 1;
+                    }
+                    continue;
+                },
+                ' ', '\t' => {
+                    self.pos += 1;
+                    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                        self.pos += 1;
+                    }
+                    if (self.pos < self.source.len and (self.source[self.pos] == '\n' or self.source[self.pos] == '\r')) {
+                        if (self.source[self.pos] == '\r') self.pos += 1;
+                        if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                        while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                            self.pos += 1;
+                        }
+                        continue;
+                    }
+                    return ReadError.InvalidEscape;
+                },
+                else => return ReadError.InvalidEscape,
+            }
+            self.pos += 1;
+            continue;
+        }
+        // Any unescaped byte must be printable ASCII (0x20-0x7E); this
+        // also correctly rejects the lead byte of any multi-byte UTF-8
+        // sequence (>= 0x80), matching the spec's ASCII-only direct
+        // syntax -- non-ASCII bytes must go through \x.
+        if (c < 0x20 or c > 0x7E) return ReadError.UnexpectedChar;
+        try appendByteStringByte(self, c);
+        self.pos += 1;
+    }
+    return ReadError.UnterminatedString;
+}
+
+fn appendByteStringByte(self: *Reader, b: u8) ReadError!void {
+    if (self.token_buf.items.len >= Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+    self.token_buf.append(self.gc.allocator, b) catch return ReadError.OutOfMemory;
 }
 
 pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
