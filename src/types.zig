@@ -553,8 +553,16 @@ pub const Port = struct {
     string_data: ?[]const u8 = null, // for input string ports (owned copy)
     string_pos: usize = 0, // read position for input string ports
     string_out_buf: ?[]u8 = null, // for output string ports (owned, growable)
-    string_out_len: usize = 0,
+    string_out_len: usize = 0, // total extent ever written (get-output-string reads [0..this))
     string_out_cap: usize = 0,
+    /// SRFI 192 write cursor for output string ports, independent of
+    /// string_out_len: a write happens at this position, overwriting
+    /// existing bytes in place up to string_out_len and only growing it
+    /// if the write extends past the current end (matching how a
+    /// seekable fd-backed output port already behaves via the OS's own
+    /// lseek+write). Stays equal to string_out_len except after
+    /// set-port-position! seeks it elsewhere.
+    string_out_pos: usize = 0,
     is_binary: bool = false,
     read_buf: ?[]u8 = null,
     read_buf_len: usize = 0,

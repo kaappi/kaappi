@@ -1177,6 +1177,22 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    // SRFI 270: a hex float ('.' or 'p'/'P' present -- neither is ever a
+    // valid hex digit, so their presence is unambiguous) must be checked
+    // before the plain-integer parse below. That parse's own overflow
+    // fallback (parseBignumString) doesn't understand hex-float syntax,
+    // so without this a merely-large-mantissa hex float would overflow
+    // i64, fail bignum parsing on the first '.'/'p', and wrongly return
+    // #f instead of reaching parseHexFloat at all.
+    if (radix == 16 and (std.mem.indexOfScalar(u8, s, '.') != null or
+        std.mem.indexOfAny(u8, s, "pP") != null))
+    {
+        if (bignum_mod.parseHexFloat(s)) |f| {
+            return applyExactness(gc, types.makeFlonum(f), exactness);
+        }
+        return types.FALSE;
+    }
+
     if (std.fmt.parseInt(i64, s, radix)) |n| {
         const result = try arith.makeFixnumChecked(n);
         return applyExactness(gc, result, exactness);

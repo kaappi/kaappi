@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-137 SRFIs supported. 11 built-in (native Zig), 124 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+149 SRFIs supported. 12 built-in (native Zig), 135 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -97,7 +97,13 @@ An uninterned symbol is a symbol that is not `eqv?` to any other symbol, even on
 
 Each call returns a fresh symbol whose name is unique "for all practical purposes" and unpredictable — a process-global atomic counter guarantees in-process uniqueness and 128 bits of OS entropy supply the unpredictability. Because Kaappi interns every symbol by name (it has no uninterned symbols), a generated symbol keeps **write/read invariance**: printed and read back, it is `eq?` to the original — the property that distinguishes SRFI 260 from uninterned symbols (SRFI 258). The optional `pretty-name` is a display hint used as the name's prefix; it never determines identity, so two calls with the same `pretty-name` still yield distinct symbols.
 
-### Portable SRFIs (124 libraries, plus SRFI 226 as sub-libraries only)
+### SRFI 192 — Port Positioning
+
+**Coverage: partial.** Implemented: `port-position`, `set-port-position!`, `port-has-port-position?`, `port-has-set-port-position!?`, all four using plain exact-integer byte offsets for every port kind. Not implemented: the spec's opaque "implementation-dependent object" alternative for textual-port positions, and the dedicated `i/o-invalid-position-error`/`make-i/o-invalid-position-error` condition type (any failure — an unsupported port or an out-of-range position — raises an ordinary error instead).
+
+String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
+
+### Portable SRFIs (135 libraries, plus SRFI 226 as sub-libraries only)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -119,6 +125,8 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 26 | Notation for specializing parameters |
 | 27 | Sources of random bits |
 | 28 | Basic format strings |
+| 29 | Localization |
+| 30 | Nested Multi-line Comments |
 | 31 | A special form rec for recursive evaluation |
 | 34 | Exception handling for programs |
 | 35 | Conditions |
@@ -133,14 +141,18 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 46 | Basic Syntax-rules Extensions |
 | 48 | Intermediate format strings |
 | 51 | Handling rest list |
+| 54 | Formatting |
 | 60 | Integers as bits |
 | 61 | A more general cond clause |
+| 62 | S-expression comments |
 | 64 | A testing framework |
 | 67 | Compare procedures |
+| 70 | Numbers (reduced scope) § |
 | 71 | Extended LET-syntax for multiple values |
 | 78 | Lightweight testing |
 | 86 | MU and NU simulating VALUES & CALL-WITH-VALUES |
 | 87 | => in case clauses |
+| 94 | Type-Restricted Numerical Functions |
 | 95 | Sorting and merging |
 | 98 | Environment variables |
 | 101 | Purely functional random-access pairs and lists |
@@ -175,10 +187,12 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 166 | Monadic formatting |
 | 167 | Ordered key value store |
 | 168 | Generic tuple store database |
+| 169 | Underscores in numbers |
 | 171 | Transducers |
 | 174 | POSIX timespecs |
 | 175 | ASCII character library |
 | 178 | Bitvector library |
+| 180 | JSON |
 | 185 | Linear adjustable-length strings |
 | 188 | Splicing binding constructs for syntactic keywords |
 | 189 | Maybe and Either |
@@ -190,9 +204,11 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 201 | Syntactic Extensions to the Core Scheme Bindings |
 | 202 | Pattern-matching variant of the and-let* form |
 | 203 | A Simple Picture Language in the Style of SICP |
+| 207 | String-notated bytevectors (reduced scope) § |
 | 209 | Enums and enum sets |
 | 210 | Procedures and syntax for multiple values |
 | 214 | Flexvectors |
+| 215 | Central Log Exchange |
 | 216 | SICP Prerequisites (Portable) |
 | 217 | Integer sets |
 | 219 | Define higher-order lambda |
@@ -227,6 +243,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 263 | Prototype Object System |
 | 264 | String syntax for regular expressions |
 | 267 | Raw string syntax † |
+| 270 | Hexadecimal Floating-Point Constants |
 | 271 | Random port libraries |
 
 § SRFI 115 is matched by a backtracking interpreter, not by the reference
@@ -281,4 +298,14 @@ static-label subset (`cfg`, `execute`, `halt`, `bind`, `label*`, `call`) — dyn
 labels (`labels`), `finally`, `permute`, and the `define-cfg-syntax*` extension
 forms need either a dominance-based free-variable analysis or syntax-case-level
 macro extensibility that a portable syntax-rules transformer can't provide; see
-the header of `lib/srfi/242.sld`.
+the header of `lib/srfi/242.sld`. SRFI 70 (Numbers) implements everything
+except its 0/0-comparison-is-an-error clause, which directly conflicts with
+the IEEE-754/R7RS NaN semantics Kaappi already correctly implements
+(`(= +nan.0 +nan.0)` returns `#f` rather than raising) and which R7RS itself
+superseded; see the header of `lib/srfi/70.sld`. SRFI 207 (String-notated
+bytevectors) implements the `#u8"..."` reader syntax in full plus the four
+procedures most directly tied to the notation (`bytestring`,
+`bytevector->hex-string`, `hex-string->bytevector`,
+`write-textual-bytestring`) — the full spec's independent ~25-procedure
+bytestring-processing library (padding, trimming, search, join/split,
+base64) is not implemented; see the header of `lib/srfi/207.sld`.

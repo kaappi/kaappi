@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
 const primitives_char = @import("primitives_char.zig");
+const bignum = @import("bignum.zig");
 const Reader = reader_mod.Reader;
 const ReadError = reader_mod.ReadError;
 const Token = reader_mod.Token;
@@ -19,7 +20,13 @@ fn isExpMarker(c: u8) bool {
 /// Parse a decimal real, translating any non-`e` exponent marker to `e` so the
 /// standard float parser accepts it. The token contains at most one such marker
 /// (the scanner stops at any other letter), so a blanket replacement is safe.
-fn parseDecimalReal(s: []const u8) ?f64 {
+/// SRFI 169: strips digit-separator underscores first (radix 10 -- the sign,
+/// `.`, `/`, and exponent-marker characters here are never digits, so a
+/// misplaced underscore next to any of them is correctly rejected the same
+/// way as one between two ordinary digits that shouldn't have one).
+fn parseDecimalReal(raw: []const u8) ?f64 {
+    var underscore_buf: [256]u8 = undefined;
+    const s = bignum.stripUnderscores(raw, 10, &underscore_buf) orelse return null;
     // Handle rationals like "1/2", "+3/4", "-5/6"
     for (s, 0..) |ch, idx| {
         if (ch == '/' and idx > 0 and idx < s.len - 1) {
@@ -47,12 +54,15 @@ fn parseDecimalReal(s: []const u8) ?f64 {
 
 /// Consume the '/' at the current position plus the following run of digits
 /// valid in `radix`, returning the denominator digit slice (possibly empty).
+/// May include SRFI-169 digit-separator underscores, unvalidated here --
+/// callers hand the result to a parser that strips and validates them
+/// (`parseBignumString`, or a stack-local strip before `std.fmt.parseInt`).
 fn scanDenominatorDigits(self: *Reader, radix: u8) []const u8 {
     self.pos += 1; // skip '/'
     const den_start = self.pos;
     while (self.pos < self.source.len) {
         const rc = self.source[self.pos];
-        const valid = switch (radix) {
+        const valid = rc == '_' or switch (radix) {
             2 => rc == '0' or rc == '1',
             8 => rc >= '0' and rc <= '7',
             16 => std.ascii.isHex(rc),
@@ -85,7 +95,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
     var has_exp = false;
     while (self.pos < self.source.len) {
         const c = self.source[self.pos];
-        if (std.ascii.isDigit(c)) {
+        if (std.ascii.isDigit(c) or c == '_') {
             self.pos += 1;
         } else if (c == '.' and !has_dot and !has_exp) {
             has_dot = true;
@@ -148,7 +158,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         var imag_has_slash = false;
         while (self.pos < self.source.len) {
             const ic = self.source[self.pos];
-            if (std.ascii.isDigit(ic)) {
+            if (std.ascii.isDigit(ic) or ic == '_') {
                 self.pos += 1;
             } else if (ic == '.' and !imag_has_dot and !imag_has_exp and !imag_has_slash) {
                 imag_has_dot = true;
@@ -193,7 +203,15 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         const f = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
         return .{ .flonum = f };
     } else {
-        const n = std.fmt.parseInt(i64, num_str, 10) catch |err| {
+        // SRFI 169: strip+validate embedded digit-separator underscores
+        // (the loop above tolerates but doesn't validate them) before
+        // handing off to parseInt, which doesn't understand them. The
+        // overflow fallbacks keep the raw slices -- bigRationalToken/
+        // .bignum_str are parsed later by parseBignumString, which strips
+        // internally.
+        var num_strip_buf: [256]u8 = undefined;
+        const clean_num_str = bignum.stripUnderscores(num_str, 10, &num_strip_buf) orelse return ReadError.InvalidNumber;
+        const n = std.fmt.parseInt(i64, clean_num_str, 10) catch |err| {
             if (err != error.Overflow) return ReadError.InvalidNumber;
             // Numerator overflows i64: still check for a rational literal N/D
             // so bignum numerators fall back to bignum parsing in the datum
@@ -211,7 +229,9 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))
         {
             const den_str = scanDenominatorDigits(self, 10);
-            const den = std.fmt.parseInt(i64, den_str, 10) catch |err| {
+            var den_strip_buf: [256]u8 = undefined;
+            const clean_den_str = bignum.stripUnderscores(den_str, 10, &den_strip_buf) orelse return ReadError.InvalidNumber;
+            const den = std.fmt.parseInt(i64, clean_den_str, 10) catch |err| {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, 10);
                 return ReadError.InvalidNumber;
             };
@@ -231,7 +251,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 const imag_start2 = csave;
                 var imag_end = self.pos;
                 var imag_has_dot2 = false;
-                while (imag_end < self.source.len and (std.ascii.isDigit(self.source[imag_end]) or self.source[imag_end] == '.' or self.source[imag_end] == '/')) {
+                while (imag_end < self.source.len and (std.ascii.isDigit(self.source[imag_end]) or self.source[imag_end] == '.' or self.source[imag_end] == '/' or self.source[imag_end] == '_')) {
                     if (self.source[imag_end] == '.') imag_has_dot2 = true;
                     imag_end += 1;
                 }
@@ -503,13 +523,17 @@ pub fn readHash(self: *Reader) ReadError!Token {
             return .hash_lparen;
         },
         'u' => {
-            // #u8( bytevector literal
-            if (self.pos + 2 < self.source.len and
-                self.source[self.pos + 1] == '8' and
-                self.source[self.pos + 2] == '(')
-            {
-                self.pos += 3;
-                return .hash_u8_lparen;
+            // #u8( bytevector literal, or SRFI 207's #u8"..." string-
+            // notated form.
+            if (self.pos + 2 < self.source.len and self.source[self.pos + 1] == '8') {
+                if (self.source[self.pos + 2] == '(') {
+                    self.pos += 3;
+                    return .hash_u8_lparen;
+                }
+                if (self.source[self.pos + 2] == '"') {
+                    self.pos += 2;
+                    return readByteStringLiteral(self);
+                }
             }
             return ReadError.UnexpectedChar;
         },
@@ -626,6 +650,107 @@ fn matchesRawTerminator(self: *Reader, delim: []const u8) bool {
     return self.source[self.pos + 1 + delim.len] == '"';
 }
 
+/// SRFI 207 string-notated bytevector: #u8"...". Deliberately a separate
+/// reader from the ordinary string reader (`readString` in reader.zig),
+/// not a shared/refactored one -- the grammar is similar but meaningfully
+/// different in two ways the spec is explicit about: (1) a direct
+/// (unescaped) byte must be printable ASCII (0x20-0x7E) other than `"`/
+/// `\`; anything else, including a valid multi-byte UTF-8 character, is
+/// a syntax error here (unlike ordinary strings, which accept any UTF-8
+/// text directly) -- the spec's own rationale gives `#u8"\xE000;"` as
+/// explicitly invalid to make this point. (2) `\xHH;` decodes to exactly
+/// one raw byte value 0-255, not a Unicode codepoint UTF-8-encoded into
+/// however many bytes that takes -- `\x89;` is the single byte 0x89, not
+/// a UTF-8 encoding of U+0089. The other escapes (`\a \b \t \n \r \" \\
+/// \|`, and the backslash-whitespace-newline-whitespace line
+/// continuation) match ordinary strings exactly.
+/// Advances past a run of spaces/tabs. Shared by the three
+/// readByteStringLiteral line-continuation escapes below (`\<newline>`,
+/// `\<return>`, and `\<space-or-tab>`), each of which skips intraline
+/// whitespace at more than one point in its own handling.
+fn skipIntralineWhitespace(self: *Reader) void {
+    while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+        self.pos += 1;
+    }
+}
+
+pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
+    self.pos += 1; // skip opening `"`
+    self.token_buf.clearRetainingCapacity();
+    while (self.pos < self.source.len) {
+        const c = self.source[self.pos];
+        if (c == '"') {
+            self.pos += 1;
+            return .{ .bytevector_bytes = self.token_buf.items };
+        }
+        if (c == '\\') {
+            self.pos += 1;
+            if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+            const esc = self.source[self.pos];
+            switch (esc) {
+                'n' => try appendByteStringByte(self, '\n'),
+                'r' => try appendByteStringByte(self, '\r'),
+                't' => try appendByteStringByte(self, '\t'),
+                'a' => try appendByteStringByte(self, 0x07),
+                'b' => try appendByteStringByte(self, 0x08),
+                '"' => try appendByteStringByte(self, '"'),
+                '\\' => try appendByteStringByte(self, '\\'),
+                '|' => try appendByteStringByte(self, '|'),
+                'x' => {
+                    self.pos += 1;
+                    const hex_start = self.pos;
+                    while (self.pos < self.source.len and self.source[self.pos] != ';') {
+                        self.pos += 1;
+                    }
+                    if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                    const hex_str = self.source[hex_start..self.pos];
+                    const byte_val = std.fmt.parseInt(u8, hex_str, 16) catch return ReadError.InvalidEscape;
+                    try appendByteStringByte(self, byte_val);
+                    // pos now points at ';', advanced below
+                },
+                '\n' => {
+                    self.pos += 1;
+                    skipIntralineWhitespace(self);
+                    continue;
+                },
+                '\r' => {
+                    self.pos += 1;
+                    if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                    skipIntralineWhitespace(self);
+                    continue;
+                },
+                ' ', '\t' => {
+                    self.pos += 1;
+                    skipIntralineWhitespace(self);
+                    if (self.pos < self.source.len and (self.source[self.pos] == '\n' or self.source[self.pos] == '\r')) {
+                        if (self.source[self.pos] == '\r') self.pos += 1;
+                        if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                        skipIntralineWhitespace(self);
+                        continue;
+                    }
+                    return ReadError.InvalidEscape;
+                },
+                else => return ReadError.InvalidEscape,
+            }
+            self.pos += 1;
+            continue;
+        }
+        // Any unescaped byte must be printable ASCII (0x20-0x7E); this
+        // also correctly rejects the lead byte of any multi-byte UTF-8
+        // sequence (>= 0x80), matching the spec's ASCII-only direct
+        // syntax -- non-ASCII bytes must go through \x.
+        if (c < 0x20 or c > 0x7E) return ReadError.UnexpectedChar;
+        try appendByteStringByte(self, c);
+        self.pos += 1;
+    }
+    return ReadError.UnterminatedString;
+}
+
+fn appendByteStringByte(self: *Reader, b: u8) ReadError!void {
+    if (self.token_buf.items.len >= Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+    self.token_buf.append(self.gc.allocator, b) catch return ReadError.OutOfMemory;
+}
+
 pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     const start = self.pos;
     // Handle optional sign
@@ -634,7 +759,7 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     }
     while (self.pos < self.source.len) {
         const rc = self.source[self.pos];
-        const valid = switch (radix) {
+        const valid = rc == '_' or switch (radix) {
             2 => rc == '0' or rc == '1',
             8 => rc >= '0' and rc <= '7',
             16 => std.ascii.isHex(rc),
@@ -643,10 +768,30 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         if (!valid) break;
         self.pos += 1;
     }
+
+    // SRFI 270: hexadecimal float body/suffix -- #x1.2p3, #x9p9, #xFE.FF
+    // (the "p" exponent, a power of 2, is optional; a "." fractional part
+    // alone with no "p" is also a hex float, e.g. #xFE.FF). Only #x can
+    // produce these -- '.'/'p' are never valid digits in any other radix,
+    // so this can't misfire for #b/#o/#d.
+    if (radix == 16 and self.pos < self.source.len and
+        (self.source[self.pos] == '.' or self.source[self.pos] == 'p' or self.source[self.pos] == 'P'))
+    {
+        return readHexFloatSuffix(self, start);
+    }
+
     const num_str = self.source[start..self.pos];
     if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
-    const n = std.fmt.parseInt(i64, num_str, radix) catch |err| {
+    // SRFI 169: num_str/den_str may carry embedded digit-separator
+    // underscores at this point (the scan loops above tolerate but don't
+    // validate them); strip+validate right before parseInt, which doesn't
+    // understand them. The overflow fallbacks below keep the raw (unstripped)
+    // slices, since bigRationalToken/.bignum_str are parsed later by
+    // parseBignumString, which strips internally.
+    var num_strip_buf: [256]u8 = undefined;
+    const clean_num_str = bignum.stripUnderscores(num_str, radix, &num_strip_buf) orelse return ReadError.InvalidNumber;
+    const n = std.fmt.parseInt(i64, clean_num_str, radix) catch |err| {
         if (err != error.Overflow) return ReadError.InvalidNumber;
         // Numerator overflows i64: still consume a rational N/D so the '/'
         // does not get re-tokenized as the start of a symbol.
@@ -663,7 +808,9 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         const slash_pos = self.pos;
         const den_str = scanDenominatorDigits(self, radix);
         if (den_str.len > 0) {
-            const den = std.fmt.parseInt(i64, den_str, radix) catch |err| {
+            var den_strip_buf: [256]u8 = undefined;
+            const clean_den_str = bignum.stripUnderscores(den_str, radix, &den_strip_buf) orelse return ReadError.InvalidNumber;
+            const den = std.fmt.parseInt(i64, clean_den_str, radix) catch |err| {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
                 return ReadError.InvalidNumber;
             };
@@ -673,6 +820,32 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         self.pos = slash_pos;
     }
     return .{ .fixnum = n };
+}
+
+/// Finishes reading a SRFI-270 hex float once `readIntegerWithRadix` has
+/// spotted a `.` or `p`/`P` right after the leading hex-digit run: consumes
+/// an optional `.`-fraction and an optional `p`-exponent, then hands the
+/// whole `[sign] hex[.hex] [p[sign]digits]` slice to `bignum.parseHexFloat`.
+fn readHexFloatSuffix(self: *Reader, start: usize) ReadError!Token {
+    if (self.pos < self.source.len and self.source[self.pos] == '.') {
+        self.pos += 1;
+        while (self.pos < self.source.len and (std.ascii.isHex(self.source[self.pos]) or self.source[self.pos] == '_')) {
+            self.pos += 1;
+        }
+    }
+    if (self.pos < self.source.len and (self.source[self.pos] == 'p' or self.source[self.pos] == 'P')) {
+        self.pos += 1;
+        if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
+            self.pos += 1;
+        }
+        while (self.pos < self.source.len and (std.ascii.isDigit(self.source[self.pos]) or self.source[self.pos] == '_')) {
+            self.pos += 1;
+        }
+    }
+    const full_str = self.source[start..self.pos];
+    if (full_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+    const f = bignum.parseHexFloat(full_str) orelse return ReadError.InvalidNumber;
+    return .{ .flonum = f };
 }
 
 pub fn readCharacter(self: *Reader) ReadError!Token {

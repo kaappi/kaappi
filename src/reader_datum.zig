@@ -58,6 +58,11 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             if (self.mark_immutable) types.toObject(val).flags.immutable = true;
             return val;
         },
+        .bytevector_bytes => |bytes| {
+            const val = self.gc.allocBytevector(bytes) catch return ReadError.OutOfMemory;
+            if (self.mark_immutable) types.toObject(val).flags.immutable = true;
+            return val;
+        },
         .symbol => |name| return self.gc.allocSymbol(name) catch return ReadError.OutOfMemory,
         .lparen => return readList(self),
         .quote => return readAbbreviation(self, "quote"),

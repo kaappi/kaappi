@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-18 final SRFIs are excluded from implementation. This document records which
+20 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -120,7 +120,7 @@ a second output format alongside the existing JSON one.
 
 ---
 
-## Non-standard reader syntax SRFIs (9)
+## Non-standard reader syntax SRFIs (10)
 
 These require changes to the reader/lexer that introduce syntax incompatible
 with R7RS or fundamentally alter how source code is parsed. Unlike the reader
@@ -138,6 +138,7 @@ that would complicate maintenance and interoperability.
 | 109 | Extended string quasi-literals | Adds `$string{...}` interpolation syntax. Depends on SRFI 107. |
 | 110 | Sweet-expressions (t-expressions) | Indentation + infix + neoteric-expressions. Completely replaces the reader. |
 | 119 | wisp: simpler indentation-sensitive scheme | Another indentation-sensitive syntax (alternative to SRFI 49/110). |
+| 58 | Array Notation | Adds `#nA(...)` reader syntax for arrays. Blocked on typed array support (SRFI 4/160); would also collide with the existing `#N=`/`#N#` datum-label dispatch on a bare digit after `#`. |
 | 163 | Enhanced array literals | Adds `#A(...)` reader syntax for multi-dimensional arrays. Also blocked on typed array support (SRFI 4/160). |
 
 ### SRFI 10 — #, external form
@@ -310,6 +311,31 @@ any one of them a risky investment.
 **Scope of change:** Separate indentation-aware parser with colon and
 period special forms, callable from the existing reader.
 
+### SRFI 58 — Array Notation
+
+**Author:** Aubrey Jaffer (2005)
+
+Specifies `#nA(...)` reader syntax for n-dimensional arrays, e.g. `#2A((1
+2)(3 4))` for a 2×2 array — predating and simpler than SRFI 163's version
+of the same idea (no non-zero lower bounds, no explicit bounds, no
+element-type tag).
+
+**Why excluded:** Same two blockers as SRFI 163, since this is the
+earlier, smaller version of the same feature. First, there is no typed
+or general n-dimensional array heap type to construct — SRFI 4 in this
+codebase is a purely portable wrapper over ordinary bytevectors/vectors
+(`lib/srfi/4.sld`), and SRFI 160 has no implementation at all, so `#nA(...)`
+would have nothing to build. Second, the syntax itself is a bare digit
+immediately after `#` (`#2A(...)`), which the reader already uses for
+datum labels (`#N=`/`#N#`, `reader_tokens.zig`'s digit arm in `readHash`)
+— disambiguating the two would need lookahead past the digits for `A`
+specifically, not just a new dispatch arm.
+
+**Scope of change:** New heap type(s) for n-dimensional arrays (or
+building on typed vectors from SRFI 4/160, if those get genuine engine
+support), plus a new, digit-disambiguated dispatch path in
+`reader_tokens.zig`'s `readHash`.
+
 ### SRFI 163 — Enhanced array literals
 
 **Author:** Per Bothner (2019)
@@ -397,3 +423,48 @@ have.
 
 **Scope of change:** Would need the same kind of expander-level identifier/
 location introspection as `syntax-case`-based systems provide.
+
+---
+
+## Value-representation-dependent SRFIs (1)
+
+This SRFI needs to construct and inspect specific NaN bit patterns (sign,
+quiet/signaling, payload) — something Kaappi's own numeric value
+representation makes categorically unrepresentable, not merely
+unimplemented.
+
+| SRFI | Title | Reason |
+|------|-------|--------|
+| 208 | NaN procedures | Needs raw NaN sign/payload bit access. Kaappi's NaN-boxing canonicalizes every NaN to one fixed bit pattern, discarding sign and payload — load-bearing for the value representation itself, not an oversight. |
+
+### SRFI 208 — NaN procedures
+
+**Author:** John Cowan (2020)
+
+Defines `nan?` (already in R7RS), plus procedures to construct a NaN with
+a specific sign/payload/signaling-ness (`make-nan`) and inspect those
+same properties on an existing NaN value (`nan-negative?`, `nan-payload`,
+`nan-quiet?`, etc.).
+
+**Why excluded:** The spec's own text acknowledges this needs raw
+floating-point bit-punning and isn't achievable in standard portable
+Scheme even in C-backed implementations. In Kaappi it is categorically
+worse: `makeFlonum` (`src/types.zig`) canonicalizes *every* NaN to a
+single bit pattern (`0x7FF8000000000000`) before a `Value` for it can
+even exist — not a missed feature, but load-bearing for the NaN-boxing
+scheme itself (a non-canonical NaN's bits could collide with the tag
+ranges used for pointers/fixnums/immediates and be misread as one of
+those). Supporting `make-nan`/`nan-payload` faithfully would mean
+redesigning the value representation's most foundational type, a far
+larger change than anything else in this document. A reduced version
+that only handles the single canonical NaN (erroring on any requested
+negative sign, payload, or signaling variant) would provide nothing
+`nan?` doesn't already give — the entire point of this SRFI is the
+bit-level introspection, so a version that can't do any of it isn't a
+smaller SRFI 208, it's a no-op.
+
+**Scope of change:** Would require replacing the NaN-boxing value
+representation (`types.zig`) with one that preserves full IEEE-754 NaN
+bit patterns while still safely distinguishing flonums from
+pointers/fixnums/immediates — a foundational rearchitecture, not a
+bounded addition.

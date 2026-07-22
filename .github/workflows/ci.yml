@@ -41,14 +41,32 @@ jobs:
 
   test:
     needs: format
+    # Explicit name, deliberately NOT including matrix.timeout: this job's
+    # auto-generated name would otherwise fold in every matrix property
+    # present for a given combination (including include-only ones like
+    # timeout), so bumping the Debug leg's timeout below silently renamed
+    # its check from "test (ubuntu-latest, Debug, 30)" to "...Debug, 40" --
+    # and since branch protection requires that exact string, the renamed
+    # check can never be satisfied again (PR #1728 review response hit
+    # this directly: the old name sat "Expected -- Waiting for status to
+    # be reported" forever). Pinning the name to just os+optimize means a
+    # future timeout tweak can never repeat this.
+    name: test (${{ matrix.os }}, ${{ matrix.optimize }})
     runs-on: ${{ matrix.os }}
     # Successful runs of every leg sit at 15-23 min (Linux Release legs
     # 15-18, macOS 18-23), so a 20-min cap leaves only minutes of headroom
     # and ordinary runner variance cancels healthy runs mid-suite — it hit
     # macOS ReleaseSafe repeatedly on main and then ubuntu ReleaseFast on
-    # PR #1635. 30 min is the hang-bound the Debug and riscv64 jobs
-    # already use; the timeout exists to catch hangs, not to race the
-    # suite.
+    # PR #1635. 30 min was the hang-bound the Debug and riscv64 jobs used;
+    # the timeout exists to catch hangs, not to race the suite. But by
+    # PR #1728 the Debug leg's own healthy runtime had crept up to 29-30.5
+    # min (measured directly: a clean run completed in 29:03, then two
+    # more timed out at 30:16 and 30:21 with no error in the log besides
+    # the runner terminating orphaned zig/build processes at the 30:00
+    # mark) -- the suite had grown enough that 30 min stopped being a
+    # hang-bound and started being exactly what the comment above says to
+    # avoid. Bumped to 40 to restore real headroom, same fix as the
+    # macOS/PR #1635 recurrence.
     timeout-minutes: ${{ matrix.timeout || 30 }}
     strategy:
       fail-fast: false
@@ -58,7 +76,7 @@ jobs:
         include:
           - os: ubuntu-latest
             optimize: Debug
-            timeout: 30
+            timeout: 40
           - os: ubuntu-latest
             optimize: ReleaseFast
 

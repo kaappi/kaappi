@@ -99,6 +99,35 @@ pub fn read(fd: fd_t, buf: [*]u8, len: usize) isize {
     return std.posix.system.read(fd, buf, len);
 }
 
+/// SRFI 192: whence values matching the C/POSIX convention, reused as-is
+/// on Windows (`_lseeki64` takes the same three constants).
+pub const SEEK_SET: c_int = 0;
+pub const SEEK_CUR: c_int = 1;
+pub const SEEK_END: c_int = 2;
+
+/// Repositions `fd`'s file offset (POSIX `lseek`, Windows `_lseeki64`,
+/// WASI `fd_seek`). Returns the new absolute offset, or -1 on error
+/// (check `errno` on POSIX/Windows; WASI's own errno mapping applies).
+pub fn seek(fd: fd_t, offset: i64, whence: c_int) i64 {
+    if (comptime is_windows) {
+        return win._lseeki64(fd, offset, whence);
+    }
+    if (comptime builtin.os.tag == .wasi) {
+        // std.os.wasi.lseek wants its own whence_t enum, not a bare
+        // c_int, and reports errors via a return code rather than errno.
+        const w: std.os.wasi.whence_t = switch (whence) {
+            SEEK_CUR => .CUR,
+            SEEK_END => .END,
+            else => .SET,
+        };
+        var new_offset: std.os.wasi.filesize_t = undefined;
+        const err = std.os.wasi.fd_seek(fd, offset, w, &new_offset);
+        if (err != .SUCCESS) return -1;
+        return @intCast(new_offset);
+    }
+    return std.posix.system.lseek(fd, offset, whence);
+}
+
 pub fn close(fd: fd_t) void {
     if (comptime is_windows) {
         // _close alone, even for socket-backed fds: the CRT owns the

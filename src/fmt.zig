@@ -208,6 +208,16 @@ const Lexer = struct {
             self.pos += 4;
             return .list_open;
         }
+        // SRFI 207 string-notated bytevector #u8"...": one verbatim lexeme,
+        // like the ordinary string it contains-ish -- checked before the
+        // plain "#u8(" case can't apply and before falling through to
+        // scanAtom, which would otherwise stop at the `"` (a delimiter)
+        // and split this into two lexemes ("#u8" then a separate string).
+        if (rest.len >= 4 and std.mem.eql(u8, rest[0..3], "#u8") and rest[3] == '"') {
+            self.pos += 3;
+            try self.scanString();
+            return .atom;
+        }
         if (rest.len >= 2 and rest[1] == '"') {
             try self.scanRawString();
             return .atom;

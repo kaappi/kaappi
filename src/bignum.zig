@@ -662,7 +662,15 @@ const max_chunk_digits = [37]u8{
 };
 
 /// Parse a decimal string into a bignum Value.
-pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
+pub fn parseBignumString(gc: *memory.GC, raw_digits: []const u8, radix: u8) !Value {
+    // SRFI 169: this is the fallback path for a numerator/denominator or
+    // plain integer too large for i64, so digit-separator underscores can
+    // legitimately appear here too. A stack buffer generous enough for any
+    // realistic hand-written literal; a bignum literal too long even for
+    // this (implausible) falls through to the ordinary "invalid character"
+    // parse failure below rather than being specially rejected.
+    var strip_buf: [4096]u8 = undefined;
+    const digits = stripUnderscores(raw_digits, radix, &strip_buf) orelse return error.InvalidCharacter;
     if (digits.len == 0) return types.makeFixnum(0);
 
     var start: usize = 0;
@@ -756,6 +764,97 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     gc.trackObject(&bn.header);
     gc.bytes_allocated += @sizeOf(Bignum) + limbs.len * @sizeOf(u64);
     return types.makePointer(&bn.header);
+}
+
+/// Parse a SRFI-270 hexadecimal float body (without its `#x` prefix):
+/// `[sign] hex-digits ["." hex-digits] ["p"|"P" [sign] decimal-digits]`.
+/// At least one hex digit (before or after the point) is required. The
+/// value is (hex mantissa, read as a radix-16 fixed-point number) times
+/// 2^exponent -- the exponent is a power of *2*, not 16, per the spec
+/// ("Unlike in C's syntax, the p is optional"; absent, the exponent is 0).
+/// Shared between the reader (`reader_tokens.zig`) and `string->number`
+/// (`primitives_numeric.zig`), which both need to recognize this syntax.
+pub fn parseHexFloat(raw: []const u8) ?f64 {
+    var strip_buf: [256]u8 = undefined;
+    const s = stripUnderscores(raw, 16, &strip_buf) orelse return null;
+    var i: usize = 0;
+    var neg = false;
+    if (i < s.len and (s[i] == '+' or s[i] == '-')) {
+        neg = s[i] == '-';
+        i += 1;
+    }
+    var mantissa: f64 = 0;
+    var any_digit = false;
+    while (i < s.len and std.ascii.isHex(s[i])) : (i += 1) {
+        mantissa = mantissa * 16.0 + @as(f64, @floatFromInt(std.fmt.charToDigit(s[i], 16) catch return null));
+        any_digit = true;
+    }
+    if (i < s.len and s[i] == '.') {
+        i += 1;
+        var frac_scale: f64 = 1.0 / 16.0;
+        while (i < s.len and std.ascii.isHex(s[i])) : (i += 1) {
+            mantissa += @as(f64, @floatFromInt(std.fmt.charToDigit(s[i], 16) catch return null)) * frac_scale;
+            frac_scale /= 16.0;
+            any_digit = true;
+        }
+    }
+    if (!any_digit) return null;
+    var exp: i32 = 0;
+    if (i < s.len and (s[i] == 'p' or s[i] == 'P')) {
+        i += 1;
+        var exp_neg = false;
+        if (i < s.len and (s[i] == '+' or s[i] == '-')) {
+            exp_neg = s[i] == '-';
+            i += 1;
+        }
+        var exp_val: i32 = 0;
+        var exp_any = false;
+        while (i < s.len and std.ascii.isDigit(s[i])) : (i += 1) {
+            exp_any = true;
+            // Cap well below i32's overflow point (and, separately, well
+            // past any exponent that could matter for a double -- a
+            // magnitude beyond roughly 1075 already saturates to
+            // +/-infinity or 0 below). Prevents a panic in ReleaseSafe/
+            // Debug on a pathological digit run like "p99999999999999";
+            // the eventual std.math.pow saturates the same way whether
+            // the exponent is exactly this or truly the digits' value.
+            if (exp_val < 1_000_000) exp_val = exp_val * 10 + (s[i] - '0');
+        }
+        if (!exp_any) return null;
+        exp = if (exp_neg) -exp_val else exp_val;
+    }
+    if (i != s.len) return null;
+    const result = mantissa * std.math.pow(f64, 2.0, @as(f64, @floatFromInt(exp)));
+    return if (neg) -result else result;
+}
+
+/// SRFI 169: strips digit-separator underscores from `s`, validating that
+/// each one sits strictly between two valid digits of `radix` -- no
+/// leading, trailing, consecutive, or non-digit-adjacent underscore (next
+/// to a sign, `.`, exponent marker, `/`, or a radix-prefix letter, none of
+/// which this function ever sees directly since callers only pass the
+/// digit-run substrings). Returns `null` for any misplaced underscore.
+/// Returns `s` unchanged (zero-copy) if it has no underscore at all --
+/// the overwhelmingly common case. Otherwise copies the cleaned digits
+/// into `buf`, which must be at least as large as `s`; callers with a
+/// bounded stack buffer that turns out too small should treat that as
+/// "not supported for a token this long" rather than a hard error.
+pub fn stripUnderscores(s: []const u8, radix: u8, buf: []u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, s, '_') == null) return s;
+    if (buf.len < s.len) return null;
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] != '_') {
+            buf[n] = s[i];
+            n += 1;
+            continue;
+        }
+        const prev_is_digit = i > 0 and !std.meta.isError(std.fmt.charToDigit(s[i - 1], radix));
+        const next_is_digit = i + 1 < s.len and !std.meta.isError(std.fmt.charToDigit(s[i + 1], radix));
+        if (!prev_is_digit or !next_is_digit) return null;
+    }
+    return buf[0..n];
 }
 
 // ---------------------------------------------------------------------------
