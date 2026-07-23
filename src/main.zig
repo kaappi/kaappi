@@ -578,6 +578,24 @@ fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
     return bytecode_file.getSbcPath(allocator, scm_path);
 }
 
+/// SRFI 59/193: absolute-ize `path` without following symlinks -- a pure
+/// lexical join+normalize (`.`/`..` collapsed) against the process's
+/// starting cwd, never a `realpath`-style syscall. Returns `null` (rather
+/// than propagating an allocation failure) on the rare case `getCwd` itself
+/// fails; callers treat that identically to "not running a script".
+fn resolveScriptPath(allocator: std.mem.Allocator, path: []const u8) ?[]const u8 {
+    if (std.fs.path.isAbsolute(path)) {
+        // Still route through `resolve` -- an already-absolute input like
+        // "/tmp/../app.scm" must still have its `.`/`..` collapsed to honor
+        // the documented normalization contract; `resolve` is pure lexical
+        // manipulation (no cwd needed, no symlink resolution) either way.
+        return std.fs.path.resolve(allocator, &.{path}) catch null;
+    }
+    var buf: [platform.PATH_MAX]u8 = undefined;
+    const cwd = platform.getCwd(&buf) orelse return null;
+    return std.fs.path.resolve(allocator, &.{ cwd, path }) catch null;
+}
+
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -585,6 +603,15 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const saved_lib_dir = vm.current_lib_dir;
     vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
     defer vm.current_lib_dir = saved_lib_dir;
+
+    // SRFI 59/193: resolve the script's absolute path once, up front. Free
+    // any previous value first -- runFile only ever runs on the root VM
+    // (owns_globals == true; threads run a thunk, never a file), so this
+    // never races a child VM's borrowed reference (see the field doc in
+    // vm.zig), but a future caller running more than one file per process
+    // must not leak the prior allocation.
+    if (vm.script_path) |old| allocator.free(old);
+    vm.script_path = resolveScriptPath(allocator, path);
 
     // Crash breadcrumb (kaappi#1514): name the file once; stages update per-form.
     crash.noteFile(path);

@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-20 final SRFIs are excluded from implementation. This document records which
+23 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -120,7 +120,7 @@ a second output format alongside the existing JSON one.
 
 ---
 
-## Non-standard reader syntax SRFIs (10)
+## Non-standard reader syntax SRFIs (11)
 
 These require changes to the reader/lexer that introduce syntax incompatible
 with R7RS or fundamentally alter how source code is parsed. Unlike the reader
@@ -130,6 +130,7 @@ that would complicate maintenance and interoperability.
 
 | SRFI | Title | Reason |
 |------|-------|--------|
+| 88 | Keyword objects | Reinterprets any identifier ending in `:` (already valid R7RS syntax) as a distinct self-evaluating keyword type. Unlike the other entries in this table, which add *new* syntax, this one changes the *meaning* of syntax that's already valid — a real backward-compatibility break, not just an addition. |
 | 10 | #, external form | Reader-macro dispatch (`#,(name datum ...)`). Opens arbitrary reader extension — hard to scope safely. |
 | 49 | Indentation-sensitive syntax | Replaces parentheses with Python-style indentation. Completely changes the parser. |
 | 105 | Curly-infix-expressions | Adds `{a + b}` infix syntax. Requires a second expression grammar inside `{}`. |
@@ -140,6 +141,49 @@ that would complicate maintenance and interoperability.
 | 119 | wisp: simpler indentation-sensitive scheme | Another indentation-sensitive syntax (alternative to SRFI 49/110). |
 | 58 | Array Notation | Adds `#nA(...)` reader syntax for arrays. Blocked on typed array support (SRFI 4/160); would also collide with the existing `#N=`/`#N#` datum-label dispatch on a bare digit after `#`. |
 | 163 | Enhanced array literals | Adds `#A(...)` reader syntax for multi-dimensional arrays. Also blocked on typed array support (SRFI 4/160). |
+
+### SRFI 88 — Keyword objects
+
+**Author:** Marc Feeley (2005)
+
+Defines keyword objects: any identifier-shaped token ending in `:` (except
+the bare symbol `:` itself) reads as a distinct, self-evaluating keyword
+datum rather than a symbol. Keywords are required to be a genuinely
+separate type — never `eqv?` to a symbol, even a same-named one. Exports
+`keyword?`, `keyword->string`, `string->keyword`.
+
+**Why excluded:** This was fully implemented and verified working —
+new `Keyword` heap type, reader change, self-evaluation, printer, GC
+integration, and an expander fix so `syntax-rules` could pattern-match a
+literal keyword — then reverted after an architectural review concluded
+the trade-off wasn't worth it for this codebase. The core problem: `:` is
+a valid R7RS special-initial character, so `foo:`, `::`, `:::`, and similar
+are *already* ordinary, valid identifiers in standard Scheme — used today
+for conventions with nothing to do with keywords (the R7RS `(prefix lib
+id:)` import modifier commonly uses a trailing-colon prefix like `my:`;
+`:::` is a common custom `syntax-rules` ellipsis identifier). Turning every
+such identifier into a keyword broke both of those real, pre-existing uses
+during implementation and had to be worked around case by case. This is
+also a case where the wider Scheme ecosystem never converged on one
+notation: SRFI 88's postfix colon (`foo:`, also Gambit/STklos) competes
+with Guile/Racket's `#:foo`, Gauche/Common Lisp's `:foo`, and DSSSL's
+`#!key` — hardcoding one into the core reader buys compatibility with
+exactly one convention at the cost of breaking programs that use trailing
+colons for anything else. SRFI 89 (which depends on SRFI 88 keywords for
+its named-parameter syntax) is excluded for a related but distinct reason
+— see the Macro-system-dependent section below. SRFI 227 (Optional
+arguments, already implemented, `lib/srfi/227.sld`) covers the
+optional-positional-parameter niche these two SRFIs would otherwise serve,
+without either cost.
+
+**Scope of change:** A new `ObjectTag.keyword` heap type (`types.zig`), an
+intern table separate from the symbol table (`memory.zig`), a reader
+change in `reader_tokens.zig`'s `foldAndReturnSymbol` (detecting a trailing
+`:` on tokens that aren't all-colon punctuation identifiers), an
+allowlist entry in `ir.zig`'s self-evaluation check, a printer arm, five
+`gc_collect.zig` marking/sweeping arms, and a `matchPattern` arm in
+`expander.zig` so `syntax-rules` can match a literal keyword. All of this
+was written and tested during evaluation; none of it shipped.
 
 ### SRFI 10 — #, external form
 
@@ -360,19 +404,69 @@ from SRFI 4/160.
 
 ---
 
-## Macro-system-dependent SRFIs (2)
+## Macro-system-dependent SRFIs (3)
 
-These require transferring or comparing bindings/identifiers in ways that
-`syntax-rules` alone cannot express — genuinely `syntax-case`-shaped gaps,
-not just missing library code. Both SRFIs' own specification text says as
-much directly, rather than this being Kaappi's own conclusion. Tracked
-macro/syntax-system extension work that touches the same expander surface
-is in issue #1699 (SRFI 72, 139, 147, 148, 149, 211, 213).
+These require transferring, comparing, or type-discriminating
+bindings/identifiers/sub-patterns in ways that `syntax-rules` alone cannot
+express — genuinely `syntax-case`-shaped (or lower-level, non-hygienic)
+gaps, not just missing library code. Two of these SRFIs' own specification
+text says so directly; the third (89) doesn't say so in as many words, but
+its reference implementation only works via `define-macro` (raw,
+non-hygienic procedural macros), and no mainstream syntax-rules-only
+Scheme (Chibi, Gauche) has ported it faithfully either — Gauche shipped
+SRFI 227 instead of SRFI 89 for this exact reason. Tracked macro/syntax-
+system extension work that touches the same expander surface is in issue
+#1699 (SRFI 72, 139, 147, 148, 149, 211, 213).
 
 | SRFI | Title | Reason |
 |------|-------|--------|
+| 89 | Optional positional and named parameters | Distinguishing an optional-positional parameter `(name default)` from a named parameter `(keyword name)` needs a runtime type check (`keyword?` vs `symbol?`) *during macro pattern matching* — `syntax-rules` patterns are purely structural with no fender/guard mechanism, so this can't be expressed. Depends on SRFI 88 (excluded above) regardless. |
 | 206 | Auxiliary Syntax Keywords | Its core feature — independently-defined auxiliary keywords (like `else`/`=>`) matching via `free-identifier=?` across library boundaries — needs identifier-property support at the expander level. |
 | 212 | Aliases | Transferring a binding so two identifiers share one location, for any binding type including syntax, needs identifier/location introspection a syntax-rules-only system can't provide. |
+
+### SRFI 89 — Optional positional and named parameters
+
+**Author:** Marc Feeley (2006)
+
+Defines `define*`/`lambda*`, extending R5RS `define`/`lambda` with optional
+positional parameters (`(name default)`, default may reference earlier
+parameters), required and optional *named* parameters (marked with a SRFI
+88 keyword: `(key: name)` or `(key: name default)`), and a rest parameter.
+Depends on SRFI 88 for the keyword objects that mark named parameters.
+
+**Why excluded:** Confirmed by checking the SRFI's own reference
+implementation directly: it uses `define-macro` (raw, non-hygienic
+procedural macros with full list access), with a hand-written
+`optional-positional?`/`required-named?`/`optional-named?` classifier that
+inspects the *runtime type* (`keyword?` vs `variable?`) of each formal's
+first element — `(name default)` and `(key: name)` are both 2-element
+lists, structurally indistinguishable without checking whether the head is
+a keyword or a symbol. `syntax-rules` patterns are purely structural (a
+plain pattern variable matches any datum regardless of type, with no
+fender/guard escape hatch to add a type check), so this specific
+discrimination cannot be expressed no matter how the macro is written —
+confirmed by prototyping the alternative (making `lambda*`/`define*` new
+compiler special forms, parsed directly in Zig where a type check is
+trivial) and finding it worked, but was reversed as disproportionate:
+it would make two new keywords globally reserved in every Kaappi program
+merely to support one SRFI whose own author didn't consider portable to
+`syntax-rules`. This is also why no mainstream syntax-rules-only Scheme
+has ported SRFI 89 faithfully: Chibi Scheme has its own different,
+non-SRFI-89 optional/keyword-argument facility (`(chibi optional)`,
+built around plain quoted symbols and a rest-argument property list,
+explicitly because — per SRFI 177's own text — "Chibi does not have
+special read syntax for keywords... and does not offer a keyword-aware
+version of lambda or define"); Gauche implemented SRFI 227 (Optional
+arguments) instead of SRFI 89. SRFI 227 covers this codebase's
+optional-positional-parameter niche too (`lib/srfi/227.sld`, already
+implemented, unrelated to SRFI 88/89) — without depending on keyword
+objects or needing anything beyond plain `syntax-rules`.
+
+**Scope of change:** Would need either a low-level, non-hygienic macro
+facility (`define-macro` or equivalent) that this codebase's expander
+doesn't have, or dedicated compiler special forms with formals parsed
+directly in Zig (prototyped and working, but reversed as disproportionate
+new permanently-reserved language surface for one SRFI).
 
 ### SRFI 206 — Auxiliary Syntax Keywords
 
@@ -468,3 +562,48 @@ representation (`types.zig`) with one that preserves full IEEE-754 NaN
 bit patterns while still safely distinguishing flonums from
 pointers/fixnums/immediates — a foundational rearchitecture, not a
 bounded addition.
+
+---
+
+## Ecosystem-redundant SRFIs (1)
+
+This SRFI's functionality is already covered by a dedicated ecosystem
+package with a deliberately different (and broader) scope. Implementing it
+directly in core would create a second, competing, less-capable version of
+something that already exists one layer up.
+
+| SRFI | Title | Reason |
+|------|-------|--------|
+| 106 | Basic socket interface | Raw, unencrypted POSIX-style TCP/UDP sockets. `kaappi-net` is the sanctioned ecosystem package for socket I/O (TCP/TLS, OpenSSL-backed) — core deliberately has zero Scheme-level socket primitives today. |
+
+### SRFI 106 — Basic socket interface
+
+**Authors:** Takashi Kato, John Cowan (2013)
+
+Defines a low-level, portable socket API: `make-client-socket`,
+`make-server-socket`, `socket-accept`, `socket-send`/`socket-recv`,
+`socket-shutdown`, `socket-close`, port conversion (`socket-input-port`/
+`socket-output-port`), and POSIX-mirroring constants for address families,
+socket types, and flags. No TLS or encryption anywhere in the spec — it's
+strictly a thin wrapper over raw `SOCK_STREAM`/`SOCK_DGRAM` sockets.
+
+**Why excluded:** Core has zero Scheme-level socket primitives today —
+`platform.zig`'s socket helpers exist purely as internal plumbing for the
+fiber I/O reactor (KEP-0001) and are never exposed to Scheme. Networking
+is deliberately kept out of core: `kaappi-net` is the workspace's
+sanctioned ecosystem package for TCP/TLS sockets (OpenSSL-backed), per the
+workspace root `CLAUDE.md`'s repo map. Adding raw, unencrypted SRFI 106
+sockets directly into core would create a second, competing,
+less-capable socket API alongside `kaappi-net` — the same class of
+redundancy already rejected above for SRFI 55 ("superseded by R7RS
+import") and SRFI 138 ("kaappi compile covers this with its own
+interface"), just against an ecosystem package instead of another SRFI or
+a CLI subcommand.
+
+**Scope of change:** Not a technical blocker — SRFI 106's own minimal
+primitive surface (connect/bind/listen, accept, send/recv, shutdown,
+close, wrap-in-binary-port) is straightforward to implement against
+`platform.zig`'s existing socket plumbing. The exclusion is a deliberate
+architectural boundary, not an implementation-difficulty one. If genuinely
+wanted, the right home is an ecosystem package — folded into `kaappi-net`
+directly, or a new `kaappi-srfi106` — not core.

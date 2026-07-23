@@ -2,6 +2,7 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
+const vm_library = @import("vm_library.zig");
 const primitives = @import("primitives.zig");
 const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
@@ -250,7 +251,6 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
 
-    const vm_library = @import("vm_library.zig");
     for (args) |import_set| {
         vm_library.processImportSet(vm, env_map, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
     }
@@ -268,6 +268,15 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
+
+    // SRFI 59's program-vicinity reads current_lib_dir as "whatever file is
+    // currently loading" -- the same save/restore runFile and library/include
+    // loading already do, so a load nested inside a running script reports
+    // its own directory while it runs and the outer script's again once it
+    // returns, rather than never updating (kaappi#1703 review).
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = vm_library.extractDir(path);
+    defer vm.current_lib_dir = saved_lib_dir;
 
     // Optional environment-specifier (R7RS §6.14)
     var env: ?*std.StringHashMap(Value) = null;

@@ -64,6 +64,12 @@ pub const Lib = enum {
     srfi_192,
     srfi_258,
     srfi_260,
+    /// Native primitives backing the portable SRFI 59/112/193 `.sld` layers
+    /// (`%script-path`, `%implementation-version`, `%os-name`,
+    /// `%cpu-architecture`) -- not itself a SRFI or a `(srfi N)` name, so no
+    /// registry-shadows-a-.sld concern (contrast srfi_181_primitives /
+    /// srfi_248_primitives, which exist specifically to dodge that).
+    kaappi_sysinfo,
     // SRFI 181 (Custom and Transcoded Ports): the registry shadows a same
     // named .sld (see srfi_248_primitives below for the identical reason),
     // so the public `(srfi 181)` must stay file-only -- lib/srfi/181.sld
@@ -114,6 +120,7 @@ pub const Lib = enum {
             .srfi_192 => "srfi.192",
             .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
+            .kaappi_sysinfo => "kaappi.sysinfo",
             .srfi_181_primitives => "srfi.181.primitives",
             .srfi_248_primitives => "srfi.248.primitives",
             .internal => "kaappi.internal",
@@ -134,6 +141,12 @@ pub const Lib = enum {
             .srfi_192,
             .internal,
             => false,
+            // Mixed: %implementation-version/%os-name/%cpu-architecture are
+            // harmless (static build info) and stay sandbox = true on their
+            // own specs; only %script-path (host filesystem path) opts out
+            // per-spec below. Blocking the whole library here would make
+            // that per-spec flag moot for the other three.
+            .kaappi_sysinfo => true,
             else => true,
         };
     }
@@ -232,6 +245,7 @@ pub const all_specs = core_specs ++
     @import("primitives_srfi258.zig").specs ++
     @import("primitives_srfi260.zig").specs ++
     @import("primitives_srfi181.zig").specs ++
+    @import("primitives_sysinfo.zig").specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
     @import("primitives_random_port.zig").specs ++
