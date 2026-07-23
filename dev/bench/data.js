@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784753296361,
+  "lastUpdate": 1784777131681,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "efc976e3bcff31eb041f5636d16bee9f93b4b1b4",
-          "message": "Inline fixnum fast paths for hot native primitives (#1493) (#1544)\n\nInlined primitives in the LLVM backend emit a cross-module call per\noperation (`kaappi_fixnum_add`, `kaappi_car`, …) into `libkaappi_rt.a`.\nPlain -O2 cannot inline across that archive boundary, so trivial\narithmetic in a hot loop pays a real call every iteration.\n\nThe issue proposed LTO as the primary fix, but it is unavailable on the\nprimary dev platform: Zig 0.16 cannot use LLD for Mach-O (\"using LLD to\nlink macho files is unsupported\") and -flto requires LLD, so both the\nruntime lib build and the native link fail with -flto on macOS. It works\nonly when targeting Linux. Rather than ship a per-platform-inconsistent\noptimization, take the issue's sanctioned alternative and emit the hottest\nprimitives as inline IR, which is portable across every target (it is just\ntext the emitter writes) and needs no cross-module inlining.\n\n`+ - * < = null?` now lower to inline fixnum fast paths with a runtime\nslow-path fallback (non-fixnum operands, or overflow out of the i48 range →\nbignum). The fast paths touch only the NaN-boxed Value bits, whose encoding\nis pulled from types.zig at emitter comptime (no hand-transcribed magic\nnumbers). car/cdr/cons stay as direct specialized calls: Pair/Object are\nauto-layout structs whose field offsets Zig does not guarantee, and cons\nallocates regardless.\n\nThe larger win is eliding the shadow-stack rooting the inline path emitted\naround every operation: the push_root/pop_roots pair only exists to keep\nthe first operand alive across the second's evaluation, which is pointless\nwhen the second operand cannot allocate. `nodeMayAllocate` conservatively\ndetects that (immediate constants and variable references never collect),\ndropping both calls for the common `(op var const)` / `(op var var)`\nshapes. fib(38) runs 3.30x faster than -O2-only (1.45s → 0.44s); alloc-\nbound loops are unchanged, as expected.\n\nVerified: e2e 27/27 (new native-inline-primitives.scm diffs overflow,\nnon-fixnum, and sign-extended-negative paths against the interpreter),\nunit suite 897/897, and native binaries stay correct under a forced-\ncollection KAAPPI_GC_THRESHOLD=1 run including the rooting-kept case.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T22:31:13+05:30",
-          "tree_id": "f0f988b4cea64771d6ba1dacd172ac8bbdc959f4",
-          "url": "https://github.com/kaappi/kaappi/commit/efc976e3bcff31eb041f5636d16bee9f93b4b1b4"
-        },
-        "date": 1784050921015,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.806974,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.30059,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.714514,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.434442,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005238,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041006,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.396068,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052777,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.603374,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.540389,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.170268,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.371557,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.344787,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.423557,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03757,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044958,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8853a26901293789bf4a02e59da1954a0b7d251",
+          "message": "Add SRFI 181 custom ports (#1730)\n\n* Add SRFI 181 custom ports (closes #1727; transcoded ports split to #1729)\n\nImplements make-custom-binary-input-port, make-custom-binary-output-port,\nmake-custom-textual-input-port, make-custom-textual-output-port,\nmake-custom-binary-input/output-port, and make-file-error. This is the\nSRFI deferred out of Phase 3 (#1728) for being disproportionately\ncomplex: Port has never held a Scheme Value field before, and custom\nports need their read!/write!/get-position/set-position!/close/flush\nhooks to be Scheme procedures -- the first Value-bearing fields Port has\nhad, plus the first time a port needs to call back into Scheme\nreentrantly.\n\nTwo research passes and a design review (full spec fetch, tracing the\nGC marking switches and the reentrant-call/fiber-parking mechanism)\nproduced a validated design and caught concrete bugs before they\nshipped: a memory leak (missing freeObject/objectSize sites -- 5\ngc_collect.zig touch points needed, not the obvious 3), a\nuse-after-free trap (Kaappi strings reallocate their whole backing\nbuffer in place on a differing-byte-width string-set!, so a read!\ncallback's buffer must never be cached across the call), and a\nsilent-data-loss ordering bug (portWriteBytes has two fd-handling\nsteps, not one -- a custom port's branch must precede both).\n\nTranscoded ports (make-transcoder, codecs, eol-styles, the raise\nerror-handling mode) are split into #1729: the raise mode specifically\nneeds vm.callHandler's continuable-raise machinery, which is\narchitecturally harder than the custom-port plumbing itself.\n\nDesign:\n- Port.custom_backend: ?*CustomBacking holds the 6 callback Values\n  (read!/write!/get-position/set-position!/close/flush), following the\n  existing random_gen field's \"owned pointer, freed with the port\"\n  shape. GC-marked via a shared markPortValues helper wired into all\n  three marking switches (referencesYoung, markObjectContents,\n  markValueInner) plus the two dedicated freeObject/objectSize arms.\n- GC.allocCustomPort follows allocMultipleValues's slice_roots\n  template (rootArgs1/rootArgs2 cap out at 2 Values; this needs up to\n  6 protected across one allocation).\n- readOneByte/portWriteBytes (the single byte source/sink every port\n  primitive already funnels through) gained a custom-port branch each,\n  reusing the existing UTF-8 decode/encode pipeline by exploiting that\n  Kaappi strings are already UTF-8 byte arrays internally.\n- Custom port callbacks run through vm.callWithArgs, which always\n  executes with dispatched_from_scheduler forced false. A callback\n  that tries to block (another port's I/O, thread-sleep!) is rejected\n  with a catchable error via a new, narrow vm.in_custom_port_callback\n  counter (checked in fiber.waitForFd and threadSleepFn) instead of\n  risking the confirmed native-stack-overflow a silent recursive\n  scheduler drive would otherwise allow under concurrent fibers.\n- port-position/set-port-position!/port-has-port-position? (SRFI 192)\n  gained custom-port branches for free integration with get-position/\n  set-position!. close-port/flush-output-port gate their callback\n  invocations on is_open/non-#f so a double-close or a #f flush never\n  double-invokes or misfires.\n\n150 SRFIs now supported (13 built-in, up from 12). Doc counts\nreconciled across both CLAUDE.md files, README.md, and CONFORMANCE.md\nfrom `kaappi features --json`. Cross-compiles clean for Windows x86_64\nand WASM (zero platform-specific code -- every operation is a Scheme-\nlevel callWithArgs call). Full regression green: zig build test\n(including -Dgc-stress=true), 1953 Scheme tests (558 files + 1395\nR7RS).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review findings on PR #1730\n\nVerified each finding directly against current code before fixing or\ndeclining, per established project practice.\n\nFixed (3 genuine bugs):\n\n- writeBytesToCustomPort: re-allocated and copied the entire shrinking\n  \"remaining\" slice into a fresh bytevector/string on every partial-\n  write iteration, even though write! never mutates its buffer -- O(n^2)\n  for a callback that only accepts a small chunk per call (the exact\n  \"one-at-a-time\" pattern this PR's own test file already exercised).\n  Confirmed via a 20000-byte write through a 1-byte-at-a-time callback\n  (12ms after the fix). Now allocates once and varies start/count.\n- closePort: didn't flush a custom output port before invoking\n  close_proc, unlike setPortPositionOnCustomPort (which already flushes\n  before seeking) and the fd path's drainWriteBuffer. R7RS: \"If port is\n  an output port, it is flushed before being closed.\" Confirmed via a\n  custom port simulating internal buffering (data relies on flush! to\n  emit) that silently lost it on close-port without the fix.\n- raiseCustomPortCallbackBlocked's error message said \"tried to block\n  on another port's I/O\", but the function is also raised from\n  threadSleepFn for thread-sleep! -- misleading for that case. Now\n  covers both.\n\nAdded (1 nitpick, genuinely strengthens coverage):\n\n- A new GC-stress test that passes allocCustomPort's callback arguments\n  in deliberately unrooted (from the test's own perspective) and forces\n  a collection via the runtime gc.stress field during the allocator's\n  own maybeCollect() call -- the existing two tests pre-root the\n  callbacks externally, so neither could actually detect a regression\n  in allocCustomPort's own slice_roots usage specifically. Verified by\n  temporarily removing the slice_roots assignment and confirming this\n  new test (and only this one) fails.\n\nDeclined (1 finding, real but out of scope for this PR):\n\n- types.zig exceeds the 1500-line policy (1627 lines). Confirmed this\n  predates this PR entirely (1605 lines on main already, before SRFI\n  181's 22-line addition) -- an organic, 105-commit history of one-more-\n  heap-type additions past the file's own documented ~500-line target.\n  A proper split is a repo-wide structural change touching call sites\n  across dozens of files (every heap type here is referenced from\n  primitives files, memory.zig, gc_collect.zig, every vm*.zig file,\n  printer.zig, and more) -- exactly the kind of \"heavy lift\" this\n  project scopes into its own focused PR rather than bundling into a\n  feature PR's already-large diff (same reasoning that split transcoded\n  ports into #1729). Filed as #1731 with a suggested first-cut split\n  and context for whoever picks it up.\n\nAll 5 findings were genuine and independently verified: 3 fixed with\nregression tests (each proven to fail without its fix), 1 test-coverage\nnitpick added, 1 declined with a filed follow-up and clear reasoning.\nFull suite green: zig build test, 1953/1953 Scheme tests (558 files +\n1395 R7RS).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T08:26:57+05:30",
+          "tree_id": "6f3c27fa2051390321fc7f6e8eb65a59c6ffad5a",
+          "url": "https://github.com/kaappi/kaappi/commit/d8853a26901293789bf4a02e59da1954a0b7d251"
+        },
+        "date": 1784777130134,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.981008,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.429176,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.908313,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.379089,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006674,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052694,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50594,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067996,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.333013,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.954859,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.509003,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.469617,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.717967,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.765668,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04513,
             "unit": "seconds"
           }
         ]
