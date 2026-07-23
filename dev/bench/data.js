@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784795717247,
+  "lastUpdate": 1784836424136,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "df1a3524a429763708133b31d724ec3fa9309f90",
-          "message": "Add `kaappi explain <code>` diagnostic documentation command (#1543)\n\nWith stable KP codes, each diagnostic can carry real documentation. Like\n`rustc --explain`, the binary becomes its own diagnostic reference —\noffline, version-matched, and identical for a human reading prose and an\nagent parsing JSON. Everything is read from the one registry in\ndiagnostics.zig, so the command, the --diagnostics=json stream, and the\ngenerated website page can never disagree about what a code means.\n\n`kaappi explain KP3001` prints the entry — meaning, a minimal triggering\nexample, and (woven into the prose) the fix. The code argument accepts the\nKP number in any case, a bare number, or the kebab name. `--json` emits one\nJSON object; `--all` the full text reference; `--all --json` a JSON array,\nthe drift-proof source a docs generator consumes.\n\nRegistry: add an `example` field to every entry (the \"minimal example that\ntriggers it\"), enforced non-empty by the same comptime gate and its runtime\nmirror. 22 of 26 examples are literal one-liners verified to emit their own\ncode; the four that cannot be inlined are representative and say so. The new\n`tests/scheme/errors/explain.sh` reruns every runnable example back through\n--diagnostics=json and asserts it still triggers its documented code, so a\ndrifting example fails CI rather than a user.\n\n`explain` is a pure query over the static registry, so main dispatches it\nbefore any VM/GC/library setup exists. The --json string escaper is shared\nwith --diagnostics=json (lsp_diagnostic.writeJsonString) so both machine\nsurfaces escape identically. tools/gen_diagnostics_reference.py renders the\nkaappi-lang.org page from `explain --all --json`; the page itself lands in\nthe docs repo as a follow-up.\n\nPart of #1503. Closes #1507.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T17:49:43Z",
-          "tree_id": "76f8f486be0e78160b6ba16d0696617e677d6bc0",
-          "url": "https://github.com/kaappi/kaappi/commit/df1a3524a429763708133b31d724ec3fa9309f90"
-        },
-        "date": 1784052860968,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.399569,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.535401,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924517,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.433263,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00653,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054989,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.499243,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068435,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.478838,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.95212,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.597947,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.444508,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.827212,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69382,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046381,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033847,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbf4dbe4d2f1115b4f390230a4733963ce125ba2",
+          "message": "Add 7 SRFI libraries, exclude 3, reduce 1 (SRFI Phase 4 slice 1) (#1733)\n\n* Add 7 SRFI libraries, exclude 3, reduce 1 (SRFI Phase 4 slice 1)\n\nImplements SRFI 59 (Vicinity), 90 (Extensible hash table constructor,\nreduced scope), 112 (Environment Inquiry), 123 (Generic accessor and\nmodifier operators), 126 (R6RS-based hashtables, non-weak baseline),\n173 (Hooks), and 193 (Command line) from issue #1703.\n\nA new shared native primitive surface (src/primitives_sysinfo.zig,\n`(kaappi sysinfo)`) backs the script-path/version/platform inquiries\nthese libraries need: %script-path (vm.script_path, resolved once in\nrunFile -- absolute, `.`/`..` normalized, symlinks never followed) feeds\nboth SRFI 59's program-vicinity and SRFI 193's script-file/\nscript-directory; %implementation-version/%os-name/%cpu-architecture\nfeed SRFI 112.\n\nSRFI 88 (Keyword objects) and SRFI 89 (Optional/named parameters) are\nexcluded rather than implemented. SRFI 88's postfix-colon syntax\nreinterprets already-valid R7RS identifiers (breaking real, unrelated\nuses like the `(prefix lib id:)` import modifier and `:::`-style custom\nsyntax-rules ellipsis identifiers) in exchange for compatibility with\njust one of several competing, never-standardized keyword conventions\nacross the Scheme ecosystem. SRFI 89's named-parameter matching needs a\nruntime type check during macro pattern matching that plain\nsyntax-rules cannot express -- confirmed via the reference\nimplementation, which resorts to define-macro for exactly this reason;\nno mainstream syntax-rules-only Scheme has ported it faithfully either.\nSRFI 227 (Optional arguments), already implemented, covers the\noptional-positional-parameter niche instead. Full rationale for both in\ndocs/dev/srfi-exclusions.md, including why a working prototype of\nlambda*/define* as native compiler forms was reversed as disproportionate.\n\nSRFI 106 (Basic socket interface) is also excluded: raw sockets belong\nin the kaappi-net ecosystem package, which already covers this space\nwith TLS support core deliberately doesn't have.\n\n157 SRFIs now supported (12 built-in, 143 portable), up from 150.\n23 SRFIs excluded (was 20).\n\n* Address PR #1733 review: script-path lifetime, sandbox scope, vicinity gaps\n\n- resolveScriptPath: normalize \".\"/\"..\" in absolute paths too, not just\n  relative ones (regression test: script-path-normalization.sh)\n- vm.script_path: free the previous allocation in runFile, free on VM\n  deinit (root VM only), and share (never free) it with child SRFI-18\n  threads via initForThread\n- kaappi_sysinfo: stop blocking the whole library under --sandbox; rely on\n  the per-primitive sandbox flag so only %script-path opts out and the\n  other sysinfo procedures stay reachable\n- SRFI 59 program-vicinity: track vm.current_lib_dir (already maintained\n  as \"whatever file is currently loading\" for .sld/include resolution, now\n  also for `load`) instead of the static top-level script path, so a\n  nested load reports its own directory while active\n- SRFI 59 library-vicinity/implementation-vicinity: return real\n  directories ($KAAPPI_HOME/lib, the running executable's own directory)\n  instead of \"\", which silently meant \"current directory\"\n- SRFI 59 home-vicinity: fall back to USERPROFILE on Windows when HOME is\n  unset\n- Fix osName's doc comment and CLAUDE.md's SRFI total (208 = 157 + 28 + 23,\n  not 27)\n- srfi193.scm: accept Windows path separators in the script-file/\n  script-directory assertions (was failing windows-arm-test)\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix script-path-normalization.sh to not hardcode a POSIX path spelling\n\nWindows CI failed: the test asserted the raw $tmpdir (an MSYS /tmp/...\nspelling from Git Bash's mktemp) against kaappi's own output, but kaappi\nprints native paths -- a backslash-separated, write-escaped Windows path\nunder a Git-Bash-translated temp directory, per tests/scheme/CLAUDE.md's\nown \"don't bake POSIX-only spellings into assertions\" guidance. Compare\nkaappi's output for a clean path against its output for a \"../\"-laden\npath to the same file instead, so the test never needs to predict the\nexact spelling on any given host.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-23T19:13:58Z",
+          "tree_id": "f5888e97a8951889b596b38ab1b5b684ef1b1cec",
+          "url": "https://github.com/kaappi/kaappi/commit/cbf4dbe4d2f1115b4f390230a4733963ce125ba2"
+        },
+        "date": 1784836422348,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.345868,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.026928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.892785,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.400492,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006311,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053963,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502997,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069366,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.574566,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.908126,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.583309,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430315,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.809545,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667976,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044217,
             "unit": "seconds"
           }
         ]
