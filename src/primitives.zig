@@ -143,9 +143,15 @@ pub const Lib = enum {
             => false,
             // Mixed: %implementation-version/%os-name/%cpu-architecture are
             // harmless (static build info) and stay sandbox = true on their
-            // own specs; only %script-path (host filesystem path) opts out
-            // per-spec below. Blocking the whole library here would make
-            // that per-spec flag moot for the other three.
+            // own specs; the filesystem-path-revealing ones (%script-path,
+            // %current-lib-dir, %kaappi-lib-dir, %implementation-dir) opt
+            // out per-spec instead (primitives_sysinfo.zig). Blocking the
+            // whole library here would make those per-spec flags moot for
+            // the harmless three. This only governs direct `(import (kaappi
+            // sysinfo))`; every portable SRFI layered on it (59, 112, 193)
+            // is still unreachable under --sandbox regardless, since it's a
+            // `.sld` file and file-backed loads are blocked wholesale
+            // (vm_library.libraryIsAvailable) unless embedded.
             .kaappi_sysinfo => true,
             else => true,
         };

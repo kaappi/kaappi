@@ -920,11 +920,20 @@ fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8,
     vm_mod.writeStderr(s);
 }
 
+/// Directory portion of `path` (trailing separator included), or "" if it
+/// has none. `\` is only recognized as a separator on Windows -- matching
+/// `vicinity:suffix?`'s own platform split (lib/srfi/59.sld) -- since on
+/// POSIX a backslash is just an ordinary, if unusual, filename character
+/// (kaappi#1733 review: a Windows `(load "dir\file.scm")` was reporting
+/// program-vicinity as "" instead of "dir\" while loading).
 pub fn extractDir(path: []const u8) []const u8 {
-    if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| {
-        return path[0 .. pos + 1];
-    }
-    return "";
+    const slash = std.mem.lastIndexOfScalar(u8, path, '/');
+    const backslash = if (platform.is_windows) std.mem.lastIndexOfScalar(u8, path, '\\') else null;
+    const last = if (slash != null and backslash != null)
+        @max(slash.?, backslash.?)
+    else
+        slash orelse backslash orelse return "";
+    return path[0 .. last + 1];
 }
 
 fn resolveImportBindings(vm: *VM, import_set: Value) anyerror!std.StringHashMap(Value) {
