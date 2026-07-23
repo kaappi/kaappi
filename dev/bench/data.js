@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784836424136,
+  "lastUpdate": 1784842859303,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d014dc9c75b6e2b6b45a03e6751817209477545c",
-          "message": "Add dependency analysis to parallel-issues skill (#1547)\n\nIssues that depend on each other (via \"depends on #NNN\", \"blocked by\",\nGitHub linked-issues, etc.) shouldn't land in the same or an earlier\nbatch set than what they depend on.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T23:52:08+05:30",
-          "tree_id": "dd98f9f193ed6d8eb4b87a25c64880ff25bc350a",
-          "url": "https://github.com/kaappi/kaappi/commit/d014dc9c75b6e2b6b45a03e6751817209477545c"
-        },
-        "date": 1784054840978,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.362312,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.957805,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.472646,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.475606,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004038,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.029277,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.268208,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.03426,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.91218,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.975685,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.846637,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302072,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 0.914438,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.149521,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.025189,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044217,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "630f16a225baccd323a93ec3a13c5c60bbba98dc",
+          "message": "Address PR #1733 second-round review: Windows paths, stale sandbox docs (#1734)\n\n* Address PR #1733 second-round review: Windows paths, stale sandbox docs\n\n- extractDir (vm_library.zig): recognize '\\' as a separator on Windows\n  too, matching vicinity:suffix?'s own platform split -- a Windows\n  `(load \"dir\\file.scm\")` was reporting program-vicinity as \"\" instead\n  of \"dir\\\" while loading, since extractDir only searched for '/'\n- Fix stale sandbox documentation in lib/srfi/59.sld and primitives.zig\n  left over from the earlier fix that stopped blocking the whole\n  `(kaappi sysinfo)` library under --sandbox: SRFI 59 is still\n  unavailable under --sandbox, but because it's a non-embedded .sld\n  file (blocked wholesale), not because of kaappi_sysinfo's own gate\n- Move the nested-load program-vicinity regression out of srfi59.scm\n  into its own file (srfi59-nested-load-vicinity.scm), per this\n  project's \"name bug regressions after the bug\" convention\n\nNot applied: using shell-common.sh's native_path in\nscript-path-normalization.sh. native_path converts via `cygpath -m`\n(forward-slash mixed style), but %script-path's actual Windows output\nis backslash-separated and write-escaped -- a format native_path\nwouldn't produce, so it can't build a matching expected value. The\ntest's existing self-referential comparison (clean path vs. \"../\"-laden\npath to the same file) sidesteps needing to predict the exact spelling\nat all, and is already verified passing on both windows-arm-test and\nwindows-x64-test in CI.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix inconsistent procedure count in 59.sld sandbox comment\n\nSaid \"three of its four procedures\" but (kaappi sysinfo) has seven\nprimitives now (3 reachable + 4 sandbox-excluded), not four. Describe\nthe three by what they are instead of by a count.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T02:31:13+05:30",
+          "tree_id": "99a948767e165370e2d430929da3a509f46cc33c",
+          "url": "https://github.com/kaappi/kaappi/commit/630f16a225baccd323a93ec3a13c5c60bbba98dc"
+        },
+        "date": 1784842858325,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.983317,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.518741,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.912027,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.367203,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006567,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052552,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.501848,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067693,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.320823,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.944663,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.51852,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.470933,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.739299,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.765631,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043996,
             "unit": "seconds"
           }
         ]
