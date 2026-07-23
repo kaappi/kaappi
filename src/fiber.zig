@@ -1174,6 +1174,16 @@ pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VME
         me.io_fd = null;
         me.status = .running;
     }
+    // SRFI 181: a custom port callback (always running with
+    // dispatched_from_scheduler forced false, so the park branch above
+    // never triggers for it) that blocks on another port's fd would
+    // otherwise fall into the unbounded recursive scheduler drive below —
+    // a confirmed native-stack-overflow risk under concurrent fibers, not
+    // a catchable error. Reject it here instead, after the defer above is
+    // already armed so this early return still unregisters the fd wait.
+    if (vm.in_custom_port_callback > 0) {
+        return raiseCustomPortCallbackBlocked(vm);
+    }
     const done = try runSchedulerStep(IoWait, .{ .me = me }, vm, ctx.sched, me);
     // The drive broke off unresolved: IoWait's unwind_on_resolved_ancestor
     // fired (#1625) — an enclosing dispatch's wait has completed and only
@@ -1194,6 +1204,31 @@ fn raiseIoWaitAbandoned(vm: *VM) VMError {
     var msg = vm.gc.allocString(
         "port I/O abandoned: fiber cannot suspend under re-entrant native frames " ++
             "(guard, dynamic-wind, callbacks) while an enclosing completed wait needs this thread",
+    ) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&msg);
+    defer vm.gc.popRoot();
+    const err_obj = vm.gc.allocErrorObject(msg, types.NIL) catch return VMError.OutOfMemory;
+    vm.current_exception = err_obj;
+    return VMError.ExceptionRaised;
+}
+
+/// SRFI 181: a custom port's read!/write!/get-position/set-position!/
+/// close/flush callback tried to block -- either on another port's fd
+/// (this function is called from waitForFd above) or via thread-sleep!
+/// (also called from primitives_srfi18.threadSleepFn's equivalent guard).
+/// Every such callback runs through vm.callWithArgs, which always
+/// executes with dispatched_from_scheduler forced false — so this fiber
+/// could never park here the normal way, only recursively drive the
+/// scheduler in place, which is the unbounded-native-stack-growth risk
+/// this rejects instead. See vm.in_custom_port_callback's doc comment for
+/// the full reasoning.
+pub fn raiseCustomPortCallbackBlocked(vm: *VM) VMError {
+    var msg = vm.gc.allocString(
+        "custom port callback blocked: a SRFI 181 read!/write!/get-position/" ++
+            "set-position!/close/flush procedure tried to block (e.g. on " ++
+            "another port's I/O, or via thread-sleep!), which is not " ++
+            "supported -- custom port callbacks must be effectively " ++
+            "synchronous, non-blocking code",
     ) catch return VMError.OutOfMemory;
     vm.gc.pushRoot(&msg);
     defer vm.gc.popRoot();

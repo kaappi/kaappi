@@ -436,6 +436,15 @@ pub fn portWriteBytes(port: *types.Port, bytes: []const u8) PrimitiveError!void 
         stringPortWrite(port, bytes);
         return;
     }
+    // SRFI 181: must come before isBufferedFdPort below, not just "before
+    // the fd fallback" generally -- a custom port carries the fd = -1
+    // sentinel, and isBufferedFdPort's `port.fd > 2` check is false for
+    // it too, so without this branch a custom-port write would silently
+    // fall through to writeToFd(-1, bytes), which fails on EBADF and
+    // drops the write with no error and no callback invoked at all.
+    if (port.custom_backend) |cb| {
+        return writeBytesToCustomPort(port, cb, bytes);
+    }
     if (!isBufferedFdPort(port)) {
         writeToFd(port.fd, bytes);
         return;
@@ -466,6 +475,72 @@ fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
     @memcpy(buf[pos .. pos + bytes.len], bytes);
     port.string_out_pos = pos + bytes.len;
     port.string_out_len = @max(port.string_out_len, port.string_out_pos);
+}
+
+/// SRFI 181: hands bytes to a custom port's write! callback, looping on a
+/// partial write (legitimate, like a real fd write) but rejecting a
+/// zero-progress return as a misbehaving callback rather than retrying
+/// forever. write! only reads its buffer argument (never mutates it,
+/// unlike read!), so the bytevector/string is allocated once from the
+/// full `bytes` up front and reused across every iteration by varying
+/// start/count -- re-copying the shrinking unwritten remainder into a
+/// fresh buffer every call would be O(n^2) for a callback that only
+/// accepts a small chunk at a time (the "one-at-a-time" pattern
+/// tests/scheme/srfi/srfi181.scm exercises). `bytes` is always a
+/// complete, non-fragmentary UTF-8 span for a textual port (every caller
+/// of portWriteBytes already writes whole characters), but write!'s
+/// *count* is still in characters, not bytes, for a textual port --
+/// unlike the binary case, so each iteration passes the remaining
+/// codepoint count and converts the returned character count back to a
+/// byte offset to advance by.
+fn writeBytesToCustomPort(port: *types.Port, cb: *types.CustomBacking, bytes: []const u8) PrimitiveError!void {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    // Shouldn't normally happen: an input-only custom port's write_proc is
+    // #f, but portWriteBytes is only ever reached via getOutputPort's own
+    // is_output check first. Reject explicitly rather than silently
+    // dropping the write if it somehow does.
+    if (cb.write_proc == types.FALSE) return raiseCustomPortBadReturn(vm, "write!");
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const string_mod = @import("primitives_string.zig");
+
+    // Allocate the buffer ONCE from the full `bytes`, outside the loop: since
+    // write! only reads it (never mutates, per this function's own doc
+    // comment above), the same buffer can be reused across every partial
+    // write by varying start/count, rather than re-copying the shrinking
+    // "remaining" slice into a fresh buffer on every iteration -- which was
+    // O(n^2) for a callback that only accepts a small chunk per call (the
+    // exact "one-at-a-time" pattern tests/scheme/srfi/srfi181.scm exercises).
+    if (port.is_binary) {
+        var buf: Value = gc.allocBytevector(bytes) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&buf);
+        defer gc.popRoot();
+        var offset: usize = 0;
+        while (offset < bytes.len) {
+            const remaining_len = bytes.len - offset;
+            const result = try callCustomPortProc(vm, cb.write_proc, &[_]Value{ buf, types.makeFixnum(@intCast(offset)), types.makeFixnum(@intCast(remaining_len)) });
+            if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "write!");
+            const n = types.toFixnum(result);
+            if (n <= 0 or n > remaining_len) return raiseCustomPortBadReturn(vm, "write!");
+            offset += @intCast(n);
+        }
+    } else {
+        const total_chars = string_mod.utf8CodepointCount(bytes);
+        var buf: Value = gc.allocString(bytes) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&buf);
+        defer gc.popRoot();
+        var offset: usize = 0;
+        var char_offset: usize = 0;
+        while (offset < bytes.len) {
+            const remaining_chars = total_chars - char_offset;
+            const result = try callCustomPortProc(vm, cb.write_proc, &[_]Value{ buf, types.makeFixnum(@intCast(char_offset)), types.makeFixnum(@intCast(remaining_chars)) });
+            if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "write!");
+            const n = types.toFixnum(result);
+            if (n <= 0 or n > remaining_chars) return raiseCustomPortBadReturn(vm, "write!");
+            const byte_advance = string_mod.utf8IndexToByteOffset(bytes[offset..], @intCast(n)) orelse return raiseCustomPortBadReturn(vm, "write!");
+            offset += byte_advance;
+            char_offset += @intCast(n);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -683,7 +758,26 @@ fn closePort(args: []const Value) PrimitiveError!Value {
         port.write_buf_start = 0;
         port.write_buf_len = 0;
     }
-    if (port.is_open and !port.is_string_port) {
+    // SRFI 181: a custom port's fd is the -1 sentinel (same as a string
+    // port), so it must be excluded from the fd-cleanup block below the
+    // same way is_string_port already is -- port.fd > 2 already guards the
+    // actual close(2) call, but wakeIoWaitersOnFd/reactor.unregister on a
+    // meaningless fd is worth skipping outright, not just tolerating.
+    if (port.is_open) {
+        if (port.custom_backend) |cb| {
+            // R7RS close-port: "If port is an output port, it is flushed
+            // before being closed" -- matches setPortPositionOnCustomPort's
+            // own flush-before-seek call below, and the fd path's
+            // drainWriteBuffer above.
+            if (port.is_output) {
+                if (vm_mod.vm_instance) |vm| try flushCustomPortIfNeeded(vm, cb);
+            }
+            if (cb.close_proc != types.FALSE) {
+                if (vm_mod.vm_instance) |vm| _ = try callCustomPortProc(vm, cb.close_proc, &[_]Value{});
+            }
+        }
+    }
+    if (port.is_open and !port.is_string_port and port.custom_backend == null) {
         // Close discipline (KEP-0001 Phase 3, resolved question 4): wake
         // every fiber parked on this fd — the retry observes
         // is_open == false and raises a clean error — and drop the reactor
@@ -720,6 +814,9 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
         const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_pos);
         return types.makeFixnum(pos);
     }
+    if (port.custom_backend) |cb| {
+        return portPositionFromCustomPort(cb);
+    }
     const os_pos = platform.seek(port.fd, 0, platform.SEEK_CUR);
     if (os_pos < 0) {
         if (vm_mod.vm_instance) |vm| vm.setErrorDetail("port-position: port does not support positioning", .{});
@@ -735,6 +832,7 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
 fn portCanPosition(port: *types.Port) bool {
     if (!port.is_open) return false;
     if (port.is_string_port) return true;
+    if (port.custom_backend) |cb| return cb.get_position_proc != types.FALSE;
     return platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
 }
 
@@ -784,6 +882,10 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
         return types.VOID;
     }
 
+    if (port.custom_backend) |cb| {
+        return setPortPositionOnCustomPort(port, cb, pos);
+    }
+
     // Seek first, discard stale read-ahead only after it succeeds: on a
     // non-seekable port (or an out-of-range position) the seek fails and
     // this returns an error, but bytes already read from the OS and
@@ -805,6 +907,58 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
         port.read_buf_len = 0;
     }
     return types.VOID;
+}
+
+/// SRFI 181: (port-position custom-port) calls get-position directly and
+/// returns whatever it returns -- but this implementation's port-position
+/// otherwise always returns a plain exact integer (see portPosition's own
+/// doc comment), so for consistency a non-fixnum result is rejected here
+/// rather than silently breaking that contract for callers that add an
+/// offset to the result. The spec's alternative "implementation-dependent
+/// object" case is available directly from get-position for code that
+/// calls it itself; it just isn't threaded through port-position.
+fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    if (cb.get_position_proc == types.FALSE) {
+        vm.setErrorDetail("port-position: port does not support positioning", .{});
+        return PrimitiveError.InvalidArgument;
+    }
+    const result = try callCustomPortProc(vm, cb.get_position_proc, &[_]Value{});
+    if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "get-position");
+    return result;
+}
+
+/// SRFI 181: (set-port-position! custom-port pos). Flushes first via
+/// flush_proc if this is an output port (mirroring the fd path's own
+/// "flush even though the position won't otherwise change" rule) and
+/// discards read-ahead lookahead the same way the fd path does -- it
+/// describes bytes at the old position, meaningless once set-position!
+/// jumps elsewhere.
+fn setPortPositionOnCustomPort(port: *types.Port, cb: *types.CustomBacking, pos: i64) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    if (cb.set_position_proc == types.FALSE) {
+        vm.setErrorDetail("set-port-position!: port does not support positioning", .{});
+        return PrimitiveError.InvalidArgument;
+    }
+    if (port.is_output) try flushCustomPortIfNeeded(vm, cb);
+    _ = try callCustomPortProc(vm, cb.set_position_proc, &[_]Value{types.makeFixnum(pos)});
+    port.peek_byte = null;
+    port.peek_extra_len = 0;
+    if (port.read_buf) |rb| {
+        if (memory.gc_instance) |gc| gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
+    return types.VOID;
+}
+
+/// SRFI 181: calls a custom port's flush_proc if it has one, short-
+/// circuiting on #f rather than calling callWithArgs(FALSE, ...) -- which
+/// would resolve to a confusing, technically-caught NotAProcedure error
+/// for something that should just be a no-op.
+fn flushCustomPortIfNeeded(vm: *vm_mod.VM, cb: *types.CustomBacking) PrimitiveError!void {
+    if (cb.flush_proc == types.FALSE) return;
+    _ = try callCustomPortProc(vm, cb.flush_proc, &[_]Value{});
 }
 
 /// Single byte source for every textual and binary port read primitive
@@ -869,6 +1023,13 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
         port.string_pos += 1;
         return byte;
     }
+    // SRFI 181: pull bytes from a custom port's read! callback, filling
+    // read_buf from one call exactly like the real-fd path below fills it
+    // from one portFdRead burst -- everything after this (UTF-8 decode,
+    // peek, etc.) then works completely unchanged.
+    if (port.custom_backend) |cb| {
+        return readOneByteFromCustomPort(port, cb);
+    }
     if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
     maybeSetNonblocking(port);
     var chunk: [read_chunk_size]u8 = undefined;
@@ -903,6 +1064,82 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
         }
         return chunk[0];
     }
+}
+
+/// SRFI 181: fills a bytevector (binary port) or string (textual port) of
+/// up to read_chunk_size capacity by calling cb.read_proc once, then hands
+/// out the first byte and stashes the rest in port.read_buf -- the same
+/// "one call, buffer the burst" shape readOneByte's real-fd path uses.
+/// read_proc runs through vm.callWithArgs, which always executes with
+/// dispatched_from_scheduler forced false (see in_custom_port_callback):
+/// it must be effectively synchronous, non-blocking Scheme code.
+/// SRFI 181: calls one of a custom port's callback procedures, bracketing
+/// the call with vm.in_custom_port_callback so fiber.waitForFd and
+/// thread-sleep! can reject a callback that tries to block instead of
+/// risking the unbounded recursive scheduler drive that would otherwise
+/// result (see in_custom_port_callback's doc comment on VM). Every one of
+/// the six call sites this SRFI introduces (read!, write!, get-position,
+/// set-position!, close, flush) must go through this, not vm.callWithArgs
+/// directly.
+fn callCustomPortProc(vm: *vm_mod.VM, proc: Value, args: []const Value) PrimitiveError!Value {
+    vm.in_custom_port_callback += 1;
+    defer vm.in_custom_port_callback -= 1;
+    return vm.callWithArgs(proc, args) catch |err| return err;
+}
+
+/// A custom port callback returned something other than a valid count
+/// (not a fixnum, negative, or beyond what was requested). The spec
+/// leaves misbehaving callbacks entirely to the implementation; treat it
+/// as an ordinary catchable error rather than trusting the value blindly.
+fn raiseCustomPortBadReturn(vm: *vm_mod.VM, proc: []const u8) PrimitiveError {
+    vm.setErrorDetail("custom port {s}: expected an exact integer count in range, got something else", .{proc});
+    return PrimitiveError.InvalidArgument;
+}
+
+fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) PrimitiveError!?u8 {
+    if (cb.read_proc == types.FALSE) return null; // output-only custom port
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    var buf: Value = if (port.is_binary) blk: {
+        break :blk gc.allocBytevectorFill(read_chunk_size, 0) catch return PrimitiveError.OutOfMemory;
+    } else blk: {
+        var fill_buf: [read_chunk_size]u8 = undefined;
+        @memset(&fill_buf, ' ');
+        break :blk gc.allocString(&fill_buf) catch return PrimitiveError.OutOfMemory;
+    };
+    gc.pushRoot(&buf);
+    defer gc.popRoot();
+
+    const result = try callCustomPortProc(vm, cb.read_proc, &[_]Value{ buf, types.makeFixnum(0), types.makeFixnum(read_chunk_size) });
+    if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "read!");
+    const n = types.toFixnum(result);
+    if (n < 0 or n > read_chunk_size) return raiseCustomPortBadReturn(vm, "read!");
+    if (n == 0) return null; // EOF
+    const count: usize = @intCast(n);
+
+    const bytes: []const u8 = if (port.is_binary)
+        types.toObject(buf).as(types.Bytevector).data[0..count]
+    else blk: {
+        // Re-read data/len FRESH, after callWithArgs returns: a
+        // differing-byte-width string-set! inside read_proc reallocates
+        // the whole backing buffer in place (stringSetFn), so a slice
+        // captured before the call would dangle the moment that happens.
+        const s = types.toObject(buf).as(types.SchemeString);
+        const string_mod = @import("primitives_string.zig");
+        const byte_end = string_mod.utf8IndexToByteOffset(s.data[0..s.len], count) orelse
+            return raiseCustomPortBadReturn(vm, "read!");
+        break :blk s.data[0..byte_end];
+    };
+
+    const first = bytes[0];
+    if (bytes.len > 1) {
+        std.debug.assert(port.read_buf == null);
+        const rest = gc.allocator.dupe(u8, bytes[1..]) catch return PrimitiveError.OutOfMemory;
+        port.read_buf = rest;
+        port.read_buf_len = rest.len;
+    }
+    return first;
 }
 
 const Utf8ReadResult = struct {
@@ -1349,6 +1586,11 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 
 fn flushOutputPort(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 0, "flush-output-port");
+    if (port.custom_backend) |cb| {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        try flushCustomPortIfNeeded(vm, cb);
+        return types.VOID;
+    }
     // String ports and the unbuffered standard fds have nothing pending;
     // buffered fd ports drain fully (suspending the fiber as needed —
     // idempotent across a parked retry since progress lives in the port).

@@ -602,6 +602,28 @@ pub const Port = struct {
         is_pipe: bool = false,
         _pad: u5 = 0,
     } = .{},
+    /// SRFI 181: non-null when this port's I/O is backed by user-supplied
+    /// Scheme procedures rather than an fd/string/random buffer. Owned;
+    /// freed with the port (see freeObject's .port arm in gc_collect.zig) --
+    /// same shape as random_gen above, except its fields are Values, so it
+    /// also needs tracing (see markPortValues in gc_collect.zig). None of
+    /// these fields are ever mutated after construction (SRFI 181 defines
+    /// no setters), so no gc.writeBarrier call is ever needed for them.
+    custom_backend: ?*CustomBacking = null,
+};
+
+/// Callback procedures backing a SRFI 181 custom port. Each is either a
+/// procedure or `types.FALSE` ("absent" -- e.g. an input-only port has no
+/// write_proc). port.is_binary (already on Port) distinguishes a custom
+/// binary port (bytevector read!/write! buffers) from a custom textual
+/// port (string buffers); nothing here duplicates that flag.
+pub const CustomBacking = struct {
+    read_proc: Value = FALSE,
+    write_proc: Value = FALSE,
+    get_position_proc: Value = FALSE,
+    set_position_proc: Value = FALSE,
+    close_proc: Value = FALSE,
+    flush_proc: Value = FALSE,
 };
 
 /// Which kind of source backs a SRFI-271 random binary input port.

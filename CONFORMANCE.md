@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-149 SRFIs supported. 12 built-in (native Zig), 135 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+150 SRFIs supported. 13 built-in (native Zig), 135 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -102,6 +102,14 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 **Coverage: partial.** Implemented: `port-position`, `set-port-position!`, `port-has-port-position?`, `port-has-set-port-position!?`, all four using plain exact-integer byte offsets for every port kind. Not implemented: the spec's opaque "implementation-dependent object" alternative for textual-port positions, and the dedicated `i/o-invalid-position-error`/`make-i/o-invalid-position-error` condition type (any failure — an unsupported port or an out-of-range position — raises an ordinary error instead).
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
+
+### SRFI 181 — Custom Ports
+
+**Coverage: custom ports only.** Implemented: `make-custom-binary-input-port`, `make-custom-binary-output-port`, `make-custom-textual-input-port`, `make-custom-textual-output-port`, `make-custom-binary-input/output-port`, and `make-file-error`. Not implemented: transcoded ports (`make-transcoder`, `native-transcoder`, `transcoded-port`, codecs, eol-styles, `bytevector->string`/`string->bytevector`) and the `i/o-decoding-error?`/`i/o-encoding-error?` condition types — tracked separately in [#1729](https://github.com/kaappi/kaappi/issues/1729), since the `raise` error-handling mode needs continuable-condition machinery independent of the port constructors themselves.
+
+`get-position`/`set-position!`/`close`/`flush` are each optional (`#f`) except the port's own `read!`/`write!`, which every constructor requires. A callback's returned count is validated (a fixnum in range) rather than trusted, and a `write!` that reports zero progress on a non-empty write is treated as a misbehaving callback rather than retried indefinitely. `id` is accepted for signature compliance and discarded, per spec ("this SRFI does not provide any mechanism to retrieve the id from a port").
+
+Callbacks run through the VM's ordinary reentrant-call path, which always executes as if outside any fiber scheduler dispatch — a callback that blocks (another port's I/O, `thread-sleep!`) is rejected with a catchable error rather than being allowed to attempt it, since doing so would otherwise risk unbounded native stack growth under concurrently-dispatched fibers. Custom port callbacks must be effectively synchronous, non-blocking Scheme code.
 
 ### Portable SRFIs (135 libraries, plus SRFI 226 as sub-libraries only)
 

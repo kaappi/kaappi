@@ -618,6 +618,20 @@ fn threadSleepFn(args: []const Value) PrimitiveError!Value {
         return PrimitiveError.Yielded;
     }
 
+    // SRFI 181: a custom port callback (dispatched_from_scheduler is
+    // always false for it, so the park branch above never triggers) that
+    // calls thread-sleep! would otherwise fall into the unbounded
+    // recursive scheduler drive below. Reject it instead -- and since this
+    // error (unlike Yielded) isn't covered by the errdefer above (that
+    // errdefer's watch window already closed once its enclosing if-block
+    // was left behind), clean up the just-armed timer ourselves so it
+    // can't fire later against a fiber that's no longer expecting it.
+    if (ctx.vm.in_custom_port_callback > 0) {
+        me.deadline_ns = null;
+        ctx.reactor.removeTimer(me);
+        return fiber_mod.raiseCustomPortCallbackBlocked(ctx.vm);
+    }
+
     _ = try fiber_mod.runSchedulerStep(SleepWait, .{}, ctx.vm, ctx.sched, me);
     me.timed_out = false;
     me.deadline_ns = null;

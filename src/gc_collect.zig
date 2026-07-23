@@ -135,6 +135,16 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const param = obj.as(types.ParameterObject);
             if (isYoungPointer(gc, param.value) or isYoungPointer(gc, param.converter)) return true;
         },
+        .port => {
+            // SRFI 181: a custom port's callbacks are the only Value-bearing
+            // fields Port has -- everything else is a scalar, buffer, or
+            // non-GC-tracked owned pointer (random_gen etc.).
+            if (obj.as(Port).custom_backend) |cb| {
+                if (isYoungPointer(gc, cb.read_proc) or isYoungPointer(gc, cb.write_proc) or
+                    isYoungPointer(gc, cb.get_position_proc) or isYoungPointer(gc, cb.set_position_proc) or
+                    isYoungPointer(gc, cb.close_proc) or isYoungPointer(gc, cb.flush_proc)) return true;
+            }
+        },
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
@@ -297,7 +307,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const tc = obj.as(TransportCell);
             if (isYoungPointer(gc, tc.key) or isYoungPointer(gc, tc.value)) return true;
         },
-        .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
     return false;
 }
@@ -542,6 +552,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, param.value);
             markValue(gc, param.converter);
         },
+        .port => markPortValues(gc, obj.as(Port)),
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| markValue(gc, lit);
@@ -631,8 +642,25 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, tc.key);
             markValue(gc, tc.value);
         },
-        .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
+}
+
+/// SRFI 181: traces a custom port's callback procedures. Shared by
+/// markObjectContents, markValueInner, and referencesYoung's job is
+/// separate (it needs isYoungPointer, not markValue) so it has its own
+/// inline check rather than reusing this helper. Keeping this in one place
+/// means the field list can only drift out of sync in two switches instead
+/// of three, and Port itself can't host this helper (types.zig can't
+/// import memory.zig, which GC.markValue lives on, without a cycle).
+fn markPortValues(gc: *GC, port: *Port) void {
+    const cb = port.custom_backend orelse return;
+    markValue(gc, cb.read_proc);
+    markValue(gc, cb.write_proc);
+    markValue(gc, cb.get_position_proc);
+    markValue(gc, cb.set_position_proc);
+    markValue(gc, cb.close_proc);
+    markValue(gc, cb.flush_proc);
 }
 
 /// Record a reachable ephemeron for the post-mark weak fixpoint without tracing
@@ -869,6 +897,16 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, param.value) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, param.converter) catch @panic("GC mark: worklist OOM");
         },
+        .port => {
+            if (obj.as(Port).custom_backend) |cb| {
+                worklist.append(gc.allocator, cb.read_proc) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, cb.write_proc) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, cb.get_position_proc) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, cb.set_position_proc) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, cb.close_proc) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, cb.flush_proc) catch @panic("GC mark: worklist OOM");
+            }
+        },
         .hash_table => {
             const ht = obj.as(HashTable);
             if (ht.equiv_fn != 0) worklist.append(gc.allocator, ht.equiv_fn) catch @panic("GC mark: worklist OOM");
@@ -953,7 +991,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, tc.key) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
         },
-        .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
 
@@ -1023,6 +1061,7 @@ fn objectSize(obj: *Object) usize {
             if (port.read_buf) |rb| s += rb.len;
             if (port.write_buf) |wb| s += wb.len;
             if (port.random_gen) |_| s += @sizeOf(types.RandomGen);
+            if (port.custom_backend) |_| s += @sizeOf(types.CustomBacking);
             break :blk s;
         },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
@@ -1240,6 +1279,15 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             }
             if (port.random_gen) |g| {
                 gc.allocator.destroy(g);
+            }
+            // SRFI 181: only free the backing struct itself here -- never
+            // call close_proc during a sweep. There is no valid VM call
+            // stack to reenter into during collection, and R7RS gives no
+            // finalization guarantee for a port that becomes unreachable
+            // without an explicit close-port anyway (same as every other
+            // port kind above, which just drops its fd/buffers here too).
+            if (port.custom_backend) |cb| {
+                gc.allocator.destroy(cb);
             }
             poisonAndDestroy(gc, Port, port);
         },
