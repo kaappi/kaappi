@@ -14,6 +14,13 @@
 # translated temp directory -- not the "/tmp/..." this script's own $tmpdir
 # spells things as. Asking kaappi for both and requiring equality sidesteps
 # needing to predict its exact spelling on any given host.
+#
+# Only the first output line is compared: a Debug build's DebugAllocator
+# reports pre-existing, unrelated leaks in main.zig's lib_paths
+# auto-discovery (present on plain `kaappi trivial.scm` at the current main
+# tip too -- not introduced by this test) to stderr at process exit, well
+# after the script's own (write ...) line -- captured here via 2>&1 like
+# every other shell test in this suite, so it must not affect the compare.
 
 set -euo pipefail
 
@@ -30,7 +37,8 @@ cat > "$tmpdir/app.scm" <<'SCM'
 (newline)
 SCM
 
-clean_output=$("$KAAPPI" "$tmpdir/app.scm" 2>&1)
+clean_output_raw=$("$KAAPPI" "$tmpdir/app.scm" 2>&1)
+clean_output="${clean_output_raw%%$'\n'*}"
 
 # Sanity check: the clean invocation must report a real, non-empty path
 # (not #f or an error) before comparing it against the "../" invocation
@@ -46,7 +54,8 @@ esac
 # An absolute path containing "..": resolveScriptPath must collapse it to
 # the exact same value the clean invocation above reported.
 dotdot_path="$tmpdir/../$(basename "$tmpdir")/app.scm"
-dotdot_output=$("$KAAPPI" "$dotdot_path" 2>&1)
+dotdot_output_raw=$("$KAAPPI" "$dotdot_path" 2>&1)
+dotdot_output="${dotdot_output_raw%%$'\n'*}"
 if [ "$dotdot_output" = "$clean_output" ]; then
     echo "PASS: absolute path with .. is lexically normalized"
     PASS=$((PASS + 1))
