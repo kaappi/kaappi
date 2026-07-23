@@ -6,6 +6,14 @@
 # reported itself as "/tmp/x/../x/app.scm" instead of "/tmp/x/app.scm" --
 # the relative branch (which always joins against cwd via
 # std.fs.path.resolve) never had this bug, only the absolute one did.
+#
+# Compares kaappi's own output for a clean path against a "../"-laden path
+# to the same file, rather than asserting a hardcoded expected string:
+# kaappi prints native paths (see tests/scheme/CLAUDE.md), so on Windows
+# that's a backslash-separated, `write`-escaped path under a Git-Bash-
+# translated temp directory -- not the "/tmp/..." this script's own $tmpdir
+# spells things as. Asking kaappi for both and requiring equality sidesteps
+# needing to predict its exact spelling on any given host.
 
 set -euo pipefail
 
@@ -22,25 +30,28 @@ cat > "$tmpdir/app.scm" <<'SCM'
 (newline)
 SCM
 
-# An absolute path containing "..": resolveScriptPath must collapse it.
+clean_output=$("$KAAPPI" "$tmpdir/app.scm" 2>&1)
+
+# Sanity check: the clean invocation must report a real, non-empty path
+# (not #f or an error) before comparing it against the "../" invocation
+# below -- otherwise both sides could vacuously agree on garbage.
+case "$clean_output" in
+    \"*app.scm\") ;;
+    *)
+        echo "FAIL: clean invocation did not report a path -- got $clean_output"
+        FAIL=$((FAIL + 1))
+        ;;
+esac
+
+# An absolute path containing "..": resolveScriptPath must collapse it to
+# the exact same value the clean invocation above reported.
 dotdot_path="$tmpdir/../$(basename "$tmpdir")/app.scm"
-output=$("$KAAPPI" "$dotdot_path" 2>&1)
-expected="\"$tmpdir/app.scm\""
-if [ "$output" = "$expected" ]; then
+dotdot_output=$("$KAAPPI" "$dotdot_path" 2>&1)
+if [ "$dotdot_output" = "$clean_output" ]; then
     echo "PASS: absolute path with .. is lexically normalized"
     PASS=$((PASS + 1))
 else
-    echo "FAIL: expected $expected, got $output"
-    FAIL=$((FAIL + 1))
-fi
-
-# An already-clean absolute path must still round-trip unchanged.
-output=$("$KAAPPI" "$tmpdir/app.scm" 2>&1)
-if [ "$output" = "$expected" ]; then
-    echo "PASS: an already-clean absolute path is unchanged"
-    PASS=$((PASS + 1))
-else
-    echo "FAIL: expected $expected, got $output"
+    echo "FAIL: expected $clean_output, got $dotdot_output"
     FAIL=$((FAIL + 1))
 fi
 
