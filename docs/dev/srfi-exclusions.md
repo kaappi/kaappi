@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-23 final SRFIs are excluded from implementation. This document records which
+25 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -607,3 +607,79 @@ close, wrap-in-binary-port) is straightforward to implement against
 architectural boundary, not an implementation-difficulty one. If genuinely
 wanted, the right home is an ecosystem package — folded into `kaappi-net`
 directly, or a new `kaappi-srfi106` — not core.
+
+## Concurrency-model-incompatible SRFIs (2)
+
+Both extend SRFI 18 in a direction that needs a fundamentally different
+threading model than Kaappi's: real OS threads (`std.Thread.spawn`), each
+with an independent GC heap, coordinated only through deep-copy-at-
+boundary (`thread-start!`/`thread-join!`) and explicit message-passing
+channels (`(kaappi fibers)`, closed this session's slice 2 for SRFI 120's
+timer scheduling). Neither SRFI is achievable as an additive library over
+that model.
+
+| SRFI | Title | Reason |
+|------|-------|--------|
+| 21 | Real-time multithreading support | Mandates a userspace scheduler enforcing priority inheritance and exact fairness ordering; Kaappi delegates all thread scheduling to the OS. |
+| 230 | Atomic Operations | Needs compare-and-swap over memory shared between threads; Kaappi threads have no shared mutable heap at all, atomic or not. |
+
+### SRFI 21 — Real-time multithreading support
+
+**Authors:** Marc Feeley (2001)
+
+Extends SRFI 18 with real-time scheduling semantics: each thread carries a
+base priority, a priority boost, and a quantum, plus a `time` datatype and
+absolute-timeout variants of the existing blocking operations
+(`thread-sleep!`, `thread-join!`, `mutex-lock!`, `mutex-unlock!`). The
+spec's normative core is not the new accessors themselves but the
+scheduling guarantees a conforming implementation must *enforce*:
+**priority inheritance** ("effective priority is equal to the maximum of
+T's boosted priority and the effective priority of all the threads that
+are blocked on a mutex owned by T") and an exact fairness rule for which
+runnable thread must run next, stated as a formal invariant over priority
+and readiness time. These are properties of the *scheduler itself*, not
+inert metadata a library can bolt onto existing threads.
+
+**Why excluded:** Kaappi's SRFI-18 (`kaappi/CLAUDE.md`'s "OS threads"
+section) maps `thread-start!` directly onto `std.Thread.spawn` and leaves
+every blocking/wakeup decision to the OS's own native mutex/condition-
+variable scheduling — there is no userspace scheduler in the loop at all
+for SRFI 21's priority-inheritance logic to hook into. Honoring the spec
+for real would mean *not* using OS-native synchronization for blocking
+operations and instead building a userspace scheduler that tracks
+readiness, priority, and blocking time for every thread and makes its own
+run/wake decisions — a fundamental redesign of the threading model, not
+an additive library, and a different shape of project than adding a SRFI.
+
+**Scope of change:** Revisit only alongside a dedicated concurrency-model
+redesign (e.g. a userspace/cooperative thread scheduler Kaappi controls
+end to end) — not as a standalone library addition.
+
+### SRFI 230 — Atomic Operations
+
+**Authors:** Marc Nieper-Wißkirchen (2021)
+
+Defines compare-and-swap and atomic boxes (`make-atomic-box`,
+`atomic-box-ref`/`-set!`, `atomic-box-compare-and-swap!`,
+`atomic-box-swap!`, plus fetch-and-add etc.) over **shared mutable
+memory** that multiple threads read and write concurrently, with defined
+memory-ordering semantics for the operations.
+
+**Why excluded:** Kaappi's SRFI-18 threads each get an independent GC
+heap; the only things that ever cross a thread boundary today are values
+deep-copied at `thread-start!`/`thread-join!` time and the explicit
+message-passing primitives (`(kaappi fibers)`'s `make-channel`/
+`channel-send`/`channel-receive` — confirmed this session to require a
+channel be created and then captured in the *thunk* passed to
+`thread-start!` so it becomes properly linked across the two heaps;
+`primitives_fiber.zig`'s `channel-receive` explicitly rejects a channel
+reached any other way, e.g. through a shared global). There is no
+existing concept of a plain mutable cell whose writes are visible from
+another thread's heap at all, atomic or not — SRFI 230 needs that
+primitive to exist before "atomic" is even a meaningful refinement of it.
+
+**Scope of change:** Implementing this needs a new "genuinely shared,
+cross-heap mutable memory region" primitive first — a cross-cutting
+architecture addition comparable in scope to the channels work itself
+(KEP-0002), not a quick primitive add. Revisit only alongside a dedicated
+design for shared mutable state across threads.
