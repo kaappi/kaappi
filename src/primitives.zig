@@ -64,7 +64,11 @@ pub const Lib = enum {
     srfi_192,
     srfi_258,
     srfi_260,
-    srfi_181,
+    // SRFI 181 (Custom and Transcoded Ports): the registry shadows a same
+    // named .sld (see srfi_248_primitives below for the identical reason),
+    // so the public `(srfi 181)` must stay file-only -- lib/srfi/181.sld
+    // imports this sub-library and re-exports its full combined surface.
+    srfi_181_primitives,
     // SRFI 248 (minimal delimited continuations): the two VM primitives the
     // portable `(srfi 248)` .sld builds on. Kept in their own importable
     // sub-library so the .sld can pull them in (the registry shadows a same
@@ -110,7 +114,7 @@ pub const Lib = enum {
             .srfi_192 => "srfi.192",
             .srfi_258 => "srfi.258",
             .srfi_260 => "srfi.260",
-            .srfi_181 => "srfi.181",
+            .srfi_181_primitives => "srfi.181.primitives",
             .srfi_248_primitives => "srfi.248.primitives",
             .internal => "kaappi.internal",
         };

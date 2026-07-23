@@ -136,13 +136,18 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             if (isYoungPointer(gc, param.value) or isYoungPointer(gc, param.converter)) return true;
         },
         .port => {
-            // SRFI 181: a custom port's callbacks are the only Value-bearing
-            // fields Port has -- everything else is a scalar, buffer, or
-            // non-GC-tracked owned pointer (random_gen etc.).
-            if (obj.as(Port).custom_backend) |cb| {
+            // SRFI 181: a custom port's callbacks and a transcoded port's
+            // wrapped_port are the only Value-bearing fields Port has --
+            // everything else is a scalar, buffer, or non-GC-tracked owned
+            // pointer (random_gen etc.). A port is never both at once.
+            const p = obj.as(Port);
+            if (p.custom_backend) |cb| {
                 if (isYoungPointer(gc, cb.read_proc) or isYoungPointer(gc, cb.write_proc) or
                     isYoungPointer(gc, cb.get_position_proc) or isYoungPointer(gc, cb.set_position_proc) or
                     isYoungPointer(gc, cb.close_proc) or isYoungPointer(gc, cb.flush_proc)) return true;
+            }
+            if (p.transcode) |ts| {
+                if (isYoungPointer(gc, ts.wrapped_port)) return true;
             }
         },
         .transformer => {
@@ -646,21 +651,25 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
     }
 }
 
-/// SRFI 181: traces a custom port's callback procedures. Shared by
-/// markObjectContents, markValueInner, and referencesYoung's job is
-/// separate (it needs isYoungPointer, not markValue) so it has its own
-/// inline check rather than reusing this helper. Keeping this in one place
-/// means the field list can only drift out of sync in two switches instead
-/// of three, and Port itself can't host this helper (types.zig can't
-/// import memory.zig, which GC.markValue lives on, without a cycle).
+/// SRFI 181: traces a custom port's callback procedures and a transcoded
+/// port's wrapped_port. Called only from markObjectContents's .port arm --
+/// markValueInner's own .port arm independently duplicates this same field
+/// list via its own inline worklist.append calls (it cannot share this
+/// helper, since it appends to a worklist instead of recursing), and
+/// referencesYoung's .port arm is independent too (it needs isYoungPointer,
+/// not markValue). All three arms must be kept in sync by hand; Port
+/// itself can't host a shared helper (types.zig can't import memory.zig,
+/// which GC.markValue lives on, without a cycle).
 fn markPortValues(gc: *GC, port: *Port) void {
-    const cb = port.custom_backend orelse return;
-    markValue(gc, cb.read_proc);
-    markValue(gc, cb.write_proc);
-    markValue(gc, cb.get_position_proc);
-    markValue(gc, cb.set_position_proc);
-    markValue(gc, cb.close_proc);
-    markValue(gc, cb.flush_proc);
+    if (port.custom_backend) |cb| {
+        markValue(gc, cb.read_proc);
+        markValue(gc, cb.write_proc);
+        markValue(gc, cb.get_position_proc);
+        markValue(gc, cb.set_position_proc);
+        markValue(gc, cb.close_proc);
+        markValue(gc, cb.flush_proc);
+    }
+    if (port.transcode) |ts| markValue(gc, ts.wrapped_port);
 }
 
 /// Record a reachable ephemeron for the post-mark weak fixpoint without tracing
@@ -898,13 +907,20 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, param.converter) catch @panic("GC mark: worklist OOM");
         },
         .port => {
-            if (obj.as(Port).custom_backend) |cb| {
+            // Independent of markPortValues (that one recurses via
+            // markValue; this switch drives an explicit worklist instead)
+            // -- keep this field list in sync with it by hand.
+            const p = obj.as(Port);
+            if (p.custom_backend) |cb| {
                 worklist.append(gc.allocator, cb.read_proc) catch @panic("GC mark: worklist OOM");
                 worklist.append(gc.allocator, cb.write_proc) catch @panic("GC mark: worklist OOM");
                 worklist.append(gc.allocator, cb.get_position_proc) catch @panic("GC mark: worklist OOM");
                 worklist.append(gc.allocator, cb.set_position_proc) catch @panic("GC mark: worklist OOM");
                 worklist.append(gc.allocator, cb.close_proc) catch @panic("GC mark: worklist OOM");
                 worklist.append(gc.allocator, cb.flush_proc) catch @panic("GC mark: worklist OOM");
+            }
+            if (p.transcode) |ts| {
+                worklist.append(gc.allocator, ts.wrapped_port) catch @panic("GC mark: worklist OOM");
             }
         },
         .hash_table => {
@@ -1062,6 +1078,7 @@ fn objectSize(obj: *Object) usize {
             if (port.write_buf) |wb| s += wb.len;
             if (port.random_gen) |_| s += @sizeOf(types.RandomGen);
             if (port.custom_backend) |_| s += @sizeOf(types.CustomBacking);
+            if (port.transcode) |_| s += @sizeOf(types.TranscodeState);
             break :blk s;
         },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
@@ -1288,6 +1305,17 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             // port kind above, which just drops its fd/buffers here too).
             if (port.custom_backend) |cb| {
                 gc.allocator.destroy(cb);
+            }
+            // SRFI 181: only free the TranscodeState struct itself here --
+            // never touch the wrapped port. It's a separate, independently
+            // GC-tracked Value; if it's otherwise unreachable it gets
+            // swept on its own, and if it's still reachable (e.g. held
+            // directly by other code) it must not be freed just because
+            // this transcoded view over it became garbage. closePortObj
+            // (primitives_io.zig) is what cascades a close to the wrapped
+            // port while the VM is actually live to do so.
+            if (port.transcode) |ts| {
+                gc.allocator.destroy(ts);
             }
             poisonAndDestroy(gc, Port, port);
         },

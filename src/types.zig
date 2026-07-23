@@ -484,6 +484,17 @@ pub const ErrorObject = struct {
         terminated_thread,
         uncaught_exception,
         channel_timeout,
+        /// SRFI 181: raised by a transcoded port's decode loop under
+        /// `raise` error-handling mode. Continuable -- see
+        /// primitives_control.raiseContinuable.
+        io_decoding,
+        /// SRFI 181: raised by a transcoded port's encode loop under
+        /// `raise` error-handling mode. Unreachable in practice for v1's
+        /// UTF-8-only codec (every valid Kaappi character encodes
+        /// successfully), kept for spec-completeness of the predicate/
+        /// accessor pair. uncaught_reason carries the offending character
+        /// for i/o-encoding-error-char.
+        io_encoding,
     };
 
     header: Object,
@@ -610,6 +621,45 @@ pub const Port = struct {
     /// these fields are ever mutated after construction (SRFI 181 defines
     /// no setters), so no gc.writeBarrier call is ever needed for them.
     custom_backend: ?*CustomBacking = null,
+    /// SRFI 181: non-null when this port is a transcoded (textual) view
+    /// over another (binary) port -- decodes/encodes bytes<->characters
+    /// via `codec`, translating line endings per `eol_style` and handling
+    /// invalid input per `error_mode`. The wrapped port is read/written
+    /// via direct Zig calls (readOneByte/portWriteBytes in
+    /// primitives_io.zig), never a Scheme callback, so none of
+    /// custom_backend's reentrant-call restrictions apply here. Owned;
+    /// freed with the port, same as custom_backend above -- and like it,
+    /// never mutated after construction, so no write barrier is needed.
+    transcode: ?*TranscodeState = null,
+};
+
+/// SRFI 181: v1 supports UTF-8 only -- functionally the only variant this
+/// enum can hold today, but kept as an enum (not hardcoded) so a future
+/// latin-1/utf-16 codec is a matter of adding a variant, not restructuring
+/// this struct.
+pub const Codec = enum { utf8 };
+
+/// SRFI 181 eol-style: `none` performs no line-ending translation in
+/// either direction. On decode, `lf`/`crlf` both collapse any recognized
+/// line ending (bare CR, bare LF, or CRLF) to a single #\newline -- the
+/// distinction only matters on encode, where `lf` emits a bare #\newline
+/// and `crlf` emits the two-byte CRLF sequence.
+pub const EolStyle = enum { none, lf, crlf };
+
+/// SRFI 181 error-handling mode for decoding/encoding failures. `replace`
+/// substitutes U+FFFD (or '?' if unrepresentable) and continues; `raise`
+/// signals a continuable i/o-decoding-error?/i/o-encoding-error? condition
+/// (see primitives_control.raiseContinuable) and continues afterward.
+/// Encoding cannot actually fail under the only codec v1 ships (every
+/// valid Kaappi character has a UTF-8 encoding by construction), so
+/// error_mode is only ever consulted on the decode path in practice.
+pub const ErrorMode = enum { replace, raise };
+
+pub const TranscodeState = struct {
+    wrapped_port: Value, // the only Value field -- needs GC tracing
+    codec: Codec,
+    eol_style: EolStyle,
+    error_mode: ErrorMode,
 };
 
 /// Callback procedures backing a SRFI 181 custom port. Each is either a

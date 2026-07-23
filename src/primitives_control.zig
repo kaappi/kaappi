@@ -110,17 +110,29 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
         primitives_io.writeStderr("\n");
         return PrimitiveError.TypeError; // bare-ok: no VM for raise
     };
+    return raiseContinuable(vm, args[0]);
+}
+
+/// R7RS `raise-continuable`'s actual mechanism, factored out so any native
+/// code that needs the same "signal a condition, let the current handler's
+/// return value flow back into this exact call site" semantics can reuse it
+/// directly, instead of vm.callWithArgs (which invokes a closure but never
+/// touches the handler stack) or the always-unwinding raiseError. SRFI 181's
+/// `raise` error-handling mode is the first other caller: decoding/encoding
+/// under `raise` mode must continue after the condition is handled, not
+/// unwind the whole read/write.
+pub fn raiseContinuable(vm: *vm_mod.VM, obj: Value) PrimitiveError!Value {
     if (vm.handler_count == 0) {
-        vm.current_exception = args[0];
+        vm.current_exception = obj;
         return PrimitiveError.ExceptionRaised;
     }
     // SRFI 248: sticky handler — invoke in place without popping.
     if (vm.handler_stack[vm.handler_count - 1].sticky) {
-        return dispatchStickyUnwind(vm, args[0], true);
+        return dispatchStickyUnwind(vm, obj, true);
     }
     const handler = vm.handler_stack[vm.handler_count - 1].handler;
     vm.popHandler();
-    const result = vm.callHandler(handler, args[0], 0) catch |err| {
+    const result = vm.callHandler(handler, obj, 0) catch |err| {
         vm.pushHandler(handler) catch {};
         return err;
     };
