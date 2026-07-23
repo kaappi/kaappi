@@ -129,20 +129,8 @@
                (and (string? combined)
                     (string=? combined (string-append vicinity "srfi59.scm")))))
 
-;; program-vicinity tracks whatever file is *currently loading*, not just the
-;; top-level script: while `load` is on the stack it reports the loaded
-;; file's own directory, and reverts to this script's directory once `load`
-;; returns (kaappi#1703 review -- previously it only ever reported the
-;; top-level script's path, even from inside a nested load).
-(let* ((outer-vicinity (program-vicinity))
-       (fixture (string-append outer-vicinity "fixtures/srfi59-nested-vicinity.scm")))
-  (load fixture)
-  (test-equal "program-vicinity: reports the loaded file's own directory while loading"
-              (string-append outer-vicinity "fixtures/")
-              %srfi59-nested-vicinity-result)
-  (test-equal "program-vicinity: reverts to the outer script's directory after load returns"
-              outer-vicinity
-              (program-vicinity)))
+;; program-vicinity's nested-load tracking (kaappi#1733 review) has its own
+;; dedicated regression file: srfi59-nested-load-vicinity.scm.
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-59")
