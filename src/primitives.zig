@@ -139,9 +139,14 @@ pub const Lib = enum {
             .srfi_18,
             .srfi_170,
             .srfi_192,
-            .kaappi_sysinfo,
             .internal,
             => false,
+            // Mixed: %implementation-version/%os-name/%cpu-architecture are
+            // harmless (static build info) and stay sandbox = true on their
+            // own specs; only %script-path (host filesystem path) opts out
+            // per-spec below. Blocking the whole library here would make
+            // that per-spec flag moot for the other three.
+            .kaappi_sysinfo => true,
             else => true,
         };
     }

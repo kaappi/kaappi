@@ -210,14 +210,17 @@ pub const VM = struct {
     current_error_port_param: Value = types.VOID,
     lib_paths: []const []const u8 = &.{},
     command_line_args: []const []const u8 = &.{},
-    /// SRFI 59/193: the absolute, allocator-owned path of the top-level
-    /// script currently running, resolved once at startup (runFile) --
-    /// `.`/`..` are lexically normalized but symlinks are never followed,
-    /// matching SRFI 193's own "absolute pathname ... symbolic links are
-    /// not resolved" text. `null` when not running a script (REPL, stdin,
-    /// or a `load`ed/imported file -- this is the top-level script's own
-    /// path, not whatever happens to be loading right now, unlike the
-    /// transient per-load `current_lib_dir` below).
+    /// SRFI 59/193: the absolute path of the top-level script currently
+    /// running, resolved once at startup (runFile) -- `.`/`..` are
+    /// lexically normalized but symlinks are never followed, matching
+    /// SRFI 193's own "absolute pathname ... symbolic links are not
+    /// resolved" text. `null` when not running a script (REPL, stdin, or a
+    /// `load`ed/imported file -- this is the top-level script's own path,
+    /// not whatever happens to be loading right now, unlike the transient
+    /// per-load `current_lib_dir` below). Owned by the root VM only (freed
+    /// in `deinit` under the same `owns_globals` guard as `globals`); child
+    /// threads (`initForThread`) share the parent's reference read-only,
+    /// same as `globals`/`macros`/`libraries`, and must never free it.
     script_path: ?[]const u8 = null,
     loading_libs: std.StringHashMap(void),
     /// Directory of the .sld file currently being loaded, for resolving include paths.
@@ -404,6 +407,11 @@ pub const VM = struct {
             .lib_paths = parent.lib_paths,
             .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
             .owns_globals = false,
+            // Shared reference, not a copy: SRFI 59/193 want a thread's
+            // `program-vicinity`/`script-file` to still answer for the
+            // top-level script, not #f. Never freed by the child -- see the
+            // field doc.
+            .script_path = parent.script_path,
         };
         @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
@@ -456,6 +464,7 @@ pub const VM = struct {
             self.gc.allocator.destroy(self.globals_lock);
             self.macros.deinit();
             self.libraries.deinit();
+            if (self.script_path) |sp| self.gc.allocator.free(sp);
         }
         self.output.deinit(self.gc.allocator);
         self.loading_libs.deinit();

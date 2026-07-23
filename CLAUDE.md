@@ -320,7 +320,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
-Of the 208 final SRFIs in the registry, 157 are implemented, 27 are tracked for
+Of the 208 final SRFIs in the registry, 157 are implemented, 28 are tracked for
 future implementation (issues #1694–#1695, #1699, #1702 minus what Phases 1–3
 closed and #1729, which completed SRFI 181's transcoded-port half — custom
 ports landed separately in Phase 3, #1727; #1703 closed in full this phase),

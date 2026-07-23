@@ -9,30 +9,38 @@
 ;;;
 ;;; - program-vicinity is defined via "the currently loading Scheme code",
 ;;;   and the spec explicitly leaves its result undefined when no file is
-;;;   loading. Kaappi's only notion of "the currently loading file" is
-;;;   %script-path (kaappi sysinfo): the absolute path of the top-level
-;;;   script named on the command line, or #f from the REPL/stdin/a
-;;;   `load`ed or `import`ed file. We thread that #f straight through
-;;;   instead of inventing a fallback string -- the same shape as
+;;;   loading. Kaappi tracks exactly this dynamically, as
+;;;   vm.current_lib_dir (%current-lib-dir, kaappi sysinfo): the directory
+;;;   of the top-level script for that script's whole execution, shadowed
+;;;   by a nested `.sld`/`include`/`load`'s own directory only while that
+;;;   nested load is on the stack (save/restore, so control returning to
+;;;   the outer file sees the outer vicinity again) -- matching the SRFI's
+;;;   own "currently loading" wording more precisely than the top-level
+;;;   script's path alone would. #f when nothing is currently loading (a
+;;;   REPL/stdin session that hasn't called `load`) -- the same shape as
 ;;;   home-vicinity's own #f-for-inapplicable convention -- so callers can
-;;;   tell "no script is loading" apart from "the script's vicinity is the
-;;;   current directory" (a real, different vicinity: "").
+;;;   tell "nothing is loading" apart from "the vicinity is the current
+;;;   directory" (a real, different vicinity: "").
 ;;;
-;;; - library-vicinity and implementation-vicinity have no Kaappi analogue:
-;;;   there is no separate "shared library directory" or "implementation
-;;;   root" distinct from the ordinary library search path (--lib-path /
-;;;   KAAPPI_HOME / thottam's ~/.kaappi/lib) or the installed binary's own
-;;;   directory. Both return "" -- the same "current directory" convention
-;;;   user-vicinity already uses -- rather than #f, so naive callers doing
-;;;   `(in-vicinity (library-vicinity) name)` keep working via plain
-;;;   string-append instead of failing on a non-string argument. #f is
-;;;   reserved for home-vicinity, where "no such location on this platform"
-;;;   is a real, distinct answer from "it's the current directory".
+;;; - library-vicinity is $KAAPPI_HOME/lib (default ~/.kaappi/lib): thottam's
+;;;   installed-ecosystem-package directory, which main.zig already adds to
+;;;   the library search path regardless of --lib-path (workspace CLAUDE.md's
+;;;   "Auto-discovery" section) -- the closest Kaappi analogue to the spec's
+;;;   "shared Scheme library" directory. implementation-vicinity is the
+;;;   directory containing the running kaappi executable itself, the closest
+;;;   analogue to "will likely contain startup code and messages and a
+;;;   compiler" (kaappi's compiler is `kaappi compile`, built into this same
+;;;   binary). Both return #f rather than "" when genuinely unavailable (no
+;;;   home directory; no self-exe-path lookup on this platform) -- a real,
+;;;   distinct answer from "" (a real vicinity: the current directory),
+;;;   matching home-vicinity's own #f-for-inapplicable convention below.
 ;;;
-;;; - home-vicinity appends a trailing "/" to $HOME when it doesn't already
-;;;   end in a vicinity separator, matching the reference implementation's
-;;;   own normalization and the general vicinity convention that a
-;;;   vicinity string is always ready for `string-append`.
+;;; - home-vicinity appends a trailing "/" to $HOME (or, when HOME is unset,
+;;;   %USERPROFILE% on Windows -- vanilla cmd.exe/PowerShell do not set HOME
+;;;   the way git-bash/MSYS does) when it doesn't already end in a vicinity
+;;;   separator, matching the reference implementation's own normalization
+;;;   and the general vicinity convention that a vicinity string is always
+;;;   ready for `string-append`.
 ;;;
 ;;; - vicinity:suffix? accepts only #\/ on POSIX. On Windows it also
 ;;;   accepts #\\ and #\: (the drive-letter separator), per the suffix
@@ -74,19 +82,21 @@
               ((vicinity:suffix? (string-ref path i)) (substring path 0 (+ i 1)))
               (else (loop (- i 1))))))
 
-    (define (program-vicinity)
-      (let ((path (%script-path))) (and path (pathname->vicinity path))))
+    (define (program-vicinity) (%current-lib-dir))
 
-    ;; No distinct installed-library directory in Kaappi -- see header.
-    (define (library-vicinity) "")
+    ;; $KAAPPI_HOME/lib -- see header. #f if no home directory is available.
+    (define (library-vicinity) (%kaappi-lib-dir))
 
-    ;; No distinct implementation-root directory in Kaappi -- see header.
-    (define (implementation-vicinity) "")
+    ;; Directory containing the running kaappi executable -- see header. #f
+    ;; if this platform has no self-exe-path lookup.
+    (define (implementation-vicinity) (%implementation-dir))
 
     (define (user-vicinity) "")
 
     (define (home-vicinity)
-      (let ((home (get-environment-variable "HOME")))
+      (let ((home (or (get-environment-variable "HOME")
+                       (cond-expand (windows (get-environment-variable "USERPROFILE"))
+                                    (else #f)))))
         (and home
              (if (and (positive? (string-length home))
                       (vicinity:suffix? (string-ref home

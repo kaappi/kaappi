@@ -48,12 +48,26 @@
 (test-equal "user-vicinity: empty string means current directory"
             ""
             (user-vicinity))
-(test-equal "library-vicinity: no distinct directory in Kaappi"
-            ""
-            (library-vicinity))
-(test-equal "implementation-vicinity: no distinct directory in Kaappi"
-            ""
-            (implementation-vicinity))
+
+;; Per spec, both are implementation-defined placeholders (no normative path
+;; construction rule); Kaappi returns a real directory ($KAAPPI_HOME/lib and
+;; the running executable's own directory, respectively -- see lib/srfi/59.sld)
+;; or #f when genuinely unavailable (no home dir; no self-exe-path lookup on
+;; this platform), never a bare "" that would silently mean "current
+;; directory" instead.
+(let ((lib (library-vicinity)))
+  (test-assert "library-vicinity: #f, or a separator-terminated string"
+               (or (not lib)
+                   (and (string? lib)
+                        (positive? (string-length lib))
+                        (vicinity:suffix? (string-ref lib (- (string-length lib) 1)))))))
+
+(let ((impl (implementation-vicinity)))
+  (test-assert "implementation-vicinity: #f, or a separator-terminated string"
+               (or (not impl)
+                   (and (string? impl)
+                        (positive? (string-length impl))
+                        (vicinity:suffix? (string-ref impl (- (string-length impl) 1)))))))
 
 ;; --- home-vicinity -------------------------------------------------------
 
@@ -114,6 +128,21 @@
                                                                          "srfi59.scm")))
                (and (string? combined)
                     (string=? combined (string-append vicinity "srfi59.scm")))))
+
+;; program-vicinity tracks whatever file is *currently loading*, not just the
+;; top-level script: while `load` is on the stack it reports the loaded
+;; file's own directory, and reverts to this script's directory once `load`
+;; returns (kaappi#1703 review -- previously it only ever reported the
+;; top-level script's path, even from inside a nested load).
+(let* ((outer-vicinity (program-vicinity))
+       (fixture (string-append outer-vicinity "fixtures/srfi59-nested-vicinity.scm")))
+  (load fixture)
+  (test-equal "program-vicinity: reports the loaded file's own directory while loading"
+              (string-append outer-vicinity "fixtures/")
+              %srfi59-nested-vicinity-result)
+  (test-equal "program-vicinity: reverts to the outer script's directory after load returns"
+              outer-vicinity
+              (program-vicinity)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-59")

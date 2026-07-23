@@ -11,7 +11,14 @@
 ;;; on script-directory, etc.) since it varies with how the test is invoked
 ;;; (working directory, relative vs. absolute path passed on argv).
 
-(import (scheme base) (scheme process-context) (srfi 64) (srfi 193))
+(import (scheme base) (scheme char) (scheme process-context) (srfi 64) (srfi 193))
+
+;; True if c is a path separator on some supported host (POSIX '/' or
+;; Windows '\'). script-file/script-directory accept both regardless of
+;; the running host (see lib/srfi/193.sld's header comment), so assertions
+;; here must too rather than assuming this suite always runs on POSIX.
+(define (%path-separator? c)
+  (or (char=? c #\/) (char=? c #\\)))
 
 (test-begin "srfi-193")
 
@@ -59,9 +66,15 @@
 (test-assert "script-file is a string when running as a script (this file)"
   (string? (script-file)))
 
-(test-assert "script-file is an absolute path (starts with /)"
+(test-assert "script-file is an absolute path"
   (let ((f (script-file)))
-    (and (> (string-length f) 0) (char=? (string-ref f 0) #\/))))
+    (and (> (string-length f) 0)
+         (or (%path-separator? (string-ref f 0))
+             ;; Windows drive-letter absolute path: "C:\..." or "C:/...".
+             (and (>= (string-length f) 3)
+                  (char-alphabetic? (string-ref f 0))
+                  (char=? (string-ref f 1) #\:)
+                  (%path-separator? (string-ref f 2)))))))
 
 ;;; --- script-directory ------------------------------------------------------
 
@@ -71,7 +84,7 @@
 (test-assert "script-directory ends with a directory separator"
   (let ((d (script-directory)))
     (and (> (string-length d) 0)
-         (char=? (string-ref d (- (string-length d) 1)) #\/))))
+         (%path-separator? (string-ref d (- (string-length d) 1))))))
 
 (test-assert "script-directory is a prefix of script-file"
   (let ((d (script-directory)) (f (script-file)))
