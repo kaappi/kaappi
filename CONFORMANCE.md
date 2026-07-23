@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-150 SRFIs supported. 13 built-in (native Zig), 135 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+150 SRFIs supported. 12 built-in (native Zig), 136 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -103,15 +103,7 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### SRFI 181 — Custom Ports
-
-**Coverage: custom ports only.** Implemented: `make-custom-binary-input-port`, `make-custom-binary-output-port`, `make-custom-textual-input-port`, `make-custom-textual-output-port`, `make-custom-binary-input/output-port`, and `make-file-error`. Not implemented: transcoded ports (`make-transcoder`, `native-transcoder`, `transcoded-port`, codecs, eol-styles, `bytevector->string`/`string->bytevector`) and the `i/o-decoding-error?`/`i/o-encoding-error?` condition types — tracked separately in [#1729](https://github.com/kaappi/kaappi/issues/1729), since the `raise` error-handling mode needs continuable-condition machinery independent of the port constructors themselves.
-
-`get-position`/`set-position!`/`close`/`flush` are each optional (`#f`) except the port's own `read!`/`write!`, which every constructor requires. A callback's returned count is validated (a fixnum in range) rather than trusted, and a `write!` that reports zero progress on a non-empty write is treated as a misbehaving callback rather than retried indefinitely. `id` is accepted for signature compliance and discarded, per spec ("this SRFI does not provide any mechanism to retrieve the id from a port").
-
-Callbacks run through the VM's ordinary reentrant-call path, which always executes as if outside any fiber scheduler dispatch — a callback that blocks (another port's I/O, `thread-sleep!`) is rejected with a catchable error rather than being allowed to attempt it, since doing so would otherwise risk unbounded native stack growth under concurrently-dispatched fibers. Custom port callbacks must be effectively synchronous, non-blocking Scheme code.
-
-### Portable SRFIs (135 libraries, plus SRFI 226 as sub-libraries only)
+### Portable SRFIs (136 libraries, plus SRFI 226 as sub-libraries only)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -201,6 +193,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 175 | ASCII character library |
 | 178 | Bitvector library |
 | 180 | JSON |
+| 181 | Custom Ports (reduced scope) § |
 | 185 | Linear adjustable-length strings |
 | 188 | Splicing binding constructs for syntactic keywords |
 | 189 | Maybe and Either |
@@ -316,4 +309,13 @@ procedures most directly tied to the notation (`bytestring`,
 `bytevector->hex-string`, `hex-string->bytevector`,
 `write-textual-bytestring`) — the full spec's independent ~25-procedure
 bytestring-processing library (padding, trimming, search, join/split,
-base64) is not implemented; see the header of `lib/srfi/207.sld`.
+base64) is not implemented; see the header of `lib/srfi/207.sld`. SRFI 181
+(Custom Ports) implements every custom-port constructor and the full
+transcoded-port surface (`make-transcoder`, `native-transcoder`,
+`transcoded-port`, `bytevector->string`/`string->bytevector`,
+`i/o-decoding-error?`/`i/o-encoding-error?`/`i/o-encoding-error-char`,
+`unknown-encoding-error?`/`unknown-encoding-error-name`) but only the UTF-8
+codec — `latin-1-codec`/`utf-16-codec` are not exported at all, rather than
+bound to a procedure that always fails; `make-codec` correctly signals
+`unknown-encoding-error?` for any name it doesn't recognize, including
+"latin-1"/"utf-16" by name; see the header of `lib/srfi/181.sld`.

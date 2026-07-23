@@ -555,6 +555,11 @@ pub fn libraryIsAvailable(vm: *VM, lib_name: []const u8, lib_name_list: Value) b
 /// Keyed by the same relative path buildLibRelPath produces.
 const embedded_libraries = [_]struct { rel_path: []const u8, source: []const u8 }{
     .{ .rel_path = "kaappi/parallel.sld", .source = @import("kaappi_parallel_sld").source },
+    // (srfi 181) now loads through the normal .sld-file path (it used to
+    // resolve directly against the registry -- see primitives.zig's
+    // .srfi_181_primitives) -- without this entry, --sandbox and WASM would
+    // silently lose access to the already-shipped custom-port constructors.
+    .{ .rel_path = "srfi/181.sld", .source = @import("kaappi_srfi_181_sld").source },
 };
 
 fn findEmbeddedLibrary(rel_path: []const u8) ?[]const u8 {

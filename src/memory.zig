@@ -738,6 +738,49 @@ pub const GC = struct {
         return types.makePointer(&port.header);
     }
 
+    /// A SRFI 181 transcoded port: a textual view over `wrapped_port` (a
+    /// binary port) via `codec`/`eol_style`/`error_mode`. Only one Value
+    /// to protect across the collection (`wrapped_port` itself; the other
+    /// three are plain enums) -- rootArgs1, matching allocPair's shape,
+    /// rather than allocCustomPort's slice_roots (needed there for up to
+    /// 6 simultaneous Values).
+    pub fn allocTranscodedPort(
+        self: *GC,
+        wrapped_port: Value,
+        is_input: bool,
+        is_output: bool,
+        codec: types.Codec,
+        eol_style: types.EolStyle,
+        error_mode: types.ErrorMode,
+    ) !Value {
+        self.rootArgs1(wrapped_port);
+        try self.maybeCollect();
+        self.clearArgRoots();
+        const ts = try self.allocator.create(types.TranscodeState);
+        errdefer self.allocator.destroy(ts);
+        ts.* = .{
+            .wrapped_port = wrapped_port,
+            .codec = codec,
+            .eol_style = eol_style,
+            .error_mode = error_mode,
+        };
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = -1,
+            .is_input = is_input,
+            .is_output = is_output,
+            .is_open = true,
+            .name = "transcoded",
+            .owns_name = false,
+            .peek_byte = null,
+            .is_binary = false,
+            .transcode = ts,
+        };
+        self.finishAlloc(&port.header, @sizeOf(Port) + @sizeOf(types.TranscodeState));
+        return types.makePointer(&port.header);
+    }
+
     /// A SRFI-271 random binary input port backed by `gen` (copied to the
     /// heap and owned by the port; freed in gc_collect's port sweep). No fd,
     /// no string buffer — reads come from gen.nextByte() via readOneByte.

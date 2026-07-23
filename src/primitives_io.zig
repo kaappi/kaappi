@@ -445,6 +445,11 @@ pub fn portWriteBytes(port: *types.Port, bytes: []const u8) PrimitiveError!void 
     if (port.custom_backend) |cb| {
         return writeBytesToCustomPort(port, cb, bytes);
     }
+    // SRFI 181: same fd = -1 sentinel hazard as custom_backend above --
+    // must come before isBufferedFdPort, not just the fd fallback.
+    if (port.transcode) |ts| {
+        return writeBytesToTranscodedPort(ts, bytes);
+    }
     if (!isBufferedFdPort(port)) {
         writeToFd(port.fd, bytes);
         return;
@@ -541,6 +546,51 @@ fn writeBytesToCustomPort(port: *types.Port, cb: *types.CustomBacking, bytes: []
             char_offset += @intCast(n);
         }
     }
+}
+
+/// SRFI 181: translates `bytes` (always a complete run of whole UTF-8
+/// characters -- portWriteBytes's callers never write partial characters)
+/// through ts.eol_style, then forwards the result to wrapped_port in one
+/// call.
+///
+/// No batching hazard here, unlike the decode loop: one input character
+/// always maps to an immediately-known, fixed-size output sequence, and
+/// the whole translated span is computed before wrapped_port is ever
+/// touched -- so a park inside the wrapped write is retried by simply
+/// recomputing this same translation again from the same `bytes`; nothing
+/// here is lost across a Yielded retry the way decodeOneChar's
+/// byte-at-a-time reads could be.
+///
+/// Encoding itself cannot fail under UTF-8, the only codec v1 supports
+/// (every valid Kaappi character has a UTF-8 encoding by construction) --
+/// so unlike decodeOneChar there is no error_mode branch here;
+/// i/o-encoding-error? exists for spec completeness but nothing in this
+/// v1 ever raises it.
+fn writeBytesToTranscodedPort(ts: *types.TranscodeState, bytes: []const u8) PrimitiveError!void {
+    const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
+    if (!wrapped.is_open) return raiseWrappedPortClosed();
+
+    // `none` and `lf` both forward `bytes` unchanged: an encoded
+    // #\newline is already the single byte 0x0A, which *is* lf's own
+    // rendering, and UTF-8 guarantees 0x0A never appears as part of any
+    // other character's encoding (continuation and multi-byte lead bytes
+    // are always >= 0x80). Only `crlf` needs an actual rewrite.
+    switch (ts.eol_style) {
+        .none, .lf => return portWriteBytes(wrapped, bytes),
+        .crlf => {},
+    }
+
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(gc.allocator);
+    for (bytes) |b| {
+        if (b == '\n') {
+            out.appendSlice(gc.allocator, "\r\n") catch return PrimitiveError.OutOfMemory;
+        } else {
+            out.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    try portWriteBytes(wrapped, out.items);
 }
 
 // ---------------------------------------------------------------------------
@@ -736,7 +786,14 @@ fn fdToPort(args: []const Value) PrimitiveError!Value {
 
 fn closePort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("close-port", "port", args[0]);
-    const port = types.toObject(args[0]).as(types.Port);
+    return closePortObj(types.toObject(args[0]).as(types.Port));
+}
+
+/// The actual close-port body, taking a *Port directly (matching the house
+/// style readOneByte/portWriteBytes already establish) so SRFI 181's
+/// transcoded-port close cascade below can call it on wrapped_port without
+/// a Value round-trip.
+pub fn closePortObj(port: *types.Port) PrimitiveError!Value {
     // Flush buffered output while the fd is still writable. This can
     // suspend the calling fiber; a parked close-port re-executes from the
     // top with the drain progress preserved in the port.
@@ -776,8 +833,18 @@ fn closePort(args: []const Value) PrimitiveError!Value {
                 if (vm_mod.vm_instance) |vm| _ = try callCustomPortProc(vm, cb.close_proc, &[_]Value{});
             }
         }
+        // SRFI 181: closing a transcoded port closes the port it wraps
+        // too -- calling the whole close routine (not just a flush) means
+        // the wrapped port's own flush, fd cleanup, and is_open
+        // transition all happen in the right order with no separate step
+        // needed here. Unlike custom_backend's close_proc, this is never
+        // swallowed: a failure closing the wrapped port is this close's
+        // own failure.
+        if (port.transcode) |ts| {
+            _ = try closePortObj(types.toObject(ts.wrapped_port).as(types.Port));
+        }
     }
-    if (port.is_open and !port.is_string_port and port.custom_backend == null) {
+    if (port.is_open and !port.is_string_port and port.custom_backend == null and port.transcode == null) {
         // Close discipline (KEP-0001 Phase 3, resolved question 4): wake
         // every fiber parked on this fd — the retry observes
         // is_open == false and raises a clean error — and drop the reactor
@@ -1030,6 +1097,12 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     if (port.custom_backend) |cb| {
         return readOneByteFromCustomPort(port, cb);
     }
+    // SRFI 181: decode one character from the wrapped port and hand its
+    // UTF-8 bytes out exactly like the custom-port branch above -- see
+    // readOneByteFromTranscodedPort's own doc comment.
+    if (port.transcode) |ts| {
+        return readOneByteFromTranscodedPort(port, ts);
+    }
     if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
     maybeSetNonblocking(port);
     var chunk: [read_chunk_size]u8 = undefined;
@@ -1140,6 +1213,164 @@ fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) Primit
         port.read_buf_len = rest.len;
     }
     return first;
+}
+
+/// SRFI 181: the wrapped port underneath a transcoded port was found
+/// closed. getInputPort/getOutputPort already confirmed the transcoded
+/// port itself is open before readOneByte/portWriteBytes were ever
+/// reached; this replicates that check one level down, since a
+/// transcoded port's direct readOneByte(wrapped_port)/portWriteBytes(
+/// wrapped_port) calls bypass that boundary entirely.
+fn raiseWrappedPortClosed() PrimitiveError {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    var msg = gc.allocString("transcoded port: the underlying port has been closed") catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+    types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
+}
+
+/// SRFI 181: builds an `.io_decoding` condition for one invalid or
+/// truncated UTF-8 byte sequence and dispatches it per ts.error_mode.
+/// `replace` returns the substitution character (U+FFFD) directly.
+/// `raise` signals the condition via raiseContinuable -- the handler's
+/// return value carries no meaning for a continuable decoding error, so
+/// it's discarded -- and returns null so decodeOneChar's loop continues
+/// from the next byte, rather than retrying this same invalid sequence.
+///
+/// condition is rooted across the raiseContinuable call out of caution,
+/// not because a specific allocation path was found to need it: the call
+/// passes through raiseContinuable/callHandler into a reentrant runUntil,
+/// and re-auditing that whole chain on every future change to confirm no
+/// allocation can ever see this Value unrooted is a worse trade than one
+/// push/pop pair.
+fn handleInvalidUtf8(ts: *types.TranscodeState, msg: []const u8) PrimitiveError!?u21 {
+    if (ts.error_mode == .replace) return 0xFFFD;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const srfi18 = @import("primitives_srfi18.zig");
+    var condition = try srfi18.makeErrorWithType(.io_decoding, msg, types.NIL);
+    gc.pushRoot(&condition);
+    defer gc.popRoot();
+    _ = try primitives_control.raiseContinuable(vm, condition);
+    return null;
+}
+
+/// SRFI 181: resolves a `\r` already read from `wrapped` (eol_style is
+/// `lf` or `crlf`, both of which collapse CR, LF, and CRLF alike to one
+/// #\newline) by peeking one more byte, exactly like readLineFn's own
+/// CR/CRLF handling -- right down to pushing a non-`\n` lookahead back
+/// onto wrapped.peek_byte. A park during the lookahead read must not lose
+/// the '\r' that decodeOneChar's caller already consumed: propagateReadErr
+/// stashes it back onto wrapped's own read_buf so the retried-from-scratch
+/// native call sees it again as the first byte of a fresh attempt.
+fn decodeCrlf(wrapped: *types.Port) PrimitiveError!u21 {
+    const next = readOneByte(wrapped) catch |err|
+        return propagateReadErr(wrapped, err, &.{"\r"});
+    if (next) |b| {
+        if (b != '\n') wrapped.peek_byte = b; // put it back
+    }
+    return '\n';
+}
+
+/// SRFI 181: decodes one already-EOL-translated Unicode scalar value from
+/// `wrapped` per `ts`. `null` means EOF (before any byte of a new
+/// sequence was consumed).
+///
+/// Deliberately stricter than readUtf8CharWithBytes, which silently
+/// degrades an invalid or truncated sequence into "the lead byte as its
+/// own codepoint" -- appropriate for reading raw source text as-is, but
+/// wrong here, where ts.error_mode must actually get a say. This
+/// distinguishes the three genuinely-invalid shapes a UTF-8 byte stream
+/// can take (bad lead byte, bad continuation byte, truncated at EOF) by
+/// checking utf8ByteSequenceLength/utf8Decode's actual success and
+/// achieved length against the expected length, rather than trusting
+/// whatever std.unicode's own fallback would produce.
+///
+/// The `while (true)` loop exists only for `raise` mode's "continue after
+/// the handler returns" semantics (see handleInvalidUtf8) -- it never
+/// retries a read that has already consumed bytes without first
+/// committing them via propagateReadErr, so a genuine fiber park (which
+/// reruns this whole call from scratch) never observes torn state.
+fn decodeOneChar(wrapped: *types.Port, ts: *types.TranscodeState) PrimitiveError!?u21 {
+    while (true) {
+        const lead = try readOneByte(wrapped) orelse return null;
+
+        if (lead < 0x80) {
+            if (lead == '\r' and ts.eol_style != .none) return try decodeCrlf(wrapped);
+            return lead;
+        }
+
+        const seq_len = std.unicode.utf8ByteSequenceLength(lead) catch {
+            if (try handleInvalidUtf8(ts, "invalid UTF-8: bad lead byte")) |cp| return cp;
+            continue;
+        };
+        var buf: [4]u8 = .{ lead, 0, 0, 0 };
+        var got: usize = 1;
+        var truncated = false;
+        while (got < seq_len) : (got += 1) {
+            // A park here must re-stash the bytes already consumed (the
+            // lead byte plus any earlier continuation bytes) -- they're
+            // gone from wrapped's own stream already, so losing them here
+            // would corrupt the retried-from-scratch decode.
+            buf[got] = (readOneByte(wrapped) catch |err|
+                return propagateReadErr(wrapped, err, &.{buf[0..got]})) orelse {
+                truncated = true;
+                break;
+            };
+        }
+        if (truncated) {
+            if (try handleInvalidUtf8(ts, "invalid UTF-8: truncated at end of file")) |cp| return cp;
+            continue;
+        }
+        const cp = std.unicode.utf8Decode(buf[0..seq_len]) catch {
+            if (try handleInvalidUtf8(ts, "invalid UTF-8: bad continuation byte")) |cp2| return cp2;
+            continue;
+        };
+        return cp;
+    }
+}
+
+/// SRFI 181: decodes one character from ts.wrapped_port (applying
+/// eol-style translation and error-mode handling, via decodeOneChar) and
+/// re-encodes it as UTF-8, stashing the bytes into `port`'s own read_buf
+/// exactly like readOneByteFromCustomPort does -- so every existing
+/// textual-port primitive (read-char, peek-char, read-line, read, ...)
+/// keeps working completely unchanged on top of readOneByte, with no idea
+/// transcoding happened underneath.
+///
+/// Must decode/translate/commit exactly one character per call: a fiber
+/// park (Yielded) reruns this entire function from scratch on resume, so
+/// any Zig-local "how far did I get" state would be silently lost while
+/// wrapped's read position has already permanently advanced. The only
+/// state that survives a retry is a *Port's own durable fields
+/// (peek_byte/peek_extra/read_buf) -- decodeOneChar and decodeCrlf funnel
+/// every multi-step read through those via propagateReadErr rather than a
+/// new TranscodeState field.
+fn readOneByteFromTranscodedPort(port: *types.Port, ts: *types.TranscodeState) PrimitiveError!?u8 {
+    const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
+    if (!wrapped.is_open) return raiseWrappedPortClosed();
+
+    const cp = try decodeOneChar(wrapped, ts) orelse return null;
+
+    var utf8_buf: [4]u8 = undefined;
+    // cp is always a valid Unicode scalar value here (a successful
+    // utf8Decode result, the U+FFFD replacement, or '\n' from EOL
+    // translation) -- never a surrogate half or out-of-range value, so
+    // re-encoding it can't fail the way an arbitrary user-supplied
+    // character (writeCharFn's case) could.
+    const len = std.unicode.utf8Encode(cp, &utf8_buf) catch unreachable;
+    if (len > 1) {
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        std.debug.assert(port.read_buf == null);
+        const rest = gc.allocator.dupe(u8, utf8_buf[1..len]) catch return PrimitiveError.OutOfMemory;
+        port.read_buf = rest;
+        port.read_buf_len = rest.len;
+    }
+    return utf8_buf[0];
 }
 
 const Utf8ReadResult = struct {

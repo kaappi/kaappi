@@ -536,6 +536,18 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
         .target = opts.target,
         .optimize = opts.optimize,
     });
+    // (srfi 181) moved from a bare registry entry to a real .sld (the
+    // registry shadows a same-named .sld, so it can't stay both) -- same
+    // sandboxed/WASM-availability problem as (kaappi parallel) above, same
+    // fix.
+    const srfi_181_sld_wf = b.addWriteFiles();
+    _ = srfi_181_sld_wf.addCopyFile(b.path("lib/srfi/181.sld"), "181.sld");
+    const srfi_181_sld_embed = srfi_181_sld_wf.add("kaappi_srfi_181_sld.zig", "pub const source = @embedFile(\"181.sld\");\n");
+    mod.addAnonymousImport("kaappi_srfi_181_sld", .{
+        .root_source_file = srfi_181_sld_embed,
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
     if (opts.linenoise) {
         mod.addCSourceFile(.{
             .file = b.path("vendor/linenoise/linenoise.c"),

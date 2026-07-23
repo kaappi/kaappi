@@ -1,13 +1,14 @@
-;; SRFI-181 (Custom Ports) conformance tests
+;; SRFI-181 (Custom Ports and Transcoded Ports) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi181.scm
 ;;
-;; Built in (no lib/srfi/181.sld -- see src/primitives_srfi181.zig, gated
-;; behind the srfi_181 Lib tag). This pass implements the 5 port
-;; constructors (make-custom-binary-input-port, -output-port,
+;; lib/srfi/181.sld imports the native srfi_181_primitives sub-library and
+;; re-exports its full surface: the 5 custom-port constructors
+;; (make-custom-binary-input-port, -output-port,
 ;; make-custom-textual-input-port, -output-port,
-;; make-custom-binary-input/output-port) plus make-file-error. Transcoded
-;; ports (make-transcoder, codecs, eol-styles, the raise error-handling
-;; mode) are a separate follow-up -- see the tracking issue.
+;; make-custom-binary-input/output-port) plus make-file-error, and the
+;; transcoded-port layer (make-transcoder, native-transcoder, codecs,
+;; eol-styles, the raise error-handling mode) tested in its own section
+;; below.
 ;;
 ;; Custom port callbacks run through vm.callWithArgs, which always
 ;; executes with dispatched_from_scheduler forced false: a callback that
@@ -15,6 +16,18 @@
 ;; catchable error rather than risking a native-stack-overflow recursive
 ;; scheduler drive -- callbacks must be effectively synchronous,
 ;; non-blocking code. See the "blocking callback" section below.
+;;
+;; The transcoded-port section below is deliberately narrower than
+;; src/tests_srfi181.zig's own coverage of the decode/encode loop itself
+;; (byte-level UTF-8 validity, CRLF lookahead pushback, raiseContinuable
+;; wiring) -- those are proven once, directly against the Zig
+;; implementation, independent of this portable layer. This section
+;; instead covers what only exists at this layer: make-codec,
+;; native-transcoder's defaults, unknown-encoding-error?,
+;; bytevector->string/string->bytevector, and end-to-end wiring through
+;; the compiled .sld (including a case the Zig tests don't reach at all:
+;; a multi-byte character split across many single-byte read! calls on a
+;; *custom* wrapped port, and a bidirectional transcoded port).
 
 (import (scheme base) (scheme write) (scheme process-context)
         (kaappi fibers) (srfi 181) (srfi 192) (srfi 64))
@@ -297,6 +310,205 @@
 (test-assert "make-file-error: satisfies file-error?" (file-error? (make-file-error "boom")))
 (test-assert "make-file-error: does not satisfy read-error?" (not (read-error? (make-file-error "boom"))))
 (test-assert "make-file-error: no arguments still constructs a file-error" (file-error? (make-file-error)))
+
+;;; ==================================================================
+;;; Transcoded ports
+;;; ==================================================================
+
+;;; --- native-transcoder / transcoder? ---
+
+(test-assert "native-transcoder: satisfies transcoder?" (transcoder? (native-transcoder)))
+
+;;; --- codecs ---
+
+(test-assert "utf-8-codec: eqv? to itself across calls" (eqv? (utf-8-codec) (utf-8-codec)))
+(test-assert "make-codec: matches \"UTF-8\" case-insensitively"
+  (eqv? (utf-8-codec) (make-codec "UTF-8")))
+(test-assert "make-codec: matches \"utf8\" (no hyphen)"
+  (eqv? (utf-8-codec) (make-codec "utf8")))
+(test-assert "make-codec: an unrecognized name signals unknown-encoding-error?"
+  (guard (e (#t (unknown-encoding-error? e)))
+    (make-codec "shift-jis")
+    #f))
+(test-equal "unknown-encoding-error-name: reports the rejected name"
+  "shift-jis"
+  (guard (e (#t (unknown-encoding-error-name e)))
+    (make-codec "shift-jis")))
+
+;;; --- native-eol-style ---
+
+(test-assert "native-eol-style: one of the two implemented eol-styles"
+  (memv (native-eol-style) '(lf crlf)))
+
+;;; --- transcoded-port: decode ---
+
+(let* ((t (native-transcoder))
+       (bp (open-input-bytevector (string->utf8 "hello")))
+       (tp (transcoded-port bp t)))
+  (test-assert "transcoded-port: textual-port?, not binary-port?"
+    (and (textual-port? tp) (not (binary-port? tp))))
+  (test-equal "transcoded-port: decodes ASCII via read-char" #\h (read-char tp))
+  (test-equal "transcoded-port: read-line decodes the rest" "ello" (read-line tp))
+  (test-assert "transcoded-port: EOF after exhaustion" (eof-object? (read-char tp))))
+
+;;; --- transcoded-port: encode ---
+
+(let* ((t (native-transcoder))
+       (bp (open-output-bytevector))
+       (tp (transcoded-port bp t)))
+  (write-string "hello" tp)
+  (test-equal "transcoded-port: write-string encodes to the wrapped bytevector"
+    (string->utf8 "hello")
+    (get-output-bytevector bp)))
+
+;;; --- multi-byte UTF-8 split across many 1-byte read! calls ---
+;;; Wraps a *custom* binary port that only ever yields one byte per read!
+;;; call (the same technique the custom-port suite above uses to force
+;;; readOneByte's caller to loop) underneath a transcoded port, so decoding
+;;; a multi-byte character genuinely requires several separate readOneByte
+;;; calls into the wrapped port -- not just indexing into an
+;;; already-fully-buffered bytevector port.
+
+(let* ((src (string->utf8 "aéz")) ; 1-byte, 2-byte (e-acute), 1-byte
+       (pos 0)
+       (bp (make-custom-binary-input-port
+             "one-byte-at-a-time"
+             (lambda (bv start count)
+               (if (>= pos (bytevector-length src)) 0
+                   (begin (bytevector-u8-set! bv start (bytevector-u8-ref src pos))
+                          (set! pos (+ pos 1))
+                          1)))
+             #f #f #f))
+       (tp (transcoded-port bp (native-transcoder))))
+  (test-equal "transcoded-port: multi-byte character decoded across many 1-byte read! calls"
+    "aéz"
+    (read-string 10 tp)))
+
+;;; --- eol-style ---
+
+(let* ((t (make-transcoder (utf-8-codec) 'crlf 'replace))
+       (bp (open-input-bytevector (string->utf8 "a\r\nb\rc\nd")))
+       (tp (transcoded-port bp t)))
+  (test-equal "transcoded-port: eol-style crlf collapses CR/LF/CRLF on read"
+    "a\nb\nc\nd"
+    (read-string 10 tp)))
+
+(let* ((t (make-transcoder (utf-8-codec) 'crlf 'replace))
+       (bp (open-output-bytevector))
+       (tp (transcoded-port bp t)))
+  (write-string "a\nb" tp)
+  (test-equal "transcoded-port: eol-style crlf expands newline to CRLF on write"
+    (string->utf8 "a\r\nb")
+    (get-output-bytevector bp)))
+
+;;; --- replace mode ---
+
+(let* ((t (make-transcoder (utf-8-codec) 'none 'replace))
+       (bp (open-input-bytevector (bytevector 65 255 66))) ; A, invalid, B
+       (tp (transcoded-port bp t)))
+  (test-equal "transcoded-port: replace mode substitutes U+FFFD for invalid UTF-8"
+    "A\xFFFD;B"
+    (read-string 10 tp)))
+
+;;; --- raise mode ---
+
+(let* ((t (make-transcoder (utf-8-codec) 'none 'raise))
+       (bp (open-input-bytevector (bytevector 65 255 66))) ; A, invalid, B
+       (tp (transcoded-port bp t))
+       (handler-calls 0)
+       (last-condition #f))
+  (define decoded
+    (with-exception-handler
+      (lambda (e)
+        (set! handler-calls (+ handler-calls 1))
+        (set! last-condition e)
+        'ignored)
+      (lambda ()
+        (let* ((c1 (read-char tp))
+               (c2 (read-char tp)))
+          (list c1 c2)))))
+  (test-equal "transcoded-port: raise mode decodes 'A' then, after signaling, 'B'"
+    (list #\A #\B)
+    decoded)
+  (test-equal "transcoded-port: raise mode's handler runs exactly once"
+    1 handler-calls)
+  (test-assert "transcoded-port: raise mode's condition satisfies i/o-decoding-error?"
+    (i/o-decoding-error? last-condition)))
+
+;;; --- wrapped port closed underneath ---
+
+(let* ((bp (open-input-bytevector (string->utf8 "hi")))
+       (tp (transcoded-port bp (native-transcoder))))
+  (close-port bp)
+  (test-error "transcoded-port: reading after the wrapped port is closed underneath it raises"
+    (read-char tp)))
+
+;;; --- close cascade ---
+
+(let* ((bp (open-input-bytevector (string->utf8 "hi")))
+       (tp (transcoded-port bp (native-transcoder))))
+  (close-port tp)
+  (test-assert "transcoded-port: closing it also closes the wrapped port"
+    (not (input-port-open? bp))))
+
+;;; --- port-position unsupported ---
+
+(let* ((bp (open-input-bytevector (string->utf8 "hi")))
+       (tp (transcoded-port bp (native-transcoder))))
+  (test-assert "transcoded-port: port-has-port-position? is false"
+    (not (port-has-port-position? tp)))
+  (test-error "transcoded-port: port-position signals an error"
+    (port-position tp)))
+
+;;; --- bidirectional transcoded port ---
+
+(let* ((state '())
+       (bp (make-custom-binary-input/output-port
+             "bidi"
+             (lambda (bv start count) 0) ; EOF on read
+             (lambda (bv start count)
+               (let loop ((i start) (n 0))
+                 (when (< n count)
+                   (set! state (cons (bytevector-u8-ref bv i) state))
+                   (loop (+ i 1) (+ n 1))))
+               count)
+             #f #f #f))
+       (tp (transcoded-port bp (native-transcoder))))
+  (test-assert "transcoded-port: bidirectional wrapping is both input and output"
+    (and (input-port? tp) (output-port? tp)))
+  (write-char #\A tp)
+  (test-assert "transcoded-port: bidirectional EOF on the read side" (eof-object? (read-char tp)))
+  (test-equal "transcoded-port: bidirectional write side received the byte"
+    '(65)
+    (reverse state)))
+
+;;; --- bytevector->string / string->bytevector ---
+
+(test-equal "bytevector->string: decodes UTF-8 bytes to a string"
+  "café"
+  (bytevector->string (string->utf8 "café") (native-transcoder)))
+
+(test-equal "string->bytevector: encodes a string to UTF-8 bytes"
+  (string->utf8 "café")
+  (string->bytevector "café" (native-transcoder)))
+
+(test-equal "bytevector->string / string->bytevector: round trip"
+  "hello world"
+  (bytevector->string (string->bytevector "hello world" (native-transcoder)) (native-transcoder)))
+
+;;; --- invalid transcoder components are rejected at first use ---
+
+(test-error "transcoded-port: an unrecognized codec symbol is rejected"
+  (transcoded-port (open-input-bytevector #u8()) (make-transcoder 'bogus 'none 'replace)))
+
+(test-error "transcoded-port: an unrecognized eol-style symbol is rejected"
+  (transcoded-port (open-input-bytevector #u8()) (make-transcoder (utf-8-codec) 'bogus 'replace)))
+
+(test-error "transcoded-port: an unrecognized error-handling-mode symbol is rejected"
+  (transcoded-port (open-input-bytevector #u8()) (make-transcoder (utf-8-codec) 'none 'bogus)))
+
+(test-error "transcoded-port: a non-binary wrapped port is rejected"
+  (transcoded-port (open-input-string "hi") (native-transcoder)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-181")
