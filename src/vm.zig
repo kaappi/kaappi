@@ -210,6 +210,15 @@ pub const VM = struct {
     current_error_port_param: Value = types.VOID,
     lib_paths: []const []const u8 = &.{},
     command_line_args: []const []const u8 = &.{},
+    /// SRFI 59/193: the absolute, allocator-owned path of the top-level
+    /// script currently running, resolved once at startup (runFile) --
+    /// `.`/`..` are lexically normalized but symlinks are never followed,
+    /// matching SRFI 193's own "absolute pathname ... symbolic links are
+    /// not resolved" text. `null` when not running a script (REPL, stdin,
+    /// or a `load`ed/imported file -- this is the top-level script's own
+    /// path, not whatever happens to be loading right now, unlike the
+    /// transient per-load `current_lib_dir` below).
+    script_path: ?[]const u8 = null,
     loading_libs: std.StringHashMap(void),
     /// Directory of the .sld file currently being loaded, for resolving include paths.
     current_lib_dir: ?[]const u8 = null,

@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-150 SRFIs supported. 12 built-in (native Zig), 136 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+157 SRFIs supported. 12 built-in (native Zig), 143 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -103,7 +103,7 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### Portable SRFIs (136 libraries, plus SRFI 226 as sub-libraries only)
+### Portable SRFIs (143 libraries, plus SRFI 226 as sub-libraries only)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -142,6 +142,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 48 | Intermediate format strings |
 | 51 | Handling rest list |
 | 54 | Formatting |
+| 59 | Vicinity |
 | 60 | Integers as bits |
 | 61 | A more general cond clause |
 | 62 | S-expression comments |
@@ -152,17 +153,21 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 78 | Lightweight testing |
 | 86 | MU and NU simulating VALUES & CALL-WITH-VALUES |
 | 87 | => in case clauses |
+| 90 | Extensible hash table constructor (reduced scope) § |
 | 94 | Type-Restricted Numerical Functions |
 | 95 | Sorting and merging |
 | 98 | Environment variables |
 | 101 | Purely functional random-access pairs and lists |
 | 111 | Boxes |
+| 112 | Environment Inquiry |
 | 113 | Sets and bags |
 | 115 | Scheme regular expressions § |
 | 116 | Immutable list library |
 | 117 | Queues based on lists |
 | 118 | Simple adjustable-size strings |
+| 123 | Generic accessor and modifier operators |
 | 125 | Intermediate hash tables |
+| 126 | R6RS-based hashtables (reduced scope) § |
 | 127 | Lazy sequences |
 | 128 | Comparators (reduced) |
 | 129 | Titlecase |
@@ -189,6 +194,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 168 | Generic tuple store database |
 | 169 | Underscores in numbers |
 | 171 | Transducers |
+| 173 | Hooks |
 | 174 | POSIX timespecs |
 | 175 | ASCII character library |
 | 178 | Bitvector library |
@@ -198,6 +204,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 188 | Splicing binding constructs for syntactic keywords |
 | 189 | Maybe and Either |
 | 190 | Coroutine generators |
+| 193 | Command line |
 | 194 | Random data generators |
 | 195 | Multiple-value boxes |
 | 196 | Range objects |
@@ -318,4 +325,15 @@ transcoded-port surface (`make-transcoder`, `native-transcoder`,
 codec — `latin-1-codec`/`utf-16-codec` are not exported at all, rather than
 bound to a procedure that always fails; `make-codec` correctly signals
 `unknown-encoding-error?` for any name it doesn't recognize, including
-"latin-1"/"utf-16" by name; see the header of `lib/srfi/181.sld`.
+"latin-1"/"utf-16" by name; see the header of `lib/srfi/181.sld`. SRFI 90
+(Extensible hash table constructor) implements `make-table` with `test`
+and `hash` as ordinary positional optional arguments rather than SRFI 89's
+named-parameter syntax (`test:`/`hash:`/...) — SRFI 89 is not implemented
+(see `docs/dev/srfi-exclusions.md`) — and drops `size:`/`min-load:`/`max-load:`/
+`weak-keys:`/`weak-values:` entirely, which the spec's own text permits
+ignoring; see the header of `lib/srfi/90.sld`. SRFI 126 (R6RS-based
+hashtables) implements the full non-weak baseline (every constructor,
+accessor, mutator, and iteration procedure) but not weak/ephemeral
+hashtables or the `#hasheq(...)`-style reader/printer syntax, both of
+which the spec's own text says "cannot be implemented by portable library
+code"; see the header of `lib/srfi/126.sld`.
