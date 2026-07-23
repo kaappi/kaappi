@@ -87,7 +87,18 @@
     (define (make-codec name)
       (if (or (string-ci=? name "utf-8") (string-ci=? name "utf8"))
           'utf-8
-          (raise (%make-unknown-encoding-error name))))
+          ;; The spec requires unknown-encoding-error-name's result to be
+          ;; immutable ("it is an error to mutate this string") -- the
+          ;; same contract symbol->string already has and enforces (via
+          ;; the same flags.immutable check string-set! consults). There
+          ;; is no portable "freeze this string" primitive, so round-trip
+          ;; through a symbol: string->symbol accepts any string content
+          ;; verbatim (no identifier-syntax restriction, per R7RS), and
+          ;; symbol->string always returns a fresh, immutable copy -- this
+          ;; also means the condition never aliases the caller's own
+          ;; `name` string, so a caller mutating it afterward can't affect
+          ;; the already-raised condition either.
+          (raise (%make-unknown-encoding-error (symbol->string (string->symbol name))))))
 
     ;;; --------------------------------------------------------------
     ;;; Transcoders -- an opaque record; %transcoder-codec et al. are

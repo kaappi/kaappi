@@ -335,6 +335,29 @@
   (guard (e (#t (unknown-encoding-error-name e)))
     (make-codec "shift-jis")))
 
+;; SRFI 181: "It is an error to mutate this string" -- Kaappi enforces this
+;; the same way it already does for symbol->string's result (both check
+;; the same flags.immutable bit string-set! consults). Must pass a
+;; genuinely mutable string (string-copy, not a literal): a string
+;; literal is already immutable via the reader's own quoted-data handling
+;; regardless of make-codec's own behavior, which would make this test
+;; pass even without make-codec freezing anything itself.
+(test-error "unknown-encoding-error-name: the returned string is immutable"
+  (string-set! (guard (e (#t (unknown-encoding-error-name e)))
+                 (make-codec (string-copy "shift-jis")))
+               0 #\X))
+
+;; The condition must not alias the caller's own (mutable) argument string
+;; -- mutating it after the fact must not retroactively corrupt the
+;; already-raised condition's name.
+(let* ((name (string-copy "shift-jis"))
+       (reported (guard (e (#t (unknown-encoding-error-name e)))
+                   (make-codec name))))
+  (string-set! name 0 #\X)
+  (test-equal "unknown-encoding-error-name: does not alias the caller's argument string"
+    "shift-jis"
+    reported))
+
 ;;; --- native-eol-style ---
 
 (test-assert "native-eol-style: one of the two implemented eol-styles"
