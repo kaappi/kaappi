@@ -223,6 +223,31 @@
   (flush-output-port p)
   (test-assert "custom port: flush-output-port succeeds when flush_proc is #f" #t))
 
+;; R7RS: "If port is an output port, it is flushed before being closed."
+;; A custom port whose write! buffers internally (relying on flush! to
+;; actually emit) must not lose that data on close-port without an
+;; explicit flush-output-port call first.
+(let* ((internal-buffer '())
+       (emitted '())
+       (p (make-custom-binary-output-port
+            "buffered"
+            (lambda (bv start count)
+              (let loop ((i start) (n 0))
+                (when (< n count)
+                  (set! internal-buffer (cons (bytevector-u8-ref bv i) internal-buffer))
+                  (loop (+ i 1) (+ n 1))))
+              count)
+            #f #f  ; get-position, set-position!
+            #f     ; close
+            (lambda () (set! emitted internal-buffer))))) ; flush
+  (write-u8 65 p)
+  (write-u8 66 p)
+  (test-equal "custom port: nothing emitted before close (flush_proc not yet called)"
+    '() emitted)
+  (close-port p)
+  (test-equal "custom port: close-port flushes an output port before closing it"
+    '(66 65) emitted))
+
 ;;; --- error propagation ---
 
 (test-error "custom port: a read! that raises propagates the error"

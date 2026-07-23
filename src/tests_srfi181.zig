@@ -75,3 +75,34 @@ test "custom port: unreachable port and its callbacks are fully collected (no le
     // at gc.deinit() above would fail this test with a real memory leak.
     try expectEqual(@as(usize, 0), gc.object_count);
 }
+
+test "custom port: allocCustomPort roots its own callback arguments during allocation-time collection" {
+    // The two tests above pre-root read_proc/close_proc with gc.pushRoot
+    // before calling allocCustomPort, same as any ordinary caller would --
+    // but that means they can't tell whether allocCustomPort's OWN
+    // slice_roots protection (the thing that actually matters, since a
+    // real caller's args come from VM registers already rooted by a
+    // different mechanism) is present or missing. This test passes the
+    // callbacks in deliberately UNROOTED (from this test's own
+    // perspective) and forces a collection via gc.stress -- a runtime
+    // field independent of the -Dgc-stress build flag -- during
+    // allocCustomPort's own maybeCollect() call, so only its internal
+    // slice_roots usage can keep them alive.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+    const read_proc = try gc.allocPair(fix(1), types.NIL);
+    const close_proc = try gc.allocPair(fix(2), types.NIL);
+
+    gc.enabled = true;
+    gc.stress = true;
+    var port = try gc.allocCustomPort(true, false, true, read_proc, types.FALSE, types.FALSE, types.FALSE, close_proc, types.FALSE);
+    gc.pushRoot(&port);
+    defer gc.popRoot();
+
+    const cb = types.toObject(port).as(types.Port).custom_backend.?;
+    try expect(types.isPair(cb.read_proc));
+    try expectEqual(@as(i64, 1), types.toFixnum(types.car(cb.read_proc)));
+    try expect(types.isPair(cb.close_proc));
+    try expectEqual(@as(i64, 2), types.toFixnum(types.car(cb.close_proc)));
+}

@@ -1213,19 +1213,22 @@ fn raiseIoWaitAbandoned(vm: *VM) VMError {
 }
 
 /// SRFI 181: a custom port's read!/write!/get-position/set-position!/
-/// close/flush callback tried to block on another port's fd. Every such
-/// callback runs through vm.callWithArgs, which always executes with
-/// dispatched_from_scheduler forced false — so this fiber could never
-/// park here the normal way, only recursively drive the scheduler in
-/// place, which is the unbounded-native-stack-growth risk this rejects
-/// instead. See vm.in_custom_port_callback's doc comment for the full
-/// reasoning.
+/// close/flush callback tried to block -- either on another port's fd
+/// (this function is called from waitForFd above) or via thread-sleep!
+/// (also called from primitives_srfi18.threadSleepFn's equivalent guard).
+/// Every such callback runs through vm.callWithArgs, which always
+/// executes with dispatched_from_scheduler forced false — so this fiber
+/// could never park here the normal way, only recursively drive the
+/// scheduler in place, which is the unbounded-native-stack-growth risk
+/// this rejects instead. See vm.in_custom_port_callback's doc comment for
+/// the full reasoning.
 pub fn raiseCustomPortCallbackBlocked(vm: *VM) VMError {
     var msg = vm.gc.allocString(
         "custom port callback blocked: a SRFI 181 read!/write!/get-position/" ++
-            "set-position!/close/flush procedure tried to block on another " ++
-            "port's I/O, which is not supported -- custom port callbacks must " ++
-            "be effectively synchronous, non-blocking code",
+            "set-position!/close/flush procedure tried to block (e.g. on " ++
+            "another port's I/O, or via thread-sleep!), which is not " ++
+            "supported -- custom port callbacks must be effectively " ++
+            "synchronous, non-blocking code",
     ) catch return VMError.OutOfMemory;
     vm.gc.pushRoot(&msg);
     defer vm.gc.popRoot();
