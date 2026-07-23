@@ -58,11 +58,12 @@
 ;;;   itself -- that native library is reachable directly under `--sandbox`
 ;;;   (unlike SRFI 170/192, which -- being built-in, not `.sld` files --
 ;;;   are excluded by their own `Lib.sandboxAllowed` entry instead), and
-;;;   three of its four procedures (`%implementation-version`, `%os-name`,
-;;;   `%cpu-architecture`) stay reachable there; only the filesystem-path-
-;;;   revealing ones this library itself needs (`%script-path`,
-;;;   `%current-lib-dir`, `%kaappi-lib-dir`, `%implementation-dir`) opt out
-;;;   per-primitive (`src/primitives_sysinfo.zig`).
+;;;   its three static build-info procedures (`%implementation-version`,
+;;;   `%os-name`, `%cpu-architecture`) stay reachable there; only the
+;;;   filesystem-path-revealing ones this library itself needs
+;;;   (`%script-path`, `%current-lib-dir`, `%kaappi-lib-dir`,
+;;;   `%implementation-dir`) opt out per-primitive
+;;;   (`src/primitives_sysinfo.zig`).
 (define-library (srfi 59)
   (import (scheme base) (scheme process-context) (kaappi sysinfo))
   (export program-vicinity
