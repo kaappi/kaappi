@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784910980642,
+  "lastUpdate": 1784925286181,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d6b99e80c15f81a2bd861d0c5226bdddbdc1eb7",
-          "message": "KEP-0002 Phase 7 gate: macOS dataset + filled worksheet (#1472, #1474) (#1549)\n\nThe macOS aarch64 reference machine of the KEP-0003 acceptance-gate\ncampaign, collected at commit b6d349c0 (K-J floor 20x10, w=8, both levers,\n920 launches, 0 failures -- the #1489 fix held at scale):\n\n- benchmarks/gate/results/gate-macos-aarch64.csv: the §6 dataset (+ metadata).\n- benchmarks/gate/classify.py: applies the §5 rules mechanically to the\n  CSV(s) -- the \"reading, not an argument\" -- emitting the share tables and\n  per/combined-machine outcomes.\n- benchmarks/gate/run-gate.py: --serial-invocations/--serial-iterations so the\n  non-gating speedup baselines run at reduced counts.\n- docs/dev/kep-0003-acceptance-gate-worksheet.md: filled with the macOS tables,\n  rule evaluations, and outcome.\n\nmacOS reads 4 Between (stays gated): Rule 1 (Racket) fails -- only IP-MAP\nclears the 25% CI-lower bound (at 64 MiB); IP-BAND and IP-MATMUL are\ncompute-bound -- and Rule 2/3 (Erlang/Absent) fail because IP-MAP, FO-TREE,\nFO-SLICE are far above 10%. Lever D barely moves the shares: the high-share\nworkloads are byte-opaque flonum vectors / trees a bytevector side-heap can't\nshare -- the pre-KEP-0003 walk tax.\n\nBecause macOS is Between, the combined two-machine outcome is Between\nregardless of Linux (agreement or disagreement both resolve to Between per\n§5). The Linux x86_64 half is still worth collecting for a published\ntwo-machine dataset (it was not driveable from the collecting session -- no\ndroplet shell); run the same run-gate.py command on an x86_64 >=8-core box at\nb6d349c0 and feed its CSV to classify.py alongside this one.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T05:43:58+05:30",
-          "tree_id": "a3050a1c8bbd269afda1a0e6ca9ed4be60f07a91",
-          "url": "https://github.com/kaappi/kaappi/commit/5d6b99e80c15f81a2bd861d0c5226bdddbdc1eb7"
-        },
-        "date": 1784075732060,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.451313,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.245255,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.914158,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.471152,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006425,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054065,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504156,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070031,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.386996,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.00325,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.596768,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434625,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.886565,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715828,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045503,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045236,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "996051e0974bc1d7f442edfbc7587fcf48a19855",
+          "message": "Add SRFI 160/66/74, fix SRFI 4 f32 precision (#1694 vector family) (#1737)\n\n* Add SRFI 160/66/74, fix SRFI 4 f32 precision (#1694 vector family)\n\nAdds a native NumericVector heap type (11 element kinds, u8 stays a\nbytevector alias) backing SRFI 160's homogeneous numeric vector\nlibraries, with the full SRFI-133-shaped extended surface implemented\nonce generically in portable Scheme over six minimal Zig primitives.\nSRFI 4 becomes a thin re-export over this substrate, which also fixes\na real bug in the old wrapped-vector implementation: f32vector never\nactually truncated to 32-bit precision. SRFI 66 (octet vectors) and\nSRFI 74 (binary blobs) are pure-portable additions over bytevectors,\nneeding only one new primitive (%host-big-endian?) so `(endianness\nnative)` is correct on kaappi's own big-endian CI targets.\n\nIssue #1694's array family (SRFI 25/47/58/63/164/179/231) remains open\nand tracked separately: three mutually incompatible API lineages plus\na reader-syntax SRFI, out of scope for one slice.\n\n* Fix CodeRabbit review findings: length overflow, complex sign printing\n\n- %make-numeric-vector: reject a length whose element count would\n  overflow usize before narrowing (unreachable on 64-bit targets given\n  the fixnum range, but a real panic-instead-of-catchable-error gap on\n  wasm32); same defense-in-depth check in allocNumericVectorFill,\n  mirroring allocVectorFill's existing pattern.\n- printer.zig: c64/c128 numeric-vector elements printed a doubled sign\n  for +inf/-inf/+nan imaginary parts (formatFlonum already includes its\n  own sign for these) and lost the sign of a -0.0 imaginary part (`<`\n  is false for negative zero). Factored the already-correct handling\n  from the standalone Complex printer arm into a shared helper.\n- srfi160.scm: strengthened three tests that couldn't actually catch a\n  wrong-direction fold-right/unfold-right/unfold! (commutative combiner,\n  index-only unfold callback) into order-sensitive ones.\n\nNot changed, with reasoning: CodeRabbit's suggestion to relocate the\nSRFI documentation additions out of CLAUDE.md/CONFORMANCE.md contradicts\nthis repo's own established convention (every prior SRFI-adding PR\ndocuments there; kaappi.github.io is end-user docs only per root\nCLAUDE.md). Its file-size-split suggestion for types.zig/memory.zig\nflags a pre-existing condition unrelated to this PR — both files were\nalready ~150-300 lines over the 1500 cap before this change, accumulated\nacross many prior SRFIs; splitting them is a large, separate refactor\ndisproportionate to one SRFI PR's scope.",
+          "timestamp": "2026-07-25T01:26:04+05:30",
+          "tree_id": "4b417a6073039a761e9dd2ed9a396a01dc1041d4",
+          "url": "https://github.com/kaappi/kaappi/commit/996051e0974bc1d7f442edfbc7587fcf48a19855"
+        },
+        "date": 1784925284748,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.278905,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.140903,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.887334,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.400751,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006369,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053304,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.497015,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068984,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.471225,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.951958,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.572697,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43482,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.805104,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.596886,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043397,
             "unit": "seconds"
           }
         ]
