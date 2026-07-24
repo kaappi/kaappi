@@ -108,12 +108,25 @@
 ;;; - A task's thunk raising routes to `error-handler` (called with the
 ;;;   raised condition). If `make-timer` was given no handler, or the
 ;;;   handler itself raises, the timer thread stops (matching "otherwise
-;;;   whenever an error is raised, timer stops"); the spec's "preserves the
-;;;   error" is not implemented as a retrievable value -- there is no
-;;;   spec'd accessor for it, so this is the same reduced-scope choice as
-;;;   the missing accessor in the spec text itself.
+;;;   whenever an error is raised, timer stops") and preserves the
+;;;   condition: `timer-cancel!` re-raises it (SRFI 120: "the procedure
+;;;   raises the preserved error if there is").
+;;;
+;;; - LIMITATION: `%timer-loop` runs a due thunk synchronously and only
+;;;   returns to servicing `control` once it completes, so a thunk running
+;;;   longer than %reply-timeout-seconds makes the timer look cancelled to
+;;;   any request racing it: `timer-schedule!`/`timer-reschedule!` raise
+;;;   "not responding", `timer-task-remove!`/`timer-task-exists?` answer
+;;;   #f, and a concurrent `timer-cancel!` won't see a condition the thunk
+;;;   goes on to raise after the timeout elapses (though it still
+;;;   correctly blocks in `thread-join!` until the thread actually exits,
+;;;   so it never returns to the caller before that). SRFI 120's tasks are
+;;;   meant to be short scheduled callbacks, not long-running blocking
+;;;   work, so this is documented as a known gap rather than redesigning
+;;;   the reply protocol around thread liveness instead of a fixed
+;;;   timeout.
 (define-library (srfi 120)
-  (import (scheme base) (srfi 18) (kaappi fibers))
+  (import (scheme base) (srfi 1) (srfi 18) (kaappi fibers))
   (export make-timer timer? timer-cancel!
           timer-schedule! timer-reschedule!
           timer-task-remove! timer-task-exists?
@@ -131,6 +144,8 @@
     ;; (h/m/s/ms/us/ns); the full words are accepted too as a harmless
     ;; extension ("may support other unit").
     (define (make-timer-delta n unit)
+      (unless (integer? n)
+        (error "make-timer-delta: n must be an integer" n))
       (%make-timer-delta
         (case unit
           ((h hours) (* n 3600000))
@@ -167,30 +182,32 @@
     ;; Distinguishes "channel-receive timed out" from "a real message
     ;; arrived" without guarding an exception -- a fresh, uninterned-enough
     ;; pair no caller could ever construct or send. Safe as a plain list
-    ;; (unlike %no-error-sentinel below) only because every use is a local
-    ;; default value handed to and read back from channel-receive within
-    ;; the SAME thread -- it is never itself sent as a message payload
-    ;; across the channel to another thread's heap.
+    ;; only because every use is a local default value handed to and read
+    ;; back from channel-receive within the SAME thread -- it is never
+    ;; itself sent as a message payload across the channel to another
+    ;; thread's heap (contrast the tagged `(stop)` reply below, which must
+    ;; cross threads and so cannot rely on comparing a whole value by
+    ;; `eq?` at all).
     (define %timeout-sentinel (list 'srfi-120-timeout))
 
-    ;; Distinguishes "the timer stopped with no preserved error" from
-    ;; "the preserved error happens to be #f" -- R7RS `raise` accepts any
-    ;; object, including #f, as a legal condition, and SRFI 120's
-    ;; timer-cancel! must re-raise it even then.
-    ;;
-    ;; MUST be a bare symbol, not a fresh list like %timeout-sentinel below:
-    ;; this value crosses the control channel from the timer thread to
-    ;; whichever thread calls timer-cancel!, and channel-send/receive
-    ;; deep-copies non-symbol heap values across threads' independent GC
-    ;; heaps (same as thread-start!/thread-join!, see kaappi/CLAUDE.md's
-    ;; "OS threads" section) -- a freshly-consed list arrives `equal?` but
-    ;; never `eq?` to the sender's own copy, so an `eq?` check against it
-    ;; always fails. A plain symbol survives the hop because Kaappi interns
+    ;; A `(stop)` reply is a tagged pair -- ('ok . #f) for a normal stop,
+    ;; or ('error . condition) to preserve a task's raised condition --
+    ;; rather than a single sentinel value compared by `eq?`/`eqv?`. This
+    ;; reply crosses the control channel from the timer thread to whichever
+    ;; thread calls timer-cancel!, and channel-send/receive deep-copies
+    ;; non-symbol heap values across threads' independent GC heaps (same as
+    ;; thread-start!/thread-join!, see kaappi/CLAUDE.md's "OS threads"
+    ;; section) -- so a single sentinel value, even a plain symbol,
+    ;; compared against the received value is indistinguishable from a task
+    ;; that happens to `raise` that exact object (R7RS `raise` accepts any
+    ;; object whatsoever, so no sentinel value is truly safe to compare
+    ;; whole). Tagging the pair sidesteps this: only the tag symbol itself
+    ;; needs to survive the hop, which it does, because Kaappi interns
     ;; symbols through a single table shared across every thread's heap
     ;; (same reason the 'schedule/'reschedule/'remove/'exists/'stop message
     ;; tags below already work correctly via `case` after crossing this
-    ;; same channel).
-    (define %no-error-sentinel 'srfi-120-no-error)
+    ;; same channel) -- the `cdr` payload underneath the tag is then free
+    ;; to be any object at all, including another 'ok/'error pair.
 
     ;; A reply that never comes back within this window means the timer's
     ;; thread has already exited (cancelled) -- see header. Generous enough
@@ -251,7 +268,8 @@
                        (period (list-ref msg 3))
                        (reply (list-ref msg 4))
                        (found (assv id tasks)))
-                  (channel-send reply (if found #t #f))
+                  ;; SRFI 120: "the procedure returns given id" on success.
+                  (channel-send reply (if found id #f))
                   (loop (if found
                             (cons (list id fire-at period (list-ref found 3))
                                   (%remove-task tasks id))
@@ -266,7 +284,7 @@
                 (let ((id (list-ref msg 1)) (reply (list-ref msg 2)))
                   (channel-send reply (if (assv id tasks) #t #f)))
                 (loop tasks next-id))
-               ((stop) (channel-send (list-ref msg 1) %no-error-sentinel) #f)
+               ((stop) (channel-send (list-ref msg 1) (cons 'ok #f)) #f)
                (else (loop tasks next-id)))))))) ; unknown message: ignore
 
     ;; Entered only after an unhandled task error: the spec requires
@@ -278,7 +296,7 @@
     (define (%wait-for-cancel control condition)
       (let ((msg (channel-receive control)))
         (if (and (pair? msg) (eq? (car msg) 'stop))
-            (channel-send (list-ref msg 1) condition)
+            (channel-send (list-ref msg 1) (cons 'error condition))
             (%wait-for-cancel control condition))))
 
     (define (%remove-task tasks id)
@@ -367,11 +385,10 @@
     ;; A timed-out reply (%reply-timeout-seconds) means the timer was
     ;; already cancelled by an earlier call -- nothing left to preserve,
     ;; so a repeat call is a harmless no-op rather than re-raising the
-    ;; sentinel.
+    ;; timeout sentinel itself.
     (define (timer-cancel! timer)
       (let ((result (%call-timer (%timer-control timer)
                                   (lambda (reply) (list 'stop reply)))))
         (thread-join! (%timer-thread timer))
-        (when (and (not (eq? result %no-error-sentinel))
-                   (not (eq? result %timeout-sentinel)))
-          (raise result))))))
+        (when (and (pair? result) (eq? (car result) 'error))
+          (raise (cdr result)))))))

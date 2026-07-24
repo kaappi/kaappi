@@ -103,8 +103,9 @@
 (let* ((sig (make-channel))
        (t (make-timer))
        (id (timer-schedule! t (lambda () (channel-send sig 'fired)) 1000)))
-  (test-assert "timer-reschedule!: #t when the task was pending"
-    (timer-reschedule! t id 50))
+  ;; SRFI 120: "the procedure returns given id" on success.
+  (test-equal "timer-reschedule!: returns the id when the task was pending"
+              id (timer-reschedule! t id 50))
   (test-equal "timer-reschedule!: the task fires at the NEW time, not the original"
               'fired (channel-receive sig 1.0 'timeout))
   (test-assert "timer-reschedule!: #f for an id that no longer exists"
@@ -128,7 +129,8 @@
 (let* ((sig (make-channel))
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'tick)) 30 30)
-  (channel-receive sig 1.0 'timeout) ; let at least one firing happen
+  (test-equal "timer-cancel!: at least one firing happens before cancellation"
+              'tick (channel-receive sig 1.0 'timeout))
   (timer-cancel! t)
   (test-equal "timer-cancel!: no further firings after cancellation"
               'timeout (channel-receive sig 0.3 'timeout)))
@@ -164,10 +166,16 @@
 
 ;; A handler that itself re-raises is exactly the same "otherwise" case as
 ;; no handler at all -- the re-raised condition (not the original task
-;; error) is what gets preserved.
-(let* ((t (make-timer (lambda (original-condition) (error "srfi-120 test: handler re-raised")))))
+;; error) is what gets preserved. The handler signals right before its own
+;; (error ...) call so the test waits for that to actually happen instead
+;; of guessing a fixed delay.
+(let* ((sig (make-channel))
+       (t (make-timer (lambda (original-condition)
+                         (channel-send sig 'handler-ran)
+                         (error "srfi-120 test: handler re-raised")))))
   (timer-schedule! t (lambda () (error "srfi-120 test: original")) 30)
-  (thread-sleep! 0.3) ; let the task fire and the handler re-raise
+  (test-equal "error-handler: a re-raising handler still runs"
+              'handler-ran (channel-receive sig 2.0 'timeout))
   (test-assert "timer-cancel!: raises the handler's re-raised condition, not the original"
     (guard (c (#t (and (error-object? c)
                         (string=? (error-object-message c) "srfi-120 test: handler re-raised"))))
@@ -183,12 +191,28 @@
 ;; R7RS `raise` accepts any object, including #f -- a task that (raise #f)s
 ;; with no handler must still have timer-cancel! re-raise it, not confuse
 ;; it with the "nothing preserved" case (both would otherwise look like
-;; plain #f).
-(let ((t (make-timer)))
-  (timer-schedule! t (lambda () (raise #f)) 30)
-  (thread-sleep! 0.3)
+;; plain #f). The thunk signals immediately before raising so the test
+;; waits for that instead of guessing a fixed delay.
+(let* ((sig (make-channel))
+       (t (make-timer)))
+  (timer-schedule! t (lambda () (channel-send sig 'about-to-raise) (raise #f)) 30)
+  (test-equal "no error-handler: the task runs before we attempt to cancel"
+              'about-to-raise (channel-receive sig 2.0 'timeout))
   (test-assert "timer-cancel!: re-raises a preserved condition that is itself #f"
     (guard (c ((not c) #t) (#t #f)) (timer-cancel! t) #f)))
+
+;; Same hazard, but with the exact symbol this library's own internal
+;; "no error" sentinel used to be, before timer-cancel!'s reply was changed
+;; to a tagged ('ok . #f) / ('error . condition) pair specifically to make
+;; this class of collision structurally impossible rather than merely an
+;; unlikely name choice.
+(let* ((sig (make-channel))
+       (t (make-timer)))
+  (timer-schedule! t (lambda () (channel-send sig 'about-to-raise) (raise 'srfi-120-no-error)) 30)
+  (test-equal "no error-handler: the task runs before we attempt to cancel (sentinel-lookalike case)"
+              'about-to-raise (channel-receive sig 2.0 'timeout))
+  (test-assert "timer-cancel!: re-raises a preserved condition equal to the old sentinel symbol"
+    (guard (c ((eq? c 'srfi-120-no-error) #t) (#t #f)) (timer-cancel! t) #f)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-120")
