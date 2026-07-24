@@ -19,6 +19,25 @@
 (test-assert "timer-delta?: a plain integer does not satisfy the predicate"
   (not (timer-delta? 5)))
 
+;; SRFI 120's required baseline vocabulary is the abbreviated symbols, not
+;; the full words -- accept both, but the abbreviated ones are the spec
+;; contract.
+(for-each
+  (lambda (unit) (test-assert (string-append "make-timer-delta: accepts required unit '" (symbol->string unit))
+                   (timer-delta? (make-timer-delta 1 unit))))
+  '(h m s ms us ns))
+
+(test-assert "make-timer-delta: rejects a genuinely unknown unit"
+  (guard (c (#t #t)) (make-timer-delta 1 'fortnights) #f))
+
+;; A negative timer-delta is rejected only once actually used (%delta->ms
+;; runs at timer-schedule!/timer-reschedule! call time, not construction
+;; time) -- construction itself never inspects n.
+(let ((t (make-timer)))
+  (test-assert "timer-schedule!: a negative timer-delta is rejected"
+    (guard (c (#t #t)) (timer-schedule! t (lambda () #f) (make-timer-delta -1 's)) #f))
+  (timer-cancel! t))
+
 ;;; --- timer? ------------------------------------------------------------
 
 (let ((t (make-timer)))
@@ -134,7 +153,32 @@
   (timer-schedule! t (lambda () (error "srfi-120 test: unhandled")) 30)
   (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 200)
   (test-equal "no error-handler: the timer stops, so later tasks never fire"
-              'timeout (channel-receive sig 1.0 'timeout)))
+              'timeout (channel-receive sig 1.0 'timeout))
+  ;; SRFI 120: "the procedure raises the preserved error if there is" --
+  ;; timer-cancel! on an already-stopped-by-error timer must re-raise it.
+  (test-assert "timer-cancel!: raises the preserved error from an unhandled task failure"
+    (guard (c (#t (and (error-object? c)
+                        (string=? (error-object-message c) "srfi-120 test: unhandled"))))
+      (timer-cancel! t)
+      #f)))
+
+;; A handler that itself re-raises is exactly the same "otherwise" case as
+;; no handler at all -- the re-raised condition (not the original task
+;; error) is what gets preserved.
+(let* ((t (make-timer (lambda (original-condition) (error "srfi-120 test: handler re-raised")))))
+  (timer-schedule! t (lambda () (error "srfi-120 test: original")) 30)
+  (thread-sleep! 0.3) ; let the task fire and the handler re-raise
+  (test-assert "timer-cancel!: raises the handler's re-raised condition, not the original"
+    (guard (c (#t (and (error-object? c)
+                        (string=? (error-object-message c) "srfi-120 test: handler re-raised"))))
+      (timer-cancel! t)
+      #f)))
+
+;; A normal cancellation (no task ever errored) must NOT raise anything.
+(let ((t (make-timer)))
+  (timer-schedule! t (lambda () #f) 1000)
+  (test-assert "timer-cancel!: a normal cancellation does not raise"
+    (guard (c (#t #f)) (timer-cancel! t) #t)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-120")

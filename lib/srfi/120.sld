@@ -44,6 +44,21 @@
 ;;; single-thread-only as a hard requirement of this implementation until
 ;;; that is investigated separately.
 ;;;
+;;; LIMITATION: the spec requires a task to "be able to cancel or
+;;; reschedule other tasks" on the same timer -- e.g. a health-check task
+;;; cancelling a retry task once it succeeds. This implementation does not
+;;; support that: `%run-due-tasks` invokes thunks synchronously from
+;;; inside `%timer-loop`, so the loop is not servicing `control` while a
+;;; thunk runs, and a thunk that calls `timer-schedule!`/`timer-cancel!`/
+;;; etc. on its own timer deadlocks (it sends a request and waits on a
+;;; reply that can only ever arrive once the loop resumes -- which needs
+;;; the thunk to return first). Fixing this properly needs either
+;;; reentrant reply-channel semantics or running thunks on their own
+;;; thread, and the latter would only route through the same multi-hop
+;;; channel machinery already flagged above as unreliable across threads
+;;; -- so, like the single-thread requirement, this is documented as a
+;;; known gap rather than worked around.
+;;;
 ;;; Design notes:
 ;;;
 ;;; - `when`/`period` are RELATIVE offsets from the moment the procedure is
@@ -112,22 +127,30 @@
       timer-delta?
       (ms %timer-delta-ms))
 
+    ;; The spec's required baseline vocabulary is the abbreviated symbols
+    ;; (h/m/s/ms/us/ns); the full words are accepted too as a harmless
+    ;; extension ("may support other unit").
     (define (make-timer-delta n unit)
       (%make-timer-delta
         (case unit
-          ((hours) (* n 3600000))
-          ((minutes) (* n 60000))
-          ((seconds) (* n 1000))
-          ((milliseconds) n)
-          ((microseconds) (round (/ n 1000)))
-          ((nanoseconds) (round (/ n 1000000)))
+          ((h hours) (* n 3600000))
+          ((m minutes) (* n 60000))
+          ((s seconds) (* n 1000))
+          ((ms milliseconds) n)
+          ((us microseconds) (round (/ n 1000)))
+          ((ns nanoseconds) (round (/ n 1000000)))
           (else (error "make-timer-delta: unknown unit" unit)))))
 
     ;; Accepts either a timer-delta or a plain non-negative integer
-    ;; (milliseconds), per spec. #f (no period given) passes through.
+    ;; (milliseconds), per spec. #f (no period given) passes through. A
+    ;; timer-delta built from a negative n (e.g. (make-timer-delta -1 's))
+    ;; is rejected here too, matching the same non-negative contract the
+    ;; plain-integer branch already enforces.
     (define (%delta->ms x)
       (cond ((not x) #f)
-            ((timer-delta? x) (%timer-delta-ms x))
+            ((timer-delta? x)
+             (let ((ms (%timer-delta-ms x)))
+               (if (>= ms 0) ms (error "expected a non-negative timer-delta" x))))
             ((and (integer? x) (>= x 0)) x)
             (else (error "expected a timer-delta or non-negative integer" x))))
 
@@ -187,8 +210,8 @@
             ((eq? msg %timeout-sentinel)
              (call-with-values
                (lambda () (%run-due-tasks tasks error-handler))
-               (lambda (remaining stop?)
-                 (if stop? #f (loop remaining next-id)))))
+               (lambda (remaining stop? condition)
+                 (if stop? (%wait-for-cancel control condition) (loop remaining next-id)))))
             (else
              (case (car msg)
                ((schedule)
@@ -220,8 +243,20 @@
                 (let ((id (list-ref msg 1)) (reply (list-ref msg 2)))
                   (channel-send reply (if (assv id tasks) #t #f)))
                 (loop tasks next-id))
-               ((stop) #f)
+               ((stop) (channel-send (list-ref msg 1) #f) #f)
                (else (loop tasks next-id)))))))) ; unknown message: ignore
+
+    ;; Entered only after an unhandled task error: the spec requires
+    ;; timer-cancel! to raise the preserved error, so the thread can't
+    ;; just exit -- it must stay alive to deliver `condition` to whichever
+    ;; `(stop reply)` eventually arrives. Any other message received here
+    ;; (the timer has already stopped scheduling) is silently dropped;
+    ;; that caller's own %reply-timeout-seconds fallback covers it.
+    (define (%wait-for-cancel control condition)
+      (let ((msg (channel-receive control)))
+        (if (and (pair? msg) (eq? (car msg) 'stop))
+            (channel-send (list-ref msg 1) condition)
+            (%wait-for-cancel control condition))))
 
     (define (%remove-task tasks id)
       (filter (lambda (task) (not (eqv? (car task) id))) tasks))
@@ -232,39 +267,52 @@
           (apply min (map (lambda (task) (list-ref task 1)) tasks))))
 
     ;; Runs every task whose fire time has passed, wrapping each in
-    ;; `guard` so a raised condition routes to error-handler. Returns two
-    ;; values: the updated task list, and whether the timer must stop
-    ;; (no error-handler, or the handler itself raised).
+    ;; `guard` so a raised condition routes to error-handler. Returns
+    ;; three values: the updated task list, whether the timer must stop
+    ;; (no error-handler, or the handler itself raised), and -- only when
+    ;; stopping -- the condition to preserve for timer-cancel! (SRFI 120:
+    ;; "timer stops and preserves the error... raised when timer-cancel!
+    ;; is called").
     (define (%run-due-tasks tasks error-handler)
       (let ((now (%now-ms)))
-        (let loop ((remaining '()) (pending tasks) (stop? #f))
+        (let loop ((remaining '()) (pending tasks) (stop? #f) (condition #f))
           (cond
-            (stop? (values (append remaining pending) #t))
-            ((null? pending) (values remaining #f))
+            (stop? (values (append remaining pending) #t condition))
+            ((null? pending) (values remaining #f #f))
             (else
              (let* ((task (car pending))
                     (id (list-ref task 0)) (fire-at (list-ref task 1))
                     (period (list-ref task 2)) (thunk (list-ref task 3)))
                (if (> fire-at now)
-                   (loop (cons task remaining) (cdr pending) #f)
-                   (let ((ran-ok? (%run-one-task thunk error-handler)))
-                     (cond
-                       ((not ran-ok?) (loop remaining (cdr pending) #t))
-                       ((or (not period) (= period 0))
-                        (loop remaining (cdr pending) #f))
-                       (else
-                        (loop (cons (list id (+ fire-at period) period thunk) remaining)
-                              (cdr pending) #f)))))))))))
+                   (loop (cons task remaining) (cdr pending) #f #f)
+                   (call-with-values
+                     (lambda () (%run-one-task thunk error-handler))
+                     (lambda (ran-ok? task-condition)
+                       (cond
+                         ((not ran-ok?) (loop remaining (cdr pending) #t task-condition))
+                         ((or (not period) (= period 0))
+                          (loop remaining (cdr pending) #f #f))
+                         (else
+                          (loop (cons (list id (+ fire-at period) period thunk) remaining)
+                                (cdr pending) #f #f))))))))))))
 
-    ;; Returns one value: #t if the timer should keep running afterward,
-    ;; #f if it must stop (unhandled or re-raising error-handler).
+    ;; Returns two values: #t and #f if the timer should keep running
+    ;; afterward (the thunk completed, or error-handler handled its
+    ;; error); #f and the condition if the timer must stop (no
+    ;; error-handler, or error-handler itself raised -- in which case the
+    ;; condition preserved is error-handler's own, not the original task
+    ;; error, matching "the handler will be invoked ... otherwise ...
+    ;; timer stops and preserves the error" read as applying to whichever
+    ;; raise was left unhandled).
     (define (%run-one-task thunk error-handler)
       (guard (condition
               (#t (if error-handler
-                      (guard (inner (#t #f)) (error-handler condition) #t)
-                      #f)))
+                      (guard (inner (#t (values #f inner)))
+                        (error-handler condition)
+                        (values #t #f))
+                      (values #f condition))))
         (thunk)
-        #t))
+        (values #t #f)))
 
     ;; --- public API --------------------------------------------------------
 
@@ -292,6 +340,14 @@
                                   (lambda (reply) (list 'exists id reply)))))
         (if (eq? result %timeout-sentinel) #f result)))
 
+    ;; SRFI 120: "the procedure raises the preserved error if there is."
+    ;; A timed-out reply (%reply-timeout-seconds) means the timer was
+    ;; already cancelled by an earlier call -- nothing left to preserve,
+    ;; so a repeat call is a harmless no-op rather than re-raising the
+    ;; sentinel.
     (define (timer-cancel! timer)
-      (channel-send (%timer-control timer) (list 'stop))
-      (thread-join! (%timer-thread timer)))))
+      (let ((result (%call-timer (%timer-control timer)
+                                  (lambda (reply) (list 'stop reply)))))
+        (thread-join! (%timer-thread timer))
+        (when (and result (not (eq? result %timeout-sentinel)))
+          (raise result))))))

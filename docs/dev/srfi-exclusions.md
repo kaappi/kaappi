@@ -610,9 +610,12 @@ directly, or a new `kaappi-srfi106` — not core.
 
 ## Concurrency-model-incompatible SRFIs (2)
 
-Both extend SRFI 18 in a direction that needs a fundamentally different
-threading model than Kaappi's: real OS threads (`std.Thread.spawn`), each
-with an independent GC heap, coordinated only through deep-copy-at-
+SRFI 21 is a direct extension of SRFI 18; SRFI 230 is a standalone
+atomic-operations interface that merely notes an SRFI-18-based
+implementation is *possible* (not a dependency of its specification).
+Both, however, need a fundamentally different threading model than
+Kaappi's to implement correctly: real OS threads (`std.Thread.spawn`),
+each with an independent GC heap, coordinated only through deep-copy-at-
 boundary (`thread-start!`/`thread-join!`) and explicit message-passing
 channels (`(kaappi fibers)`, closed this session's slice 2 for SRFI 120's
 timer scheduling). Neither SRFI is achievable as an additive library over
