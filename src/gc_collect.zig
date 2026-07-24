@@ -112,6 +112,13 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
                 if (isYoungPointer(gc, field)) return true;
             }
         },
+        // SRFI 237: `parent` is the only heap pointer on RecordType.
+        .record_type => {
+            const rt = obj.as(RecordType);
+            if (rt.parent) |p| {
+                if (isYoungPointer(gc, types.makePointer(&p.header))) return true;
+            }
+        },
         .hash_table => {
             const ht = obj.as(HashTable);
             if (isYoungPointer(gc, ht.equiv_fn) or isYoungPointer(gc, ht.hash_fn)) return true;
@@ -312,7 +319,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const tc = obj.as(TransportCell);
             if (isYoungPointer(gc, tc.key) or isYoungPointer(gc, tc.value)) return true;
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
     return false;
 }
@@ -548,6 +555,10 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, types.makePointer(&ri.record_type.header));
             for (ri.fields) |field| markValue(gc, field);
         },
+        .record_type => {
+            const rt = obj.as(RecordType);
+            if (rt.parent) |p| markValue(gc, types.makePointer(&p.header));
+        },
         .promise => {
             const p = obj.as(Promise);
             markValue(gc, p.value);
@@ -647,7 +658,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, tc.key);
             markValue(gc, tc.value);
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
 
@@ -851,7 +862,12 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, err.irritants) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, err.uncaught_reason) catch @panic("GC mark: worklist OOM");
         },
-        .record_type => {},
+        .record_type => {
+            const rt = obj.as(RecordType);
+            if (rt.parent) |p| {
+                worklist.append(gc.allocator, types.makePointer(&p.header)) catch @panic("GC mark: worklist OOM");
+            }
+        },
         .record_instance => {
             const ri = obj.as(RecordInstance);
             worklist.append(gc.allocator, types.makePointer(&ri.record_type.header)) catch @panic("GC mark: worklist OOM");
@@ -1066,7 +1082,15 @@ fn objectSize(obj: *Object) usize {
                 t.let_syntax_peer_vals.len * @sizeOf(Value);
         },
         .error_object => @sizeOf(types.ErrorObject),
-        .record_type => @sizeOf(RecordType) + obj.as(RecordType).name.len,
+        .record_type => blk: {
+            const rt = obj.as(RecordType);
+            var size: usize = @sizeOf(RecordType) + rt.name.len;
+            size += rt.own_field_names.len * @sizeOf([]const u8);
+            for (rt.own_field_names) |s| size += s.len;
+            size += rt.own_field_mutable.len * @sizeOf(bool);
+            if (rt.uid) |u| size += u.len;
+            break :blk size;
+        },
         .record_instance => @sizeOf(RecordInstance) + obj.as(RecordInstance).fields.len * @sizeOf(Value),
         .port => blk: {
             const port = obj.as(Port);
@@ -1221,6 +1245,12 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .record_type => {
             const rt = obj.as(RecordType);
+            // `parent` is a live heap object owned by the GC's own sweep,
+            // not memory this RecordType owns -- never freed here.
+            for (rt.own_field_names) |s| gc.allocator.free(s);
+            gc.allocator.free(rt.own_field_names);
+            gc.allocator.free(rt.own_field_mutable);
+            if (rt.uid) |u| gc.allocator.free(u);
             gc.allocator.free(rt.name);
             poisonAndDestroy(gc, RecordType, rt);
         },

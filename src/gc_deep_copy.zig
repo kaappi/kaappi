@@ -5,6 +5,7 @@ const hashtable = @import("primitives_hashtable.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_buffer = @import("shared_buffer.zig");
 const instrument = @import("channel_instrument.zig");
+const vm_mod = @import("vm.zig");
 
 const GC = memory_mod.GC;
 const Value = types.Value;
@@ -292,8 +293,64 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         },
         .record_type => {
             const rt = obj.as(types.RecordType);
-            const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
+            if (rt.parent == null and rt.own_field_count == 0 and rt.uid == null and
+                !rt.sealed and !rt.is_opaque)
+            {
+                // Plain R7RS record type (the common case) -- no SRFI 237
+                // metadata to carry across.
+                const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
+                try visited.put(src_ptr, new_val);
+                return new_val;
+            }
+            // SRFI 237: recurse into `parent` first so a shared ancestor
+            // type is copied once and referentially shared afterward too
+            // (deepCopyValue's own visited-cache check at entry handles
+            // this automatically).
+            var new_parent: ?*types.RecordType = null;
+            if (rt.parent) |p| {
+                const new_parent_val = try deepCopyValue(gc, types.makePointer(&p.header), visited);
+                new_parent = types.toObject(new_parent_val).as(types.RecordType);
+            }
+            // Nongenerative (uid-carrying) types must stay interoperable
+            // across the copy: reuse the destination VM's own registration
+            // for this uid if one already exists, rather than minting a
+            // second, non-interoperable RecordType with the same uid.
+            if (rt.uid) |u| {
+                if (vm_mod.vm_instance) |dest_vm| {
+                    if (dest_vm.record_uid_registry.get(u)) |existing| {
+                        try visited.put(src_ptr, existing);
+                        return existing;
+                    }
+                }
+            }
+            // The source RecordType already exists within field-count
+            // bounds, so TooManyFields can't legitimately occur here --
+            // mapped to OutOfMemory only to stay within DeepCopyError.
+            const new_val = gc.allocRecordTypeExtended(
+                rt.name,
+                new_parent,
+                rt.own_field_names,
+                rt.own_field_mutable,
+                rt.uid,
+                rt.sealed,
+                rt.is_opaque,
+            ) catch |err| return switch (err) {
+                error.TooManyFields => error.OutOfMemory,
+                else => |e| e,
+            };
             try visited.put(src_ptr, new_val);
+            if (rt.uid != null) {
+                if (vm_mod.vm_instance) |dest_vm| {
+                    // Key by the COPY's own uid string (owned by `gc`, the
+                    // destination heap), not the source's -- the source may
+                    // be freed independently of this registry's lifetime.
+                    const new_uid = types.toObject(new_val).as(types.RecordType).uid.?;
+                    var rooted = new_val;
+                    gc.pushRoot(&rooted);
+                    defer gc.popRoot();
+                    dest_vm.record_uid_registry.put(new_uid, new_val) catch return error.OutOfMemory;
+                }
+            }
             return new_val;
         },
         .record_instance => {
