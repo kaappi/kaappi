@@ -1,7 +1,15 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
 const Value = types.Value;
+
+/// Numeric vectors store multi-byte elements in host-native byte order --
+/// there's no reader syntax to round-trip and no cross-process persistence
+/// (bytecode serialization is out of scope, see docs/dev/srfi-exclusions
+/// equivalent notes), so native order avoids needless byte-swaps on
+/// big-endian hosts (s390x, ppc64le) for zero portability cost.
+const native_endian = builtin.cpu.arch.endian();
 
 pub const PrintMode = enum {
     write, // machine-readable, strings quoted
@@ -631,6 +639,52 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     try writer.print("{d}", .{byte});
                 }
                 try writer.writeByte(')');
+            },
+            .numeric_vector => {
+                const nv = obj.as(types.NumericVector);
+                try writer.print("#<{s}vector", .{@tagName(nv.kind)});
+                const width = nv.kind.elementWidth();
+                var buf: [64]u8 = undefined;
+                var i: usize = 0;
+                while (i < nv.data.len) : (i += width) {
+                    try writer.writeByte(' ');
+                    switch (nv.kind) {
+                        .s8 => try writer.print("{d}", .{@as(i8, @bitCast(nv.data[i]))}),
+                        .u16 => try writer.print("{d}", .{std.mem.readInt(u16, nv.data[i..][0..2], native_endian)}),
+                        .s16 => try writer.print("{d}", .{std.mem.readInt(i16, nv.data[i..][0..2], native_endian)}),
+                        .u32 => try writer.print("{d}", .{std.mem.readInt(u32, nv.data[i..][0..4], native_endian)}),
+                        .s32 => try writer.print("{d}", .{std.mem.readInt(i32, nv.data[i..][0..4], native_endian)}),
+                        .u64 => try writer.print("{d}", .{std.mem.readInt(u64, nv.data[i..][0..8], native_endian)}),
+                        .s64 => try writer.print("{d}", .{std.mem.readInt(i64, nv.data[i..][0..8], native_endian)}),
+                        .f32 => {
+                            const bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
+                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(bits))));
+                        },
+                        .f64 => {
+                            const bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
+                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(bits))));
+                        },
+                        .c64 => {
+                            const re_bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
+                            const im_bits = std.mem.readInt(u32, nv.data[i + 4 ..][0..4], native_endian);
+                            const im: f32 = @bitCast(im_bits);
+                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(re_bits))));
+                            try writer.writeByte(if (im < 0) '-' else '+');
+                            try writer.writeAll(formatFlonum(&buf, @abs(im)));
+                            try writer.writeByte('i');
+                        },
+                        .c128 => {
+                            const re_bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
+                            const im_bits = std.mem.readInt(u64, nv.data[i + 8 ..][0..8], native_endian);
+                            const im: f64 = @bitCast(im_bits);
+                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(re_bits))));
+                            try writer.writeByte(if (im < 0) '-' else '+');
+                            try writer.writeAll(formatFlonum(&buf, @abs(im)));
+                            try writer.writeByte('i');
+                        },
+                    }
+                }
+                try writer.writeByte('>');
             },
             .promise => {
                 try writer.writeAll("#<promise>");

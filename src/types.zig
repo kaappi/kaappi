@@ -156,6 +156,7 @@ pub fn typeName(val: Value) []const u8 {
         .ephemeron => "ephemeron",
         .guardian => "guardian",
         .transport_cell => "transport-cell",
+        .numeric_vector => "numeric-vector",
     };
 }
 
@@ -207,6 +208,9 @@ pub const ObjectTag = enum(u6) {
     ephemeron = 37,
     guardian = 38,
     transport_cell = 39,
+    // SRFI 160: homogeneous numeric vectors other than u8 (which stays a
+    // plain bytevector alias, per SRFI 160's own recommended identity).
+    numeric_vector = 40,
 };
 
 pub const Object = struct {
@@ -278,6 +282,7 @@ pub const Object = struct {
             Ephemeron => .ephemeron,
             Guardian => .guardian,
             TransportCell => .transport_cell,
+            NumericVector => .numeric_vector,
             else => null,
         };
     }
@@ -563,6 +568,49 @@ pub const Bytevector = struct {
     /// reference; a mutator first calls GC.unshareBytevector (copy-on-write).
     /// Always null in the shipped default (lever `none`).
     shared: ?*anyopaque = null,
+};
+
+/// SRFI 160's homogeneous numeric vector element types, minus `u8` (which
+/// stays a plain R7RS bytevector -- SRFI 160 explicitly recommends
+/// u8vector/bytevector identity, and this codebase's pre-existing SRFI 4
+/// port already relies on it).
+pub const NumericElementKind = enum(u8) {
+    s8,
+    u16,
+    s16,
+    u32,
+    s32,
+    u64,
+    s64,
+    f32,
+    f64,
+    c64,
+    c128,
+
+    /// Byte width of one element. c64/c128 are 2 consecutive f32s/f64s
+    /// (real, imag) packed contiguously -- never boxed inside the buffer.
+    pub fn elementWidth(self: NumericElementKind) usize {
+        return switch (self) {
+            .s8 => 1,
+            .u16, .s16 => 2,
+            .u32, .s32, .f32 => 4,
+            .u64, .s64, .f64, .c64 => 8,
+            .c128 => 16,
+        };
+    }
+};
+
+/// A single new heap type covers all 11 kinds (rather than 11 parallel
+/// ObjectTags) -- see NumericElementKind. Every field is raw numeric
+/// bytes with zero nested `Value` pointers, so this is a GC-trivial leaf
+/// type exactly like Bytevector: all three mark-graph switches in
+/// gc_collect.zig get a no-op arm, only objectSize/freeObject/deep-copy
+/// need real logic. No `shared`-buffer lever (Bytevector's KEP-0002 Lever
+/// D) -- that's a channel-crossing optimization this type doesn't need.
+pub const NumericVector = struct {
+    header: Object,
+    kind: NumericElementKind,
+    data: []u8,
 };
 
 pub const Promise = struct {
@@ -1281,6 +1329,14 @@ pub fn isBytevector(v: Value) bool {
 
 pub fn toBytevector(v: Value) *Bytevector {
     return toObject(v).as(Bytevector);
+}
+
+pub fn isNumericVector(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .numeric_vector;
+}
+
+pub fn toNumericVector(v: Value) *NumericVector {
+    return toObject(v).as(NumericVector);
 }
 
 pub fn isPromise(v: Value) bool {

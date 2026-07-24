@@ -916,6 +916,48 @@ pub const GC = struct {
         return types.makePointer(&bv.header);
     }
 
+    /// SRFI 160. `data` must already be `elements * kind.elementWidth()`
+    /// bytes, correctly encoded -- callers (primitives_srfi160.zig) build the
+    /// byte buffer themselves since encoding is Value-type-dependent.
+    pub fn allocNumericVector(self: *GC, kind: types.NumericElementKind, data: []const u8) !Value {
+        const owned = try self.allocator.dupe(u8, data);
+        errdefer self.allocator.free(owned);
+        try self.maybeCollect();
+        const nv = try self.allocator.create(types.NumericVector);
+        nv.* = .{
+            .header = .{ .tag = .numeric_vector },
+            .kind = kind,
+            .data = owned,
+        };
+        self.finishAlloc(&nv.header, @sizeOf(types.NumericVector) + data.len);
+        return types.makePointer(&nv.header);
+    }
+
+    /// `fill_bytes` is one already-encoded element (`kind.elementWidth()`
+    /// bytes), repeated `elements` times -- callers encode the fill Value
+    /// once, same division of labor as allocNumericVector.
+    pub fn allocNumericVectorFill(self: *GC, kind: types.NumericElementKind, elements: usize, fill_bytes: []const u8) !Value {
+        const width = kind.elementWidth();
+        std.debug.assert(fill_bytes.len == width);
+        const size = elements * width;
+        if (size > max_payload_bytes) return error.OutOfMemory;
+        try self.maybeCollect();
+        const data = try self.allocator.alloc(u8, size);
+        errdefer self.allocator.free(data);
+        var i: usize = 0;
+        while (i < elements) : (i += 1) {
+            @memcpy(data[i * width ..][0..width], fill_bytes);
+        }
+        const nv = try self.allocator.create(types.NumericVector);
+        nv.* = .{
+            .header = .{ .tag = .numeric_vector },
+            .kind = kind,
+            .data = data,
+        };
+        self.finishAlloc(&nv.header, @sizeOf(types.NumericVector) + size);
+        return types.makePointer(&nv.header);
+    }
+
     /// Lever D (kaappi#1472): a bytevector whose bytes are BORROWED from a
     /// refcounted immutable `shared_buffer.SharedBuffer` rather than owned.
     /// `bytes` must be `shared`'s own slice; this object stores the pointer and
