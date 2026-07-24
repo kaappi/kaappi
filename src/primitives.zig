@@ -86,6 +86,11 @@ pub const Lib = enum {
     // registry-shadows-a-.sld reason as srfi_181_primitives/
     // srfi_248_primitives above.
     srfi_237_primitives,
+    // SRFI 160 (homogeneous numeric vector libraries): the generic
+    // NumericVector create/ref/set!/kind/length primitives every
+    // `(srfi 160 <tag>)` per-type .sld builds its named surface on -- same
+    // registry-shadows-a-.sld reason as srfi_237_primitives above.
+    srfi_160_primitives,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
     /// for this tag, so `addExportsForLib` never picks these specs up.
@@ -130,6 +135,7 @@ pub const Lib = enum {
             .srfi_181_primitives => "srfi.181.primitives",
             .srfi_248_primitives => "srfi.248.primitives",
             .srfi_237_primitives => "srfi.237.primitives",
+            .srfi_160_primitives => "srfi.160.primitives",
             .internal => "kaappi.internal",
         };
     }
@@ -259,6 +265,7 @@ pub const all_specs = core_specs ++
     @import("primitives_srfi260.zig").specs ++
     @import("primitives_srfi181.zig").specs ++
     @import("primitives_srfi237.zig").specs ++
+    @import("primitives_srfi160.zig").specs ++
     @import("primitives_sysinfo.zig").specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
@@ -798,6 +805,11 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *VisitedMap) bool {
         const ba = types.toBytevector(a);
         const bb = types.toBytevector(b);
         return std.mem.eql(u8, ba.data, bb.data);
+    }
+    if (types.isNumericVector(a) and types.isNumericVector(b)) {
+        const na = types.toNumericVector(a);
+        const nb = types.toNumericVector(b);
+        return na.kind == nb.kind and std.mem.eql(u8, na.data, nb.data);
     }
     return false;
 }

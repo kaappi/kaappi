@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-164 SRFIs supported. 12 built-in (native Zig), 150 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+167 SRFIs supported. 12 built-in (native Zig), 152 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 and SRFI 160 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)` file (so neither appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -148,9 +148,11 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 61 | A more general cond clause |
 | 62 | S-expression comments |
 | 64 | A testing framework |
+| 66 | Octet vectors |
 | 67 | Compare procedures |
 | 70 | Numbers (reduced scope) § |
 | 71 | Extended LET-syntax for multiple values |
+| 74 | Octet-addressed binary blocks |
 | 78 | Lightweight testing |
 | 86 | MU and NU simulating VALUES & CALL-WITH-VALUES |
 | 87 | => in case clauses |
@@ -191,6 +193,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 153 | Ordered sets |
 | 156 | Syntactic combiners for binary predicates |
 | 158 | Generators and accumulators |
+| 160 | Homogeneous numeric vector libraries |
 | 161 | Unifiable boxes |
 | 162 | Comparators sublibrary |
 | 165 | The Environment Monad |

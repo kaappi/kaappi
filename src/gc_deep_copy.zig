@@ -140,6 +140,12 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             try visited.put(src_ptr, new_val);
             return new_val;
         },
+        .numeric_vector => {
+            const nv = obj.as(types.NumericVector);
+            const new_val = try gc.allocNumericVector(nv.kind, nv.data);
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
         .flonum => try gc.allocFlonum(obj.as(types.Flonum).value),
         .complex => {
             const c = obj.as(types.Complex);

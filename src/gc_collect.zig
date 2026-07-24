@@ -18,6 +18,7 @@ const SchemeString = types.SchemeString;
 const NativeFn = types.NativeFn;
 const Flonum = types.Flonum;
 const Bytevector = types.Bytevector;
+const NumericVector = types.NumericVector;
 const Transformer = types.Transformer;
 const RecordType = types.RecordType;
 const RecordInstance = types.RecordInstance;
@@ -319,7 +320,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const tc = obj.as(TransportCell);
             if (isYoungPointer(gc, tc.key) or isYoungPointer(gc, tc.value)) return true;
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
     return false;
 }
@@ -658,7 +659,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, tc.key);
             markValue(gc, tc.value);
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
 }
 
@@ -1023,7 +1024,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, tc.key) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
+        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
 }
 
@@ -1075,6 +1076,7 @@ fn objectSize(obj: *Object) usize {
         // A backed bytevector (lever D) borrows its bytes from a SharedBuffer,
         // so only the struct counts against this heap.
         .bytevector => @sizeOf(Bytevector) + if (obj.as(Bytevector).shared == null) obj.as(Bytevector).data.len else 0,
+        .numeric_vector => @sizeOf(NumericVector) + obj.as(NumericVector).data.len,
         .transformer => blk: {
             const t = obj.as(Transformer);
             break :blk @sizeOf(Transformer) + t.literals.len * @sizeOf(Value) +
@@ -1271,6 +1273,11 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 gc.allocator.free(bv.data);
             }
             poisonAndDestroy(gc, Bytevector, bv);
+        },
+        .numeric_vector => {
+            const nv = obj.as(NumericVector);
+            gc.allocator.free(nv.data);
+            poisonAndDestroy(gc, NumericVector, nv);
         },
         .promise => {
             const p = obj.as(Promise);

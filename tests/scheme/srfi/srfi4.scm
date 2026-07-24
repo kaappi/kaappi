@@ -105,6 +105,11 @@
 (test-equal #t (guard (e (#t #t)) (s32vector-set! (s32vector 1) 0 2147483648) #f))
 (test-equal #t (guard (e (#t #t)) (s32vector-set! (s32vector 1) 0 -2147483649) #f))
 
+;;; --- f32 truncates to real 32-bit precision (regression: the original
+;;; wrapped-vector implementation stored full f64 precision instead) ---
+(test-assert (not (= 1.1 (f32vector-ref (f32vector 1.1) 0))))
+(test-equal 1.1 (f64vector-ref (f64vector 1.1) 0))
+
 ;;; --- mutation through set! ---
 (let ((v (u16vector 10 20)))
   (u16vector-set! v 0 30000)

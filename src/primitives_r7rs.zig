@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
@@ -37,7 +38,16 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "scheme-report-environment", .func = &schemeReportEnvironmentFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_r5rs), .sandbox = false },
     .{ .name = "load", .func = &loadFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_load, .scheme_r5rs }), .sandbox = false },
     .{ .name = "disassemble", .func = &disassembleFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base), .sandbox = false },
+    // Internal fact for portable libraries that need real hardware byte
+    // order (e.g. SRFI 74's `(endianness native)`) -- not part of any
+    // public R7RS/SRFI surface itself.
+    .{ .name = "%host-big-endian?", .func = &hostBigEndianFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
 };
+
+fn hostBigEndianFn(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    return if (builtin.cpu.arch.endian() == .big) types.TRUE else types.FALSE;
+}
 
 fn disassembleFn(args: []const Value) PrimitiveError!Value {
     if (!types.isClosure(args[0])) return primitives.typeError("disassemble", "procedure", args[0]);
