@@ -180,6 +180,16 @@
   (test-assert "timer-cancel!: a normal cancellation does not raise"
     (guard (c (#t #f)) (timer-cancel! t) #t)))
 
+;; R7RS `raise` accepts any object, including #f -- a task that (raise #f)s
+;; with no handler must still have timer-cancel! re-raise it, not confuse
+;; it with the "nothing preserved" case (both would otherwise look like
+;; plain #f).
+(let ((t (make-timer)))
+  (timer-schedule! t (lambda () (raise #f)) 30)
+  (thread-sleep! 0.3)
+  (test-assert "timer-cancel!: re-raises a preserved condition that is itself #f"
+    (guard (c ((not c) #t) (#t #f)) (timer-cancel! t) #f)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-120")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

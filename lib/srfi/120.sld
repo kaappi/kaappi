@@ -166,8 +166,31 @@
 
     ;; Distinguishes "channel-receive timed out" from "a real message
     ;; arrived" without guarding an exception -- a fresh, uninterned-enough
-    ;; pair no caller could ever construct or send.
+    ;; pair no caller could ever construct or send. Safe as a plain list
+    ;; (unlike %no-error-sentinel below) only because every use is a local
+    ;; default value handed to and read back from channel-receive within
+    ;; the SAME thread -- it is never itself sent as a message payload
+    ;; across the channel to another thread's heap.
     (define %timeout-sentinel (list 'srfi-120-timeout))
+
+    ;; Distinguishes "the timer stopped with no preserved error" from
+    ;; "the preserved error happens to be #f" -- R7RS `raise` accepts any
+    ;; object, including #f, as a legal condition, and SRFI 120's
+    ;; timer-cancel! must re-raise it even then.
+    ;;
+    ;; MUST be a bare symbol, not a fresh list like %timeout-sentinel below:
+    ;; this value crosses the control channel from the timer thread to
+    ;; whichever thread calls timer-cancel!, and channel-send/receive
+    ;; deep-copies non-symbol heap values across threads' independent GC
+    ;; heaps (same as thread-start!/thread-join!, see kaappi/CLAUDE.md's
+    ;; "OS threads" section) -- a freshly-consed list arrives `equal?` but
+    ;; never `eq?` to the sender's own copy, so an `eq?` check against it
+    ;; always fails. A plain symbol survives the hop because Kaappi interns
+    ;; symbols through a single table shared across every thread's heap
+    ;; (same reason the 'schedule/'reschedule/'remove/'exists/'stop message
+    ;; tags below already work correctly via `case` after crossing this
+    ;; same channel).
+    (define %no-error-sentinel 'srfi-120-no-error)
 
     ;; A reply that never comes back within this window means the timer's
     ;; thread has already exited (cancelled) -- see header. Generous enough
@@ -243,7 +266,7 @@
                 (let ((id (list-ref msg 1)) (reply (list-ref msg 2)))
                   (channel-send reply (if (assv id tasks) #t #f)))
                 (loop tasks next-id))
-               ((stop) (channel-send (list-ref msg 1) #f) #f)
+               ((stop) (channel-send (list-ref msg 1) %no-error-sentinel) #f)
                (else (loop tasks next-id)))))))) ; unknown message: ignore
 
     ;; Entered only after an unhandled task error: the spec requires
@@ -349,5 +372,6 @@
       (let ((result (%call-timer (%timer-control timer)
                                   (lambda (reply) (list 'stop reply)))))
         (thread-join! (%timer-thread timer))
-        (when (and result (not (eq? result %timeout-sentinel)))
+        (when (and (not (eq? result %no-error-sentinel))
+                   (not (eq? result %timeout-sentinel)))
           (raise result))))))
