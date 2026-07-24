@@ -339,12 +339,16 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 else => |e| e,
             };
             try visited.put(src_ptr, new_val);
-            if (rt.uid) |u| {
+            if (rt.uid != null) {
                 if (vm_mod.vm_instance) |dest_vm| {
+                    // Key by the COPY's own uid string (owned by `gc`, the
+                    // destination heap), not the source's -- the source may
+                    // be freed independently of this registry's lifetime.
+                    const new_uid = types.toObject(new_val).as(types.RecordType).uid.?;
                     var rooted = new_val;
                     gc.pushRoot(&rooted);
                     defer gc.popRoot();
-                    dest_vm.record_uid_registry.put(u, new_val) catch return error.OutOfMemory;
+                    dest_vm.record_uid_registry.put(new_uid, new_val) catch return error.OutOfMemory;
                 }
             }
             return new_val;

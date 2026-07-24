@@ -108,7 +108,7 @@ fn isOrDescendsFrom(start: *RecordType, target: *RecordType) bool {
 
 /// Same field names, in the same order, with the same mutability -- used
 /// to check R6RS's nongenerative-uid equivalence requirement.
-fn fieldsEquivalent(existing: *RecordType, names: []const []const u8, mutable: []const bool) bool {
+pub fn fieldsEquivalent(existing: *RecordType, names: []const []const u8, mutable: []const bool) bool {
     if (existing.own_field_names.len != names.len) return false;
     for (existing.own_field_names, existing.own_field_mutable, names, mutable) |en, em, n, m| {
         if (em != m or !std.mem.eql(u8, en, n)) return false;

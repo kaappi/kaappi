@@ -23,8 +23,8 @@
 ;;; ALL list-merging/de-duplication/lookup happens at ordinary run time
 ;;; (plain `assq`/`memq` over symbol lists), not macro-expansion time. A
 ;;; scheme or type name is bound with a plain `define` (not `define-
-;;; syntax`) to a `(field-symbols . rtd-or-#f)` pair -- no CPS
-;;; introspection macro, no identifier comparison, no hygiene tricks
+;;; syntax`) to a `(field-symbols rtd-or-#f ancestor-schemes)` list -- no
+;;; CPS introspection macro, no identifier comparison, no hygiene tricks
 ;;; anywhere in this file. This is simpler than the reference design, not
 ;;; just an engine-avoidance workaround.
 ;;;
@@ -38,6 +38,18 @@
 ;;; SRFI-57 scheme can have MULTIPLE parent schemes at once (237's own
 ;;; `parent` field supports only one).
 ;;;
+;;; NOMINAL (not structural) scheme conformance: a record conforms to a
+;;; scheme only if its type was actually declared (directly or
+;;; transitively) to extend that scheme -- matching the spec, which treats
+;;; conformance as a declared relationship, not "happens to have the same
+;;; field names." Since a record instance only carries a pointer to its
+;;; raw (srfi 237) rtd -- which has no field for this library's own scheme
+;;; metadata -- a type's declared ancestry is looked up from a side table
+;;; (%srfi57-registry, an assq alist keyed by rtd) populated once at
+;;; define-record-type time. Schemes don't need a registry entry: their
+;;; own ancestry is stored directly in their value (no rtd to key on, and
+;;; nothing instantiates a scheme on its own).
+;;;
 ;;; DELIBERATE SCOPE REDUCTIONS (documented, not silent gaps):
 ;;;
 ;;; 1. Deconstructor clauses (define-record-scheme's own analogue of a
@@ -47,24 +59,15 @@
 ;;;    non-#f deconstructor name to. A parent scheme's OWN field labels
 ;;;    still merge into a child's field list exactly per spec either way.
 ;;;
-;;; 2. record-update and record-update! validate their <scheme name>/
-;;;    <type name> target (conformance) and label (membership) arguments at
-;;;    CALL time, not at the spec's own stated "expansion time" -- target is
-;;;    an ordinary value here (see DESIGN above), so its identity isn't
-;;;    knowable until the code actually runs. Genuine misuse is still
-;;;    caught, just one phase later than the spec describes.
+;;; 2. record-update, record-update!, and record-compose validate their
+;;;    target/import/export type-or-scheme arguments (conformance) and
+;;;    field labels (membership) at CALL time, not at the spec's own stated
+;;;    "expansion time" -- these are ordinary values here (see DESIGN
+;;;    above), so their identity isn't knowable until the code actually
+;;;    runs. Genuine misuse is still caught, just one phase later than the
+;;;    spec describes.
 ;;;
-;;; 3. A scheme's polymorphic predicate checks conformance STRUCTURALLY --
-;;;    "is this a record whose actual type has every one of the scheme's
-;;;    field labels" -- rather than NOMINALLY (was this type declared, at
-;;;    definition time, to conform to this exact scheme). Indistinguishable
-;;;    from nominal conformance for any type that reaches its fields
-;;;    through this library's own scheme-extension mechanism; could over-
-;;;    accept a type that coincidentally has same-named fields through
-;;;    unrelated means. The same structural check backs record-update/
-;;;    record-update!'s own scheme-target conformance check (note 2).
-;;;
-;;; 4. Every field is internally mutable regardless of whether its field
+;;; 3. Every field is internally mutable regardless of whether its field
 ;;;    clause declares a <modifier clause> -- record-update!/record-compose
 ;;;    must be able to write into any field, including ones with no public
 ;;;    modifier name. The modifier clause only controls whether a PUBLIC
@@ -72,7 +75,7 @@
 ;;;    runtime enforcement mechanism in this engine (record-mutator itself
 ;;;    enforces nothing beyond field existence, per (srfi 237)).
 ;;;
-;;; 5. Labeled record expressions -- the spec's `(<type name> (<field
+;;; 4. Labeled record expressions -- the spec's `(<type name> (<field
 ;;;    label> <expression>) ...)` construction syntax -- are not supported.
 ;;;    Supporting them would require <type name> to be a macro (to see
 ;;;    `(x 1)` as an unevaluated label/expression pair rather than a call to
@@ -98,9 +101,30 @@
               ((memq (car lst) seen) (loop (cdr lst) seen))
               (else (loop (cdr lst) (cons (car lst) seen))))))
 
-    (define (%srfi57-subset? needed have)
-      (or (null? needed)
-          (and (memq (car needed) have) (%srfi57-subset? (cdr needed) have))))
+    ;; --- nominal conformance registry ---------------------------------------
+
+    ;; Maps an rtd (by eq?) to the list of scheme VALUES (by eq?) its type
+    ;; was declared to extend, directly or transitively. Populated once per
+    ;; define-record-type, consulted by every polymorphic predicate/
+    ;; accessor/mutator and by record-update/record-update!/record-compose.
+    (define %srfi57-registry '())
+
+    (define (%srfi57-register! rtd ancestors)
+      (set! %srfi57-registry (cons (cons rtd ancestors) %srfi57-registry)))
+
+    (define (%srfi57-ancestors-of rtd)
+      (let ((p (assq rtd %srfi57-registry)))
+        (if p (cdr p) '())))
+
+    ;; Does record `r` conform to `target` (a scheme or type value)? A type
+    ;; target needs an exact rtd match; a scheme target needs `target`
+    ;; itself to be in r's actual type's declared (transitive) ancestry.
+    (define (%srfi57-conforms? r target)
+      (and (record? r)
+           (let ((rtd (record-rtd r)))
+             (if (cadr target)
+                 (eq? rtd (cadr target))
+                 (and (memq target (%srfi57-ancestors-of rtd)) #t)))))
 
     ;; Builds a full positional field-value list (rtd's own order) from a
     ;; partial (label . value) alist, defaulting any field the alist
@@ -117,28 +141,37 @@
         ((_ ((label . rest) more ...)) (cons 'label (%srfi57-field-names (more ...))))))
 
     ;; Scheme field-clause accessors/mutators are genuinely polymorphic:
-    ;; they resolve via the INSTANCE's own actual rtd (record-rtd), so one
-    ;; accessor works across every type conforming to the scheme.
+    ;; they work across every type conforming to the scheme, but must
+    ;; reject a record that doesn't actually conform (a same-shaped,
+    ;; unrelated record is not enough -- see NOMINAL note above).
     (define-syntax %srfi57-def-poly-acc
       (syntax-rules ()
-        ((_ #f label) (if #f #f))
-        ((_ acc label) (define (acc r) ((record-accessor (record-rtd r) 'label) r)))))
+        ((_ #f label scheme) (if #f #f))
+        ((_ acc label scheme)
+         (define (acc r)
+           (if (%srfi57-conforms? r scheme)
+               ((record-accessor (record-rtd r) 'label) r)
+               (error "accessor: record does not conform to the expected scheme" r))))))
 
     (define-syntax %srfi57-def-poly-mut
       (syntax-rules ()
-        ((_ #f label) (if #f #f))
-        ((_ mut label) (define (mut r v) ((record-mutator (record-rtd r) 'label) r v)))))
+        ((_ #f label scheme) (if #f #f))
+        ((_ mut label scheme)
+         (define (mut r v)
+           (if (%srfi57-conforms? r scheme)
+               ((record-mutator (record-rtd r) 'label) r v)
+               (error "mutator: record does not conform to the expected scheme" r))))))
 
     (define-syntax %srfi57-def-poly-accessors
       (syntax-rules ()
-        ((_ ()) (begin))
-        ((_ ((label) rest ...)) (%srfi57-def-poly-accessors (rest ...)))
-        ((_ ((label acc) rest ...))
-         (begin (%srfi57-def-poly-acc acc label) (%srfi57-def-poly-accessors (rest ...))))
-        ((_ ((label acc mut) rest ...))
-         (begin (%srfi57-def-poly-acc acc label)
-                (%srfi57-def-poly-mut mut label)
-                (%srfi57-def-poly-accessors (rest ...))))))
+        ((_ scheme ()) (begin))
+        ((_ scheme ((label) rest ...)) (%srfi57-def-poly-accessors scheme (rest ...)))
+        ((_ scheme ((label acc) rest ...))
+         (begin (%srfi57-def-poly-acc acc label scheme) (%srfi57-def-poly-accessors scheme (rest ...))))
+        ((_ scheme ((label acc mut) rest ...))
+         (begin (%srfi57-def-poly-acc acc label scheme)
+                (%srfi57-def-poly-mut mut label scheme)
+                (%srfi57-def-poly-accessors scheme (rest ...))))))
 
     ;; define-record-type field-clause accessors/mutators are monomorphic:
     ;; "It is an error to pass an accessor a value not of type <type name>."
@@ -177,18 +210,25 @@
     (define-syntax %srfi57-def-poly-pred
       (syntax-rules ()
         ((_ #f name) (if #f #f))
-        ((_ pname name)
-         (define (pname r)
-           (and (record? r) (%srfi57-subset? (car name) (record-type-field-names (record-rtd r))))))))
+        ((_ pname name) (define (pname r) (%srfi57-conforms? r name)))))
+
+    ;; A scheme/type's own declared ancestry is the union of each direct
+    ;; parent P together with P's OWN ancestry -- i.e. `P` itself is always
+    ;; a member (not just P's ancestors), so a child of P conforms to P.
+    (define-syntax %srfi57-ancestors
+      (syntax-rules ()
+        ((_ (parent ...)) (%srfi57-dedup (append (cons parent (caddr parent)) ...)))))
 
     (define-syntax %srfi57-expand-scheme
       (syntax-rules ()
         ((_ name (parent ...) #f pred (field-spec ...))
          (begin
            (define name
-             (cons (%srfi57-dedup (append (car parent) ... (%srfi57-field-names (field-spec ...)))) #f))
+             (list (%srfi57-dedup (append (car parent) ... (%srfi57-field-names (field-spec ...))))
+                   #f
+                   (%srfi57-ancestors (parent ...))))
            (%srfi57-def-poly-pred pred name)
-           (%srfi57-def-poly-accessors (field-spec ...))))))
+           (%srfi57-def-poly-accessors name (field-spec ...))))))
 
     ;; Shorter forms omit trailing clauses entirely (not just supply #f for
     ;; them): a scheme clause alone is equivalent to supplying #f for both
@@ -236,11 +276,13 @@
              (%srfi57-dedup
                (append (car scheme) ... (%srfi57-ctor-fields ctor) (%srfi57-field-names (field-spec ...)))))
            ;; every field mutable internally regardless of its own modifier
-           ;; clause -- see header note 4.
+           ;; clause -- see header note 3.
            (define %srfi57-trtd
              (make-record-type-descriptor 'name #f #f #f #f
                (list->vector (map (lambda (f) (list 'mutable f)) %srfi57-tfields))))
-           (define name (cons %srfi57-tfields %srfi57-trtd))
+           (define %srfi57-tancestors (%srfi57-ancestors (scheme ...)))
+           (%srfi57-register! %srfi57-trtd %srfi57-tancestors)
+           (define name (list %srfi57-tfields %srfi57-trtd %srfi57-tancestors))
            (%srfi57-def-ctor ctor %srfi57-tfields %srfi57-trtd)
            (%srfi57-def-pred pred %srfi57-trtd)
            (%srfi57-def-mono-accessors %srfi57-trtd (field-spec ...))))))
@@ -263,16 +305,11 @@
     ;; --- record-update / record-update! / record-compose --------------------
 
     ;; Checked at call time, not expansion time -- see header note 2: target
-    ;; is an ordinary value here, not a macro, so its identity isn't known
-    ;; until this code actually runs. Still catches real misuse (wrong
-    ;; target, a label that isn't one of its fields), just later than the
-    ;; spec's own "expansion-time error" wording describes.
+    ;; is an ordinary value here, not a macro, so its identity isn't
+    ;; knowable until the code actually runs.
     (define (%srfi57-check-target rec target labels who)
-      (if (cdr target)
-          (unless (eq? (record-rtd rec) (cdr target))
-            (error (string-append who ": record is not of the expected type") rec))
-          (unless (%srfi57-subset? (car target) (record-type-field-names (record-rtd rec)))
-            (error (string-append who ": record does not conform to the expected scheme") rec)))
+      (unless (%srfi57-conforms? rec target)
+        (error (string-append who ": record does not conform to the expected type/scheme") rec))
       (for-each (lambda (f)
                   (unless (memq f (car target))
                     (error (string-append who ": label is not a field of the target type/scheme") f)))
@@ -305,9 +342,18 @@
     ;; Only the field labels belonging to `import` (not necessarily all of
     ;; rec's own actual fields) are copied -- this is what makes a
     ;; scheme-typed import copy just that scheme's slice of a
-    ;; wider-fielded actual record.
-    (define (%srfi57-import-alist import rec)
+    ;; wider-fielded actual record. `rec` must actually conform to `import`
+    ;; (checked here, not left to coincidental field overlap).
+    (define (%srfi57-import-alist import rec who)
+      (unless (%srfi57-conforms? rec import)
+        (error (string-append who ": imported record does not conform to the expected type/scheme") rec))
       (map (lambda (f) (cons f ((record-accessor (record-rtd rec) f) rec))) (car import)))
+
+    (define (%srfi57-check-export-labels export labels who)
+      (for-each (lambda (f)
+                  (unless (memq f (car export))
+                    (error (string-append who ": label is not a field of the export type") f)))
+                labels))
 
     ;; Imports are processed left to right, dropping any repeated fields --
     ;; i.e. the FIRST import that has a given label wins over later ones --
@@ -322,5 +368,8 @@
     (define-syntax record-compose
       (syntax-rules ()
         ((_ (import rec) ... (export (label expr) ...))
-         (%srfi57-compose-build (car export) (cdr export)
-           (append (list (cons 'label expr) ...) (%srfi57-import-alist import rec) ...)))))))
+         (let ((exp export))
+           (%srfi57-check-export-labels exp '(label ...) "record-compose")
+           (%srfi57-compose-build (car exp) (cadr exp)
+             (append (list (cons 'label expr) ...)
+                     (%srfi57-import-alist import rec "record-compose") ...))))))))

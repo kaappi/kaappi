@@ -10,6 +10,8 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
+const srfi237_prims = @import("primitives_srfi237.zig");
+
 /// Handle (define-record-type name (ctor field ...) pred (field accessor [mutator]) ...)
 /// Desugars into define forms using internal record primitives.
 /// Used for top-level and library-body contexts (VM interpreter path).
@@ -47,7 +49,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     //               (lambda (f1 f2) (%make-record  __rt f_for_0 ...))))
     {
         vm.gc.no_collect += 1;
-        errdefer vm.gc.no_collect -= 1;
+        defer vm.gc.no_collect -= 1;
         const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
 
         var body_args: [258]Value = undefined;
@@ -88,7 +90,6 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
         const ctor_sym = vm.gc.allocSymbol(ctor_name) catch return VMError.OutOfMemory;
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, ctor_sym, let_expr }) catch return VMError.OutOfMemory;
-        vm.gc.no_collect -= 1;
         vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
 
@@ -105,7 +106,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // (define pred? (let (( __rt __record_type_X)) (lambda (v) (%record? v  __rt))))
     {
         vm.gc.no_collect += 1;
-        errdefer vm.gc.no_collect -= 1;
+        defer vm.gc.no_collect -= 1;
         const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
         const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
         const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
@@ -123,7 +124,6 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
 
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, pred_sym, let_expr }) catch return VMError.OutOfMemory;
-        vm.gc.no_collect -= 1;
         vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
 
@@ -141,7 +141,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         // Accessor: (define acc (let (( __rt ...)) (lambda (p) (%record-ref p idx  __rt))))
         {
             vm.gc.no_collect += 1;
-            errdefer vm.gc.no_collect -= 1;
+            defer vm.gc.no_collect -= 1;
             const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
@@ -160,7 +160,6 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
 
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, acc_sym, let_expr }) catch return VMError.OutOfMemory;
-            vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
@@ -176,7 +175,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         // Mutator: (define mut! (let (( __rt ...)) (lambda (p v) (%record-set! p idx v  __rt))))
         if (spec.mutator_names[fi]) |mut_name| {
             vm.gc.no_collect += 1;
-            errdefer vm.gc.no_collect -= 1;
+            defer vm.gc.no_collect -= 1;
             const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
@@ -196,7 +195,6 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
 
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, mut_sym, let_expr }) catch return VMError.OutOfMemory;
-            vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
@@ -510,10 +508,21 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         field_mutable_buf[i] = spec.fields[i].mutable;
     }
 
-    // nongenerative: reuse an existing RTD registered under this uid.
+    // nongenerative: reuse an existing RTD registered under this uid, but
+    // only when it's actually equivalent (same check as
+    // %make-record-type-descriptor in primitives_srfi237.zig -- R6RS:
+    // "the record-type definitions should be equivalent").
     var rt_val: Value = undefined;
     if (spec.uid) |u| {
         if (vm.record_uid_registry.get(u)) |existing| {
+            const existing_rt = types.toObject(existing).as(types.RecordType);
+            if (existing_rt.parent != parent_rt or
+                existing_rt.sealed != spec.sealed or
+                existing_rt.is_opaque != spec.is_opaque or
+                !srfi237_prims.fieldsEquivalent(existing_rt, field_names_buf[0..spec.field_count], field_mutable_buf[0..spec.field_count]))
+            {
+                return VMError.TypeError;
+            }
             rt_val = existing;
         } else {
             rt_val = vm.gc.allocRecordTypeExtended(
@@ -559,7 +568,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     // --- constructor ---
     {
         vm.gc.no_collect += 1;
-        errdefer vm.gc.no_collect -= 1;
+        defer vm.gc.no_collect -= 1;
         const gc = vm.gc;
 
         var ctor_body: Value = undefined;
@@ -663,7 +672,6 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         const ctor_internal = internCtorName(gc, spec.type_name) catch return VMError.OutOfMemory;
         const ctor_internal_sym = gc.allocSymbol(ctor_internal) catch return VMError.OutOfMemory;
         const define_internal_expr = gc.makeList(&[_]Value{ define_sym, ctor_internal_sym, ctor_full }) catch return VMError.OutOfMemory;
-        vm.gc.no_collect -= 1;
         try compileAndRunDefine(vm, define_internal_expr);
 
         // (define <user-ctor-name> __record_ctor_<type-name>)
@@ -675,7 +683,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     // --- predicate: (define pred (let ((__rt ...)) (lambda (v) (%record?/inherit v __rt)))) ---
     {
         vm.gc.no_collect += 1;
-        errdefer vm.gc.no_collect -= 1;
+        defer vm.gc.no_collect -= 1;
         const gc = vm.gc;
         const v_sym = gc.allocSymbol("v") catch return VMError.OutOfMemory;
         const rt_local = gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
@@ -688,7 +696,6 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         const define_sym = gc.allocSymbol("define") catch return VMError.OutOfMemory;
         const pred_sym = gc.allocSymbol(spec.pred_name) catch return VMError.OutOfMemory;
         const define_expr = gc.makeList(&[_]Value{ define_sym, pred_sym, pred_full }) catch return VMError.OutOfMemory;
-        vm.gc.no_collect -= 1;
         try compileAndRunDefine(vm, define_expr);
     }
 
@@ -699,7 +706,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         const abs_idx = parent_total_fields + fi;
         {
             vm.gc.no_collect += 1;
-            errdefer vm.gc.no_collect -= 1;
+            defer vm.gc.no_collect -= 1;
             const gc = vm.gc;
             const p_sym = gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const rt_local = gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
@@ -713,13 +720,12 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             const define_sym = gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const acc_sym = gc.allocSymbol(spec.fields[fi].accessor_name) catch return VMError.OutOfMemory;
             const define_expr = gc.makeList(&[_]Value{ define_sym, acc_sym, acc_full }) catch return VMError.OutOfMemory;
-            vm.gc.no_collect -= 1;
             try compileAndRunDefine(vm, define_expr);
         }
 
         if (spec.fields[fi].mutator_name) |mut_name| {
             vm.gc.no_collect += 1;
-            errdefer vm.gc.no_collect -= 1;
+            defer vm.gc.no_collect -= 1;
             const gc = vm.gc;
             const p_sym = gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const v_sym = gc.allocSymbol("v") catch return VMError.OutOfMemory;
@@ -734,7 +740,6 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             const define_sym = gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const mut_sym = gc.allocSymbol(mut_name) catch return VMError.OutOfMemory;
             const define_expr = gc.makeList(&[_]Value{ define_sym, mut_sym, mut_full }) catch return VMError.OutOfMemory;
-            vm.gc.no_collect -= 1;
             try compileAndRunDefine(vm, define_expr);
         }
     }

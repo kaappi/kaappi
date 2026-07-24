@@ -59,7 +59,7 @@
 ;;; --- define-record-scheme: single scheme, polymorphic predicate/accessor --
 
 (define-record-scheme <named #f named? (name <named.name))
-(define-record-type person (make-person name) person? (name person-name))
+(define-record-type (person <named) (make-person name) person? (name person-name))
 
 (let ((pn (make-person "Alice")))
   (test-assert "scheme: polymorphic predicate recognizes a conforming type" (named? pn))
@@ -70,6 +70,15 @@
   (not (named? (make-widget0 "X"))))
 (test-assert "scheme: polymorphic predicate rejects a non-record value"
   (not (named? 42)))
+
+;; Conformance is NOMINAL, not structural: a same-shaped type that was
+;; never declared to extend the scheme must still be rejected, even though
+;; it has a field with the exact same label.
+(define-record-type impostor (make-impostor name) impostor? (name impostor-name))
+(test-assert "scheme: nominal conformance rejects a same-shaped, undeclared type"
+  (not (named? (make-impostor "Eve"))))
+(test-assert "scheme: nominal conformance rejects the accessor on a same-shaped type too"
+  (guard (e (#t #t)) (<named.name (make-impostor "Eve")) #f))
 
 ;;; --- multiple parent schemes with a diamond, dedup of shared fields --------
 
@@ -91,8 +100,14 @@
   (test-assert "multi-scheme inheritance: own type predicate recognizes own instance" (dog? d)))
 
 (define-record-type widget (make-widget sku) widget? (sku widget-sku))
-(test-assert "structural conformance: unrelated type rejected by scheme predicate"
-  (not (pet? (make-widget "SKU1"))))
+(test-assert "unrelated type rejected by scheme predicate" (not (pet? (make-widget "SKU1"))))
+
+;; Nominal, not structural: same field names as <pet> (name age owner) but
+;; never declared to extend it.
+(define-record-type fake-pet (make-fake-pet name age owner) fake-pet?
+  (name fake-pet-name) (age fake-pet-age) (owner fake-pet-owner))
+(test-assert "nominal conformance rejects a same-shaped, undeclared multi-scheme type"
+  (not (pet? (make-fake-pet "Rex" 3 "Alice"))))
 
 ;;; --- record-update / record-update! ----------------------------------------
 
@@ -112,12 +127,14 @@
   (guard (e (#t #t)) (record-update (make-widget "SKU1") <animal (age 1)) #f))
 (test-assert "record-update: errors when the label isn't a field of the target"
   (guard (e (#t #t)) (record-update (make-dog "Rex" 3 "Alice" "Lab") <animal (nonexistent 1)) #f))
+(test-assert "record-update: nominal conformance rejects a same-shaped, undeclared record"
+  (guard (e (#t #t)) (record-update (make-fake-pet "Rex" 3 "Alice") <animal (age 1)) #f))
 
 ;;; --- record-compose: the spec's own worked example -------------------------
 
 (define-record-scheme <point-s #f #f (x <point-s.x) (y <point-s.y))
 (define-record-scheme <color-s #f #f (hue <color-s.hue))
-(define-record-type cp (make-cp x y hue) cp? (x cp-x) (y cp-y) (hue cp-hue))
+(define-record-type (cp <point-s <color-s) (make-cp x y hue) cp? (x cp-x) (y cp-y) (hue cp-hue))
 (define-record-type color-point (make-color-point x y hue info)
   color-point? (x cp2-x) (y cp2-y) (hue cp2-hue) (info cp2-info))
 
@@ -137,6 +154,13 @@
        (copied (record-compose (full-point fp) (point-copy))))
   (test-equal "record-compose: monomorphic import copies its own field" 5 (pc-x copied))
   (test-equal "record-compose: monomorphic import copies its other field" 6 (pc-y copied)))
+
+;;; --- record-compose: import/export validation ------------------------------
+
+(test-assert "record-compose: errors when an import doesn't conform to its declared type"
+  (guard (e (#t #t)) (record-compose (full-point (make-widget "SKU1")) (point-copy)) #f))
+(test-assert "record-compose: errors when an export label isn't a field of the export type"
+  (guard (e (#t #t)) (record-compose (full-point (make-full-point 1 2)) (point-copy (bogus 9))) #f))
 
 ;;; --- record-compose: duplicate import precedence ("left to right,
 ;;; dropping any repeated fields" -- the first import wins) ------------------
