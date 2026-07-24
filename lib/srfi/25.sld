@@ -39,6 +39,21 @@
     (define (%lower shape-vec k) (car (vector-ref shape-vec k)))
     (define (%upper shape-vec k) (cdr (vector-ref shape-vec k)))
 
+    ;; Per spec, "An array does not retain a dependence to the shape array"
+    ;; given to make-array/array/share-array -- deep-copy (fresh vector,
+    ;; fresh pairs) so a caller mutating their own shape object afterwards
+    ;; (shape returns an ordinary, caller-visible mutable vector of pairs)
+    ;; can never retroactively corrupt an already-constructed array's bounds
+    ;; or its store's already-fixed size.
+    (define (%copy-shape shape-vec)
+      (let* ((n (vector-length shape-vec)) (copy (make-vector n)))
+        (let loop ((i 0))
+          (when (< i n)
+            (let ((pair (vector-ref shape-vec i)))
+              (vector-set! copy i (cons (car pair) (cdr pair))))
+            (loop (+ i 1))))
+        copy))
+
     (define (%shape-volume shape-vec)
       (let loop ((i 0) (acc 1))
         (if (= i (vector-length shape-vec))
@@ -69,8 +84,10 @@
        ((array? x)
         (unless (= (array-rank x) 1)
           (error "array-ref/array-set!: packed index array must be 1-dimensional" x))
-        (let ((start (array-start x 0)) (end (array-end x 0)))
-          (let loop ((i start) (acc '()))
+        (unless (= 0 (array-start x 0))
+          (error "array-ref/array-set!: packed index array must be 0-based" x))
+        (let ((end (array-end x 0)))
+          (let loop ((i 0) (acc '()))
             (if (= i end) (reverse acc) (loop (+ i 1) (cons (array-ref x i) acc))))))
        (else (error "array-ref/array-set!: invalid packed index" x))))
 
@@ -116,14 +133,16 @@
                   (loop (+ i 1) (cddr bs))))))))
 
     (define (make-array shape . fill)
+      (unless (<= (length fill) 1)
+        (error "make-array: expects at most one fill value" fill))
       (%make-array-record
-       shape (make-vector (%shape-volume shape) (if (pair? fill) (car fill) #f)) #f #f))
+       (%copy-shape shape) (make-vector (%shape-volume shape) (if (pair? fill) (car fill) #f)) #f #f))
 
     (define (array shape . objs)
       (let ((size (%shape-volume shape)))
         (unless (= size (length objs))
           (error "array: wrong number of initial values for shape" size (length objs)))
-        (%make-array-record shape (list->vector objs) #f #f)))
+        (%make-array-record (%copy-shape shape) (list->vector objs) #f #f)))
 
     (define (array-rank a) (vector-length (array-shape-vec a)))
     (define (array-start a k) (%lower (array-shape-vec a) k))
@@ -144,4 +163,4 @@
            (if #f #f)))))
 
     (define (share-array a shape proc)
-      (%make-array-record shape #f a proc))))
+      (%make-array-record (%copy-shape shape) #f a proc))))

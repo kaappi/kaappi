@@ -467,7 +467,7 @@ three-tier array/mutable-array/specialized-array model and no textual
 relationship to 25/164 at all; SRFI 58's reader/writer array-literal syntax
 is written specifically against 47/63's own type-tag naming and isn't
 reusable as-is against 25/164/231 without redesigning the tag mapping);
-#1694's vector-family subset — 4 (already
+the vector-family subset of #1694 — 4 (already
 shipped pre-Phase-4, just undocumented until Phase 4 Slice 4), 160, 66, 74 —
 shipped in Phase 4 Slice 4 on one shared native substrate (`types.NumericVector`)
 — #1695 fully closed in Phase 4: 57/131/136/137/237/240 shipped, 99/100/150
