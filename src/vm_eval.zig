@@ -75,7 +75,16 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
 
     if (std.mem.eql(u8, name, "import")) return vm_library.handleImport(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-library")) return vm_library.handleDefineLibrary(vm, types.cdr(expr));
-    if (std.mem.eql(u8, name, "define-record-type")) return vm_records.handleDefineRecordType(vm, types.cdr(expr));
+    // R7RS has no reserved words: an imported macro may shadow a special
+    // form keyword (compiler.zig's compileForm already honors this for
+    // every non-top-level use, e.g. SRFI-219 redefining `define` -- see
+    // its own comment). SRFI 136/131/57 each define their own
+    // define-record-type macro (extended record-type syntax reusing the
+    // same name); when one is in scope, fall through instead of returning
+    // here so the form reaches ordinary macro-aware compilation below,
+    // exactly like every other top-level form does.
+    if (std.mem.eql(u8, name, "define-record-type") and vm.macros.get("define-record-type") == null)
+        return vm_records.handleDefineRecordType(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-values")) return handleDefineValues(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "include")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), false);
     if (std.mem.eql(u8, name, "include-ci")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), true);
@@ -96,14 +105,14 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
 // to a single reusable Function. compileCachedForm (#1494) consults this to
 // decline caching such a form — the caller falls back to a plain eval(). Keep
 // this list in sync with handleTopLevelForm above.
-fn isSpecialTopLevelForm(expr: Value) bool {
+fn isSpecialTopLevelForm(vm: *VM, expr: Value) bool {
     if (!types.isPair(expr)) return false;
     const head = types.car(expr);
     if (!types.isSymbol(head)) return false;
     const name = types.symbolName(head);
     return std.mem.eql(u8, name, "import") or
         std.mem.eql(u8, name, "define-library") or
-        std.mem.eql(u8, name, "define-record-type") or
+        (std.mem.eql(u8, name, "define-record-type") and vm.macros.get("define-record-type") == null) or
         std.mem.eql(u8, name, "define-values") or
         std.mem.eql(u8, name, "include") or
         std.mem.eql(u8, name, "include-ci") or
@@ -134,7 +143,7 @@ pub fn compileCachedForm(vm: *VM, source: []const u8) VMError!Value {
     vm.gc.pushRoot(&expr);
     defer vm.gc.popRoot();
 
-    if (isSpecialTopLevelForm(expr)) return VMError.CompileError;
+    if (isSpecialTopLevelForm(vm, expr)) return VMError.CompileError;
     if (reader.hasMore() catch return VMError.CompileError) return VMError.CompileError;
 
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
