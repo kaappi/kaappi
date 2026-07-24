@@ -292,7 +292,33 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         },
         .record_type => {
             const rt = obj.as(types.RecordType);
-            const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
+            if (rt.parent == null and rt.own_field_count == 0 and rt.uid == null and
+                !rt.sealed and !rt.is_opaque)
+            {
+                // Plain R7RS record type (the common case) -- no SRFI 237
+                // metadata to carry across.
+                const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
+                try visited.put(src_ptr, new_val);
+                return new_val;
+            }
+            // SRFI 237: recurse into `parent` first so a shared ancestor
+            // type is copied once and referentially shared afterward too
+            // (deepCopyValue's own visited-cache check at entry handles
+            // this automatically).
+            var new_parent: ?*types.RecordType = null;
+            if (rt.parent) |p| {
+                const new_parent_val = try deepCopyValue(gc, types.makePointer(&p.header), visited);
+                new_parent = types.toObject(new_parent_val).as(types.RecordType);
+            }
+            const new_val = try gc.allocRecordTypeExtended(
+                rt.name,
+                new_parent,
+                rt.own_field_names,
+                rt.own_field_mutable,
+                rt.uid,
+                rt.sealed,
+                rt.is_opaque,
+            );
             try visited.put(src_ptr, new_val);
             return new_val;
         },

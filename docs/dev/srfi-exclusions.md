@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-25 final SRFIs are excluded from implementation. This document records which
+28 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -404,25 +404,29 @@ from SRFI 4/160.
 
 ---
 
-## Macro-system-dependent SRFIs (3)
+## Macro-system-dependent SRFIs (6)
 
 These require transferring, comparing, or type-discriminating
 bindings/identifiers/sub-patterns in ways that `syntax-rules` alone cannot
 express — genuinely `syntax-case`-shaped (or lower-level, non-hygienic)
-gaps, not just missing library code. Two of these SRFIs' own specification
-text says so directly; the third (89) doesn't say so in as many words, but
-its reference implementation only works via `define-macro` (raw,
-non-hygienic procedural macros), and no mainstream syntax-rules-only
-Scheme (Chibi, Gauche) has ported it faithfully either — Gauche shipped
-SRFI 227 instead of SRFI 89 for this exact reason. Tracked macro/syntax-
-system extension work that touches the same expander surface is in issue
-#1699 (SRFI 72, 139, 147, 148, 149, 211, 213).
+gaps, not just missing library code. Several of these SRFIs' own
+specification text says so directly; the others don't say so in as many
+words, but their own reference implementations only work via
+`syntax-case`/`datum->syntax`/`define-macro` (raw, non-hygienic procedural
+macros), and no mainstream syntax-rules-only Scheme (Chibi, Gauche) has
+ported them faithfully either — Gauche shipped SRFI 227 instead of SRFI 89
+for this exact reason. Tracked macro/syntax-system extension work that
+touches the same expander surface is in issue #1699 (SRFI 72, 139, 147,
+148, 149, 211, 213).
 
 | SRFI | Title | Reason |
 |------|-------|--------|
 | 89 | Optional positional and named parameters | Distinguishing an optional-positional parameter `(name default)` from a named parameter `(keyword name)` needs a runtime type check (`keyword?` vs `symbol?`) *during macro pattern matching* — `syntax-rules` patterns are purely structural with no fender/guard mechanism, so this can't be expressed. Depends on SRFI 88 (excluded above) regardless. |
 | 206 | Auxiliary Syntax Keywords | Its core feature — independently-defined auxiliary keywords (like `else`/`=>`) matching via `free-identifier=?` across library boundaries — needs identifier-property support at the expander level. |
 | 212 | Aliases | Transferring a binding so two identifiers share one location, for any binding type including syntax, needs identifier/location introspection a syntax-rules-only system can't provide. |
+| 99 | ERR5RS Records | Its `#t` constructor/predicate auto-naming shorthand and bare field-name shorthand both need identifiers synthesized from string concatenation (`make-<type>`, `<type>?`, `<type>-<field>`) at macro-expansion time — `syntax-rules` can only rearrange identifiers it receives as pattern variables, never fabricate new ones from string fragments. SRFI 131 (implemented, `lib/srfi/131.sld`) is specifically the reduced subset of 99 that drops these two shortcuts to become syntax-rules-expressible. |
+| 100 | define-lambda-object | Same identifier-synthesis requirement as SRFI 99 (auto-generating `make-<name>`, `make-<name>-by-name`, `<name>?` from a group name), plus its predicate implementation needs `procedure-name` or equivalent, which R7RS-small doesn't provide. |
+| 150 | Hygienic ERR5RS Record Syntax (reduced) | Needs SRFI 148 (eager macros with compile-time `em-bound-identifier=?`), which itself needs SRFI 147 (custom macro transformers) — SRFI 147's own text states this "cannot be achieved by a fully portable implementation using only the R7RS without redefining (scheme base)." |
 
 ### SRFI 89 — Optional positional and named parameters
 
@@ -517,6 +521,110 @@ have.
 
 **Scope of change:** Would need the same kind of expander-level identifier/
 location introspection as `syntax-case`-based systems provide.
+
+### SRFI 99 — ERR5RS Records
+
+**Author:** William D. Clinger (2008)
+
+Defines a three-layer record system: procedural (`make-rtd`, `rtd?`,
+`rtd-constructor`, `rtd-predicate`, `rtd-accessor`, `rtd-mutator`),
+inspection (`record?`, `record-rtd`, `rtd-name`, `rtd-parent`,
+`rtd-field-names`, `rtd-all-field-names`, `rtd-field-mutable?`), and
+syntactic (`define-record-type` with a `#t` shorthand that auto-generates
+the constructor as `make-<type-name>` and the predicate as
+`<type-name>?`, plus bare field-name specs that auto-generate an accessor
+named `<type-name>-<field-name>` and, for a mutable field, a mutator named
+`<type-name>-<field-name>-set!`).
+
+**Why excluded:** Confirmed by the reference implementation (Larceny,
+R6RS `.sls`): the `#t`/bare-field auto-naming is implemented with
+`syntax-case`, `datum->syntax`, and `string->symbol`/`string-append` —
+e.g. `(datum->syntax k (string->symbol (string-append "make-"
+(symbol->string name))))` for the constructor. This is the exact
+identifier-construction mechanism `syntax-rules` cannot perform: a pattern
+variable can be rearranged into the output template, but never used as
+raw material to build a *new* identifier from string fragments. The
+procedural and inspection layers alone are ordinary procedures over
+opaque RTD objects and could be implemented portably — but without the
+syntactic layer's auto-naming, the SRFI is missing its primary
+user-facing feature. SRFI 131 (implemented, `lib/srfi/131.sld`) is
+precisely the reduced subset of 99 that drops the `#t` and bare-field
+shorthands to become fully syntax-rules-expressible, built on this
+codebase's `(srfi 237)` procedural layer instead of 99's own; SRFI 150
+(also excluded, below) is a further, hygienic refinement of 131 that
+this codebase cannot support for a different reason.
+
+**Scope of change:** Would need either a low-level, non-hygienic macro
+facility this codebase's expander doesn't have, or dedicated compiler
+support for the auto-naming forms specifically (parsed and synthesized
+directly in Zig, the same approach used for R6RS's own auto-naming
+`define-record-type` clause syntax in `src/vm_records.zig` — but SRFI 99's
+own `#t`/bare-field shorthand is a strictly smaller, already-covered-by-131
+feature, so a dedicated engine extension for it alone isn't warranted).
+
+### SRFI 100 — define-lambda-object
+
+**Author:** Joo ChurlSoo (2009)
+
+Defines `define-lambda-object`, extending SRFI 9/`define-record-type`
+toward a lightweight object system: a single form declares a "group"
+(type) with required/optional/automatic/hidden/virtual/common fields and
+multiple inheritance, generating four bindings — a group-introspection
+procedure, two constructors (positional and by-keyword), and a predicate.
+Instances are themselves procedures: calling one with one argument reads
+a field by symbol, with two arguments sets it.
+
+**Why excluded:** The spec ships two independent reference
+implementations, and both need non-hygienic power for the same reason as
+SRFI 99: one uses `syntax-case` + `datum->syntax` +
+`string->symbol`/`string-append`, the other `define-macro` + `gensym` +
+`string->symbol` — both to synthesize `make-<group-name>`,
+`make-<group-name>-by-name`, and `<group-name>?` from the group name at
+macro-expansion time, exactly the identifier-construction `syntax-rules`
+cannot perform. On top of that, the predicate implementation in both
+reference implementations needs `procedure-name` (or an equivalent way to
+recover a procedure's own name at runtime) to distinguish instances of
+different groups, since instances are bare procedures rather than a
+distinct tagged type — R7RS-small has no such introspection primitive at
+all, an independent blocker even if the naming problem were solved.
+
+**Scope of change:** Would need a non-hygienic macro facility for the
+identifier synthesis, plus a new runtime introspection primitive
+(`procedure-name` or equivalent) this codebase's `Function`/`NativeFn`
+representation doesn't currently expose.
+
+### SRFI 150 — Hygienic ERR5RS Record Syntax (reduced)
+
+**Author:** Marc Nieper-Wißkirchen (2017)
+
+A hygienic refinement of SRFI 131's design ("a competitor to SRFI 136 by
+the same author for inclusion in R7RS-large"): identical surface syntax to
+131, but field names in a constructor/field-spec are compared using
+hygienic (`bound-identifier=?`-style) identifier equality instead of
+`symbol=?`. This matters specifically when a macro generates a record-type
+definition: hygienic renaming makes two occurrences of "the same" field
+name into distinct identifiers that compare unequal as symbols but should
+still be recognized as referring to the same field.
+
+**Why excluded:** The reference implementation needs SRFI 148 (eager
+macros, with a compile-time `em-bound-identifier=?` comparison), which in
+turn needs SRFI 147 (custom macro transformers) — and SRFI 147's own
+specification text states plainly that its facility "cannot be achieved by
+a fully portable implementation using only the R7RS without redefining
+`(scheme base)`." A theoretical workaround exists in principle (the
+`let-syntax`-identity trick sometimes used to approximate
+`free-identifier=?` via nested `syntax-rules`, comparing one identifier
+against a literal), but reconstructing SRFI 150's full field-matching
+behavior this way across arbitrary inheritance chains would be exactly the
+kind of fragile, ad-hoc reimplementation of what SRFI 147/148 exist to
+provide properly — the dependency on a genuine expander feature is there
+because this problem doesn't reduce cleanly to plain `syntax-rules`, not
+because no one has tried hard enough.
+
+**Scope of change:** Would need SRFI 147's custom-macro-transformer
+support (letting a macro use appear where a transformer spec is expected)
+integrated into `expander.zig` — the same expander-level gap already
+tracked for SRFI 206/212 above and issue #1699's SRFI 147/148 items.
 
 ---
 

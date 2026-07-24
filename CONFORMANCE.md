@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-158 SRFIs supported. 12 built-in (native Zig), 144 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+163 SRFIs supported. 12 built-in (native Zig), 149 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 as sub-libraries only with no bare `(srfi 226)` file (so it doesn't appear as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -103,7 +103,7 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### Portable SRFIs (144 libraries, plus SRFI 226 as sub-libraries only)
+### Portable SRFIs (149 libraries, plus SRFI 226 as sub-libraries only)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -173,9 +173,12 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 128 | Comparators (reduced) |
 | 129 | Titlecase |
 | 130 | Cursor-based string library |
+| 131 | ERR5RS Record Syntax (reduced) |
 | 132 | Sort libraries |
 | 134 | Immutable deques |
 | 135 | Immutable texts |
+| 136 | Extensible record types |
+| 137 | Minimal Unique Types |
 | 140 | Immutable strings |
 | 141 | Integer division |
 | 143 | Fixnums |
@@ -235,8 +238,10 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 234 | Topological sorting |
 | 235 | Combinators |
 | 236 | Evaluating expressions in an unspecified order |
+| 237 | R6RS Records (refined) |
 | 238 | Codesets |
 | 239 | Destructuring Lists |
+| 240 | Reconciled Records |
 | 241 | Match |
 | 242 | The CFG Language (reduced scope) § |
 | 244 | Multiple-value Definitions |

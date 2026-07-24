@@ -587,6 +587,78 @@ pub const GC = struct {
         return types.makePointer(&rt.header);
     }
 
+    /// SRFI 237: a record type with inheritance (`parent`), per-field
+    /// metadata, and R6RS `nongenerative`/`sealed`/`opaque` attributes.
+    /// `field_names`/`field_mutable` describe this type's OWN fields only
+    /// (not inherited ones) -- `num_fields` on the result is the TOTAL
+    /// including everything inherited from `parent`, matching
+    /// RecordInstance.fields' layout (parent fields first, then own).
+    pub fn allocRecordTypeExtended(
+        self: *GC,
+        name: []const u8,
+        parent: ?*RecordType,
+        field_names: []const []const u8,
+        field_mutable: []const bool,
+        uid: ?[]const u8,
+        sealed: bool,
+        is_opaque: bool,
+    ) !Value {
+        // Copy every owned byte range before collecting -- each may alias
+        // a symbol/string's own bytes (see allocRecordType above).
+        const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
+
+        const owned_field_names = try self.allocator.alloc([]const u8, field_names.len);
+        var copied: usize = 0;
+        errdefer {
+            for (owned_field_names[0..copied]) |s| self.allocator.free(s);
+            self.allocator.free(owned_field_names);
+        }
+        for (field_names, 0..) |fname, i| {
+            owned_field_names[i] = try self.allocator.dupe(u8, fname);
+            copied += 1;
+        }
+
+        const owned_field_mutable = try self.allocator.dupe(bool, field_mutable);
+        errdefer self.allocator.free(owned_field_mutable);
+
+        const owned_uid: ?[]const u8 = if (uid) |u| try self.allocator.dupe(u8, u) else null;
+        errdefer if (owned_uid) |u| self.allocator.free(u);
+
+        // `parent` is a live heap object (not owned bytes) -- root it,
+        // since it's the one field here maybeCollect() could otherwise
+        // reclaim if nothing else currently references it.
+        if (parent) |p| self.rootArgs1(types.makePointer(&p.header)) else self.rootArgs1(types.FALSE);
+        try self.maybeCollect();
+        self.clearArgRoots();
+
+        const own_count: u8 = @intCast(field_names.len);
+        const parent_fields: u16 = if (parent) |p| p.num_fields else 0;
+        const total_fields: u16 = parent_fields + @as(u16, own_count);
+
+        const rt = try self.allocator.create(RecordType);
+        rt.* = .{
+            .header = .{ .tag = .record_type },
+            .name = owned_name,
+            .num_fields = @intCast(total_fields),
+            .own_field_count = own_count,
+            .parent = parent,
+            .own_field_names = owned_field_names,
+            .own_field_mutable = owned_field_mutable,
+            .uid = owned_uid,
+            .sealed = sealed,
+            .is_opaque = is_opaque,
+        };
+
+        var extra_bytes: usize = owned_field_names.len * @sizeOf([]const u8);
+        for (owned_field_names) |s| extra_bytes += s.len;
+        extra_bytes += owned_field_mutable.len * @sizeOf(bool);
+        if (owned_uid) |u| extra_bytes += u.len;
+
+        self.finishAlloc(&rt.header, @sizeOf(RecordType) + owned_name.len + extra_bytes);
+        return types.makePointer(&rt.header);
+    }
+
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
         // Copy the fields before collecting and root them (plus the record
         // type itself) across the collection (see allocVector).

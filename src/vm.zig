@@ -94,6 +94,8 @@ fn markVMRoots(gc: *memory.GC) void {
         while (git.next()) |v| gc.markValue(v.*);
         var mit = vm.macros.valueIterator();
         while (mit.next()) |v| gc.markValue(v.*);
+        var uit = vm.record_uid_registry.valueIterator();
+        while (uit.next()) |v| gc.markValue(v.*);
     }
 
     var pit = vm.param_overrides.valueIterator();
@@ -181,6 +183,14 @@ pub const VM = struct {
     globals: *std.StringHashMap(Value),
     globals_lock: *GlobalsRwLock,
     macros: std.StringHashMap(Value),
+    /// SRFI 237 `(nongenerative <uid>)`: maps a uid string to the RecordType
+    /// Value first defined with it, so a later `define-record-type` using
+    /// the same uid reuses the existing type instead of allocating a new,
+    /// non-interoperable one. Shared across threads the same way as
+    /// `macros` (struct-copy in initForThread, owning-VM-only deinit/mark
+    /// below) -- nongenerative identity is scoped to a single owning VM's
+    /// lifetime, same rarer-staleness tradeoff already accepted for macros.
+    record_uid_registry: std.StringHashMap(Value),
     output: std.ArrayList(u8),
     libraries: library_mod.LibraryRegistry,
     handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
@@ -367,6 +377,7 @@ pub const VM = struct {
             .globals = globals_map,
             .globals_lock = globals_lock,
             .macros = std.StringHashMap(Value).init(gc.allocator),
+            .record_uid_registry = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
@@ -401,6 +412,7 @@ pub const VM = struct {
             .globals = parent.globals,
             .globals_lock = parent.globals_lock,
             .macros = parent.macros,
+            .record_uid_registry = parent.record_uid_registry,
             .output = .empty,
             .libraries = parent.libraries,
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
@@ -463,6 +475,7 @@ pub const VM = struct {
             self.gc.allocator.destroy(self.globals);
             self.gc.allocator.destroy(self.globals_lock);
             self.macros.deinit();
+            self.record_uid_registry.deinit();
             self.libraries.deinit();
             if (self.script_path) |sp| self.gc.allocator.free(sp);
         }
