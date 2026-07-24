@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784842859303,
+  "lastUpdate": 1784869896167,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b5ce33d76e20e56f1251d84c74c9bf940976f537",
-          "message": "KEP-0002 Phase 7 gate-campaign harness + lever D (#1472) (#1546)\n\n* Add KEP-0002 Phase 7 parallel-map gate-campaign harness (#1472)\n\nThe gate that decides KEP-0003 (kaappi#1474) reads the copy+reassembly\noverhead `share` of a parallel-map section, per the frozen protocol at\nkeps research/benchmarks/README.md. This lands the runnable harness for\nthat measurement (levers none/C; lever D follows in a later commit).\n\n- src/channel_instrument.zig: parent-side T_submit_copy / T_result_copy /\n  T_reassembly counters, the runtime elision-lever flag, and the peak-\n  envelope gauge, all behind -Dchannel-instrument (compiled out of the\n  shipped default per protocol §3; also keeps clock_gettime out of WASM).\n- shared_channel.zig: time the real send/receive copy path; lever C skips\n  the envelope heap for immediate payloads (Envelope.gc is now optional).\n- primitives_parallel.zig: %chan-instr-* / %elision-lever-set! harness\n  hooks, registered only in the instrument build so the shipped\n  (kaappi fibers) is unchanged, and tagged .kaappi_fibers (not .internal,\n  which is removed from globals after bootstrap) so they persist.\n- benchmarks/gate/: the six workloads + controls + serial baselines\n  (gate-harness.scm), the Kalibera-Jones driver emitting the §6 CSV\n  (run-gate.py), and README.md documenting the protocol mapping and the\n  pre-freeze findings (the #1489 hang, records not crossing channels,\n  matmul compute cost, an exception-crossing panic).\n\nVerified: unit suite green on normal and -Dchannel-instrument=true builds\n(new lever-C regression test + internal-spec drift guard); channel/fiber/\nparallel Scheme smoke tests green; local pilot on macOS aarch64 produced a\n§6 CSV with well-differentiated share values.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Implement KEP-0002 Phase 7 lever D in the real channel path (#1472)\n\nLever D of the elision matrix (protocol §2): a refcounted immutable\nside-heap for large bytevectors, so a payload crossing a channel is\nsnapshotted once and shared by refcount instead of re-copied on every\nhop. The gate's C+D cells (kaappi#1474) require it.\n\n- src/shared_buffer.zig: SharedBuffer, the KEP-0002/0003 second\n  shared_object (after SharedChannel) -- a refcounted immutable byte\n  buffer outside every GC heap.\n- types.Bytevector.shared: opaque backing pointer; when set, data is\n  borrowed from a SharedBuffer and the bytevector holds one reference.\n- gc_deep_copy: under lever C+D the send side (envelope build) snapshots a\n  bytevector >= 4 KiB into a fresh SharedBuffer; the receive side (and any\n  re-copy of an already-backed bytevector) aliases by refcount -- zero\n  byte copy. Comptime-pruned in the shipped build.\n- memory.allocBytevectorShared / unshareBytevector: the backed allocator\n  and copy-on-write (a mutator privatizes borrowed bytes and drops the\n  reference before writing). COW wired into bytevector-u8-set!,\n  bytevector-copy!, read-bytevector!.\n- gc_collect: freeObject releases the SharedBuffer reference (freeing the\n  buffer at zero) instead of freeing borrowed bytes; objectSize counts\n  only the struct for a backed bytevector.\n- shared_channel.Envelope.create signals the send-side D mode around the\n  copy.\n\nScope (bytevectors only; no plain-source promotion for fan-out; strings\ndeferred) and rationale are in benchmarks/gate/README.md -- neither\naffects the gate classification (the one affected workload, FO-DIGEST\nfan-out, is compute-dominated).\n\nVerified: new lever-D unit test (backing / alias / copy-on-write /\nrefcount lifecycle) green on the instrument build and under\n-Dgc-stress=true; full unit suite green on normal and instrument builds;\nend-to-end pool test delivers correct bytes across a real thread and COW\nmutates safely; behaviorally, ip-band at C+D drops parent result-copy\ntime ~10x and peak envelope bytes ~40x vs lever none.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-14T23:50:03+05:30",
-          "tree_id": "da4adb009fcf71fc44b9434adebc9dbd43042620",
-          "url": "https://github.com/kaappi/kaappi/commit/b5ce33d76e20e56f1251d84c74c9bf940976f537"
-        },
-        "date": 1784054869136,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.484516,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.040462,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.494705,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.545736,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004927,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032103,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.282205,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041367,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.194208,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.07395,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.934043,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.309345,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.04881,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.651952,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.027993,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043996,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45cafd216e4b978bc35d53bdae61435b032930c5",
+          "message": "Add SRFI 120, exclude 21 and 230 (SRFI Phase 4 slice 2) (#1735)\n\n* Add SRFI 120, exclude 21 and 230 (SRFI Phase 4 slice 2, closes #1702)\n\nSRFI 120 (Timer APIs) ships as a portable library with zero engine\nchanges: each make-timer spawns a dedicated SRFI-18 thread coordinated\nthrough a (kaappi fibers) control channel, with all mutating calls\n(schedule/reschedule/remove/exists) implemented as synchronous\nrequest/reply over fresh one-shot reply channels.\n\nSRFI 21 (real-time multithreading) and SRFI 230 (atomic operations) are\nexcluded: both need architecture Kaappi's SRFI-18 doesn't have (a\nuserspace-scheduled thread model with enforced priority inheritance, and\nshared mutable memory across threads' otherwise-independent heaps,\nrespectively). See docs/dev/srfi-exclusions.md for the full rationale.\n\nAlso discovered and documented (but did not fix, as out of scope for a\nportable-library change): calling SRFI 120's procedures on one timer from\nmore than one thread produces nondeterministic memory corruption, even\nthough a bare two-thread channel round trip with none of this library's\nother machinery does not reproduce it in isolation. The library's own\nheader comment and test suite treat single-calling-thread as a hard\nrequirement until that engine-level issue is investigated separately.\n\n158 SRFIs implemented, 25 tracked, 25 excluded (208 total).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address PR #1735 review: spec-conformance fixes for SRFI 120\n\nThree genuine spec-conformance bugs found by review, all verified\nagainst the actual SRFI 120 spec text before fixing:\n\n- make-timer-delta only accepted full-word units (hours, seconds, ...);\n  the spec's required baseline vocabulary is the abbreviated symbols\n  (h/m/s/ms/us/ns). Both are now accepted.\n- timer-cancel! never re-raised a task's preserved error. The spec is\n  explicit: \"the procedure raises the preserved error if there is\" --\n  timer-cancel! is now synchronous (like the other operations) and\n  raises whatever condition caused the timer to stop, including a\n  re-raising error-handler's own condition.\n- A negative timer-delta (e.g. (make-timer-delta -1 's)) silently\n  produced a negative fire-at instead of being rejected, unlike the\n  plain-integer branch which already enforced non-negativity.\n\nAlso fixed: the SRFI 21/230 exclusion doc claimed both \"extend SRFI 18\",\nbut SRFI 230 is a standalone interface that merely notes an SRFI-18-based\nimplementation is possible.\n\nDocumented (not fixed, out of scope): the spec requires a task to be able\nto cancel/reschedule other tasks on the same timer, which this\nimplementation cannot do (thunks run synchronously inside the timer's own\nmessage loop, so a reentrant call from within a thunk deadlocks). A real\nfix needs either reentrant reply-channel semantics or per-task threads,\nand the latter would hit the same cross-thread channel bug already\nflagged as out of scope in the original PR.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix timer-cancel! sentinel to survive the cross-thread channel hop\n\n%no-error-sentinel was a freshly-consed list sent from the timer thread\nto the caller over a channel. channel-send/receive deep-copies non-symbol\nheap values across threads' independent GC heaps, so the copy arriving\nin the calling thread was `equal?` but never `eq?` to the sender's own\nbinding -- timer-cancel! always mistook its own sentinel for a real\npreserved condition and raised it. Switched to a bare symbol, which\nsurvives the hop intact because Kaappi interns symbols through a table\nshared across every thread's heap (the same reason the 'schedule/'stop/\netc. message tags elsewhere in this file already work via `case`).\n\nAlso closes the edge case CodeRabbit flagged: a task that (raise #f)s\nwith no handler is now correctly re-raised by timer-cancel! instead of\nbeing confused with \"nothing was preserved\" (both previously looked\nlike plain #f).\n\n* Address PR #1735 third-round review: tagged stop-reply, id-return, doc fixes\n\nConfirmed and fixed against the SRFI 120 spec text and this codebase's\nactual behavior:\n\n- Replace the %no-error-sentinel value comparison with a tagged reply\n  pair, ('ok . #f) or ('error . condition), for the (stop) message. A\n  bare sentinel -- symbol or not -- compared by eq?/eqv? can never fully\n  rule out collision with a task's own raised condition (R7RS `raise`\n  accepts any object); tagging the pair makes the distinction structural\n  instead of relying on an unlikely value. Added a regression test that\n  raises the exact symbol the old sentinel used, proving the collision\n  this design point closes.\n- timer-reschedule! now returns the task id on success, matching \"the\n  procedure returns given id\" (it previously returned #t).\n- make-timer-delta now rejects non-integer n, matching \"n must be an\n  integer\".\n- Import (srfi 1) explicitly for filter rather than relying on it being\n  incidentally visible without a declared dependency.\n- Fixed a stale doc comment claiming preserved task errors have no\n  retrievable accessor -- timer-cancel! has re-raised them since the\n  previous commit.\n- Documented (as a known limitation, not fixed) that a task thunk running\n  longer than %reply-timeout-seconds makes concurrent requests see false\n  \"not responding\"/timeout answers, since %timer-loop services `control`\n  only between thunks; SRFI 120 tasks are meant to be short callbacks, so\n  a full liveness-aware reply protocol is left as a documented gap.\n- Tightened three tests that either ignored a channel-receive's result\n  (so a timer that silently never fired could still pass) or used a\n  fixed thread-sleep! to wait for a background task to run (replaced with\n  a channel signal sent immediately before the task raises).\n\nVerified two other CodeRabbit claims from this same round against actual\nKaappi behavior and declined them: `exit` and `filter` are both reachable\nfrom bare (scheme base) in top-level script execution regardless of\ndeclared imports (confirmed empirically and via precedent -- 43 existing\nsrfi test files already call exit without importing (scheme\nprocess-context), and lib/srfi/216.sld already imports (srfi 18)\nunconditionally the same way this library does), so adding cond-expand\nguards or a (scheme process-context) import would be unrequested churn\naddressing no observable bug.\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-24T10:02:45+05:30",
+          "tree_id": "2bfadb4f6b121938a53c05e54a05bf1f5eb4e7b4",
+          "url": "https://github.com/kaappi/kaappi/commit/45cafd216e4b978bc35d53bdae61435b032930c5"
+        },
+        "date": 1784869894278,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.356468,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.381419,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.90511,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.412713,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006319,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054181,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.515244,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071238,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.523627,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.89808,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.594672,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436413,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.808304,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.663322,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045023,
             "unit": "seconds"
           }
         ]
