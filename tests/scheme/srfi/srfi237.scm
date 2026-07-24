@@ -108,6 +108,30 @@
 (test-assert "generative (default): old predicate still recognizes its own instance" (old-gen-pred gen-inst))
 (test-assert "generative (default): redefinition creates an unrelated type" (not (gen-thing? gen-inst)))
 
+;;; --- explicit (generative) clause ------------------------------------------
+;;; (generative) combined with (nongenerative ...) being rejected is verified
+;;; separately, not here: a top-level define-record-type that fails to parse
+;;; is a compile error that aborts the whole file, not a catchable exception
+;;; a SRFI-64 suite can assert against in-process.
+
+(define-record-type explicit-gen (fields (immutable v explicit-gen-v)) (generative))
+(define explicit-gen-inst (make-explicit-gen 1))
+(define old-explicit-gen-pred explicit-gen?)
+(define-record-type explicit-gen (fields (immutable v explicit-gen-v)) (generative))
+(test-assert "explicit (generative): record-type-generative? is true"
+  (record-type-generative? explicit-gen))
+(test-assert "explicit (generative): behaves like the default (old predicate still recognizes its own instance)"
+  (old-explicit-gen-pred explicit-gen-inst))
+(test-assert "explicit (generative): behaves like the default (redefinition creates an unrelated type)"
+  (not (explicit-gen? explicit-gen-inst)))
+
+;;; --- the declared record name itself is bound to its descriptor -----------
+
+(test-assert "the record name identifier evaluates to its own record-type descriptor"
+  (record-type-descriptor? point))
+(test-eq "the record name identifier is the rtd record-predicate resolves to"
+  point (record-rtd (make-point 1 2)))
+
 ;;; --- procedural layer: mirrors the syntactic-layer coverage above ---------
 
 (define proc-point-rtd (make-record-type-descriptor 'proc-point #f #f #f #f #((immutable x) (immutable y))))

@@ -246,7 +246,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 // than the top-level case this session's test suite exercises.
 
 fn isR6RSClauseKeyword(name: []const u8) bool {
-    const keywords = [_][]const u8{ "fields", "parent", "protocol", "sealed", "opaque", "nongenerative", "parent-rtd" };
+    const keywords = [_][]const u8{ "fields", "parent", "protocol", "sealed", "opaque", "nongenerative", "generative", "parent-rtd" };
     for (keywords) |kw| {
         if (std.mem.eql(u8, name, kw)) return true;
     }
@@ -323,6 +323,7 @@ pub const R6RSRecordSpec = struct {
     protocol_expr: ?Value = null,
     uid: ?[]const u8 = null,
     has_nongenerative: bool = false,
+    has_generative: bool = false,
     sealed: bool = false,
     is_opaque: bool = false,
     fields: [256]R6RSFieldSpec = undefined,
@@ -465,12 +466,21 @@ pub fn parseRecordSpecR6RS(args: Value, gc: *GC) CompileError!?R6RSRecordSpec {
                 spec.uid = types.symbolName(uid_sym);
                 if (types.cdr(clause_rest) != types.NIL) return null;
             }
+        } else if (std.mem.eql(u8, kw, "generative")) {
+            // SRFI 237: mutually exclusive with `nongenerative`; otherwise
+            // a pure no-op documentation marker -- omitting both clauses
+            // already means generative.
+            if (clause_rest != types.NIL) return null;
+            spec.has_generative = true;
         } else {
             // parent-rtd, or anything else -- see the section header comment.
             return null;
         }
         clauses = types.cdr(clauses);
     }
+
+    // SRFI 237: "a record type can't be both" generative and nongenerative.
+    if (spec.has_generative and spec.has_nongenerative) return null;
 
     // (nongenerative) with no explicit uid: still non-generative (matters
     // for record-type-generative?), but with nothing meant to compare equal
@@ -561,8 +571,13 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     const internal_name = internRecordTypeName(vm.gc, spec.type_name) catch return VMError.OutOfMemory;
     if (vm.current_lib_env) |lib_env| {
         lib_env.put(internal_name, rt_val) catch return VMError.OutOfMemory;
+        // SRFI 237: "As an expression, this keyword evaluates to the
+        // underlying record descriptor" -- the declared name itself, not
+        // just the hidden redefinition-stable alias above, must be bound.
+        lib_env.put(spec.type_name, rt_val) catch return VMError.OutOfMemory;
     } else {
         vm.defineGlobal(internal_name, rt_val) catch return VMError.OutOfMemory;
+        vm.defineGlobal(spec.type_name, rt_val) catch return VMError.OutOfMemory;
     }
 
     // --- constructor ---
