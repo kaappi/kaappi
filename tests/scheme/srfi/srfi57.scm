@@ -17,6 +17,21 @@
   (test-equal "mutator writes correctly" 40 (point-y p)))
 (test-assert "predicate rejects an unrelated value" (not (point? 5)))
 
+;;; --- define-record-type accessors are monomorphic, not polymorphic --------
+
+(define-record-type box1 (make-box1 x) box1? (x box1-x))
+
+(test-assert "type accessor: errors on a record of an unrelated type with the same field name"
+  (guard (e (#t #t)) (point-x (make-box1 9)) #f))
+
+;;; --- shorthand forms: a bare name with no other clauses at all -------------
+
+(define-record-scheme <bare-scheme)
+(test-equal "scheme shorthand: bare name has no fields" '() (car <bare-scheme))
+
+(define-record-type bare-type)
+(test-equal "type shorthand: bare name has no fields" '() (car bare-type))
+
 ;;; --- suppressed constructor / predicate ------------------------------------
 
 (define-record-type suppressed #f #f (v))
@@ -93,6 +108,11 @@
     (test-equal "record-update!: mutates the original record in place" 99 (animal.age d))
     (test-assert "record-update!: returns the (same) mutated record" (eq? result d))))
 
+(test-assert "record-update: errors when the record doesn't conform to the target scheme"
+  (guard (e (#t #t)) (record-update (make-widget "SKU1") <animal (age 1)) #f))
+(test-assert "record-update: errors when the label isn't a field of the target"
+  (guard (e (#t #t)) (record-update (make-dog "Rex" 3 "Alice" "Lab") <animal (nonexistent 1)) #f))
+
 ;;; --- record-compose: the spec's own worked example -------------------------
 
 (define-record-scheme <point-s #f #f (x <point-s.x) (y <point-s.y))
@@ -117,6 +137,22 @@
        (copied (record-compose (full-point fp) (point-copy))))
   (test-equal "record-compose: monomorphic import copies its own field" 5 (pc-x copied))
   (test-equal "record-compose: monomorphic import copies its other field" 6 (pc-y copied)))
+
+;;; --- record-compose: duplicate import precedence ("left to right,
+;;; dropping any repeated fields" -- the first import wins) ------------------
+
+(let* ((first (make-full-point 1 2))
+       (second (make-full-point 100 200))
+       (composed (record-compose (full-point first) (full-point second) (point-copy))))
+  (test-equal "record-compose: first import wins x on a field shared by two imports" 1 (pc-x composed))
+  (test-equal "record-compose: first import wins y on a field shared by two imports" 2 (pc-y composed))
+  (test-assert "record-compose: precedence is not simply 'the last import always wins'"
+    (not (= 100 (pc-x composed)))))
+
+(let* ((first (make-full-point 1 2))
+       (second (make-full-point 100 200))
+       (composed (record-compose (full-point first) (full-point second) (point-copy (x 999)))))
+  (test-equal "record-compose: explicit override still wins over every import" 999 (pc-x composed)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-57")

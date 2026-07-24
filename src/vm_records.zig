@@ -434,7 +434,7 @@ pub fn parseRecordSpecR6RS(args: Value, gc: *GC) CompileError!?R6RSRecordSpec {
             var fs = clause_rest;
             while (fs != types.NIL) {
                 if (!types.isPair(fs)) return null;
-                if (spec.field_count >= 256) return null;
+                if (spec.field_count >= 255) return null; // own_field_count is u8
                 const fspec = (try parseFieldSpec(types.car(fs), spec.type_name, gc)) orelse return null;
                 spec.fields[spec.field_count] = fspec;
                 spec.field_count += 1;
@@ -498,6 +498,9 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         if (!types.isRecordType(parent_val)) return VMError.CompileError;
         break :blk types.toObject(parent_val).as(types.RecordType);
     } else null;
+    // R6RS: "An exception ... is raised if parent is sealed" -- a sealed
+    // type must never become an ancestor of another record type.
+    if (parent_rt) |p| if (p.sealed) return VMError.TypeError;
     const parent_total_fields: usize = if (parent_rt) |p| p.num_fields else 0;
 
     var field_names_buf: [256][]const u8 = undefined;
@@ -521,7 +524,10 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
                 u,
                 spec.sealed,
                 spec.is_opaque,
-            ) catch return VMError.OutOfMemory;
+            ) catch |err| return switch (err) {
+                error.TooManyFields => VMError.TypeError,
+                else => VMError.OutOfMemory,
+            };
             vm.gc.pushRoot(&rt_val);
             vm.record_uid_registry.put(u, rt_val) catch return VMError.OutOfMemory;
             vm.gc.popRoot();
@@ -535,7 +541,10 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             null,
             spec.sealed,
             spec.is_opaque,
-        ) catch return VMError.OutOfMemory;
+        ) catch |err| return switch (err) {
+            error.TooManyFields => VMError.TypeError,
+            else => VMError.OutOfMemory,
+        };
     }
     vm.gc.pushRoot(&rt_val);
     defer vm.gc.popRoot();

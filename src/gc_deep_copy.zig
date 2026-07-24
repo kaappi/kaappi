@@ -5,6 +5,7 @@ const hashtable = @import("primitives_hashtable.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_buffer = @import("shared_buffer.zig");
 const instrument = @import("channel_instrument.zig");
+const vm_mod = @import("vm.zig");
 
 const GC = memory_mod.GC;
 const Value = types.Value;
@@ -310,7 +311,22 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 const new_parent_val = try deepCopyValue(gc, types.makePointer(&p.header), visited);
                 new_parent = types.toObject(new_parent_val).as(types.RecordType);
             }
-            const new_val = try gc.allocRecordTypeExtended(
+            // Nongenerative (uid-carrying) types must stay interoperable
+            // across the copy: reuse the destination VM's own registration
+            // for this uid if one already exists, rather than minting a
+            // second, non-interoperable RecordType with the same uid.
+            if (rt.uid) |u| {
+                if (vm_mod.vm_instance) |dest_vm| {
+                    if (dest_vm.record_uid_registry.get(u)) |existing| {
+                        try visited.put(src_ptr, existing);
+                        return existing;
+                    }
+                }
+            }
+            // The source RecordType already exists within field-count
+            // bounds, so TooManyFields can't legitimately occur here --
+            // mapped to OutOfMemory only to stay within DeepCopyError.
+            const new_val = gc.allocRecordTypeExtended(
                 rt.name,
                 new_parent,
                 rt.own_field_names,
@@ -318,8 +334,19 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 rt.uid,
                 rt.sealed,
                 rt.is_opaque,
-            );
+            ) catch |err| return switch (err) {
+                error.TooManyFields => error.OutOfMemory,
+                else => |e| e,
+            };
             try visited.put(src_ptr, new_val);
+            if (rt.uid) |u| {
+                if (vm_mod.vm_instance) |dest_vm| {
+                    var rooted = new_val;
+                    gc.pushRoot(&rooted);
+                    defer gc.popRoot();
+                    dest_vm.record_uid_registry.put(u, new_val) catch return error.OutOfMemory;
+                }
+            }
             return new_val;
         },
         .record_instance => {

@@ -603,6 +603,15 @@ pub const GC = struct {
         sealed: bool,
         is_opaque: bool,
     ) !Value {
+        // num_fields/own_field_count are u8 -- reject before any allocation
+        // rather than let the @intCast below panic (ReleaseSafe) or wrap
+        // (ReleaseFast) on a type with 256+ own fields, or fewer own fields
+        // that still push the inherited total past 255.
+        const parent_fields: u16 = if (parent) |p| p.num_fields else 0;
+        if (field_names.len > 255 or parent_fields + field_names.len > 255) {
+            return error.TooManyFields;
+        }
+
         // Copy every owned byte range before collecting -- each may alias
         // a symbol/string's own bytes (see allocRecordType above).
         const owned_name = try self.allocator.dupe(u8, name);
@@ -633,7 +642,6 @@ pub const GC = struct {
         self.clearArgRoots();
 
         const own_count: u8 = @intCast(field_names.len);
-        const parent_fields: u16 = if (parent) |p| p.num_fields else 0;
         const total_fields: u16 = parent_fields + @as(u16, own_count);
 
         const rt = try self.allocator.create(RecordType);

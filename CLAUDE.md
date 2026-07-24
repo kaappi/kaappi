@@ -373,11 +373,11 @@ library-body use of a shadowing `define-record-type` (`compiler_lambda.zig`/
 `vm_library.zig`'s separate scanning path) is a documented, un-closed gap —
 same limitation on the R6RS-clause syntax itself. SRFI 137 (Minimal Unique
 Types) is pure portable Scheme built directly on `(srfi 237)`: a "subtype"
-is exactly SRFI 237's `parent` relationation, with every level correctly
+is exactly SRFI 237's `parent` relation, with every level correctly
 sharing the ROOT type's single payload field (a subtype's own rtd adds
 *zero* new fields, inheriting the root's one field via the parent rtd/rcd
-chain — an earlier attempt to give every level its own field this was ever
-a bug is worth remembering if this file is touched again). SRFI 136
+chain — an earlier draft gave every level its own field instead, which was
+a bug; worth remembering if this file is touched again). SRFI 136
 (Extensible record types) demonstrates the CPS-style introspection macro
 its spec is built around — `(<type-name>)` yields the type's own rtd,
 `(<type-name> (<keyword> <datum>...))` splices that type's own literal

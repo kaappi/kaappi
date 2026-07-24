@@ -413,11 +413,12 @@ gaps, not just missing library code. Several of these SRFIs' own
 specification text says so directly; the others don't say so in as many
 words, but their own reference implementations only work via
 `syntax-case`/`datum->syntax`/`define-macro` (raw, non-hygienic procedural
-macros), and no mainstream syntax-rules-only Scheme (Chibi, Gauche) has
-ported them faithfully either — Gauche shipped SRFI 227 instead of SRFI 89
-for this exact reason. Tracked macro/syntax-system extension work that
-touches the same expander surface is in issue #1699 (SRFI 72, 139, 147,
-148, 149, 211, 213).
+macros). For SRFI 89 specifically, no mainstream Scheme has ported it using
+only hygienic `syntax-rules` either — Gauche, which is not a
+syntax-rules-only implementation, shipped SRFI 227 instead of SRFI 89 for
+this exact reason. Tracked macro/syntax-system extension work that touches
+the same expander surface is in issue #1699 (SRFI 72, 139, 147, 148, 149,
+211, 213).
 
 | SRFI | Title | Reason |
 |------|-------|--------|
@@ -559,8 +560,9 @@ facility this codebase's expander doesn't have, or dedicated compiler
 support for the auto-naming forms specifically (parsed and synthesized
 directly in Zig, the same approach used for R6RS's own auto-naming
 `define-record-type` clause syntax in `src/vm_records.zig` — but SRFI 99's
-own `#t`/bare-field shorthand is a strictly smaller, already-covered-by-131
-feature, so a dedicated engine extension for it alone isn't warranted).
+own `#t`/bare-field shorthand is exactly the part SRFI 131 drops (not
+covered by it at all, see above) and is a strictly small feature on its
+own, so a dedicated engine extension for it alone isn't warranted).
 
 ### SRFI 100 — define-lambda-object
 

@@ -106,6 +106,16 @@ fn isOrDescendsFrom(start: *RecordType, target: *RecordType) bool {
     return false;
 }
 
+/// Same field names, in the same order, with the same mutability -- used
+/// to check R6RS's nongenerative-uid equivalence requirement.
+fn fieldsEquivalent(existing: *RecordType, names: []const []const u8, mutable: []const bool) bool {
+    if (existing.own_field_names.len != names.len) return false;
+    for (existing.own_field_names, existing.own_field_mutable, names, mutable) |en, em, n, m| {
+        if (em != m or !std.mem.eql(u8, en, n)) return false;
+    }
+    return true;
+}
+
 fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args: name(string), parent(record-type-or-#f), uid(string-or-#f),
@@ -118,6 +128,8 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         if (!types.isRecordType(args[1])) return typeError("%make-record-type-descriptor", "record-type", args[1]);
         break :blk asRecordType(args[1]);
     };
+    // R6RS: "An exception ... is raised if parent is sealed".
+    if (parent) |p| if (p.sealed) return PrimitiveError.TypeError;
 
     const uid: ?[]const u8 = if (args[2] == types.FALSE)
         null
@@ -127,13 +139,6 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     const sealed = args[3] != types.FALSE;
     const is_opaque = args[4] != types.FALSE;
 
-    // nongenerative: reuse an existing RTD registered under this uid rather
-    // than allocating a new, non-interoperable one.
-    if (uid) |u| {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-        if (vm.record_uid_registry.get(u)) |existing| return existing;
-    }
-
     var field_names_buf: [256][]const u8 = undefined;
     var field_mutable_buf: [256]bool = undefined;
     var field_count: usize = 0;
@@ -142,11 +147,34 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPair(specs_cur)) return typeError("%make-record-type-descriptor", "list", args[5]);
         const entry = types.car(specs_cur);
         if (!types.isPair(entry)) return typeError("%make-record-type-descriptor", "(name . mutable?) pair", entry);
-        if (field_count >= 256) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+        if (field_count >= 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive; own_field_count is u8
         field_names_buf[field_count] = try expectString("%make-record-type-descriptor", types.car(entry));
         field_mutable_buf[field_count] = types.cdr(entry) != types.FALSE;
         field_count += 1;
         specs_cur = types.cdr(specs_cur);
+    }
+
+    // nongenerative: reuse an existing RTD registered under this uid rather
+    // than allocating a new, non-interoperable one -- but only when it's
+    // actually equivalent (R6RS: "the record-type definitions should be
+    // equivalent, in the sense that they specify ... equal fields, equally
+    // sealed and opaque, and their parents ... are equivalent"). A parent
+    // is compared by identity: a parent that is itself nongenerative always
+    // resolves to the same RTD object for a given uid, so pointer equality
+    // already captures parent equivalence.
+    if (uid) |u| {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        if (vm.record_uid_registry.get(u)) |existing| {
+            const existing_rt = asRecordType(existing);
+            if (existing_rt.parent == parent and
+                existing_rt.sealed == sealed and
+                existing_rt.is_opaque == is_opaque and
+                fieldsEquivalent(existing_rt, field_names_buf[0..field_count], field_mutable_buf[0..field_count]))
+            {
+                return existing;
+            }
+            return PrimitiveError.TypeError;
+        }
     }
 
     var new_val = gc.allocRecordTypeExtended(
@@ -157,7 +185,10 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         uid,
         sealed,
         is_opaque,
-    ) catch return PrimitiveError.OutOfMemory;
+    ) catch |err| return switch (err) {
+        error.TooManyFields => PrimitiveError.TypeError,
+        else => PrimitiveError.OutOfMemory,
+    };
 
     if (uid) |u| {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
