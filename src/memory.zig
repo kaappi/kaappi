@@ -939,8 +939,8 @@ pub const GC = struct {
     pub fn allocNumericVectorFill(self: *GC, kind: types.NumericElementKind, elements: usize, fill_bytes: []const u8) !Value {
         const width = kind.elementWidth();
         std.debug.assert(fill_bytes.len == width);
+        if (elements > max_payload_bytes / width) return error.OutOfMemory;
         const size = elements * width;
-        if (size > max_payload_bytes) return error.OutOfMemory;
         try self.maybeCollect();
         const data = try self.allocator.alloc(u8, size);
         errdefer self.allocator.free(data);

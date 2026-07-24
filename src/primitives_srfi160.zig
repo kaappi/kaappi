@@ -220,9 +220,17 @@ fn makeNumericVectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return typeError("%make-numeric-vector", "exact integer", args[1]);
     const raw_len = types.toFixnum(args[1]);
     if (raw_len < 0) return typeError("%make-numeric-vector", "non-negative length", args[1]);
+    const width = kind.elementWidth();
+    // Compare in u64 (wide enough for any raw_len/usize combination) before
+    // narrowing to usize -- on wasm32 (usize = u32) a fixnum-range length
+    // (up to 2^47) would otherwise panic @intCast instead of raising a
+    // catchable error.
+    const max_elements: u64 = @as(u64, memory.GC.max_payload_bytes) / @as(u64, width);
+    if (@as(u64, @intCast(raw_len)) > max_elements) {
+        return typeError("%make-numeric-vector", "in-range length", args[1]);
+    }
     const len: usize = @intCast(raw_len);
 
-    const width = kind.elementWidth();
     var fill_buf: [16]u8 = undefined;
     try encodeElement("%make-numeric-vector", kind, args[2], fill_buf[0..width]);
     return gc.allocNumericVectorFill(kind, len, fill_buf[0..width]) catch PrimitiveError.OutOfMemory;

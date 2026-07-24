@@ -394,6 +394,23 @@ pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
     return s;
 }
 
+/// Write the `[+-]<magnitude>i` suffix for a numeric-vector c64/c128
+/// element's imaginary part. Mirrors the `.complex` printer arm's own
+/// NaN/Inf/signbit handling below -- unlike a standalone `Complex` Value,
+/// a numeric-vector element is always inexact, so this always calls
+/// `formatFlonum` directly rather than `formatComplexPart`.
+fn writeImaginaryPart(writer: anytype, buf: []u8, im: f64) !void {
+    if (std.math.isNan(im)) {
+        try writer.writeAll("+nan.0i");
+    } else if (std.math.isInf(im)) {
+        try writer.writeAll(if (im > 0) "+inf.0i" else "-inf.0i");
+    } else {
+        try writer.writeByte(if (std.math.signbit(im)) '-' else '+');
+        try writer.writeAll(formatFlonum(buf, @abs(im)));
+        try writer.writeByte('i');
+    }
+}
+
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
     return printValueWithDepth(writer, value, mode, 0);
 }
@@ -669,18 +686,14 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                             const im_bits = std.mem.readInt(u32, nv.data[i + 4 ..][0..4], native_endian);
                             const im: f32 = @bitCast(im_bits);
                             try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(re_bits))));
-                            try writer.writeByte(if (im < 0) '-' else '+');
-                            try writer.writeAll(formatFlonum(&buf, @abs(im)));
-                            try writer.writeByte('i');
+                            try writeImaginaryPart(writer, &buf, im);
                         },
                         .c128 => {
                             const re_bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
                             const im_bits = std.mem.readInt(u64, nv.data[i + 8 ..][0..8], native_endian);
                             const im: f64 = @bitCast(im_bits);
                             try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(re_bits))));
-                            try writer.writeByte(if (im < 0) '-' else '+');
-                            try writer.writeAll(formatFlonum(&buf, @abs(im)));
-                            try writer.writeByte('i');
+                            try writeImaginaryPart(writer, &buf, im);
                         },
                     }
                 }

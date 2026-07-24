@@ -81,7 +81,8 @@
 
 (test-equal '(2 3 4) (s8vector->list (s8vector-map (lambda (x) (+ x 1)) (s8vector 1 2 3))))
 (test-equal 10 (s8vector-fold + 0 (s8vector 1 2 3 4)))
-(test-equal 6 (s8vector-fold-right (lambda (acc x) (+ acc x)) 0 (s8vector 1 2 3)))
+;; cons-based (non-commutative) so this would fail under left-to-right traversal
+(test-equal '(1 2 3) (s8vector-fold-right (lambda (acc x) (cons x acc)) '() (s8vector 1 2 3)))
 (let ((sum 0))
   (s8vector-for-each (lambda (x) (set! sum (+ sum x))) (s8vector 1 2 3))
   (test-equal 6 sum))
@@ -132,10 +133,13 @@
   (test-equal '(0 1 2 0) (s8vector->list to)))
 
 (test-equal '(0 2 4 6) (s8vector->list (s8vector-unfold (lambda (i seed) (values (* i 2) #f)) 4 #f)))
-(test-equal '(0 2 4 6) (s8vector->list (s8vector-unfold-right (lambda (i seed) (values (* i 2) #f)) 4 #f)))
+;; seed-threaded (not just a function of the index) so left-to-right vs.
+;; right-to-left traversal produce different, distinguishable results.
+(test-equal '(3 2 1 0)
+  (s8vector->list (s8vector-unfold-right (lambda (i seed) (values seed (+ seed 1))) 4 0)))
 (let ((v (make-s8vector 4 0)))
-  (s8vector-unfold! (lambda (i) i) v 0 4)
-  (test-equal '(0 1 2 3) (s8vector->list v)))
+  (s8vector-unfold! (lambda (i seed) (values seed (+ seed 1))) v 0 4 10)
+  (test-equal '(10 11 12 13) (s8vector->list v)))
 
 (let ((g (make-s8vector-generator (s8vector 10 20))))
   (test-equal 10 (g)) (test-equal 20 (g)) (test-assert (eof-object? (g))))
