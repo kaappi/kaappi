@@ -13,6 +13,15 @@
 ;;; array-shape, new in this SRFI, is the intended way to get a shape back
 ;;; from an array).
 ;;;
+;;; Scope note: the spec says "every gvector is an array" and recommends a
+;;; library-based implementation "should use the existing vector type" for
+;;; simple rank-1 zero-lower-bound arrays -- i.e. array? is described as
+;;; also being true of a plain R7RS vector. This is a "should" (a
+;;; recommendation), not a "must", and honoring it would mean every
+;;; array-* procedure needs a parallel plain-vector code path; deliberately
+;;; not implemented here. array? in this library is true only for values
+;;; constructed by this library's own procedures.
+;;;
 ;;; An array is one of three modes, discriminated by which fields are set:
 ;;;   - "simple": store is a row-major vector; base/mapper/getter/setter #f.
 ;;;   - "shared/view": base is set; array-ref/set! translate the index
@@ -208,20 +217,30 @@
 
     ;; Unlike SRFI 25, this SRFI's make-array accepts multiple fill values,
     ;; cycling through them until the array is full.
+    ;;
+    ;; Per spec, "the procedures in this specification that require a
+    ;; shape can accept a shape-specifier, as if converted by the
+    ;; procedure ->shape" -- every shape-taking procedure below coerces
+    ;; through ->shape rather than assuming an already-canonical shape.
+    ;; ->shape always returns a fresh vector (even its passthrough branch
+    ;; conses new pairs), so this also satisfies the "does not retain a
+    ;; dependence on the shape argument" requirement without a separate copy.
     (define (make-array shape . values)
-      (let* ((size (%shape-volume shape)) (store (make-vector size #f)))
+      (let* ((canonical (->shape shape))
+             (size (%shape-volume canonical))
+             (store (make-vector size #f)))
         (when (pair? values)
           (let loop ((i 0) (vs values))
             (when (< i size)
               (vector-set! store i (car vs))
               (loop (+ i 1) (if (null? (cdr vs)) values (cdr vs))))))
-        (%make-array-record (%copy-shape shape) store #f #f #f #f)))
+        (%make-array-record canonical store #f #f #f #f)))
 
     (define (array shape . objs)
-      (let ((size (%shape-volume shape)))
+      (let* ((canonical (->shape shape)) (size (%shape-volume canonical)))
         (unless (= size (length objs))
           (error "array: wrong number of initial values for shape" size (length objs)))
-        (%make-array-record (%copy-shape shape) (list->vector objs) #f #f #f #f)))
+        (%make-array-record canonical (list->vector objs) #f #f #f #f)))
 
     (define (array-rank a) (vector-length (array-shape-vec a)))
     (define (array-start a k) (%lower (array-shape-vec a) k))
@@ -242,9 +261,17 @@
            (if #f #f)))))
 
     (define (share-array a shape proc)
-      (%make-array-record (%copy-shape shape) #f a proc #f #f))
+      (%make-array-record (->shape shape) #f a proc #f #f))
 
     ;; --- the 13 procedures new in SRFI 164 ---
+
+    ;; Checks the same lo <= hi (and exactness) constraint as `shape`, so
+    ;; a bad specifier element fails right here with a reference to the
+    ;; element, rather than surfacing later as an obscure make-vector/
+    ;; vector-ref error somewhere downstream.
+    (define (%check-bounds! who lo hi elt)
+      (unless (and (exact? lo) (exact? hi) (<= lo hi))
+        (error (string-append who ": invalid bounds in shape specifier element") elt)))
 
     (define (->shape specifier)
       (let* ((n (vector-length specifier)) (vec (make-vector n)))
@@ -257,9 +284,11 @@
                  (let ((elt (vector-ref specifier i)))
                    (cond
                     ((and (pair? elt) (integer? (car elt)) (integer? (cdr elt)))
+                     (%check-bounds! "->shape" (car elt) (cdr elt) elt)
                      (cons (car elt) (cdr elt)))
                     ((and (pair? elt) (integer? (car elt)) (pair? (cdr elt))
                           (integer? (cadr elt)) (null? (cddr elt)))
+                     (%check-bounds! "->shape" (car elt) (cadr elt) elt)
                      (cons (car elt) (cadr elt)))
                     ((and (integer? elt) (exact? elt) (>= elt 0))
                      (cons 0 elt))
@@ -269,11 +298,22 @@
     (define (array-shape a) (%copy-shape (array-shape-vec a)))
     (define (array-size a) (%shape-volume (array-shape-vec a)))
 
+    ;; Per spec, build-array's getter is called with a single argument (an
+    ;; index vector) and its setter (if any) with two arguments (an index
+    ;; vector, then the new value) -- a different convention than this
+    ;; library's internal variadic-indices/value-first dispatch, so both
+    ;; are adapted at this boundary.
     (define (build-array shape getter . setter)
-      (%make-array-record (%copy-shape shape) #f #f #f getter (if (pair? setter) (car setter) #f)))
+      (%make-array-record
+       (->shape shape) #f #f #f
+       (lambda indices (getter (list->vector indices)))
+       (if (pair? setter)
+           (let ((user-setter (car setter)))
+             (lambda (value . indices) (user-setter (list->vector indices) value)))
+           #f)))
 
     (define (index-array shape)
-      (let ((shape-copy (%copy-shape shape)))
+      (let ((shape-copy (->shape shape)))
         (%make-array-record shape-copy #f #f #f
                              (lambda indices (%row-major-offset shape-copy indices))
                              #f)))
@@ -326,7 +366,8 @@
        (lambda (result-shape resolver)
          (if (= 0 (vector-length result-shape))
              (apply array-ref a (resolver '()))
-             (build-array result-shape (lambda new-indices (apply array-ref a (resolver new-indices))))))))
+             (build-array result-shape
+                          (lambda (index-vec) (apply array-ref a (resolver (vector->list index-vec)))))))))
 
     (define (array-index-share a . indices)
       (call-with-values
@@ -346,12 +387,12 @@
       (%for-each-index (array-shape-vec a) (lambda (idx) (%array-set-indices! a idx value))))
 
     (define (array-transform a shape transform)
-      (%make-array-record (%copy-shape shape) #f a
+      (%make-array-record (->shape shape) #f a
                            (lambda indices (apply values (vector->list (transform (list->vector indices)))))
                            #f #f))
 
     (define (array-reshape a shape)
-      (let ((new-shape (%copy-shape shape)))
+      (let ((new-shape (->shape shape)))
         (unless (= (%shape-volume new-shape) (array-size a))
           (error "array-reshape: new shape must have the same volume as the original array" shape a))
         (let ((store (array-store a)))

@@ -16,6 +16,17 @@
 (let ((b (array (shape 0 2 0 3) 1 2 3 4 5 6)))
   (test-equal 1 (array-ref b 0 0))
   (test-equal 6 (array-ref b 1 2)))
+;;; --- packed index arguments: vector and 0-based rank-1 array, plus
+;;; their rejection cases (not 1-D, not 0-based, not an index at all) ---
+(let ((pa (array (shape 0 2 0 2) 1 2 3 4)))
+  (test-equal 4 (array-ref pa (vector 1 1)))
+  (array-set! pa (vector 0 1) 'packed)
+  (test-equal 'packed (array-ref pa 0 1))
+  (test-equal 3 (array-ref pa (array (shape 0 2) 1 0)))
+  (test-equal #t (guard (e (#t #t)) (array-ref pa (array (shape 0 2 0 2) 0 0 0 0)) #f))
+  (test-equal #t (guard (e (#t #t)) (array-ref pa (array (shape 1 3) 0 1)) #f))
+  (test-equal #t (guard (e (#t #t)) (array-ref pa 'nope 0) #f)))
+
 (let ((c (make-array (shape -2 2 -2 2) 0)))
   (array-set! c -2 -2 'corner)
   (test-equal 'corner (array-ref c -2 -2)))
@@ -37,6 +48,23 @@
 (let ((a (make-array (->shape (vector (cons 0 2) 3)) 0)))
   (test-equal '(0 2 0 3) (list (array-start a 0) (array-end a 0) (array-start a 1) (array-end a 1))))
 
+;;; ->shape rejects the same lo > hi violation `shape` rejects
+(test-equal #t (guard (e (#t #t)) (->shape (vector (cons 5 2))) #f))
+
+;;; --- per spec, "the procedures in this specification that require a
+;;; shape can accept a shape-specifier, as if converted by ->shape" -- every
+;;; shape-taking procedure below must accept a raw specifier directly, not
+;;; just an already-canonical shape. ---
+(test-equal '(0 2 0 4) (let ((a (make-array (vector 2 4) 0)))
+                          (list (array-start a 0) (array-end a 0) (array-start a 1) (array-end a 1))))
+(test-equal 4 (array-ref (array (vector 2 2) 1 2 3 4) 1 1))
+(let* ((base164s (array (shape 0 4) 10 20 30 40))
+       (viewed (share-array base164s (vector 4) (lambda (k) (values k)))))
+  (test-equal 40 (array-ref viewed 3)))
+(test-equal 2 (array-ref (build-array (vector 2 3) (lambda (idx) (* (vector-ref idx 0) (vector-ref idx 1)))) 1 2))
+(test-equal 6 (array-size (index-array (vector 2 3))))
+(test-equal 30 (array-ref (array-reshape (array (shape 0 2 0 3) 10 20 30 40 50 60) (vector 6)) 2))
+
 ;;; --- array-shape round-trips back into make-array ---
 (let* ((original (make-array (shape -1 2 0 4) 0))
        (recovered (array-shape original))
@@ -49,13 +77,14 @@
 ;;; --- array-size ---
 (test-equal 12 (array-size (make-array (shape 0 3 0 4) 0)))
 
-;;; --- build-array: with and without a setter ---
-(let ((virt (build-array (shape 0 3 0 3) (lambda (i j) (* i j)))))
+;;; --- build-array: with and without a setter. Per spec, getter takes a
+;;; single index-vector argument and setter takes (index-vector, value). ---
+(let ((virt (build-array (shape 0 3 0 3) (lambda (idx) (* (vector-ref idx 0) (vector-ref idx 1))))))
   (test-equal 2 (array-ref virt 1 2))
   (test-equal 4 (array-ref virt 2 2))
   (test-equal #t (guard (e (#t #t)) (array-set! virt 0 0 99) #f)))
 (let ((cell 0))
-  (let ((mutvirt (build-array (shape 0 1) (lambda (i) cell) (lambda (v i) (set! cell v)))))
+  (let ((mutvirt (build-array (shape 0 1) (lambda (idx) cell) (lambda (idx value) (set! cell value)))))
     (array-set! mutvirt 0 42)
     (test-equal 42 (array-ref mutvirt 0))))
 
@@ -123,7 +152,9 @@
   (array-set! reshaped 0 'changed)
   (test-equal 'changed (array-ref simple164 0 0)))
 
-;;; --- array-reshape: recomputes (doesn't alias) for a non-simple source ---
+;;; --- array-reshape: for a non-simple source, there's no vector to alias,
+;;; so the result is a live view over the source (recomputed per access via
+;;; row-major rank), not a snapshot -- confirmed by the write-through below ---
 (let* ((simple164 (array (shape 0 2 0 3) 1 2 3 4 5 6))
        (shared164 (share-array simple164 (shape 0 6)
                                 (lambda (k) (values (quotient k 3) (remainder k 3)))))
