@@ -34,7 +34,13 @@
           array-domain array-getter array-setter array-dimension
           array-ref array-set! array-freeze! array-empty?
           array-body array-indexer array-storage-class array-safe? array-packed?
-          specialized-array-default-safe? specialized-array-default-mutable?)
+          specialized-array-default-safe? specialized-array-default-mutable?
+          ;; Not part of SRFI 231's own public API -- exported only for
+          ;; sibling library files in this package (lib/srfi/231/views.sld
+          ;; and later phases) to build genuinely specialized arrays with
+          ;; custom indexers, the same way (srfi 160 base)'s %uvec-* helpers
+          ;; exist only for that package's own per-tag files to consume.
+          %make-array %safe-getter %safe-setter %make-lex-indexer)
   (begin
 
     (define-record-type <array>
