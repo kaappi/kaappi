@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-28 final SRFIs are excluded from implementation. This document records which
+29 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -672,6 +672,50 @@ representation (`types.zig`) with one that preserves full IEEE-754 NaN
 bit patterns while still safely distinguishing flonums from
 pointers/fixnums/immediates — a foundational rearchitecture, not a
 bounded addition.
+
+---
+
+## Superseded by a later SRFI (1)
+
+This SRFI's own page states outright that a later SRFI supersedes it, and
+that later SRFI is a strict superset of its procedure surface (identical
+signatures for every inherited procedure, plus more). Implementing this one
+separately would mean shipping a second library that is a strict subset of
+one already implemented, under a different name, serving no user this
+codebase's own `(srfi 63)` doesn't already serve better.
+
+| SRFI | Title | Reason |
+|------|-------|--------|
+| 47 | Array | Superseded by SRFI 63 — stated directly on the SRFI 47 page itself, not inferred. All 9 of its core procedures (`array?`, `array-rank`, `array-dimensions`, `make-array`, `make-shared-array`, `array-in-bounds?`, `array-ref`, `array-set!`, `equal?`) have identical signatures in `(srfi 63)`, which additionally implements 4 more (`list->array`, `array->list`, `vector->array`, `array->vector`) and 7 more prototype-generator procedures (20 vs. 47's 13 — SRFI 63 adds more float widths and decimal floats). |
+
+### SRFI 47 — Array
+
+**Author:** Aubrey Jaffer (2003–2004)
+
+Defines homogeneous and heterogeneous arrays: `array?`, `equal?`,
+`make-array`, `make-shared-array`, `array-rank`, `array-dimensions`,
+`array-in-bounds?`, `array-ref`, `array-set!`, plus 13 type-tag prototype
+procedures (`ac64`, `ac32`, `ar64`, `ar32`, `as64`, `as32`, `as16`, `as8`,
+`au64`, `au32`, `au16`, `au8`, `at1`) selecting the element type a
+`make-array` call produces.
+
+**Why excluded:** The SRFI 47 page itself states, outside its abstract, "This
+SRFI has been superseded by SRFI-63, 'Homogeneous and Heterogeneous
+Arrays.'" Confirmed by direct comparison of the two spec texts: every one of
+47's 9 core procedures has an identical calling convention in 63 (including
+the value-second `array-set!` convention and prototype-driven `make-array`
+that make both incompatible with SRFI 25/164's value-last, shape-object
+design — see `(srfi 63)`'s own header comment, `lib/srfi/63.sld`), and 63's
+13 type-tag procedures are the same concept under longer, more systematic
+names (`as8` → `A:fixZ8b`, `ac64` → `A:floC64b`, `at1` → `A:bool`, etc.),
+plus 7 entirely new ones for element kinds 47 doesn't cover at all (16- and
+128-bit floats, 16- and 32-bit complex, all 3 decimal-float widths — see
+`(srfi 63)`'s header for which of those fall back to a plain, unchecked
+vector for lack of a Kaappi-native representation). There is no case where
+a program could target 47 but not 63.
+
+**Scope of change:** None — `(srfi 63)` is implemented (`lib/srfi/63.sld`)
+and is a strict superset of this SRFI's entire surface.
 
 ---
 
