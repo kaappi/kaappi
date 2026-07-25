@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784925286181,
+  "lastUpdate": 1784949460788,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e93ee1258175a41c9feb3498540b3128891ff19",
-          "message": "Ship envelope elision lever C (immediate fast path) as the default (#1472) (#1550)\n\nThe KEP-0002 Phase 7 P3 micro-benchmark decided lever C — immediate\nmessages skip the per-message envelope heap — ships: it clears the\npre-registered \"immediates >= 2x lever A on fixnums\" bar by an order of\nmagnitude (measured 28x ReleaseFast / 108x ReleaseSafe), and the KEP-0002\nUQ-1 amendment recorded C as ship. Until now the fast path only ran under\n-Dchannel-instrument as the gate lever `c`; production sends still built a\nfull private mini-heap for every fixnum/boolean/char/flonum/nil message.\n\nMake the immediate elision unconditional in the shipped build. It is\nprovably transparent: deepCopy of a non-pointer returns it unchanged\n(gc_deep_copy.zig, `if (!isPointer) return src`), so the full path only\never built an empty heap and stored the same value back — the fast path\ncarries that value inline and skips the GC struct + ~8 KiB root buffer.\nreceive() and deinit() already handle the null-heap envelope.\n\nKeep it lever-selectable under -Dchannel-instrument so the frozen gate\nprotocol's `none` baseline still forces the pre-C full-envelope path and\nstays reproducible; only the shipped (non-instrument) build changes.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T06:47:02+05:30",
-          "tree_id": "b25ef5b763afeba13bcea3b35c4a03240225d63c",
-          "url": "https://github.com/kaappi/kaappi/commit/5e93ee1258175a41c9feb3498540b3128891ff19"
-        },
-        "date": 1784080187745,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.37258,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.752535,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.936722,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.487064,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006776,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054918,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511675,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070385,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.517933,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.955933,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.629986,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.442505,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.979883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.760123,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045277,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043397,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a814ffde3d3bd500ed3faaf546499fc4d1ef780c",
+          "message": "Add SRFI 25, multi-dimensional array primitives (#1694 array family) (#1739)\n\n* Add SRFI 25, multi-dimensional array primitives (#1694 array family)\n\nPure portable Scheme (lib/srfi/25.sld) -- arrays are spec-defined as\nheterogeneous with no relationship to SRFI 4/160's numeric vectors, so\na define-record-type wrapping a plain vector is spec-sufficient. One\nrecord covers both simple (row-major backing vector) and share-array\n(affine view: base array + index-translation mapper) arrays; views\nrecurse into the base array's own ref/set! rather than its raw vector,\nso nested views compose correctly for both reads and writes.\n\nConfirms and corrects the \"three mutually incompatible lineages\"\nframing in issue #1694: SRFI 164 is actually a compatible extension of\n25 (identical shape representation), not a separate lineage, making it\na comparatively cheap follow-on. SRFI 47/63 (63 supersedes 47) is the\nreal incompatible lineage (array-set!'s value-last vs. value-second\nargument order is a silent-data-corruption-class conflict). SRFI 231\n(supersedes 179) is a third, much larger, unrelated redesign (118\nbindings). SRFI 58's reader syntax is written specifically against\n47/63's naming. All four remain open, tracked separately.\n\n* Fix CodeRabbit review findings: shape aliasing, arity/index validation\n\n- lib/srfi/25.sld: make-array/array/share-array now deep-copy the\n  caller's shape vector before storing it in the array record. Per\n  spec, \"an array does not retain a dependence to the shape array\" --\n  without the copy, a caller mutating their own shape object (shape\n  returns an ordinary, caller-visible mutable vector of pairs) could\n  retroactively corrupt an already-constructed array's bounds while\n  its backing store keeps the size computed at construction time.\n- make-array now rejects more than one fill-value argument instead of\n  silently discarding all but the first.\n- The packed-index-array form of array-ref/array-set! now requires the\n  index array to be 0-based, per spec (\"a 0-based 1-dimensional\n  array\"), instead of silently accepting any lower bound.\n- srfi25.scm: added regression tests for all three fixes, and wrapped\n  the share-array fixtures in let/let* instead of top-level defines\n  for cleaner test isolation.\n- CLAUDE.md: a line starting with \"#1694\" was being parsed as an ATX\n  heading attempt by markdown linters; reworded so it doesn't start\n  the line.",
+          "timestamp": "2026-07-25T08:11:07+05:30",
+          "tree_id": "bbb6102013228c9dce445b78550a4e63981ea2ab",
+          "url": "https://github.com/kaappi/kaappi/commit/a814ffde3d3bd500ed3faaf546499fc4d1ef780c"
+        },
+        "date": 1784949459090,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.281301,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.002534,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.928057,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407502,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006624,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053803,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510388,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069983,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.598937,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.927427,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587934,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.44324,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.836557,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.697104,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044821,
             "unit": "seconds"
           }
         ]
