@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784999729609,
+  "lastUpdate": 1785005050280,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8a369b4829afb664127d1d40510624c847236ebe",
-          "message": "Lower cond/case/do natively in the LLVM backend (#1564)\n\ncond, case, and do desugar into machinery the emitter already lowers well —\nif-style block/phi chains and a self-branching loop — yet they were routed\nthrough kaappi_eval like any other unlowerable form. That made a plain\n`(define (f n) (cond ...))` serialize the whole function to the interpreter, a\nneedless per-call cliff.\n\nEmit them natively when every sub-form is emittable in the current lexical\nscope, gated by exprNativeEmittable. A form that reaches an unlowerable\nsub-form (a macro use, a passthrough special form, a nested eval-fallback\nform, a lambda, or a => clause) still falls back — at top level as a\nwhole-form eval (correct in the global environment), and inside a native\nlet/lambda body by signalling the enclosing form to abandon native\ncompilation as a unit, so a lexical scope is never split across the\nnative/interpreted boundary (the #827 discipline).\n\nBecause these forms are no longer eval-fallback forms, the closure tiers'\nfree-variable analysis must scope their clauses, or a capture hidden in one\ndegrades to a global lookup; walkSexpr/nodeHasFreeVars/collectNodeFreeVars now\ndescend into cond/case/do with correct binder scoping. The emitter also\nconsults the VM macro table so a macro use inside these forms reaches the\ninterpreter that can expand it.\n\nRejecting lambdas inside do sidesteps its fresh-binding-per-iteration\nsemantics: with no closure able to capture a loop variable, in-place mutable\nallocas are observably equivalent.\n\nVerified: full unit suite, e2e parity (incl. new cond/case/do programs), the\n1857-case Scheme suite, and 110 randomised interp-vs-native programs all pass;\ntail-recursive cond keeps its self-tail-call loop.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T12:59:02+05:30",
-          "tree_id": "79bcb18ccef5b6009de8bce2c6377ea7a366a648",
-          "url": "https://github.com/kaappi/kaappi/commit/8a369b4829afb664127d1d40510624c847236ebe"
-        },
-        "date": 1784102097796,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.48313,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.440743,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.49062,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.484527,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004896,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03202,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.279334,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041158,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.059399,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.067303,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.936405,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.304754,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.053978,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.765834,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.027789,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043899,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c2382e14981e5829e70219468c3e95497a78325b",
+          "message": "Add SRFI 231 core array object (#1694 array family, phase 2) (#1751)\n\n* Add SRFI 231 core array object (#1694 array family, phase 2)\n\nThird of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld (phase 1a) and\nlib/srfi/231/storage-classes.sld (phase 1b, both merged) for the\noverall roadmap. This slice adds the array type itself: a domain (an\ninterval) plus a getter, with an optional setter making it mutable,\nand an optional storage-class/body/indexer making it specialized.\n\nlib/srfi/231/arrays.sld: one <array> record covers all four\ncombinations (plain immutable, plain mutable via closures, specialized\nmutable, specialized frozen-immutable) -- specialized-only fields are\nsimply #f on a plain array. array?/mutable-array?/specialized-array?\nconfirmed as a non-strict hierarchy (specialized => array and mutable\n=> array, but specialized and mutable are orthogonal -- array-freeze!\ncan make a specialized array immutable in place, and a closure-backed\nsparse array, per the spec's own example, can be mutable without being\nspecialized at all).\n\nConfirmed two conventions that don't match either prior array SRFI in\nthis codebase exactly: array? is disjoint from vector/string (matching\n25/164, NOT 63's \"vectors are rank-1 arrays\" rule -- easy to get\nbackwards, since getting this wrong was the single biggest miss when\nimplementing 63), while array-set!'s value argument is SECOND (matching\n63, not 25/164's value-last). Getters/setters are always called with\nseparate positional index arguments, never a packed vector/list.\n\nmake-specialized-array's indexer generalizes SRFI 63's 0-based-only\nrow-major offset to arbitrary (including negative) lower bounds: shift\neach axis by its own lower bound first, then apply the standard\nrow-major stride computation using the interval's own widths.\nmake-specialized-array-from-data wraps externally supplied data (e.g.\nan existing (srfi 160 <tag>) vector) as a new array's body with zero\ncopying, confirmed via a real vector-mutation-through-the-array test.\n\nspecialized-array-default-safe?/mutable? are genuine SRFI 39\nparameters, as the spec requires (a documented difference from the\npredecessor SRFI 179, where they were plain variables).\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit nitpicks: early-exit array-packed?, 0-dim/empty tests\n\n- array-packed? now escapes via call/cc on the first packing mismatch\n  instead of always scanning the full domain -- harmless today since\n  specialized arrays are always packed right after construction, but\n  avoids a full interval-volume traversal once a later phase's\n  view/share/reverse procedures can produce non-packed arrays.\n- Added test coverage for zero-dimensional arrays (a single element,\n  accessed via a thunk-shaped getter/array-ref with no indices, for\n  both a plain and a specialized array) and empty-domain arrays (some\n  axis has lower = upper, so no multi-index can ever be valid -- any\n  access is rejected either via the explicit domain check in safe mode\n  or the storage layer's own bounds check on the resulting zero-length\n  body in unsafe mode). 13 new assertions (50 -> 63).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-25T18:06:40Z",
+          "tree_id": "cfa34740f249b6c819ab69f05c391b00b3c1c8f8",
+          "url": "https://github.com/kaappi/kaappi/commit/c2382e14981e5829e70219468c3e95497a78325b"
+        },
+        "date": 1785005048514,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.280716,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.363761,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.887954,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.414683,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006378,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0535,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499586,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069087,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.555468,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.926546,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.560132,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.44076,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.79388,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.656009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04408,
             "unit": "seconds"
           }
         ]
