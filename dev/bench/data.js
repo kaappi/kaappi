@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784949460788,
+  "lastUpdate": 1784957330869,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e806e5568785615f7e6d0f5089f6fd4a6d1b13f1",
-          "message": "Cache LLVM eval-fallback compilation per call site (#1494) (#1552)\n\nForms the native backend cannot lower (letrec, cond, case, do, guard,\nquasiquote, named let, and fallback lambdas) are serialized to a source\nstring and run via @kaappi_eval, which re-parses and re-compiles that\nstring on every execution. Inside a loop body or a frequently-called\nnative function — most commonly an inner variadic lambda, which no\nclosure tier accepts and which keeps its enclosing function native —\nthat is a severe, easily-overlooked cliff.\n\nAdd @kaappi_eval_cached: the emitter allocates one global slot per\nfallback call site; the first execution parses and compiles the form\nonce, permanently GC-roots the resulting Function, and stashes it in the\nslot, and every later execution runs the cached Function directly. The\ncompiled bytecode still resolves globals by name at run time, so a\nfallback that first republishes the enclosing frame as globals observes\nthe current values on each execution — behavior is identical to today.\n\nThe cached Function is rooted via extra_roots (which, unlike the LIFO\nshadow stack, holds a program-lifetime root) because the call-site slot\nis a module global the collector never scans. Only the main runtime\nthread touches a slot — the guard precedes both the read and the write —\nso a spawned SRFI-18 thread never caches a Function from a child heap or\nruns a main-heap Function under its own VM. Quoted heap constants stay on\nplain @kaappi_eval; building those once is the separate #1495 change.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T06:57:00+05:30",
-          "tree_id": "afff88ac6abf20bf0d6bf7fbfd9bb93024ceaf4b",
-          "url": "https://github.com/kaappi/kaappi/commit/e806e5568785615f7e6d0f5089f6fd4a6d1b13f1"
-        },
-        "date": 1784080530225,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.527297,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.171142,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.974894,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.734468,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006326,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054168,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509067,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070075,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.424427,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.011005,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.581451,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435266,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.816263,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.716132,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046214,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044821,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "154e3506fe80900cca1cf915e0937f7d35392806",
+          "message": "Add SRFI 164, enhanced multi-dimensional arrays (#1694 array family) (#1740)\n\n* Add SRFI 164, enhanced multi-dimensional arrays (#1694 array family)\n\nPure portable Scheme (lib/srfi/164.sld), no engine work. A documented,\ncompatible extension of SRFI 25 -- identical shape representation,\nshare-array copied verbatim -- so implemented as its own independent\nlibrary (record accessors don't cross library boundaries, and this\nSRFI's array needs a third mode SRFI 25's record has no room for).\n\nOne record covers three modes: simple (own row-major vector, as in\n25), shared/view (base array + index-translation mapper, same\nrecursive-delegation design as 25's share-array -- backs share-array,\narray-transform, array-reshape, and array-index-share), and virtual\n(a getter/optional-setter pair with no backing storage at all --\nbacks build-array, index-array, and array-index-ref's non-scalar\ncase).\n\narray-transform's transform uses a different calling convention than\nshare-array's mapper per the spec's own explicit contrast (one vector\nin/out vs. separate variadic arguments/multiple values) -- adapted\nwith a one-line wrapper, which works for a non-affine transform\nsince the shared/view mode never checked or exploited affineness.\narray-index-ref/array-index-share (APL-style generalized indexing)\nshare one resolver. array-reshape aliases the source's backing\nvector when simple, per spec, and recomputes via row-major rank\notherwise. array->vector is a live view only for simple arrays --\ndocumented as a deliberate scope reduction, since a non-simple live\nview isn't achievable with a literal R7RS vector in portable Scheme.\n\nTwo self-caught bugs during implementation, both instructive: a\ndeeply-nested first draft of the index-resolver mis-balanced its own\nclosing parens (kaappi check catches this immediately -- worth\nrunning on any new portable library before executing it), and once\nthat was fixed by flattening into named top-level helpers, the\nresolver closure took a rest parameter but every call site passed an\nalready-built list as one argument, silently double-wrapping it and\nproducing \"index out of range\" errors far from the real mistake.\n\n* Fix CodeRabbit review findings: shape-specifier coercion, build-array contract\n\n- Every shape-taking procedure (make-array, array, share-array,\n  build-array, index-array, array-transform, array-reshape) now\n  coerces its shape argument through ->shape before use, per spec:\n  \"the procedures in this specification that require a shape can\n  accept a shape-specifier, as if converted by the procedure\n  ->shape\". Previously only ->shape itself did this conversion, so\n  passing a raw specifier (e.g. #(2 4)) directly to make-array -- the\n  spec's own worked example -- raised a car/cdr type error instead of\n  working. ->shape's own output is already a fresh, non-aliased\n  vector, so this also satisfies the \"does not retain a dependence on\n  the shape argument\" rule without a separate copy.\n- ->shape now validates lo <= hi and exactness for both bound forms,\n  matching the validation `shape` already had.\n- build-array's getter/setter now match the spec's actual contract\n  (getter takes one index-vector argument; setter takes an\n  index-vector then the value) via a boundary adapter, instead of\n  the library's internal variadic-indices/value-first convention\n  that had leaked into the public API. Updated array-index-ref's own\n  use of build-array to match.\n- Documented, rather than implemented, the spec's \"should\" (not\n  \"must\") recommendation that array? also be true of plain R7RS\n  vectors (gvectors) -- doing so would need a parallel plain-vector\n  code path through every array-* procedure, a much larger change\n  than this PR's scope.\n- Added regression tests for the ->shape-coercion fix (one per\n  affected procedure), ->shape's bound validation, and packed-index\n  argument handling (vector and rank-1 array forms, plus their three\n  rejection cases) that had no coverage at all.\n\nFull regression suite (1974 tests) and unit tests still green. One\ncompile-import-error-703.sh flake on an initial run (same flake seen\non PR #1739, unrelated subsystem) reproduced as passing standalone\nand on a clean full rerun.",
+          "timestamp": "2026-07-25T04:49:39Z",
+          "tree_id": "9bed326883f68ba3f2344e530050f6a9962b4e93",
+          "url": "https://github.com/kaappi/kaappi/commit/154e3506fe80900cca1cf915e0937f7d35392806"
+        },
+        "date": 1784957328748,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.27196,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.50592,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.899828,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.488024,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006377,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053372,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499704,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069381,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.53747,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.928412,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.572571,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.440707,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.801707,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.646194,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046121,
             "unit": "seconds"
           }
         ]
