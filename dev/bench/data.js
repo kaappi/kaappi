@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784957330869,
+  "lastUpdate": 1784981950931,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "09f083c3b4bed806b6432d577073c61452ef9f46",
-          "message": "Index parked fibers by waited-on object for O(1) wakes (#1530) (#1553)\n\nAfter #1525 made fiber dispatch/spawn O(1), the five wake paths\n(wakeWaiters, wakeChannelWaiters, wakeMutexWaiters, wakeOneCondVarWaiter,\nwakeAllCondVarWaiters) still linearly scanned every slot in\n`sched.fibers.items` on each call. On a join-, channel-, or condvar-heavy\nworkload holding thousands of live fibers, each completion/send/close paid\nan O(fiber count) scan — the residual super-linearity #1477 flagged once\ndispatch was already O(1). `wakeWaiters` alone runs on every fiber\ncompletion and scanned all N fibers even with zero joiners, making\nspawn+join O(N^2).\n\nAdd a per-scheduler secondary index `waiter_index` mapping a waited-on\nValue (a fiber to join, a channel, a mutex, a condition variable) to the\nslot indices of the fibers parked on it, so a wake is O(waiters-on-that-\nobject). enrollWaiter feeds it at every local park site; wakeOn is the\nsingle choke point behind all five entry points, with doWake applying the\nper-fiber transition identically on both the index and fallback paths.\n\nDesign points:\n- Store slot indices, not *Fiber. A since-reused or terminated slot is\n  caught by the same validation the ready ring uses at pop (slot still owns\n  its index, still .waiting, still on the key), so a terminated waiter needs\n  no explicit de-index — unlike the pointer-holding shared_waiters registry.\n- The broadcast wakes require a complete index (a \"wake all\" cannot fall\n  back on an empty index the way #1525's lossy ready ring can). Enroll at\n  all nine local park sites; the four shared-channel parks (woken via\n  sweepSharedWaiters) and thread-sleep!'s VOID-keyed timed wait are\n  deliberately excluded, and the mutex/condvar retry spins re-enroll.\n- An enroll allocation failure sets a sticky waiter_index_degraded flag and\n  the wake paths fall back to the exact pre-#1530 scan, so OOM degrades to\n  old behavior instead of a lost-wakeup hang — no per-site park rollback.\n- A tail-check dedup (skip if the list tail is already this slot) bounds the\n  retry spins without a per-fiber flag, which would carry an address-reuse\n  ABA hazard.\n\nSame-machine bench-fibers A/B: spawn+join at 10,000 fibers 18,606 ns ->\n2,309 ns (~8x) and flat across 100/1k/10k instead of super-linear.\n\nAdds six tests_scheduler.zig unit tests (broadcast, hand-off, terminated-\nslot skip, tail-dedup + re-park, join-result hand-off, degraded scan) and\ntests/scheme/smoke/fiber-many-waiters-one-object-1530.scm (500 fibers block\non one channel; close wakes all). Full unit suite, targeted gc-stress on the\nconcurrency tests, and the full Scheme + R7RS suites all green.\n\nhasRunnableFibers and wakeIoWaitersOnFd are left as-is, matching the issue's\nscope: the former early-exits and is O(n) only in the genuine no-progress\ncase, and the latter keys on fd, not waiting_on.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T01:32:41Z",
-          "tree_id": "62504b0b5aa54df7fcd52d49dedc7328bd79cb3e",
-          "url": "https://github.com/kaappi/kaappi/commit/09f083c3b4bed806b6432d577073c61452ef9f46"
-        },
-        "date": 1784080944473,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.393397,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.805135,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.943831,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.592052,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00746,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054286,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.513068,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068538,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.52447,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.95959,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592466,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433348,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.797703,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.724979,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044637,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046121,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a44274124dd36c9c4d15c1c86f4dd16d7ca6cefd",
+          "message": "Add SRFI 63, homogeneous and heterogeneous arrays (#1694 array family) (#1747)\n\n* Add SRFI 63, homogeneous and heterogeneous arrays (#1694 array family); exclude 47\n\nSRFI 63 supersedes SRFI 47 outright (its own page says so), implementing\nall 9 of 47's procedures plus 4 new ones (list->array, array->list,\nvector->array, array->vector) and 20 prototype-generator procedures (vs.\n47's 13). Confirmed incompatible with SRFI 25/164, already shipped\nearlier in this array family: array-set!'s value argument is second here\n(not last), make-array takes a type/fill prototype (not a bounds-shape\nobject), and every dimension is a plain zero-based size.\n\nOne <uarray> record covers simple arrays (kind-dispatched to the\nalready-shipped (srfi 160 <tag>) procedures for 12 of the 20 element\nkinds, falling back to a plain vector for the rest) and shared views\n(recursive delegation into the base array's own ref/set!, matching the\npattern from SRFI 25/164). list->array/array->list use a rank-nested\nlist structure while vector->array/array->vector use a flat vector plus\nexplicit dimensions -- confirmed via the spec's own examples rather than\nassumed, since the two pairs looked parallel but aren't.\n\nSRFI 47 moves to docs/dev/srfi-exclusions.md as permanently superseded.\n170 SRFIs now supported (169 -> 170); 9 tracked for future work (231,\nand issue #1699's 7 macro/syntax SRFIs); 29 excluded.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix CodeRabbit findings: vectors/strings as arrays, prototype fill, bounds\n\nConfirmed against the primary SRFI 63 spec text before fixing:\n\n- array? must not be disjoint from vector/string (\"Arrays are not\n  disjoint from other Scheme types\" -- vectors/strings are rank-1\n  arrays in their own right). array-rank, array-dimensions,\n  array-in-bounds?, array-ref, and array-set! now dispatch across\n  <uarray> records, plain vectors, and plain strings via new\n  %array-like-* helpers; make-shared-array can now take any of the\n  three as its base too.\n- make-array now propagates a non-empty prototype's own origin element\n  as the fill value (\"the new array is filled with the element at the\n  origin of prototype\"), instead of always using the kind's zero-ish\n  default. The prototype-generator procedures (A:fixZ8b etc.) needed a\n  matching fix: they were building a zero-length store regardless of\n  whether a fill argument was given, so the value could never actually\n  be read back.\n- Shared-view array-ref/array-set! now validate indices against the\n  view's own declared dimensions before delegating through the mapper,\n  matching array-in-bounds? -- previously a mapper that didn't itself\n  bounds-check could make an out-of-range view index silently return\n  an in-bounds base element.\n- list->array now rejects a negative or non-integer rank up front\n  instead of recursing until stack exhaustion.\n\nequal?'s array-comparison branch stays scoped to genuine <uarray>\nrecords (documented as a deliberate reduction) since plain R7RS\nequal? already handles vector/string comparison correctly.\n\n31 new SRFI-64 assertions (65 -> 96) covering all of the above plus\nregression coverage for everything from the initial implementation.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-25T17:09:23+05:30",
+          "tree_id": "4ad0d1013230d7e307d9626a8d93f74824a38392",
+          "url": "https://github.com/kaappi/kaappi/commit/a44274124dd36c9c4d15c1c86f4dd16d7ca6cefd"
+        },
+        "date": 1784981948818,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.870186,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.749183,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.612456,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.02771,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005722,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03948,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.35109,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05097,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.926134,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.338458,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.153176,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.381723,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.313163,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.874535,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034764,
             "unit": "seconds"
           }
         ]
