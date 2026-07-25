@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-167 SRFIs supported. 12 built-in (native Zig), 152 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 and SRFI 160 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)` file (so neither appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+168 SRFIs supported. 12 built-in (native Zig), 153 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 and SRFI 160 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)` file (so neither appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -122,6 +122,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 17 | Generalized set! |
 | 19 | Time data types and procedures |
 | 23 | Error reporting mechanism |
+| 25 | Multi-dimensional Array Primitives |
 | 26 | Notation for specializing parameters |
 | 27 | Sources of random bits |
 | 28 | Basic format strings |
