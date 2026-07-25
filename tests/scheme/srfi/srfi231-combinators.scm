@@ -147,6 +147,11 @@
   (test-equal 4 (array-ref a 1 1))
   (test-equal (vector (vector 1 2) (vector 3 4)) (array->vector* a)))
 
+;; a malformed nested vector (wrong depth -- inner elements aren't
+;; vectors) gets a clean, domain-specific error, matching the list path's
+;; own %check-nested-list validation, rather than a raw vector->list crash
+(test-equal #t (guard (e (#t #t)) (vector*->array 2 (vector 1 2)) #f))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-combinators")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

@@ -62,11 +62,6 @@
           array->vector vector->array array->vector* vector*->array)
   (begin
 
-    (define (%vector-every pred v)
-      (let loop ((i 0))
-        (or (= i (vector-length v))
-            (and (pred (vector-ref v i)) (loop (+ i 1))))))
-
     (define (%opt lst i default) (if (> (length lst) i) (list-ref lst i) default))
 
     (define (%check-same-domain! all who)
@@ -287,11 +282,22 @@
     ;; nested-vector structure into an equivalent nested-list structure
     ;; first preserves rectangularity/shape identically at every level,
     ;; so re-deriving check-nested-vector/flatten-nested-vector as
-    ;; separate vector-flavored algorithms would be pure duplication.
+    ;; separate vector-flavored algorithms would be pure duplication --
+    ;; %check-nested-list (inside list*->array) already validates
+    ;; rectangularity on the converted result. This conversion step
+    ;; itself still needs its own vector? check at every recursion level,
+    ;; though: without it, a malformed nested-vector (wrong depth, or a
+    ;; non-vector where one is expected) would crash with a raw
+    ;; vector->list type error instead of the same friendly, domain-
+    ;; specific "not the right shape" error the list path already gives.
     (define (%nested-vector->nested-list dimension nested-data)
       (if (= dimension 0)
           nested-data
-          (map (lambda (v) (%nested-vector->nested-list (- dimension 1) v)) (vector->list nested-data))))
+          (begin
+            (unless (vector? nested-data)
+              (error "vector*->array: nested-vector is not the right shape for the given dimension"
+                     dimension nested-data))
+            (map (lambda (v) (%nested-vector->nested-list (- dimension 1) v)) (vector->list nested-data)))))
 
     (define (vector*->array dimension nested-vector . opts)
       (apply list*->array dimension (%nested-vector->nested-list dimension nested-vector) opts))))
