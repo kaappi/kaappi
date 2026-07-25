@@ -167,12 +167,17 @@
     ;; make-specialized-array/make-specialized-array-from-data (their own
     ;; indexer IS that exact lexicographic mapping); becomes meaningful
     ;; once a later phase's view/share/reverse procedures install a
-    ;; different (non-consecutive) indexer over the same body.
+    ;; different (non-consecutive) indexer over the same body. Escapes via
+    ;; call/cc on the first mismatch rather than scanning the full domain,
+    ;; since a later phase's non-packed arrays could otherwise pay a full
+    ;; interval-volume traversal just to report "not packed" at index 0.
     (define (array-packed? a)
       (unless (specialized-array? a) (error "array-packed?: not a specialized array" a))
-      (let ((expected 0) (ok #t) (indexer (array-indexer a)))
-        (interval-for-each (lambda multi-index
-                              (unless (= (apply indexer multi-index) expected) (set! ok #f))
-                              (set! expected (+ expected 1)))
-                            (array-domain a))
-        ok))))
+      (call/cc
+       (lambda (return)
+         (let ((expected 0) (indexer (array-indexer a)))
+           (interval-for-each (lambda multi-index
+                                 (unless (= (apply indexer multi-index) expected) (return #f))
+                                 (set! expected (+ expected 1)))
+                               (array-domain a))
+           #t))))))

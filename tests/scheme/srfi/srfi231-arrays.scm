@@ -112,6 +112,35 @@
   (test-equal #t (guard (e (#t #t)) (array-safe? plain) #f))
   (test-equal #t (guard (e (#t #t)) (array-packed? plain) #f)))
 
+;;; --- zero-dimensional arrays: a single element, accessed with an empty
+;;; multi-index (a thunk call) ---
+(let ((z (make-array (make-interval (vector)) (lambda () 42))))
+  (test-equal 0 (array-dimension z))
+  (test-equal #f (array-empty? z))  ;; per spec, a 0-dim interval is never empty
+  (test-equal 42 (array-ref z)))
+
+(let ((zs (make-specialized-array (make-interval (vector)) s8-storage-class 7)))
+  (test-equal 0 (array-dimension zs))
+  (test-equal 7 (array-ref zs))
+  (array-set! zs 9)
+  (test-equal 9 (array-ref zs))
+  (test-equal #t (array-packed? zs)))
+
+;;; --- empty-domain arrays (some axis has lower = upper): array-empty? is
+;;; #t, and no multi-index can ever be valid since that axis's range is
+;;; unsatisfiable, so any access is rejected -- via the explicit domain
+;;; check in safe mode, and via the storage layer's own bounds check on
+;;; the resulting zero-length body in unsafe mode ---
+(let ((e (make-interval (vector 3 3) (vector 3 5))))
+  (test-equal #t (interval-empty? e))
+  (let ((ea (make-specialized-array e s8-storage-class)))
+    (test-equal #t (array-empty? ea))
+    (test-equal 0 (interval-volume (array-domain ea)))
+    (test-equal #t (guard (exn (#t #t)) (array-ref ea 3 3) #f))
+    (test-equal #t (guard (exn (#t #t)) (array-set! ea 1 3 3) #f)))
+  (let ((safe-ea (make-specialized-array e s8-storage-class 0 #t)))
+    (test-equal #t (guard (exn (#t #t)) (array-ref safe-ea 3 3) #f))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-arrays")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
