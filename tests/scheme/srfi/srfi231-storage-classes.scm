@@ -37,6 +37,11 @@
     (test-assert (%same? expected-default (getter body 0)))
     (setter body 1 value)
     (test-assert (%same? value (getter body 1)))
+    ;; exercise the copier field too -- otherwise a wrong copy procedure
+    ;; would pass every other assertion here undetected
+    (let ((copied (maker 3 (storage-class-default sc))))
+      ((storage-class-copier sc) copied 0 body 0 3)
+      (test-assert (%same? value (getter copied 1))))
     (test-equal #t (checker value))
     (when (or (null? rejects-bad?) (car rejects-bad?))
       (test-equal #f (checker bad-value)))
