@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784981950931,
+  "lastUpdate": 1784988495226,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4c8e209b63da89b16fc32cba26b07a044144a747",
-          "message": "Thread full source spans through to runtime diagnostics (#1506) (#1557)\n\nReader errors already carried line and column, but compile and runtime\nerrors reported file:line only, and nothing carried end positions.\nStructured diagnostics, precise editor squiggles, and automated fixes\nall need full spans.\n\nTrack (line, col, end_line, end_col) for every datum the reader can key\non heap identity (pairs, vectors) and thread it through the pipeline:\n\n- Reader records a full span per datum in gc.source_spans (was the\n  line-only source_lines), computed in a single scan.\n- IR nodes carry the span (Annotations.span); the compiler emits the\n  start column into the bytecode line table (LineEntry gains col).\n- Runtime errors map the failing instruction offset back to line:col via\n  Function.locForOffset and report file:line:col.\n- Compile errors report the innermost failing form's span through a\n  threadlocal channel, so a nested error points at the inner form (e.g.\n  the (if) in (define (f) (if))), with a full start/end range under\n  --diagnostics=json.\n\nThe .sbc bytecode cache format is bumped to v9 for the new column; a\nversion mismatch makes the loader ignore and recompile stale caches\ncleanly. Runtime debug info carries the start column only — end\npositions stay a reader/compile-time concern, per the acceptance\ncriteria.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T09:39:42+05:30",
-          "tree_id": "2ef9485be509029b1f158afaf90ab4311115ef49",
-          "url": "https://github.com/kaappi/kaappi/commit/4c8e209b63da89b16fc32cba26b07a044144a747"
-        },
-        "date": 1784090285454,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.339777,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.329826,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920426,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.459968,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006409,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054901,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504753,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0697,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.437021,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.968079,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.601023,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43491,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.8664,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712531,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042947,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034764,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f513eaf073cbeca137cd3e23002ff2975153483",
+          "message": "Add SRFI 231 intervals + misc helpers (#1694 array family, phase 1a) (#1749)\n\n* Add SRFI 231 intervals + misc helpers (#1694 array family, phase 1a)\n\nFirst of several slices implementing SRFI 231 (\"Intervals and Generalized\nArrays\") -- the last remaining piece of #1694's array family. At 118\nbindings (101 procedures/parameters + 17 storage-class singletons), this\nSRFI is roughly 5-10x larger than any prior slice and structurally\nunrelated to SRFI 25/164/63 already shipped: intervals are a genuinely new\nopaque type (two parallel vectors of exact-integer lower/upper bounds,\narbitrary sign) rather than a shape-object or plain-size model.\n\nThis slice covers only the interval layer plus the misc permutation/\ntranslation helpers -- fully self-contained, zero dependency on arrays or\nstorage classes, and independently testable. New internal sub-libraries\n(no bare (srfi 231) yet, matching the (srfi 160 base) + per-tag precedent):\n\n- lib/srfi/231/misc.sld: translation?, permutation?, index-rotate,\n  index-first, index-last, index-swap.\n- lib/srfi/231/intervals.sld: the <interval> record and all 26 interval\n  procedures -- construction (both 1-arg and 2-arg make-interval forms),\n  accessors, interval-for-each/fold-left/fold-right (general d-dimensional\n  lexicographic traversal calling callbacks with separate positional\n  index arguments), dilate/translate/permute/scale, intersect (returns #f\n  on no overlap, not an error), cartesian-product, and projections\n  (returns two values via `values`, split via take/drop from the\n  already-built-in (srfi 1)).\n\nEvery calling convention and error condition was confirmed against the\nprimary spec text and reference implementation before writing any code,\nincluding two procedures (translation?/permutation?) whose exact\nvalidation rule the spec states only in prose, and interval-fold-right's\n\"all f evaluations before any operator application\" requirement (a naive\nreverse-order fold interleaving f and operator would violate this even\nthough it looks equivalent for pure f).\n\nRemaining phases (storage classes, core array type, views/sharing,\ncombinators, multi-array assembly) are tracked as follow-up slices under\n#1694; (srfi 231) itself is not yet importable.\n\nAlso files #1748: tests/scheme/compile/compile-import-error-703.sh has now\nflaked 3 times in full run-all.sh runs across recent slices (never\nstandalone) with a concrete root-cause theory -- unrelated to this PR's\ndiff, passed both standalone and on a clean full rerun here.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix CodeRabbit findings: reject malformed intervals/permutations/indices\n\nConfirmed against the primary SRFI 231 spec text before fixing:\n\n- make-interval now rejects a 3rd+ argument instead of silently\n  discarding it (the spec's signature is arg1 plus one optional arg2,\n  not arbitrary trailing arguments).\n- interval-subset? now errors on mismatched dimensions instead of\n  returning #f -- confirmed the spec's own \"assumes ... the same\n  dimension d\" precondition makes this an error condition, with #f\n  reserved for same-dimension intervals that fail the bound check.\n- interval-contains-multi-index? now rejects non-exact-integer\n  multi-index entries instead of silently comparing them numerically\n  (a coordinate like 1.5 would otherwise pass the <=/< bounds checks\n  and be treated as \"contained\").\n- interval-dilate/translate/permute/scale now validate that their\n  diff/translation/permutation/scales vector length matches the\n  interval's own dimension before calling vector-map, which silently\n  stops at the shortest input on a length mismatch (R7RS, matching\n  map) rather than erroring -- a too-short or too-long vector would\n  otherwise silently produce a wrong-rank result.\n- interval-intersect now requires all argument intervals to share one\n  dimension up front, instead of only ever iterating up to the FIRST\n  interval's own axis count -- a first interval with fewer axes than a\n  later one previously never even looked at the extra axes, silently\n  returning a lower-rank \"intersection\" instead of rejecting the\n  mismatch.\n- index-rotate/index-first/index-last/index-swap now validate their\n  n/k/i/j preconditions, confirmed against the spec's own exact\n  wording for each -- including the asymmetric boundary that\n  index-rotate's k may equal n (inclusive, the identity permutation)\n  while index-first/-last/-swap's k/i/j must be strictly less than n\n  (exclusive). index-last previously produced a vector containing -1\n  and missing an element for an out-of-range k, which isn't a valid\n  permutation at all.\n\n17 new SRFI-64 assertions (62 -> 79) covering all of the above plus\nregression coverage for existing behavior.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-25T13:35:09Z",
+          "tree_id": "b4afba9cabd8833e5f61648f88b7573dcc5a48dc",
+          "url": "https://github.com/kaappi/kaappi/commit/8f513eaf073cbeca137cd3e23002ff2975153483"
+        },
+        "date": 1784988493456,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.289341,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.297525,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.887234,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.447788,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006379,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053701,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499688,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069209,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.527479,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.934597,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.569695,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434235,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.800298,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.668069,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046425,
             "unit": "seconds"
           }
         ]
