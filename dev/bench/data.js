@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785005050280,
+  "lastUpdate": 1785009718592,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5a2acef2006a24341e882901b0bc208347fb91bf",
-          "message": "Grow native lambda analysis buffers + loop variadic self-tail-calls (#1498) (#1567)\n\n* Grow native lambda analysis buffers + loop variadic self-tail-calls (#1498)\n\nThe native lambda emitter (src/llvm_emit_lambda.zig) bailed to kaappi_eval\nwhenever a function exceeded a fixed-size stack buffer, and compiled\nself-tail-recursion as a loop only for non-variadic functions. Both were\narbitrary cliffs on otherwise-compilable code.\n\nPart 1 — remove the fixed analysis buffers. The per-function scratch arrays\n([16] params, [64] body nodes, [16] free vars, [17]/[18] name buffers, [32]\nformal names, FreeNameWalk's [64] bound / [16] output, BoxAnalysis's [16]/[17]\nflags) now grow on the emitter's existing arena. The only ceiling left is the\nruntime's real one: a native closure's arity and each upvalue index are u8, so\na function past 255 fixed params or captured upvalues still falls back.\n\nPart 2 — loop variadic self-tail-calls. A self-call in tail position now branches\nback to the body label for variadic functions too, rebuilding the rest list from\nthe args past the fixed arity (reusing the cons idiom) before the branch. The\nrest builder moves to the entry block so the loop does not re-run it.\n\nAlso fixes a pre-existing latent GC bug the loop would hit constantly: the\nvariadic rest list was built in a bare, un-rooted alloca, so a body allocation\nthat did not itself mention the rest list could collect the freshly-consed\nspine (native output diverged from the interpreter under GC pressure). The rest\nslot is now GC-rooted for the frame (frame_box_roots generalized to\nframe_entry_roots) and popped before every ret, including tail-call rets.\n\nTests: new tests_native.zig emit tests for the over-limit cases and the\nvariadic loop; new tests/e2e programs (native-many-params, native-many-captures,\nnative-variadic-tail). zig build test, gc-stress native tests, and\ntests/e2e/run-e2e.sh (35/35) all green.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: raise macos-latest test job timeout to 30 min\n\nThe macOS runner is ~1.5x slower than the Linux ones: unit tests (~6 min) plus\nthe Scheme suites (~11 min) alone take ~17 min, so the job routinely drifts past\nthe default 20-min cap and is cancelled mid-run — a pre-existing flake seen on\nmain, not tied to any one PR. Bump macos-latest/ReleaseSafe to 30 min, matching\nthe timeout already used for the Debug and riscv64 jobs. Applied as an include\nentry that merges the timeout into the existing combination (no extra job).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* ci: set macos timeout via an os-aware expression, not a merged include\n\nThe previous commit added the macOS 30-min cap through a matrix `include` entry\nthat merges into the existing macos-latest/ReleaseSafe combination. Whether such\na merge exposes `timeout` as `matrix.timeout` (vs. being dropped) is a subtle\nmatrix-expansion detail the auto-generated job name did not confirm. Replace it\nwith an explicit `matrix.os == 'macos-latest'` check in the timeout expression,\nwhich is unambiguous and does not depend on include-merge semantics.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T15:42:19+05:30",
-          "tree_id": "4851bb46928d76c07f37225544d34bf9d66cebee",
-          "url": "https://github.com/kaappi/kaappi/commit/5a2acef2006a24341e882901b0bc208347fb91bf"
-        },
-        "date": 1784112085116,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.374728,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.821511,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.899459,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.467845,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006345,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053545,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507518,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069311,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.463918,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.973989,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.573364,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432518,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.838532,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.704451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04315,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04408,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa3743b61625f481f18067c3ae02bc1412bdfe3c",
+          "message": "Add SRFI 231 views, sharing, and reshaping (#1694 array family, phase 3) (#1752)\n\nFourth of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld for the overall\nroadmap. This slice adds the 11-procedure \"views/sharing/reshaping\"\ncluster the spec's own \"Sharing generalized arrays\" section names as a\nnatural unit: specialized-array-share (the foundational primitive),\narray-extract, array-translate, array-permute, array-reverse,\narray-curry, array-tile, array-sample, array-copy/array-copy!, and\nspecialized-array-reshape.\n\nlib/srfi/231/arrays.sld (phase 2, already merged) gets one small,\npurely additive change: %make-array/%safe-getter/%safe-setter/\n%make-lex-indexer are now exported for this and later phases' sibling\nlibrary files to build genuinely specialized arrays with custom\nindexers, the same way (srfi 160 base)'s %uvec-* helpers exist only\nfor that package's own per-tag files.\n\nlib/srfi/231/views.sld: extract/translate/permute/reverse/sample all\nshare one 3-way dispatch shape (specialized -> specialized-array-share;\nmutable-non-specialized -> make-array with getter+setter; immutable ->\nmake-array with getter only), with the output mirroring the input's\nmode exactly. array-curry and array-tile break this pattern\ndeliberately -- their OUTER array is unconditionally plain immutable/\nnon-specialized regardless of input mode (confirmed by an explicit\nspec quote for curry: \"B is always an immutable array... computed anew\nfor each call\", i.e. never cached), while their INNER\nelements/tiles follow the same 3-way mirroring as everything else.\n\narray-permute needed real care to get the index-rearrangement direction\nright (apply the permutation's inverse to the new multi-index to\nrecover old coordinates) -- verified against both of the spec's own\nworked examples, including the rank-4 one showing it's the new getter's\nown parameter *list* that gets permuted, not a runtime rearrangement.\narray-tile's last-slice truncation (when an axis width doesn't divide\nevenly by a uniform slice size) is spec-sanctioned via an explicit\nmin(), not an error -- verified against the spec's own 6x6 non-uniform\nworked example exactly, including the truncated case.\n\nspecialized-array-reshape deliberately implements a conservative\nsimplification of the reference implementation's full NumPy-derived\nmulti-group stride-matching algorithm: it succeeds zero-copy whenever\nthe source is already array-packed? (the overwhelmingly common case,\ne.g. reshaping a fresh array-copy result) via a plain row-major\nreindex, and otherwise behaves exactly as the spec allows for a failed\ndetection (error, or forced-copy-then-retry when copy-on-failure? is\n#t). This never wrongly claims an affine map exists, but is more\nconservative than the full algorithm for some non-packed-but-still-\naffinely-reshapable arrays -- verified identical to the full algorithm\non both of the spec's own worked examples (a packed reshape succeeding;\na array-sample'd non-packed reshape failing, then succeeding with\ncopy-on-failure?).\n\narray-copy and array-copy! are implemented identically (a direct fill\nloop), a deliberate, documented scope reduction versus the spec's\noptional extra call/cc-safety guarantee for array-copy specifically\n(accumulate-to-a-list-before-filling) -- getters that escape and\nre-invoke a captured continuation mid-copy are exotic enough not to\njustify the added complexity for this phase.\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-25T19:22:24Z",
+          "tree_id": "51d17351f93a3fee98ec8369f58c05734ebfaebe",
+          "url": "https://github.com/kaappi/kaappi/commit/fa3743b61625f481f18067c3ae02bc1412bdfe3c"
+        },
+        "date": 1785009716820,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.139127,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.743474,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.652961,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.233982,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006246,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.042183,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.363283,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054663,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.122165,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.450183,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.242532,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.409978,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.374582,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.884071,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034042,
             "unit": "seconds"
           }
         ]
