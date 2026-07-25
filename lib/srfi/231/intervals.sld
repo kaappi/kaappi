@@ -68,11 +68,13 @@
       (%make-interval (vector-copy lower) (vector-copy upper)))
 
     (define (make-interval arg1 . rest)
-      (if (null? rest)
-          (begin
-            (unless (vector? arg1) (error "make-interval: argument must be a vector" arg1))
-            (%build-interval (make-vector (vector-length arg1) 0) arg1 "make-interval"))
-          (%build-interval arg1 (car rest) "make-interval")))
+      (cond
+       ((null? rest)
+        (unless (vector? arg1) (error "make-interval: argument must be a vector" arg1))
+        (%build-interval (make-vector (vector-length arg1) 0) arg1 "make-interval"))
+       ((null? (cdr rest))
+        (%build-interval arg1 (car rest) "make-interval"))
+       (else (error "make-interval: too many arguments" arg1 rest))))
 
     (define (interval-dimension interval) (vector-length (interval-lower-vec interval)))
 
@@ -111,21 +113,28 @@
       (and (equal? (interval-lower-vec i1) (interval-lower-vec i2))
            (equal? (interval-upper-vec i1) (interval-upper-vec i2))))
 
+    ;; Per spec, this "assumes" i1 and i2 have the same dimension -- a
+    ;; mismatch is an error, not a normal #f comparison result (#f is
+    ;; reserved for same-dimension intervals that fail the bound check).
     (define (interval-subset? i1 i2)
-      (and (= (interval-dimension i1) (interval-dimension i2))
-           (let loop ((k 0))
-             (or (= k (interval-dimension i1))
-                 (and (<= (interval-lower-bound i2 k) (interval-lower-bound i1 k))
-                      (<= (interval-upper-bound i1 k) (interval-upper-bound i2 k))
-                      (loop (+ k 1)))))))
+      (unless (= (interval-dimension i1) (interval-dimension i2))
+        (error "interval-subset?: intervals must have the same dimension" i1 i2))
+      (let loop ((k 0))
+        (or (= k (interval-dimension i1))
+            (and (<= (interval-lower-bound i2 k) (interval-lower-bound i1 k))
+                 (<= (interval-upper-bound i1 k) (interval-upper-bound i2 k))
+                 (loop (+ k 1))))))
 
     (define (interval-contains-multi-index? interval . multi-index)
       (let ((lo (interval-lower-vec interval)) (up (interval-upper-vec interval)))
         (and (= (length multi-index) (vector-length lo))
              (let loop ((i 0) (xs multi-index))
                (or (null? xs)
-                   (and (<= (vector-ref lo i) (car xs)) (< (car xs) (vector-ref up i))
-                        (loop (+ i 1) (cdr xs))))))))
+                   (begin
+                     (unless (and (integer? (car xs)) (exact? (car xs)))
+                       (error "interval-contains-multi-index?: multi-index entries must be exact integers" (car xs)))
+                     (and (<= (vector-ref lo i) (car xs)) (< (car xs) (vector-ref up i))
+                          (loop (+ i 1) (cdr xs)))))))))
 
     ;; General d-dimensional nested traversal in lexicographic order. proc
     ;; receives each multi-index as a LIST; public callers apply it to their
@@ -174,7 +183,19 @@
         (let loop ((xs results) (acc identity))
           (if (null? xs) acc (loop (cdr xs) (operator (car xs) acc))))))
 
+    ;; vector-map stops at the shortest input on a length mismatch (R7RS,
+    ;; matching `map`) rather than erroring, so a diffs/translation/scales/
+    ;; permutation vector shorter or longer than the interval's own
+    ;; dimension would otherwise silently produce a wrong-rank result
+    ;; instead of failing loudly -- validate lengths explicitly everywhere
+    ;; below rather than relying on vector-map to notice.
+    (define (%check-dimension-match! v interval who)
+      (unless (= (vector-length v) (interval-dimension interval))
+        (error (string-append who ": vector must match the interval's dimension") interval v)))
+
     (define (interval-dilate interval lower-diffs upper-diffs)
+      (%check-dimension-match! lower-diffs interval "interval-dilate")
+      (%check-dimension-match! upper-diffs interval "interval-dilate")
       (%build-interval (vector-map + (interval-lower-vec interval) lower-diffs)
                         (vector-map + (interval-upper-vec interval) upper-diffs)
                         "interval-dilate"))
@@ -182,6 +203,7 @@
     (define (interval-translate interval translation)
       (unless (translation? translation)
         (error "interval-translate: not a valid translation" translation))
+      (%check-dimension-match! translation interval "interval-translate")
       (%build-interval (vector-map + (interval-lower-vec interval) translation)
                         (vector-map + (interval-upper-vec interval) translation)
                         "interval-translate"))
@@ -192,6 +214,7 @@
     (define (interval-permute interval permutation)
       (unless (permutation? permutation)
         (error "interval-permute: not a valid permutation" permutation))
+      (%check-dimension-match! permutation interval "interval-permute")
       (let* ((lo (interval-lower-vec interval)) (up (interval-upper-vec interval)) (d (vector-length lo))
              (new-lo (make-vector d 0)) (new-up (make-vector d 0)))
         (let loop ((i 0))
@@ -203,6 +226,7 @@
         (%build-interval new-lo new-up "interval-permute")))
 
     (define (interval-scale interval scales)
+      (%check-dimension-match! scales interval "interval-scale")
       (let* ((lo (interval-lower-vec interval)) (up (interval-upper-vec interval)) (d (vector-length lo)))
         (let loop ((i 0))
           (when (< i d)
@@ -215,22 +239,29 @@
 
     ;; Returns #f (not an error) when no valid intersection exists -- an
     ;; explicit, spec-sanctioned result, so this bypasses %build-interval's
-    ;; error-raising validation and checks componentwise itself.
+    ;; error-raising validation and checks componentwise itself. All
+    ;; intervals must share one dimension first, though -- otherwise a
+    ;; shorter first interval would silently limit the loop below to its
+    ;; own (smaller) axis count, never even looking at a later interval's
+    ;; extra axes rather than rejecting the mismatch.
     (define (interval-intersect interval . intervals)
       (let* ((all (cons interval intervals))
-             (d (interval-dimension interval))
-             (new-lo (make-vector d 0))
-             (new-up (make-vector d 0)))
-        (let loop ((i 0))
-          (when (< i d)
-            (vector-set! new-lo i (apply max (map (lambda (iv) (interval-lower-bound iv i)) all)))
-            (vector-set! new-up i (apply min (map (lambda (iv) (interval-upper-bound iv i)) all)))
-            (loop (+ i 1))))
-        (let check ((i 0))
-          (cond
-           ((= i d) (%make-interval new-lo new-up))
-           ((<= (vector-ref new-lo i) (vector-ref new-up i)) (check (+ i 1)))
-           (else #f)))))
+             (d (interval-dimension interval)))
+        (for-each (lambda (iv)
+                    (unless (= (interval-dimension iv) d)
+                      (error "interval-intersect: all intervals must have the same dimension" all)))
+                  all)
+        (let ((new-lo (make-vector d 0)) (new-up (make-vector d 0)))
+          (let loop ((i 0))
+            (when (< i d)
+              (vector-set! new-lo i (apply max (map (lambda (iv) (interval-lower-bound iv i)) all)))
+              (vector-set! new-up i (apply min (map (lambda (iv) (interval-upper-bound iv i)) all)))
+              (loop (+ i 1))))
+          (let check ((i 0))
+            (cond
+             ((= i d) (%make-interval new-lo new-up))
+             ((<= (vector-ref new-lo i) (vector-ref new-up i)) (check (+ i 1)))
+             (else #f))))))
 
     (define (interval-cartesian-product . intervals)
       (%make-interval (list->vector (apply append (map interval-lower-bounds->list intervals)))

@@ -37,8 +37,23 @@
                           (not (vector-ref seen x))
                           (begin (vector-set! seen x #t) (loop (+ i 1))))))))))
 
-    ;; (index-rotate 5 3) => #(3 4 0 1 2)
+    (define (%check-nonneg-exact-integer! n who)
+      (unless (and (integer? n) (exact? n) (>= n 0))
+        (error (string-append who ": n must be a nonnegative exact integer") n)))
+
+    (define (%check-pos-exact-integer! n who)
+      (unless (and (integer? n) (exact? n) (> n 0))
+        (error (string-append who ": n must be a positive exact integer") n)))
+
+    (define (%check-in-range! k lo hi who)
+      (unless (and (integer? k) (exact? k) (<= lo k) (<= k hi))
+        (error (string-append who ": index out of range") k lo hi)))
+
+    ;; (index-rotate 5 3) => #(3 4 0 1 2). Per spec, k is inclusive of n
+    ;; itself (0 <= k <= n) -- (index-rotate n n) is the identity permutation.
     (define (index-rotate n k)
+      (%check-nonneg-exact-integer! n "index-rotate")
+      (%check-in-range! k 0 n "index-rotate")
       (let ((v (make-vector n 0)))
         (let loop ((i 0))
           (when (< i n)
@@ -48,6 +63,8 @@
 
     ;; (index-first 5 3) => #(3 0 1 2 4)
     (define (index-first n k)
+      (%check-pos-exact-integer! n "index-first")
+      (%check-in-range! k 0 (- n 1) "index-first")
       (let ((v (make-vector n 0)) (pos 1))
         (vector-set! v 0 k)
         (let loop ((i 0))
@@ -60,6 +77,8 @@
 
     ;; (index-last 5 3) => #(0 1 2 4 3)
     (define (index-last n k)
+      (%check-pos-exact-integer! n "index-last")
+      (%check-in-range! k 0 (- n 1) "index-last")
       (let ((v (make-vector n 0)) (pos 0))
         (let loop ((i 0))
           (when (< i n)
@@ -72,6 +91,9 @@
 
     ;; (index-swap 5 3 0) => #(3 1 2 0 4)
     (define (index-swap n i j)
+      (%check-pos-exact-integer! n "index-swap")
+      (%check-in-range! i 0 (- n 1) "index-swap")
+      (%check-in-range! j 0 (- n 1) "index-swap")
       (let ((v (make-vector n 0)))
         (let loop ((k 0))
           (when (< k n)

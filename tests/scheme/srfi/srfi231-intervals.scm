@@ -25,6 +25,19 @@
 (test-equal (vector 0 1 2 4 3) (index-last 5 3))
 (test-equal (vector 3 1 2 0 4) (index-swap 5 3 0))
 
+;;; --- index-* preconditions are validated, including the asymmetric
+;;; inclusive/exclusive boundary: index-rotate's k may equal n (identity
+;;; permutation), but index-first/-last/-swap's k/i/j must be strictly
+;;; less than n ---
+(test-equal (vector 0 1 2) (index-rotate 3 3))
+(test-equal #t (guard (e (#t #t)) (index-rotate 3 -1) #f))
+(test-equal #t (guard (e (#t #t)) (index-rotate 3 4) #f))
+(test-equal #t (guard (e (#t #t)) (index-first 3 -1) #f))
+(test-equal #t (guard (e (#t #t)) (index-first 3 3) #f))
+(test-equal #t (guard (e (#t #t)) (index-last 3 -1) #f))
+(test-equal #t (guard (e (#t #t)) (index-last 3 3) #f))
+(test-equal #t (guard (e (#t #t)) (index-swap 3 0 5) #f))
+
 ;;; --- construction: both 1-arg and 2-arg forms ---
 (test-equal 2 (interval-dimension (make-interval (vector 3 4))))
 (test-equal '(0 0) (interval-lower-bounds->list (make-interval (vector 3 4))))
@@ -43,6 +56,10 @@
 (test-equal #t (guard (e (#t #t)) (make-interval (vector 1.5)) #f))
 (test-equal #t (guard (e (#t #t))
                   (interval-lower-bound (make-interval (vector 3 4)) 5) #f))
+;; make-interval takes at most 2 arguments -- a 3rd is rejected, not
+;; silently discarded
+(test-equal #t (guard (e (#t #t))
+                  (make-interval (vector 0) (vector 1) (vector 2)) #f))
 
 ;;; --- an interval does not retain a dependence on the caller's vector ---
 (let* ((v (vector 5 5)) (c (make-interval v)))
@@ -66,12 +83,17 @@
       (inner (make-interval (vector 1 1) (vector 2 2))))
   (test-equal #t (interval-subset? inner outer))
   (test-equal #f (interval-subset? outer inner)))
+;; per spec, mismatched dimensions are an error, not a normal #f result
+(test-equal #t (guard (e (#t #t))
+                  (interval-subset? (make-interval (vector 2)) (make-interval (vector 2 3))) #f))
 
 ;;; --- interval-contains-multi-index? ---
 (let ((b (make-interval (vector -2 -2) (vector 2 2))))
   (test-equal #t (interval-contains-multi-index? b -2 -2))
   (test-equal #f (interval-contains-multi-index? b 2 0))
-  (test-equal #t (interval-contains-multi-index? b 0 0)))
+  (test-equal #t (interval-contains-multi-index? b 0 0))
+  ;; a multi-index must consist of exact integers
+  (test-equal #t (guard (e (#t #t)) (interval-contains-multi-index? b 1.5 0) #f)))
 
 ;;; --- interval-for-each: lexicographic order, separate positional args ---
 (let ((visits '()))
@@ -100,13 +122,18 @@
 (let* ((b (make-interval (vector -2 -2) (vector 2 2)))
        (dil (interval-dilate b (vector -1 -1) (vector 1 1))))
   (test-equal '(-3 -3) (interval-lower-bounds->list dil))
-  (test-equal '(3 3) (interval-upper-bounds->list dil)))
+  (test-equal '(3 3) (interval-upper-bounds->list dil))
+  ;; diff vectors of the wrong length are rejected, not silently truncated
+  ;; by vector-map's shortest-wins behavior
+  (test-equal #t (guard (e (#t #t)) (interval-dilate b (vector -1) (vector 1 1)) #f))
+  (test-equal #t (guard (e (#t #t)) (interval-dilate b (vector -1 -1) (vector 1 1 1)) #f)))
 
 (let* ((b (make-interval (vector -2 -2) (vector 2 2)))
        (tr (interval-translate b (vector 10 20))))
   (test-equal '(8 18) (interval-lower-bounds->list tr))
   (test-equal '(12 22) (interval-upper-bounds->list tr))
-  (test-equal #t (guard (e (#t #t)) (interval-translate b "not a translation") #f)))
+  (test-equal #t (guard (e (#t #t)) (interval-translate b "not a translation") #f))
+  (test-equal #t (guard (e (#t #t)) (interval-translate b (vector 1 2 3)) #f)))
 
 ;; matches the spec's own permutation convention: result axis i has bounds
 ;; of the original's axis permutation[i]
@@ -114,10 +141,14 @@
   (test-equal '(30 10 20) (interval-upper-bounds->list pm)))
 (test-equal #t (guard (e (#t #t))
                   (interval-permute (make-interval (vector 1 2)) (vector 5 5)) #f))
+(test-equal #t (guard (e (#t #t))
+                  (interval-permute (make-interval (vector 1 2 3)) (vector 1 0)) #f))
 
 (test-equal '(4) (interval-upper-bounds->list (interval-scale (make-interval (vector 10)) (vector 3))))
 (test-equal #t (guard (e (#t #t))
                   (interval-scale (make-interval (vector -2 -2) (vector 2 2)) (vector 1 1)) #f))
+(test-equal #t (guard (e (#t #t))
+                  (interval-scale (make-interval (vector 10 10)) (vector 2)) #f))
 
 ;;; --- interval-intersect ---
 (let ((i1 (make-interval (vector 0 0) (vector 5 5)))
@@ -126,7 +157,10 @@
   (let ((ix (interval-intersect i1 i2)))
     (test-equal '(3 3) (interval-lower-bounds->list ix))
     (test-equal '(5 5) (interval-upper-bounds->list ix)))
-  (test-equal #f (interval-intersect i1 i3)))
+  (test-equal #f (interval-intersect i1 i3))
+  ;; mismatched dimensions must be rejected, not silently limited to the
+  ;; first interval's own (possibly smaller) axis count
+  (test-equal #t (guard (e (#t #t)) (interval-intersect (make-interval (vector 5)) i1) #f)))
 
 ;;; --- interval-cartesian-product ---
 (let ((cp (interval-cartesian-product (make-interval (vector 2 3)) (make-interval (vector 5)))))
