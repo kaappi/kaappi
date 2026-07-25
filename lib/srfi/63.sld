@@ -67,12 +67,37 @@
 
     (define-record-type <uarray>
       (%make-uarray dims kind store base mapper)
-      array?
+      %uarray?
       (dims array-dims-vec)
       (kind array-kind)
       (store array-store)
       (base array-base)
       (mapper array-mapper))
+
+    ;; Per spec ("Arrays are not disjoint from other Scheme types"), a plain
+    ;; vector or string IS an array in its own right (rank 1, kind 'generic
+    ;; or 'char respectively) -- not just a valid make-array/make-shared-array
+    ;; prototype. array? and the core accessors all dispatch across three
+    ;; representations: <uarray> records, plain vectors, plain strings.
+    (define (array? a) (or (%uarray? a) (vector? a) (string? a)))
+
+    (define (%array-like-dims-vec a)
+      (cond
+       ((%uarray? a) (array-dims-vec a))
+       ((vector? a) (vector (vector-length a)))
+       (else (vector (string-length a)))))
+
+    (define (%array-like-ref a indices)
+      (cond
+       ((%uarray? a) (%array-ref-indices a indices))
+       ((vector? a) (vector-ref a (car indices)))
+       (else (string-ref a (car indices)))))
+
+    (define (%array-like-set! a indices value)
+      (cond
+       ((%uarray? a) (%array-set-indices! a indices value))
+       ((vector? a) (vector-set! a (car indices) value))
+       (else (string-set! a (car indices) value))))
 
     ;; --- kind dispatch table: (kind maker ref setter! length default) ---
 
@@ -136,24 +161,44 @@
                     (iter (+ i 1)))))))
         (go 0 '())))
 
+    ;; A shared view's own declared dims-vec (from make-shared-array's dims
+    ;; arguments) is its real bounds -- %row-major-offset is called here
+    ;; purely to enforce them (and discarded) before delegating through the
+    ;; mapper, since the mapper itself has no obligation to reject an index
+    ;; the view's own shape disallows; array-in-bounds? must agree with this.
     (define (%array-ref-indices a indices)
       (let ((store (array-store a)))
         (if store
             ((%kind-ref (array-kind a)) store (%row-major-offset (array-dims-vec a) indices))
-            (%array-ref-indices (array-base a) (apply (array-mapper a) indices)))))
+            (begin
+              (%row-major-offset (array-dims-vec a) indices)
+              (%array-like-ref (array-base a) (apply (array-mapper a) indices))))))
 
     (define (%array-set-indices! a indices value)
       (let ((store (array-store a)))
         (if store
             ((%kind-setter (array-kind a)) store (%row-major-offset (array-dims-vec a) indices) value)
-            (%array-set-indices! (array-base a) (apply (array-mapper a) indices) value))))
+            (begin
+              (%row-major-offset (array-dims-vec a) indices)
+              (%array-like-set! (array-base a) (apply (array-mapper a) indices) value)))))
 
     ;; --- the 20 prototype-generator procedures ---
 
+    ;; A rank-0 array has dims #() -- %dims-volume's empty-product convention
+    ;; makes that exactly 1 cell, matching the mathematical "0-dimensional
+    ;; array is a single scalar" reading. With a fill value given, that cell
+    ;; is actually populated (via the kind's own setter, which also enforces
+    ;; the kind's usual range/type validation on the fill value for free) so
+    ;; make-array can later read it back as "the element at the origin of
+    ;; prototype" -- a zero-length store could never carry that value at all.
     (define (%build-prototype kind fill)
-      (%make-uarray (vector) kind
-                    ((%kind-maker kind) 0 (if (pair? fill) (car fill) (%kind-default kind)))
-                    #f #f))
+      (cond
+       ((null? fill) (%make-uarray (vector) kind ((%kind-maker kind) 1 (%kind-default kind)) #f #f))
+       ((null? (cdr fill))
+        (let ((store ((%kind-maker kind) 1 (%kind-default kind))))
+          ((%kind-setter kind) store 0 (car fill))
+          (%make-uarray (vector) kind store #f #f)))
+       (else (error "array prototype constructor: too many arguments" fill))))
 
     (define (A:fixZ8b . fill) (%build-prototype 'fixZ8b fill))
     (define (A:fixZ16b . fill) (%build-prototype 'fixZ16b fill))
@@ -181,28 +226,45 @@
 
     ;; --- the 13 core procedures ---
 
+    ;; %uarray?, not the public array? (which is also true of plain vectors/
+    ;; strings) -- a vector/string prototype's kind is derived structurally
+    ;; instead, never via the <uarray>-only array-kind accessor.
     (define (%prototype-kind proto)
       (cond
-       ((array? proto) (array-kind proto))
+       ((%uarray? proto) (array-kind proto))
        ((vector? proto) 'generic)
        ((string? proto) 'char)
        (else (error "make-array: prototype must be an array, vector, or string" proto))))
 
-    (define (array-rank a) (vector-length (array-dims-vec a)))
-    (define (array-dimensions a) (vector->list (array-dims-vec a)))
+    ;; Per spec: "the returned array will be filled with the element at the
+    ;; origin of prototype" when the prototype has any elements at all;
+    ;; unspecified (here, the kind's own zero-ish default) when it has none.
+    (define (%prototype-origin-fill proto kind)
+      (cond
+       ((%uarray? proto)
+        (if (> (%dims-volume (array-dims-vec proto)) 0)
+            (%array-ref-indices proto (make-list (array-rank proto) 0))
+            (%kind-default kind)))
+       ((vector? proto) (if (> (vector-length proto) 0) (vector-ref proto 0) (%kind-default kind)))
+       ((string? proto) (if (> (string-length proto) 0) (string-ref proto 0) (%kind-default kind)))
+       (else (%kind-default kind))))
+
+    (define (array-rank a) (vector-length (%array-like-dims-vec a)))
+    (define (array-dimensions a) (vector->list (%array-like-dims-vec a)))
 
     (define (make-array prototype . dims)
       (let* ((kind (%prototype-kind prototype))
              (dims-vec (list->vector dims))
-             (store ((%kind-maker kind) (%dims-volume dims-vec) (%kind-default kind))))
+             (fill (%prototype-origin-fill prototype kind))
+             (store ((%kind-maker kind) (%dims-volume dims-vec) fill)))
         (%make-uarray dims-vec kind store #f #f)))
 
     (define (make-shared-array a mapper . dims)
-      (%make-uarray (list->vector dims) (array-kind a) #f a mapper))
+      (%make-uarray (list->vector dims) (%prototype-kind a) #f a mapper))
 
     (define (array-in-bounds? a . indices)
       (and (= (length indices) (array-rank a))
-           (let ((dims (array-dims-vec a)))
+           (let ((dims (%array-like-dims-vec a)))
              (let loop ((i 0) (idxs indices))
                (or (null? idxs)
                    (and (integer? (car idxs)) (<= 0 (car idxs)) (< (car idxs) (vector-ref dims i))
@@ -210,16 +272,21 @@
 
     (define (array-ref a . indices)
       (%check-rank! a indices "array-ref")
-      (%array-ref-indices a indices))
+      (%array-like-ref a indices))
 
     ;; Value is the SECOND argument (right after array), the opposite
     ;; convention from SRFI 25/164's array-set!.
     (define (array-set! a value . indices)
       (%check-rank! a indices "array-set!")
-      (%array-set-indices! a indices value))
+      (%array-like-set! a indices value))
 
+    ;; Scope reduction: this array-augmented equal? only special-cases two
+    ;; genuine <uarray> records. Vector-vs-vector and string-vs-string (both
+    ;; now also arrays per array?) already compare correctly via plain R7RS
+    ;; equal? below; cross-representation array equality (a <uarray> vs. a
+    ;; plain vector with the same apparent shape/contents) is not attempted.
     (define (equal? a b)
-      (if (and (array? a) (array? b))
+      (if (and (%uarray? a) (%uarray? b))
           (and (equal? (array-dimensions a) (array-dimensions b))
                (let ((ok #t))
                  (%for-each-index (array-dims-vec a)
@@ -243,6 +310,8 @@
           (apply append (map (lambda (sub) (%flatten-nested (- rank 1) sub)) nested))))
 
     (define (list->array rank prototype nested)
+      (unless (and (integer? rank) (exact? rank) (>= rank 0))
+        (error "list->array: rank must be a nonnegative exact integer" rank))
       (let* ((kind (%prototype-kind prototype))
              (dims-vec (if (= rank 0) (vector) (%infer-dims rank nested)))
              (flat (if (= rank 0) (list nested) (%flatten-nested rank nested)))
@@ -255,10 +324,10 @@
         (%make-uarray dims-vec kind store #f #f)))
 
     (define (array->list a)
-      (let* ((dims (array-dims-vec a)) (rank (vector-length dims)))
+      (let* ((dims (%array-like-dims-vec a)) (rank (vector-length dims)))
         (define (build level prefix)
           (if (= level rank)
-              (%array-ref-indices a (reverse prefix))
+              (%array-like-ref a (reverse prefix))
               (let ((n (vector-ref dims level)))
                 (let loop ((i 0) (acc '()))
                   (if (= i n)
@@ -280,7 +349,7 @@
           (%make-uarray dims-vec kind store #f #f))))
 
     (define (array->vector a)
-      (let* ((size (%dims-volume (array-dims-vec a))) (v (make-vector size)) (i 0))
-        (%for-each-index (array-dims-vec a)
-                          (lambda (idx) (vector-set! v i (%array-ref-indices a idx)) (set! i (+ i 1))))
+      (let* ((dims (%array-like-dims-vec a)) (size (%dims-volume dims)) (v (make-vector size)) (i 0))
+        (%for-each-index dims
+                          (lambda (idx) (vector-set! v i (%array-like-ref a idx)) (set! i (+ i 1))))
         v))))

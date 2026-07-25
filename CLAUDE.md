@@ -465,7 +465,7 @@ shipped in Phase 4 Slice 4 on one shared native substrate (`types.NumericVector`
 — #1695 fully closed in Phase 4: 57/131/136/137/237/240 shipped, 99/100/150
 excluded — #1699 minus what Phases 1–3 closed and #1729, which completed SRFI
 181's transcoded-port half — custom ports landed separately in Phase 3, #1727;
-#1703 and #1702 closed in full in Phase 4), and 29 are excluded — see
+issues #1703 and #1702 closed in full in Phase 4), and 29 are excluded — see
 `docs/dev/srfi-exclusions.md` for the full rationale (7 meta/ecosystem SRFIs
 already covered by existing features, 11 non-standard reader syntax SRFIs
 that would fundamentally alter the parser, reinterpret already-valid syntax,
