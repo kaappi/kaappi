@@ -450,8 +450,10 @@ SRFI 192 (port positioning) is built-in: `port-position`/`set-port-position!`/`p
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
 Of the 208 final SRFIs in the registry, 171 are implemented, 7 are tracked
-for future implementation (72, 139, 147, 148, 149, 211, 213 — untriaged;
-no issue filed and no exclusion decision made yet), and 30 are excluded —
+for future implementation (72, 139, 147, 148, 149, 211, 213 — issue #1699,
+"Implement SRFI macro & syntax extension libraries": all 7 need expander
+or compiler changes, e.g. 72's explicit-renaming macros, 139's syntax
+parameters, 147/148's custom/eager macro transformers), and 30 are excluded —
 see `docs/dev/srfi-exclusions.md` for the full rationale. Issue #1694 (the
 numeric-vector and array family) is now fully closed: the vector-family
 subset — 4 (already shipped pre-Phase-4, just undocumented until Phase 4
