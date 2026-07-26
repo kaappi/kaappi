@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785047059566,
+  "lastUpdate": 1785053516391,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "807fd64ac9c6e38d4e9d492a0117a8958a8d3a90",
-          "message": "Add `kaappi fmt` canonical comment-preserving formatter (#1518) (#1571)\n\nA canonical formatter makes diffs meaningful, ends style review, and gives\nagents format-on-save invariance — the job `zig fmt` does for the compiler's\nown Zig, which nothing did for Scheme. This is the final item of the\nmachine-legibility epic (#1503).\n\nComments are not datums, so the ordinary reader (which discards them) cannot\ndrive a formatter. `fmt` therefore has its own concrete-syntax reader\n(`src/fmt.zig`): a lexer that emits every lexeme — line/block/`#;` comments and\nthe blank-line structure between them — and a parser that builds a CST keeping\natom text verbatim, so number/character/string spellings are never rewritten.\n`src/fmt_print.zig` lays the CST out: 2-space R7RS indentation, single-space\nseparators, closing parens gathered, forms reflowed to 80 columns using the two\nstandard Scheme shapes (body style for define/lambda/let/when/case/…, call\nstyle for calls/cond/vectors/unknown heads).\n\nLayout only rearranges whitespace between lexemes, so the datums a program reads\nare invariant by construction — and that is also checked at runtime: before\nwriting any file, `verifyRoundTrip` re-reads the original and the formatted text\nwith the real reader and compares the datum sequences with `equal?`. On any\nmismatch it refuses to write, so a bug here can never corrupt a source file.\n\n`--check` writes nothing and exits nonzero listing paths that need formatting,\nfor CI; with no files, stdin is formatted to stdout.\n\nVerified over all 558 .scm/.sld files under tests/scheme and lib: zero semantic\ndrift, zero syntax errors, and 558/558 idempotent. Tests: src/tests_fmt.zig\n(exact cases, comment/blank-line preservation, idempotence + round-trip over\ngrammar-fuzzer programs) and tests/scheme/fmt/fmt.sh (CLI behaviour plus the two\ncorpus-wide properties), wired into run-all.sh. Documented in docs/dev/fmt.md.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T15:59:54Z",
-          "tree_id": "3ec96ad2dae3fb6fb3d1326543572ec1fb4b383a",
-          "url": "https://github.com/kaappi/kaappi/commit/807fd64ac9c6e38d4e9d492a0117a8958a8d3a90"
-        },
-        "date": 1784133184648,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.401971,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.036704,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920499,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.46445,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006526,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054155,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50658,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069704,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.395191,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.989996,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.570437,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434811,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.849904,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.682599,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043074,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043728,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e3b70a53dd6b3c2501bdd05fbbf2871e264d37a",
+          "message": "Add SRFI 139 (syntax parameters) (#1757)\n\nFirst of 4 tractable pieces of issue #1699 (SRFI macro & syntax\nextension libraries) picked up after issue #1694 closed. Despite being\ngrouped with 6 SRFIs needing real expander/compiler work, 139 needs\nnone: let-syntax already implements exactly syntax-parameterize's own\nsemantics (adjust the live macro table for a bounded compile extent,\nthen restore it), so lib/srfi/139.sld is a 2-form, 6-line library.\n\nVerified against both of the spec's own worked examples (forever/\nabort, lambda^/return) plus 2 adversarial cases -- nested\nsyntax-parameterize of the same keyword, and a body-local variable\nsharing a name with the macro's own internal continuation identifier\n-- both passing without any implementation changes.\n\nBumps the SRFI count 171->172, reconciled against the canonical\nregistry: 172 implemented + 6 tracked + 30 excluded = 208.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T13:03:49+05:30",
+          "tree_id": "4b70b5b99b5adceee9fd87b2cd4b0636bcad3ac6",
+          "url": "https://github.com/kaappi/kaappi/commit/2e3b70a53dd6b3c2501bdd05fbbf2871e264d37a"
+        },
+        "date": 1785053514670,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.302535,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.596801,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.889038,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.412917,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006401,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053974,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500314,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069164,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.538497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.94864,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.564177,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.441065,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.790539,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.601312,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043321,
             "unit": "seconds"
           }
         ]
