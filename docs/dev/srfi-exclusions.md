@@ -1,6 +1,6 @@
 # Excluded SRFIs
 
-29 final SRFIs are excluded from implementation. This document records which
+30 final SRFIs are excluded from implementation. This document records which
 ones and why, so the decision isn't relitigated.
 
 ## Meta / ecosystem SRFIs (7)
@@ -675,18 +675,24 @@ bounded addition.
 
 ---
 
-## Superseded by a later SRFI (1)
+## Superseded by a later SRFI (2)
 
-This SRFI's own page states outright that a later SRFI supersedes it, and
-that later SRFI is a strict superset of its procedure surface (identical
-signatures for every inherited procedure, plus more). Implementing this one
-separately would mean shipping a second library that is a strict subset of
-one already implemented, under a different name, serving no user this
-codebase's own `(srfi 63)` doesn't already serve better.
+This SRFI's own page or abstract states outright that a later SRFI
+supersedes or replaces it, and that later SRFI is already implemented.
+Implementing this one separately would mean shipping a second library
+whose functionality is already covered by an implemented successor, under
+a different name. The two entries here differ in how compatible that
+successor is: SRFI 63 is a strict superset of SRFI 47 (identical
+signatures for every inherited procedure, plus more), while SRFI 231 is an
+explicitly-acknowledged *breaking* revision of SRFI 179 (different
+argument orders and semantics in several places) — either way, no program
+needs the older SRFI once the newer one exists, since nothing the older
+one offers is unreachable through the newer one.
 
 | SRFI | Title | Reason |
 |------|-------|--------|
 | 47 | Array | Superseded by SRFI 63 — stated directly on the SRFI 47 page itself, not inferred. All 9 of its core procedures (`array?`, `array-rank`, `array-dimensions`, `make-array`, `make-shared-array`, `array-in-bounds?`, `array-ref`, `array-set!`, `equal?`) have identical signatures in `(srfi 63)`, which additionally implements 4 more (`list->array`, `array->list`, `vector->array`, `array->vector`) and 7 more prototype-generator procedures (20 vs. 47's 13 — SRFI 63 adds more float widths and decimal floats). |
+| 179 | Nonempty Intervals and Generalized Arrays (Updated) | Superseded by SRFI 231 — the SRFI 231 abstract states directly, "This is a revised and improved version of SRFI 179." Unlike 47/63, this is NOT a strict superset: SRFI 231's own Rationale lists breaking changes from 179 (`list->array`'s argument order is reversed, `array-fold-left`'s semantics differ from 179's `array-fold`, `interval-rotate`/`array-rotate` were removed, `array-assign!` gained a stricter same-domain requirement). None of that matters for exclusion purposes — a program written against 179 was never going to run unchanged under `(srfi 231)` either way, and every capability 179 offers has a `(srfi 231)` equivalent. |
 
 ### SRFI 47 — Array
 
@@ -716,6 +722,33 @@ a program could target 47 but not 63.
 
 **Scope of change:** None — `(srfi 63)` is implemented (`lib/srfi/63.sld`)
 and is a strict superset of this SRFI's entire surface.
+
+### SRFI 179 — Nonempty Intervals and Generalized Arrays (Updated)
+
+**Author:** Bradley J. Lucier (2020)
+
+Defines intervals (multi-dimensional index domains) and generalized,
+mutable, and specialized arrays over them — the same problem SRFI 231
+addresses, and by the same author.
+
+**Why excluded:** SRFI 231's own abstract states directly: "This is a
+revised and improved version of SRFI 179." SRFI 231's Rationale section
+enumerates the specific ways it differs from 179 — `list->array` is now
+called as `(list->array interval list ...)` (argument order reversed from
+179), `array-fold-left` has different semantics from 179's `array-fold`,
+`interval-rotate` and `array-rotate` were removed entirely, and
+`array-assign!` now requires the source and destination to share the same
+domain (179 was looser). This is a breaking revision, not a strict
+superset the way SRFI 63 is over 47 — but that distinction doesn't change
+the exclusion decision: nothing in 179's surface is a capability `(srfi
+231)` lacks, so a program that would have targeted 179 can be written
+against `(srfi 231)` instead. Implementing 179 as well would mean shipping
+the author's own admittedly-superseded API design alongside its
+replacement, serving no user better than `(srfi 231)` already does.
+
+**Scope of change:** None — `(srfi 231)` is implemented (`lib/srfi/231.sld`,
+built across issue #1694) and is the author's own designated successor to
+this SRFI's entire surface.
 
 ---
 
