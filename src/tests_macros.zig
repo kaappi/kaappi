@@ -1292,6 +1292,42 @@ test "SRFI 147: chained resolution through nested begin-wrapped aliases" {
     );
 }
 
+test "SRFI 147: two sibling let-syntax bindings resolving to the same Transformer don't leak" {
+    // CodeRabbit-caught on this PR: `p`'s spec is a begin-wrapped helper
+    // reference and `q`'s spec is a bare alias of the SAME helper name --
+    // compileLetSyntax's per-binding loop then holds the exact same
+    // Transformer Value in tx_vals twice. finalizeTransformer already
+    // guards captured_locals/bound_free_refs against a second pass, but
+    // let_syntax_peer_names/vals are set in a separate block in this same
+    // loop with no such guard, and unconditionally `dupe`s+overwrites on
+    // every iteration -- the second iteration (`q`) leaked the first pair
+    // of allocations (`p`'s) before this test's fix. `h`'s own template
+    // references sibling `r` (also bound by this same let-syntax) so
+    // peer_names_f/vals are genuinely non-empty for both iterations --
+    // with an EMPTY peer set the dupe of a zero-length slice doesn't
+    // actually allocate, which would make this test pass even without
+    // the fix (confirmed: the first draft of this test used a peer-free
+    // template and did not catch the leak on a mutation-test revert of
+    // the fix). Also exercises that R7RS 4.3.1 sibling suppression itself
+    // still works through the shared-Transformer path: `r`'s outer
+    // (pre-let-syntax) binding is a procedure, unrelated to the sibling
+    // macro of the same name, so `(q 42)` = `(+ 42 1)` = 43, not the
+    // sibling macro's `(* 42 100)`. Run under the Debug allocator (zig
+    // build test, no -Doptimize=ReleaseFast), which is what actually
+    // catches the leak; the returned value alone wouldn't distinguish a
+    // leak from correct behavior.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (r y) (+ y 1))
+        \\  (equal?
+        \\   (let-syntax ((r (syntax-rules () ((_ y) (* y 100))))
+        \\                (p (begin (define-syntax h (syntax-rules () ((_ x) (r x)))) h))
+        \\                (q h))
+        \\     (q 42))
+        \\   43))
+    );
+}
+
 test "SRFI 147: zero-definition begin resolves directly to the final element" {
     try th.expectEvalTrue(
         \\(begin

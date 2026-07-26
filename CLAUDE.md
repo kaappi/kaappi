@@ -649,6 +649,29 @@ leaked the first allocation. Fixed by merging both calls into one
 every transformer is finalized exactly once regardless of how many names
 end up pointing at it.
 
+CodeRabbit caught a fifth, adjacent instance of the exact same hazard in
+review of that fix, after CI had already auto-merged it -- shipped as its
+own immediate follow-up: `compileLetSyntax`'s sibling-suppression
+bookkeeping (`let_syntax_peer_names`/`let_syntax_peer_vals`, R7RS 4.3.1)
+lives in a separate code block in the SAME per-binding loop, outside
+`finalizeTransformer`'s reach, and has the identical "unconditionally
+`dupe` and overwrite" shape -- reachable as soon as two sibling bindings
+in one `let-syntax` form resolve to the same `Transformer` (a begin-
+wrapped helper reference for one, a bare alias of that same helper for
+the other). Verified as a real, non-hypothetical leak (not just a
+theoretical overwrite) by confirming the shared transformer's template
+has a genuinely non-empty free-reference set first -- an earlier draft's
+reproduction used a template with zero free references, where `dupe`ing
+an empty slice doesn't actually allocate, so the mutation-tested unit
+test silently failed to catch anything until the reproduction was
+corrected to reference a true sibling. Fixed with a narrower, deliberately
+non-permanent guard: a linear scan of this call's own `tx_vals` prefix for
+an identical `Value` already processed earlier in the SAME loop -- unlike
+`Transformer.finalized`, this can't be a permanent per-object flag, since
+a transformer aliased into some OTHER, unrelated `let-syntax` form later
+genuinely needs its own peer snapshot computed against that different
+form's sibling set.
+
 These differ from earlier Zig versions and are easy to get wrong:
 
 ```zig
