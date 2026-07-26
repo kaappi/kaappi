@@ -415,11 +415,39 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     var saved_values: std.ArrayList(?Value) = .empty;
     defer saved_values.deinit(self.gc.allocator);
 
-    for (kw_names.items, tx_vals.items) |name, transformer| {
+    for (kw_names.items, tx_vals.items, 0..) |name, transformer, idx| {
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
         try finalizeTransformer(self, transformer);
         const tx = types.toObject(transformer).as(types.Transformer);
+
+        // SRFI 147 (bare-keyword alias / begin-wrapped helper reference) can
+        // resolve two DIFFERENT bindings in the SAME let-syntax form to the
+        // exact same Transformer Value (e.g. `((p (begin (define-syntax h
+        // ...) h)) (q h))` — CodeRabbit-caught reproduction on this PR).
+        // peer_snap_names/vals are identical for every binding in this one
+        // form, and collectTransformerFreeRefs depends only on the
+        // transformer's own (here, shared) template, so recomputing for a
+        // repeat is always redundant *within this loop* — unlike
+        // `finalized`, which must stay permanent (a transformer aliased
+        // into some OTHER, unrelated let-syntax form later genuinely needs
+        // its own peer snapshot against THAT form's different siblings, so
+        // this check is deliberately scoped to just this call's own
+        // tx_vals, not a Transformer-lifetime flag). Skipping the repeat
+        // avoids re-`dupe`ing and overwriting let_syntax_peer_names/vals
+        // with no free of the first pair.
+        var already_seen = false;
+        for (tx_vals.items[0..idx]) |seen| {
+            if (seen == transformer) {
+                already_seen = true;
+                break;
+            }
+        }
+        if (already_seen) {
+            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
+            continue;
+        }
+
         // R7RS 4.3.1 suppresses sibling keywords only for references the
         // transformer's TEMPLATE makes (definition-site free references). A
         // sibling handed to it as an argument is a use-site identifier — not a

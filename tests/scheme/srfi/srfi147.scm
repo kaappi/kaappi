@@ -178,6 +178,24 @@
 (define-syntax use-minus (gen-minus 1))
 (test-equal '(11 9) (list (use-plus 10) (use-minus 10)))
 
+;;; --- two sibling let-syntax bindings resolving to the exact same
+;;; Transformer (a begin-wrapped helper reference, and a bare alias of
+;;; that same helper) must not corrupt R7RS 4.3.1 sibling suppression --
+;;; CodeRabbit-caught: this shape leaked let_syntax_peer_names/vals
+;;; before the fix, since that bookkeeping was computed unconditionally
+;;; per binding rather than once per underlying Transformer object. `r`'s
+;;; outer (pre-let-syntax) meaning is a plain procedure, unrelated to the
+;;; sibling macro of the same name that this let-syntax also introduces,
+;;; so a correct result (43, not 4200) also confirms the peer snapshot
+;;; itself is still right, not just leak-free ---
+(define (r y) (+ y 1))
+(test-equal
+ 43
+ (let-syntax ((r (syntax-rules () ((_ y) (* y 100))))
+              (p (begin (define-syntax h (syntax-rules () ((_ x) (r x)))) h))
+              (q h))
+   (q 42)))
+
 ;;; --- persistent registration inside a NESTED body scope (not top level):
 ;;; the cross-referencing shape works the same way inside a lambda body,
 ;;; and two separate invocations of the same generator in two separate
