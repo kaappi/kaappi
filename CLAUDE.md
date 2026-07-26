@@ -567,13 +567,23 @@ example, a `syntax-rules*` that auto-wraps multi-form templates in
 `resolveTransformerSpec`, which expands a non-literal spec via the same
 `expander.expandMacro` every ordinary macro call already goes through,
 looping (depth-bounded) until it bottoms out at a literal `syntax-rules`
-form. Two of the grammar's other new alternatives -- a bare keyword
-aliasing an existing one (including a builtin special form, which has no
-`Transformer`-shaped value to alias to, since builtins are recognized
-structurally rather than through the macro table) and a macro use
-expanding to `(begin <definition>... <transformer-spec>)` -- are
-deliberately not implemented, since neither is needed by SRFI 148 (the
-reason 147 was implemented in the first place).
+form. The grammar's other two new alternatives -- a bare keyword aliasing
+an existing one, and a macro use expanding to `(begin <definition>...
+<transformer-spec>)` -- were initially deferred as unneeded by SRFI 148
+(the reason 147 was implemented), then shipped in a same-week follow-up
+once tracing SRFI 148's actual reference implementation (not just its
+spec prose) showed its core `em-syntax-rules-aux1`/`em-syntax-rules-aux2`
+mechanism bottoms out through exactly `(begin (define-syntax a spec) a)`
+-- a helper definition followed by a bare reference to it, needing both
+alternatives together. `resolveTransformerSpecRec`'s contract changed
+accordingly: it now returns an already-parsed `Transformer` (not raw
+`syntax-rules` source), because the bare-symbol alias case has no source
+to hand back, only a `Transformer` an earlier step already parsed --
+looked up directly in the same `merged_macros` map the resolution loop
+already threads through. Aliasing a builtin special form still correctly
+falls through to `InvalidSyntax`: builtins are recognized structurally in
+`ir_mod.isSpecialForm`, never stored as `Transformer` values in that map,
+so there is nothing for a bare-symbol lookup to find.
 
 Verifying this against just its own worked example wasn't enough --
 `bash tests/scheme/run-all.sh` caught two real, generalizable bugs that no
