@@ -133,6 +133,42 @@ assert_output "scheme write" '(import (scheme write)) (display "ok")' 'ok'
 assert_output "srfi 1" '(import (srfi 1)) (display (iota 5))' '(0 1 2 3 4)'
 assert_output "srfi 69" '(import (srfi 69)) (let ((h (make-hash-table))) (hash-table-set! h "k" 42) (display (hash-table-ref h "k")))' '42'
 
+# srfi 1/69 above are built into the binary and import even with no libraries
+# installed. The three tests below load .sld files from the installed
+# ~/.kaappi/lib tree — one per subdirectory the release tarball must ship
+# (srfi/, chibi/, kaappi/) — so each fails if kaappi-lib.tar.gz omits its
+# directory (#1741). They must not see the source checkout: from a checkout
+# cwd `./lib/<rel>` resolves before ~/.kaappi/lib, and a binary inside the
+# checkout (release/, zig-out/bin/) reaches the same tree via its
+# <exe>/../lib fallback — either would mask a broken tarball. So copy the
+# binary to a neutral directory and run these from there, where only the
+# installed libraries can satisfy the import.
+INSTALLED_TMP=$(mktemp -d)
+trap 'rm -rf "$INSTALLED_TMP"' EXIT
+mkdir -p "$INSTALLED_TMP/bin"
+KAAPPI_SRC=$(command -v "$KAAPPI" || echo "$KAAPPI")
+cp "$KAAPPI_SRC" "$INSTALLED_TMP/bin/$(basename "$KAAPPI_SRC")"
+KAAPPI_INSTALLED="$INSTALLED_TMP/bin/$(basename "$KAAPPI_SRC")"
+
+assert_installed_output() {
+    local label="$1"
+    local expr="$2"
+    local expected="$3"
+    local output
+    output=$(cd "$INSTALLED_TMP" && echo "$expr" | "$KAAPPI_INSTALLED" 2>&1 || true)
+    if echo "$output" | grep -qF "$expected"; then
+        echo "PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $label — expected '$expected', got: $output"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+assert_installed_output "srfi 8 (disk-loaded)" '(import (srfi 8)) (receive (a b) (values 1 2) (display (+ a b)))' '3'
+assert_installed_output "chibi test (disk-loaded)" '(import (chibi test)) (display "ok")' 'ok'
+assert_installed_output "kaappi parallel (disk-loaded)" '(import (kaappi parallel)) (display (parallel-map (lambda (n) (* n n)) (list 1 2 3 4 5)))' '(1 4 9 16 25)'
+
 # --- File execution ---
 echo
 echo "-- File execution --"

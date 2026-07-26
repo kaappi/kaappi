@@ -270,7 +270,11 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Bundle portable libraries
-        run: tar czf kaappi-lib.tar.gz lib/srfi/ lib/chibi/ LICENSE
+        # Pack the whole lib/ tree, never an enumerated subset: listing
+        # lib/srfi/ and lib/chibi/ here is how lib/kaappi/ was silently
+        # missing from every release tarball v0.18.0–v0.21.0, making the
+        # documented (kaappi parallel) unimportable on stock installs (#1741).
+        run: tar czf kaappi-lib.tar.gz lib/ LICENSE
 
       - name: Collect binaries, generate checksums, and sign
         run: |
