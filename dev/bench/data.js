@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785045869749,
+  "lastUpdate": 1785047059566,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ebd9235a4588a8a473f776aa33de20991899a63d",
-          "message": "Bound fuzz generator gates by instruction count on emulated targets (#1573) (#1574)\n\nThe riscv64-test CI job cross-compiles the unit-test binary to riscv64-linux\nand runs it under QEMU user-mode (~10-30x slower than native). The fuzz\ngenerator \"programs evaluate without error\" gates in tests_fuzz.zig bound each\ngenerated program by a 100 ms wall clock, so under emulation a correct-but-slow\nprogram blows the deadline, lands in the .scheme_error bucket, and pushes the\npass rate below the 90% gate -- a spurious failure that needs a manual rerun\nand, while it flakes, nearly doubles the job's wall time.\n\nThis is the same wall-clock-vs-slow-execution class already fixed for gc-stress\n(#1447/#1449), where the gates bound by instruction count instead -- a\nspeed-independent measure identical no matter how fast each instruction runs.\nThat treatment was never extended to the emulated riscv64 path.\n\nDetect a cross-compiled target in build.zig (resolved target arch/os != host)\nand expose it as build_options.emulated_target, then fold it into the existing\ngc-stress gate: speed_independent = gc_stress or emulated_target now drives both\nthe loose 120 s wall-clock backstop and the 2M-instruction bound. The 2M budget\nis reused unchanged (it clears the largest correct generator program by ~50x).\nemulated_target is consumed only by tests_fuzz.zig; the shipped binary is\nunaffected. Skipping was the alternative, but instruction-count bounding keeps\nthe generator-correctness coverage on the emulated path.\n\nAdds a regression test pinning the invariant: under gc-stress or emulation the\nbound is instruction-count (limit set, deadline loosened); on native builds the\ntight 100 ms deadline and no instruction cap are retained. Without the\nemulated-target half it fails on the riscv64 CI job instead of the gates\nflaking silently.\n\nVerified: native 1037/1037; gc-stress gates green; and a genuinely\ncross-compiled x86_64-macos build under Rosetta (emulated_target=true) runs all\nthree generator gates plus the differential oracle green (12/12) under the\ninstruction-count bound.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T20:59:56+05:30",
-          "tree_id": "874e80307c4eb4c5bdae8f795219bf77b6e926d6",
-          "url": "https://github.com/kaappi/kaappi/commit/ebd9235a4588a8a473f776aa33de20991899a63d"
-        },
-        "date": 1784131268874,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.314645,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.364966,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.938721,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.450346,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006465,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054231,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512432,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068736,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.454546,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.986484,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.566969,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433295,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.80524,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.723125,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044285,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.027284,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8221fd0429993177149d81e279b0b3283e878890",
+          "message": "Fix CLAUDE.md: the 7 tracked macro/syntax SRFIs are issue #1699, not untriaged (#1756)\n\nPR #1755's SRFI-count reconciliation correctly identified 72, 139, 147,\n148, 149, 211, 213 as the 7 still-tracked final SRFIs, but wrongly\ncalled them \"untriaged; no issue filed\" -- issue #1699 (\"Implement\nSRFI macro & syntax extension libraries\") already tracks exactly this\nset, filed and open. Caught by checking `gh issue list` after the\nfact, not by any verification built into the original edit.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T10:59:58+05:30",
+          "tree_id": "e4145f3453f6df3a8a80a2b2185619f356991aef",
+          "url": "https://github.com/kaappi/kaappi/commit/8221fd0429993177149d81e279b0b3283e878890"
+        },
+        "date": 1785047057936,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.27975,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.220866,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.894887,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.409087,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006408,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053375,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.498585,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069058,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.541488,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.931807,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.565725,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433913,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799244,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661465,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043728,
             "unit": "seconds"
           }
         ]
