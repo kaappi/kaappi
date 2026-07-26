@@ -327,8 +327,7 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
         tx.def_env_val = self.lib_env_val;
     }
 
-    try captureLocalsOnTransformer(self, transformer);
-    try computeBoundFreeRefs(self, transformer);
+    try finalizeTransformer(self, transformer);
 
     const name = types.symbolName(keyword);
     try self.recordBodyMacro(name);
@@ -419,8 +418,7 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     for (kw_names.items, tx_vals.items) |name, transformer| {
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
-        try captureLocalsOnTransformer(self, transformer);
-        try computeBoundFreeRefs(self, transformer);
+        try finalizeTransformer(self, transformer);
         const tx = types.toObject(transformer).as(types.Transformer);
         // R7RS 4.3.1 suppresses sibling keywords only for references the
         // transformer's TEMPLATE makes (definition-site free references). A
@@ -484,14 +482,29 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
 
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
-        try captureLocalsOnTransformer(self, transformer);
-        try computeBoundFreeRefs(self, transformer);
+        try finalizeTransformer(self, transformer);
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         binding_list = types.cdr(binding_list);
     }
 
     try compileSyntaxBody(self, body, dst, is_tail);
     restoreMacros(self, saved_names.items, saved_values.items);
+}
+
+/// Runs captureLocalsOnTransformer + computeBoundFreeRefs exactly once per
+/// transformer, guarded by Transformer.finalized. Necessary because SRFI
+/// 147 resolution (resolveTransformerSpec) can return the SAME Value to
+/// more than one binding site -- a bare-keyword alias, or a begin-wrapped
+/// helper referenced by name from an outer spec's own tail -- and both
+/// wrapped functions allocate and unconditionally overwrite a slice field
+/// with no free of whatever was there before; calling them a second time
+/// on an already-finalized transformer leaks the first allocation.
+pub fn finalizeTransformer(self: *Compiler, transformer: Value) CompileError!void {
+    const tx = types.toObject(transformer).as(types.Transformer);
+    if (tx.finalized) return;
+    tx.finalized = true;
+    try captureLocalsOnTransformer(self, transformer);
+    try computeBoundFreeRefs(self, transformer);
 }
 
 pub fn captureLocalsOnTransformer(self: *Compiler, transformer: Value) CompileError!void {
@@ -736,13 +749,47 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                 const def_spec_raw = types.car(def_rest2);
                 const def_transformer = try resolveTransformerSpecRec(self, def_spec_raw, merged_macros, steps);
                 // Root for the rest of this compile scope immediately --
-                // it lives only in merged_macros (a local Zig hashmap,
-                // not GC-scanned), matching compileDefineSyntax's own
-                // top-level transformer rooting (#1401 pattern). Nothing
-                // between the recursive call's return and this line
-                // allocates via the GC.
+                // it lives only in merged_macros/self.macros (plain Zig
+                // hashmaps, not GC-scanned), matching compileDefineSyntax's
+                // own top-level transformer rooting (#1401 pattern).
+                // Nothing between the recursive call's return and this
+                // line allocates via the GC.
                 self.gc.extra_roots.append(self.gc.allocator, def_transformer) catch return CompileError.OutOfMemory;
-                merged_macros.put(types.symbolName(def_name_sym), def_transformer) catch return CompileError.OutOfMemory;
+                const def_name = types.symbolName(def_name_sym);
+                merged_macros.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
+
+                // A begin-wrapped helper isn't just a resolution-time alias
+                // target (the merged_macros entry above) -- its hygienically
+                // mangled name can be referenced BY NAME from inside the
+                // FINAL transformer's own template (this is exactly what
+                // SRFI 148's em-syntax-rules-aux2 needs: it expands to
+                // `(begin (define-syntax o spec) o)` where the surrounding
+                // syntax-rules body ALSO calls `o` directly, e.g. `(ck s
+                // "arg" (o) . q)`). That reference must keep resolving every
+                // time the macro being defined here is later invoked, not
+                // just while resolving THIS transformer-spec -- merged_macros
+                // is local to this call and gone once it returns. So treat
+                // this exactly like an ordinary define-syntax at the current
+                // nesting depth: register in self.macros (undone at the
+                // matching endBodyMacroScope in a body context, permanent at
+                // top level -- recordBodyMacro is a no-op there, matching
+                // compileDefineSyntax's own comment "define-syntax must
+                // persist"), mirror the library-top-level lib_env storage,
+                // and finalize hygiene bookkeeping the same way every other
+                // Transformer object in this file does.
+                if (self.lib_env) |env| {
+                    const def_tx = types.toObject(def_transformer).as(types.Transformer);
+                    def_tx.def_env = env;
+                    def_tx.def_env_val = self.lib_env_val;
+                }
+                try finalizeTransformer(self, def_transformer);
+                try self.recordBodyMacro(def_name);
+                self.macros.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
+                if (self.body_macro_depth == 0) {
+                    if (self.lib_env) |env| {
+                        env.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
+                    }
+                }
                 rest = types.cdr(rest);
             }
             spec = types.car(rest);

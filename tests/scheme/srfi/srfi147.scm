@@ -124,6 +124,89 @@
 
 (test-equal 42 (let-syntax ((chained (stage-outer 7))) (chained 6)))
 
+;;; --- a begin-internal helper referenced BY NAME from inside the FINAL
+;;; transformer's own template (not aliased directly by bare symbol) must
+;;; keep resolving every time the macro being defined is later invoked --
+;;; this is what SRFI 148's em-syntax-rules-aux2 needs (it expands to
+;;; `(begin (define-syntax o spec) o)` where the surrounding syntax-rules
+;;; body ALSO calls `o` directly from within its own rules, not just as
+;;; the bare tail). A helper registered only for the DURATION of resolving
+;;; this transformer-spec (and gone once that resolution returns) cannot
+;;; satisfy this -- it must persist in the real macro table ---
+(define-syntax gen-cross-ref
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax step1
+         (syntax-rules ()
+           ((_ x) (* x n))))
+       (define-syntax step2
+         (syntax-rules ()
+           ((_ x) (step1 (+ x 1)))))
+       (syntax-rules ()
+         ((_ y) (step2 y)))))))
+
+(define-syntax use-cross-ref (gen-cross-ref 3))
+;; called twice: the first call alone would pass even with a transient-only
+;; registration if evaluation order happened to mask the gap; a second,
+;; independent call after the first has fully returned confirms the helper
+;; is genuinely persistent, not a one-shot side effect.
+(test-equal 15 (use-cross-ref 4))
+(test-equal 21 (use-cross-ref 6))
+
+;;; --- the same begin-internal helper NAME used by two unrelated
+;;; begin-wrapped macros must not collide -- each expansion's hygienic
+;;; renaming keeps them distinct even though both are permanently
+;;; registered in the same macro table ---
+(define-syntax gen-plus
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax shared-name
+         (syntax-rules () ((_ x) (+ x n))))
+       shared-name))))
+
+(define-syntax gen-minus
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax shared-name
+         (syntax-rules () ((_ x) (- x n))))
+       shared-name))))
+
+(define-syntax use-plus (gen-plus 1))
+(define-syntax use-minus (gen-minus 1))
+(test-equal '(11 9) (list (use-plus 10) (use-minus 10)))
+
+;;; --- persistent registration inside a NESTED body scope (not top level):
+;;; the cross-referencing shape works the same way inside a lambda body,
+;;; and two separate invocations of the same generator in two separate
+;;; functions don't interfere with each other ---
+(define (nested-cross-ref-1)
+  (define-syntax gen-nested
+    (syntax-rules ()
+      ((_ n)
+       (begin
+         (define-syntax nested-step
+           (syntax-rules () ((_ x) (* x n))))
+         (syntax-rules () ((_ y) (nested-step y)))))))
+  (define-syntax use-nested (gen-nested 100))
+  (use-nested 3))
+
+(define (nested-cross-ref-2)
+  (define-syntax gen-nested
+    (syntax-rules ()
+      ((_ n)
+       (begin
+         (define-syntax nested-step
+           (syntax-rules () ((_ x) (+ x n))))
+         (syntax-rules () ((_ y) (nested-step y)))))))
+  (define-syntax use-nested (gen-nested 100))
+  (use-nested 3))
+
+(test-equal 300 (nested-cross-ref-1))
+(test-equal 103 (nested-cross-ref-2))
+
 ;;; --- zero internal definitions: (begin <transformer-spec>) with nothing
 ;;; to define first is the degenerate case of the same grammar rule ---
 (define-syntax gen-plain

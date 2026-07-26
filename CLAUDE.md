@@ -618,6 +618,37 @@ needed a macro-heavy, multi-scope program to manifest:
    transformer-spec placed anywhere but the outermost scope was wrongly
    rejected as "not a macro" until this was fixed to merge the same way.
 
+The begin-wrapped-definitions follow-up itself needed a THIRD correction,
+found only once SRFI 148's reference implementation was traced through in
+full rather than just its grammar: `em-syntax-rules-aux2`'s own base case
+expands to `(begin (define-syntax o spec) o)`, but the SURROUNDING
+`syntax-rules` body it sits inside ALSO calls `o` directly from within its
+own rules (e.g. `(ck s "arg" (o) . q)`), not just as the bare tail -- so
+`o` must keep resolving every time the macro being defined here is later
+invoked, not just while resolving this one transformer-spec. A helper
+registered only in `resolveTransformerSpec`'s transient, function-local
+`merged_macros` (discarded once that call returns) cannot satisfy this --
+confirmed via direct reproduction (`(begin (define-syntax step1 ...)
+(define-syntax step2 (... (step1 ...))) (syntax-rules () ((_ y) (step2
+y))))`, called twice after definition) failing with `undefined variable
+'__hyg_N_step1'`. Fixed by registering each begin-internal helper into the
+real, persistent-for-this-scope's-lifetime `self.macros` (and `lib_env` at
+library top level) exactly like an ordinary `define-syntax` at the same
+nesting depth gets, not just the transient resolution-scoped map. That fix
+immediately surfaced a fourth, adjacent bug under the unit test suite's
+leak-checking allocator: a begin-wrapped alias can hand the exact same
+`Transformer` `Value` to two or more different binding sites (a helper
+aliased directly by its own generator, then re-aliased by an enclosing
+one), and `compileDefineSyntax`/`compileLetSyntax`/`compileLetrecSyntax`
+each unconditionally ran `captureLocalsOnTransformer`/
+`computeBoundFreeRefs` on whatever `resolveTransformerSpec` returned --
+both allocate and overwrite a slice field with no free of what was there
+before, so a second finalization pass on an already-finalized object
+leaked the first allocation. Fixed by merging both calls into one
+`finalizeTransformer`, guarded by a new `Transformer.finalized` flag, so
+every transformer is finalized exactly once regardless of how many names
+end up pointing at it.
+
 These differ from earlier Zig versions and are easy to get wrong:
 
 ```zig
