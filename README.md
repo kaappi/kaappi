@@ -27,7 +27,7 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
 — 641 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
-171 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
+172 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
 
@@ -489,7 +489,7 @@ R7RS-small and is not implemented.
 
 ### SRFI coverage
 
-171 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
+172 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
 linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
 [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
 
