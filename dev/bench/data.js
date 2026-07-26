@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785102962169,
+  "lastUpdate": 1785109581491,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2da66933fcb823194f88b908e8c2117bf17e58e6",
-          "message": "LLVM backend: split llvm_emit.zig into inline + let sub-modules (#1583)\n\nllvm_emit.zig had grown to 1841 lines, past the 1500-line file-size\npolicy. Extract two self-contained subsystems along natural seams,\nfollowing the existing llvm_emit_<theme>.zig convention (forms, lambda,\ntailcall):\n\n- llvm_emit_inline.zig — inline fixnum fast-path emission (#1493) for\n  + - * < = null?, plus its private nanbox/ArithOp/CompareKind helpers\n  and nodeMayAllocate. These helper types were used only by this cluster.\n- llvm_emit_let.zig — native let / let* emission (emitLet and its\n  fallback/abandon paths) plus the nameInList helper.\n\nBoth use the direct-call dispatch pattern (like llvm_emit_forms.zig), so\nllvm_emit.zig only gains two imports and four call-site rewrites — no\ndelegation wrappers. Every moved function's remaining dependencies are\nstable LLVMEmitter methods or already-pub lambda.* helpers, so this is a\npure code move: no behavior change. llvm_emit.zig is now 1378 lines.\n\nVerified: zig build + full unit suite (tests_native/tests_ir) green,\nzig fmt clean, and a native-compiled program exercising every moved path\nproduces output identical to the interpreter.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T11:21:18+05:30",
-          "tree_id": "a72e4bc972af70cafdfa2883e1c8825dd60b298c",
-          "url": "https://github.com/kaappi/kaappi/commit/2da66933fcb823194f88b908e8c2117bf17e58e6"
-        },
-        "date": 1784182930042,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.041254,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.506978,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.927081,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.442391,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006782,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052834,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510296,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068208,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.220989,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.982038,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514444,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.473119,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.731683,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.851319,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044577,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044588,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fe15c21592e12c4ca0999662c85931c864a868f",
+          "message": "Freeze R7RS 4.3.1 peer snapshot permanently, not per-call (#1766)\n\nCodeRabbit-caught, and more serious than it first looked: the previous\nfix (free the old let_syntax_peer_names/vals pair before every\ncross-form overwrite) treated recomputing the sibling-suppression\nsnapshot against a different let-syntax form's own bindings as\nnecessary and correct. It isn't. R7RS 4.3.1's peer snapshot exists to\nfreeze a template's free references against whatever was in scope at\nthe template's own true point of definition, specifically so that\nlater shadowing at some other use site can't reach in and change what\na name resolves to -- recomputing it against a different form's outer\nbindings is exactly the interference the mechanism exists to prevent.\n\nConfirmed via a properly discriminating reproduction (a plain top-level\nprocedure as the shared free reference can't tell the two designs\napart at all, since procedure bindings were never captured by\nlet_syntax_peer_vals in the first place -- only a macro, redefined\nbetween two forms, exposes it): recomputing silently changed a\npreviously-correct answer from 11 to -10. Nesting the reuse inside the\ndefining form's own body was worse, corrupting the outer binding too\n(500 instead of 6).\n\nFixed by replacing the per-call tx_vals-prefix scan with a permanent,\nonce-per-object Transformer.peers_computed flag, mirroring `finalized`\nbut kept as its own field since peer suppression is\ncompileLetSyntax-specific. Also applies CodeRabbit's suggested\natomic-dupe pattern (dupe both new slices before touching the old ones,\nso a second-dupe OOM can't leave one field freed and the other stale).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T23:08:20Z",
+          "tree_id": "b7e150daffa191224dc6bd6bc28487013267b00d",
+          "url": "https://github.com/kaappi/kaappi/commit/4fe15c21592e12c4ca0999662c85931c864a868f"
+        },
+        "date": 1785109579145,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.362588,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.258808,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.904272,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.508168,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006376,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054694,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51119,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069472,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.489568,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.999023,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.591191,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436074,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.866375,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.630811,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044109,
             "unit": "seconds"
           }
         ]
