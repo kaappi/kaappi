@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785097602604,
+  "lastUpdate": 1785102962169,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ff49cc654681966ec7cc9b6ddbc706bc34b554f0",
-          "message": "Add /do-gate-benchmark skill for KEP dual-machine benchmark campaigns (#1582)\n\nCodifies the operational procedure for running the KEP-0002 Phase 7\ngate-campaign benchmark (benchmarks/gate/) on a Linux x86_64 reference\nmachine via DigitalOcean droplet -- generalized from collecting kaappi#1474's\nLinux dataset (PR #1580) so a future KEP acceptance gate, or a KEP-0003\nrevisit-trigger rerun, doesn't have to rediscover the same lessons:\n\n- This account's dedicated CPU-Optimized droplet line is tier-restricted\n  above 4 vCPUs even though larger sizes show as available; go straight\n  for the Premium \"Basic\" tier instead of wasting a create/delete cycle.\n- Verify actual core topology with lscpu rather than trusting vCPU count.\n- Three bash-guard string-match footguns hit repeatedly during provisioning\n  (sudo, pkill -f self-matching, rm -rf on non-root paths) and their\n  workarounds.\n- Always run a direct single-iteration timing probe of the heaviest\n  workload before committing to a multi-hour statistical run -- a driver-\n  level pilot alone hides the real bottleneck, and the same benchmark can\n  run 5-6x slower per-thread on a cloud x86 vCPU than the Apple Silicon\n  reference for some interpreted kernels.\n- How to split a run around a per-machine workload cap (mirroring the\n  protocol's existing IP-MATMUL precedent) and merge the resulting CSVs.\n\nAlso adds the skill to CLAUDE.md's skills table and a matching section in\ndocs/dev/claude-code-harness.md, per that file's own \"when changing the\nharness, update both\" instruction.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T09:33:39+05:30",
-          "tree_id": "84ae4afe633f4564ad84595b4efc235f6a70aa6d",
-          "url": "https://github.com/kaappi/kaappi/commit/ff49cc654681966ec7cc9b6ddbc706bc34b554f0"
-        },
-        "date": 1784176827761,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.430377,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.879369,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.894087,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.496636,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006441,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053833,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507405,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070071,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.400467,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.972533,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.565384,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427432,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.830795,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.574775,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043639,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043949,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "beaee758678073c163814e3b772586296e066b42",
+          "message": "Free let_syntax_peer_names/vals before cross-form recomputation too (#1765)\n\nCodeRabbit-caught follow-up to #1764's own fix (found in that PR's\nreview, after CI had already auto-merged it): the tx_vals-prefix scan\nonly catches the same Transformer reappearing within one let-syntax\nform. It genuinely can't skip recomputation when that transformer is\naliased into a DIFFERENT, unrelated let-syntax form later -- that\nform's own sibling set differs and needs its own snapshot -- but the\nrecomputation itself still unconditionally overwrote whatever an\nearlier form's processing had already set, with no free.\n\nFixed by freeing the previous let_syntax_peer_names/vals pair\nimmediately before every overwrite, regardless of which case (within-\nform repeat vs. cross-form reuse) triggered it. Mutation-tested: a\nsecond reproduction (the same helper aliased into two separate,\nsequential top-level let-syntax forms, each with a distinct sibling of\nthe same name) confirms the recomputation itself still resolves\ncorrectly, and leaks 2 allocations without this fix.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T21:21:54Z",
+          "tree_id": "6ee4ec3f51b4725f059bf7f7dcf68245d301b6d8",
+          "url": "https://github.com/kaappi/kaappi/commit/beaee758678073c163814e3b772586296e066b42"
+        },
+        "date": 1785102960674,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.316555,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.250153,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.900124,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.412647,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006392,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054069,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507157,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069469,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.52858,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.007143,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.591855,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429864,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.864783,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.66001,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044588,
             "unit": "seconds"
           }
         ]
