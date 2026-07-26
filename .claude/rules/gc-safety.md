@@ -1,5 +1,5 @@
 ---
-globs: ["src/primitives_*.zig", "src/memory.zig", "src/vm*.zig"]
+globs: ["src/primitives_*.zig", "src/memory.zig", "src/vm*.zig", "src/compiler*.zig", "src/expander.zig"]
 description: GC safety requirements for heap-mutating code
 ---
 
@@ -42,6 +42,46 @@ string-set!, record field mutation):
 
 - **Root Function* before vm.execute()**: `execute()` allocates a closure
   wrapper internally.
+
+- **`popRoot()` is LIFO, not per-variable**: it always removes whatever is
+  currently on top of the shared root stack, not "your" root specifically.
+  Pairing one `pushRoot`/`popRoot` around a value doesn't make it safe if
+  *other* code pushes an unrelated root in between your push and your pop —
+  a `defer gc.popRoot()` is only safe when nothing else can push to the
+  same stack before the deferred call fires. Inside a loop body, or before
+  any call that itself might push a root (e.g. rooting a second value
+  right after), pop *immediately and explicitly* right after the specific
+  allocating call you're protecting — never `defer` across a stretch of
+  code that itself calls `pushRoot`. A real instance: `compiler_macro.zig`
+  rooted a resolved macro transformer-spec (SRFI 147) via
+  `pushRoot`+`defer popRoot()` inside `compileLetSyntax`'s per-binding
+  loop; the same loop iteration then pushed a second, unrelated root for
+  its own result array entry *before* the deferred call fired, so the
+  deferred pop silently removed the wrong (most recent) root instead,
+  leaving the actual transformer object unrooted — surfaced only much
+  later, in an unrelated library's macro expansion, as a baffling "invalid
+  syntax" error with no apparent connection to the root cause.
+
+Dangerous pattern:
+
+```zig
+var a = try gc.allocSomething(...);
+gc.pushRoot(&a);
+defer gc.popRoot();          // fires at the END of this block/iteration
+const b = try gc.allocOther(...);
+gc.pushRoot(&b);             // <-- pushed BEFORE the defer above fires
+// ... falls through or returns here ...
+// the defer now pops `b`'s root, not `a`'s
+```
+
+Safe (pop immediately, before anything else can push):
+
+```zig
+var a = try gc.allocSomething(...);
+gc.pushRoot(&a);
+const result = try gc.allocOther(a, ...);
+gc.popRoot();                // pops `a`'s root right away, strictly nested
+```
 
 - **`vm_instance` must point at the live VM before anything allocates**: the
   GC root marker finds the globals/macros/libraries through the
