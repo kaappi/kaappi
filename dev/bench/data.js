@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785086434236,
+  "lastUpdate": 1785092604418,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "109a2f5f4b576cc82885690855ceba1c269b1f15",
-          "message": "KEP-0002 Phase 7 gate: Linux x86_64 dataset + completed worksheet (#1472, #1474) (#1580)\n\nCollects the second (Linux x86_64) reference machine for the frozen\nKEP-0002 Phase 7 gate benchmark, completing the two-machine dataset the\nKEP-0003 acceptance gate (#1474) reads. Run on a dedicated 8-physical-core\nx86_64 droplet (confirmed via lscpu, no SMT) at commit 807fd64a, K-J floor\n20x10, w=8, both levers -- zero timeouts or failures.\n\nLinux independently classifies as \"4 Between\", the same outcome macOS\nalready read, so the combined classification now holds by genuine\ncross-machine agreement rather than only via the cross-machine rule's\n\"one machine reading Between forces Between regardless\" fallback.\n\nOne amendment, mirroring the existing IP-MATMUL precedent: FO-DIGEST's\n64 MiB cell was excluded on this machine (both levers) after a timing\nprobe showed ~74-82s/iteration there, which alone would have added\nroughly 10 hours to the run. This doesn't affect the classification --\nFO-DIGEST is compute-dominated and reads well under 2% share at every\nsize collected on both machines.\n\nKEP-0003 stays Draft (gated); #1474 stays open with its revisit trigger\n(real kaappi-examples traces showing an IP-*-shaped hot loop).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T09:14:03+05:30",
-          "tree_id": "e80cf5e06904867970dccfec59b5549ed2a5b9cb",
-          "url": "https://github.com/kaappi/kaappi/commit/109a2f5f4b576cc82885690855ceba1c269b1f15"
-        },
-        "date": 1784175537434,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.04169,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.195218,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.91361,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.410182,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006717,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053042,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510594,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068232,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.210593,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.984448,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.511368,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.467689,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.732591,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.831377,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044442,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044597,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "826eeb3c9bea60ab1ec55b5584c00d9d624d627c",
+          "message": "Persist begin-wrapped SRFI 147 helpers, fix double-finalization leak (#1763)\n\nTracing SRFI 148's actual reference implementation (not just its grammar)\nfound that em-syntax-rules-aux2's own base case expands to\n`(begin (define-syntax o spec) o)`, where the SURROUNDING syntax-rules\nbody also calls `o` directly from within its own rules (not just as the\nbare tail) -- so `o` must keep resolving every time the macro being\ndefined here is later invoked, not just while resolving that one\ntransformer-spec. A helper registered only in resolveTransformerSpec's\ntransient, function-local merged_macros (discarded once that call\nreturns) cannot satisfy this -- confirmed via direct reproduction\nfailing with \"undefined variable '__hyg_N_helper'\" on every subsequent\nuse of the outer macro.\n\nFixed by registering each begin-internal helper into the real,\npersistent-for-this-scope's-lifetime self.macros (and lib_env at library\ntop level), exactly like an ordinary define-syntax at the same nesting\ndepth gets.\n\nThat fix immediately surfaced an adjacent bug under the unit test\nsuite's leak-checking allocator: a begin-wrapped alias can hand the\nexact same Transformer Value to two or more different binding sites, and\ncaptureLocalsOnTransformer/computeBoundFreeRefs both allocate and\nunconditionally overwrite a slice field with no free of what was there\nbefore -- a second finalization pass on an already-finalized object\nleaked the first allocation. Fixed by merging both calls into one\nfinalizeTransformer, guarded by a new Transformer.finalized flag.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T18:22:45Z",
+          "tree_id": "ef8cad314bf1b89c43e8502abdd0d41f47ba0583",
+          "url": "https://github.com/kaappi/kaappi/commit/826eeb3c9bea60ab1ec55b5584c00d9d624d627c"
+        },
+        "date": 1785092603121,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.325883,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.01117,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.694687,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.425462,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00687,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045787,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.395867,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.059723,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.303349,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.517346,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.325476,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.443159,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.472464,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.041009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038237,
             "unit": "seconds"
           }
         ]
