@@ -69,6 +69,24 @@
 ;;; registered macro is a compile error, not a silent success ---
 (test-equal #t (guard (e (#t #t)) (eval '(let-syntax ((oops (not-a-macro))) 1) (interaction-environment)) #f))
 
+;;; --- a nearer ancestor scope's macro shadows a farther one, not the
+;;; reverse -- the innermost scope has no local definition of its own,
+;;; forcing the lookup through the full ancestor chain ---
+(define-syntax mk-transformer
+  (syntax-rules () ((_) (syntax-rules () ((_ x) 'top-level)))))
+
+(define (shadow-outer)
+  (define (shadow-middle)
+    (define-syntax mk-transformer
+      (syntax-rules () ((_) (syntax-rules () ((_ x) 'middle-level)))))
+    (define (shadow-inner)
+      (let-syntax ((result (mk-transformer)))
+        (result 1)))
+    (shadow-inner))
+  (shadow-middle))
+
+(test-equal 'middle-level (shadow-outer))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-147")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

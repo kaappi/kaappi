@@ -1125,10 +1125,37 @@ test "SRFI 147: a transformer-spec resolves through multiple expansion steps" {
 }
 
 test "SRFI 147: a transformer-spec that resolves to neither syntax-rules nor a macro is a compile error" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = vm.eval("(let-syntax ((oops (not-a-macro))) 1)");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval("(let-syntax ((oops (not-a-macro))) 1)");
     try std.testing.expectError(error.CompileError, result);
+}
+
+test "SRFI 147: a nearer ancestor scope's macro shadows a farther one, not the reverse" {
+    // resolveTransformerSpec's ancestor-chain merge must populate
+    // farthest-to-nearest (self.macros last of all), matching correct
+    // lexical shadowing. A first draft populated nearest-to-farthest,
+    // which meant a name redefined in 2+ ancestor generations resolved
+    // to the FARTHEST definition instead of the nearest one -- caught by
+    // CodeRabbit review of #1760, confirmed via this exact reproduction
+    // (a 3-level nested lambda where the innermost scope's own
+    // let-syntax has no local definition of its own, forcing the lookup
+    // through the full ancestor chain: middle's own definition must win
+    // over the outermost/top-level one, not the reverse).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax mk-transformer
+        \\    (syntax-rules () ((_) (syntax-rules () ((_ x) 'top-level)))))
+        \\  (define (outer)
+        \\    (define (middle)
+        \\      (define-syntax mk-transformer
+        \\        (syntax-rules () ((_) (syntax-rules () ((_ x) 'middle-level)))))
+        \\      (define (inner)
+        \\        (let-syntax ((result (mk-transformer)))
+        \\          (result 1)))
+        \\      (inner))
+        \\    (middle))
+        \\  (eq? (outer) 'middle-level))
+    );
 }

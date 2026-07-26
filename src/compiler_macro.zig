@@ -641,14 +641,36 @@ fn resolveTransformerSpec(self: *Compiler, spec_in: Value) CompileError!Value {
     // scope (e.g. a let-syntax whose own body sits inside `guard`'s
     // desugared lambda) whose OWN self.macros doesn't include an
     // enclosing scope's macros -- they're never copied down automatically,
-    // only merged on demand. Match expandAndCompileMacroUse's own
-    // ancestor-walk here, or a transformer-spec macro-use defined in an
-    // outer scope would wrongly report "not a macro".
-    var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
-    defer merged_macros.deinit();
+    // only merged on demand.
+    //
+    // Collect the ancestor chain first, then populate FARTHEST-to-NEAREST
+    // (self.macros last of all): std.StringHashMap.put overwrites, so
+    // whichever scope is written LAST wins, and correct lexical shadowing
+    // requires the NEAREST enclosing definition of a name to win over a
+    // FARTHER one. Populating nearest-to-farthest (as
+    // expandAndCompileMacroUse's own ancestor-merge does) gets this
+    // backwards for a name defined in more than one ancestor generation --
+    // confirmed via a 3-level nested-lambda reproduction where an
+    // outermost definition wrongly won over a middle one that should have
+    // shadowed it. Deliberately not fixed in expandAndCompileMacroUse
+    // itself in this same change: it's the most heavily-exercised path in
+    // the entire macro system, the scenario needs 2+ ancestor generations
+    // redefining the exact same macro name (rare in practice, never
+    // observed causing a problem there), and touching it carries real
+    // regression risk disproportionate to this PR's actual scope --
+    // worth its own dedicated fix.
+    var chain: std.ArrayList(*Compiler) = .empty;
+    defer chain.deinit(self.gc.allocator);
     var p: ?*Compiler = self.parent;
     while (p) |par| : (p = par.parent) {
-        var it = par.macros.iterator();
+        chain.append(self.gc.allocator, par) catch return CompileError.OutOfMemory;
+    }
+    var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
+    defer merged_macros.deinit();
+    var i = chain.items.len;
+    while (i > 0) {
+        i -= 1;
+        var it = chain.items[i].macros.iterator();
         while (it.next()) |entry| {
             merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
         }

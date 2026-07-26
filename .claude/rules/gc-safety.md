@@ -63,6 +63,7 @@ string-set!, record field mutation):
   syntax" error with no apparent connection to the root cause.
 
 Dangerous pattern:
+
 ```zig
 var a = try gc.allocSomething(...);
 gc.pushRoot(&a);
@@ -72,7 +73,9 @@ gc.pushRoot(&b);             // <-- pushed BEFORE the defer above fires
 // ... falls through or returns here ...
 // the defer now pops `b`'s root, not `a`'s
 ```
+
 Safe (pop immediately, before anything else can push):
+
 ```zig
 var a = try gc.allocSomething(...);
 gc.pushRoot(&a);
