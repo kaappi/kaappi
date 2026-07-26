@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785029660047,
+  "lastUpdate": 1785039820860,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9bb1b63fefab216265286c17e4765d379d527f46",
-          "message": "Add `kaappi features` capability-discovery subcommand (#1517) (#1570)\n\n`kaappi features [--json]` answers an agent's first question -- \"what am I\nworking with?\" -- at the CLI boundary, the way KEP-0004 already answers it\ninside Scheme via cond-expand. It reports version + git build id, target\ntriple, build mode, the compiled-in subsystems, built-in vs portable SRFIs,\ninitial VM/GC limits, and whether --sandbox is available. JSON is the primary\ninterface; a human-readable table is the secondary.\n\nThe point is that this output can never drift from the rest of the toolchain,\nbecause every field is derived, never re-typed:\n\n- features = types.platform_features, the exact table cond-expand and R7RS\n  (features) resolve against (a unit test asserts equality; features.sh proves\n  the CLI output equals the runtime (features) procedure).\n- built-in SRFIs come from the library registry -- the srfi_* tags of\n  primitives.Lib plus the new library.extra_std_libraries (which also de-dups\n  the srfi.9 / scheme.case-lambda registration shared by both registrars).\n- portable SRFIs are generated at build time by scanning lib/srfi/*.sld, so a\n  new .sld updates the output automatically.\n- build id is a best-effort git short hash (+ -dirty), \"unknown\" on failure.\n\nDispatched before VM setup (like explain/test), native-only. Wires the new\nsubcommand into --help, the bash/zsh/fish completions, README, and CLAUDE.md;\ndocuments it in docs/dev/features.md.\n\nPart of the machine-legibility epic #1503.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T12:24:22Z",
-          "tree_id": "c5994c3a0a0a11d07cb95157f4571138bd51a637",
-          "url": "https://github.com/kaappi/kaappi/commit/9bb1b63fefab216265286c17e4765d379d527f46"
-        },
-        "date": 1784120217819,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.314863,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.844526,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.893171,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.426566,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006425,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053468,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507451,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068782,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.456172,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.959031,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580156,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.428406,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.810959,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.703531,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043951,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046079,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34e15133a27c823053078175621ebb3505263913",
+          "message": "Add SRFI 231 multi-array assembly (#1694 array family, phase 5) (#1754)\n\n* Add SRFI 231 multi-array assembly (#1694 array family, phase 5)\n\nFinal content phase of SRFI 231: array-assign!, array-stack(!),\narray-decurry(!), array-append(!), array-block(!) (9 bindings). All\nfour stack/decurry/append/block constructors follow the established\nvirtual-array-then-array-copy pattern; their `!` twins are aliases,\nconfirmed safe by reading the reference implementation directly (the\ntwo only diverge under multi-shot continuation re-entry, which the\nspec itself declares undefined). array-block needed a two-pass design:\nfull per-axis width-consistency validation (reusing array-curry +\narray-permute + index-first) followed by cheap single-pencil probing\nfor offsets, both confirmed against the reference implementation.\n\nOnly the merge into a public lib/srfi/231.sld plus docs/SRFI-count\nbookkeeping remains for the whole SRFI (#1694).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Strengthen array-block test coverage with position-dependent blocks\n\nCodeRabbit review of #1754: every test block was a uniform constant\nalready sitting at a zero lower bound, so the local-index/block-lower\nremap in array-block's assembled getter (assembly.sld:259) could be\nmissing, sign-flipped, or otherwise wrong and every assertion would\nstill pass -- any index inside a constant, zero-based block returns\nthe same value regardless of whether the arithmetic is correct.\n\nReplaced the four const-array blocks with array-translate'd blocks\ncarrying distinct nonzero lower bounds and position-tagged values, so\neach assertion now depends on the real local coordinate. Verified the\nnew test actually catches the bug class: temporarily dropping the\nblock-lowers addition turned 0 failures into 12, confirming the fix\ncloses a real gap rather than just adding assertions.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T09:15:39+05:30",
+          "tree_id": "e17d18ea65ba1ca63b0f3f04ba731b412444ae03",
+          "url": "https://github.com/kaappi/kaappi/commit/34e15133a27c823053078175621ebb3505263913"
+        },
+        "date": 1785039818760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.284387,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.416287,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.893852,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.416302,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006388,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053715,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.497987,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069212,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.524828,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.93126,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.576853,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434035,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815633,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65073,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044278,
             "unit": "seconds"
           }
         ]
