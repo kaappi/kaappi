@@ -1003,3 +1003,49 @@ test "nested quasiquote template matches the directly written form" {
         \\          ``(a ,,(+ 40 2))))
     );
 }
+
+// SRFI 149 (Basic Syntax-rules Template Extensions) regression coverage.
+// Confirmed via a dedicated research pass that Kaappi's expander already
+// implements both of this SRFI's extensions with zero code changes needed —
+// these tests exist purely to guard against a future regression, since
+// expander.zig's ellipsis/hygiene logic has a history of subtle breakage.
+
+test "SRFI 149: consecutive ellipses on a depth-2 variable flatten one level" {
+    // The spec's own worked example: (my-append (a ...) ...) with template
+    // (a ... ...) — R7RS's strict grammar requires extra parens for this
+    // ((a ...) ...) with a nested single-ellipsis template); 149 permits the
+    // flat two-token form directly, which Kaappi's reader already accepted.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax my-append
+        \\    (syntax-rules () ((_ (a ...) ...) (list a ... ...))))
+        \\  (equal? (my-append (1 2 3) (4 5 6)) '(1 2 3 4 5 6)))
+    );
+}
+
+test "SRFI 149: excess ellipsis on a mixed-depth sibling replicates the shallower variable" {
+    // The spec's own worked example: (foo (a b ...) ...) with template
+    // (((a b) ...) ...) — a is depth 1, b is depth 2; the inner ellipsis run
+    // consumes b's own extra nesting while a (already reduced to a scalar
+    // one level up) is held constant across it. This is SRFI 149's own
+    // "innermost excess ellipsis replicates" rule in its most basic form.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax foo
+        \\    (syntax-rules () ((_ (a b ...) ...) (list (list (list 'a 'b) ...) ...))))
+        \\  (equal? (foo (bar 1 2) (baz 3 4))
+        \\          '(((bar 1) (bar 2)) ((baz 3) (baz 4)))))
+    );
+}
+
+test "SRFI 149: consecutive-ellipsis flatten composes with a following fixed tail" {
+    // Confirms the flatten mechanism correctly resumes ordinary template
+    // instantiation for whatever follows the consumed ellipsis run, rather
+    // than swallowing the rest of the template.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax flatten-then-tail
+        \\    (syntax-rules () ((_ (a ...) ... last) (list a ... ... last))))
+        \\  (equal? (flatten-then-tail (1 2) (3 4 5) 'done) '(1 2 3 4 5 done)))
+    );
+}
