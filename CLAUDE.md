@@ -716,6 +716,16 @@ changes actually are, so any two different uncommitted edits at the same
 base commit alias to the identical id and share cache entries -- see
 `docs/dev/cache.md`.)
 
+CodeRabbit's review of that fix caught one more ordering bug: the first
+cut set `peers_computed = true` immediately, before the several fallible
+allocations (`peer_names_f`/`peer_vals_f` appends, both `dupe` calls) that
+actually build the snapshot. An OOM partway through would leave the flag
+permanently true with `let_syntax_peer_names`/`vals` still at their
+default-empty value -- every later reuse would then treat "no suppression
+needed" as the final, correct answer instead of retrying. Fixed by moving
+the flag assignment to strictly after both slices are durably stored,
+right before the `self.macros.put` that was already there.
+
 These differ from earlier Zig versions and are easy to get wrong:
 
 ```zig

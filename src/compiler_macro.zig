@@ -434,7 +434,6 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
             continue;
         }
-        tx.peers_computed = true;
 
         // R7RS 4.3.1 suppresses sibling keywords only for references the
         // transformer's TEMPLATE makes (definition-site free references). A
@@ -468,6 +467,13 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         };
         tx.let_syntax_peer_names = new_peer_names;
         tx.let_syntax_peer_vals = new_peer_vals;
+        // Only NOW, once both slices are durably stored, mark this
+        // transformer's snapshot complete (CodeRabbit): setting the flag
+        // any earlier -- before the fallible appends/dupes above -- would
+        // let an OOM leave peers_computed true with the default-empty
+        // snapshot never actually filled in, and every later reuse would
+        // silently accept that empty snapshot as final instead of retrying.
+        tx.peers_computed = true;
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
     }
 
