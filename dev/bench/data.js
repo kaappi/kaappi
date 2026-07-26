@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785039820860,
+  "lastUpdate": 1785045869749,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e95f6b51812e94eae19f5a1b98de85b7a3b685f4",
-          "message": "Guaranteed native mutual tail calls via tailcc + musttail (#1499) (#1572)\n\nSelf-tail-recursion in the LLVM backend was already constant-stack (an\narg-overwrite branch loop), but a tail call to *another* function was not:\nthe uniform entry reads its parameters from a caller-frame `%args` array,\nand a real tail call tears that frame down, so the callee would read freed\nstack. `even?`/`odd?`-style mutual recursion therefore grew the stack and\neventually overflowed. Guaranteed TCO needs arguments passed by value, not\nvia a pointer into the caller's frame — an ABI change.\n\nA fixed-arity, non-variadic, non-boxed named function (arity <= 8) now emits\ntwo LLVM functions: a `tailcc` register-argument fast entry holding the body\n(it copies the registers into a local `%args` array, so the existing body\nmachinery is reused unchanged), and an `internal` uniform-ABI trampoline for\nindirect dispatch. Direct tail calls between fast entries emit `musttail call\ntailcc` — LLVM-guaranteed constant stack (`tailcc` relaxes musttail's\nprototype-match rule, so different-arity mutual calls are legal). Self-\nrecursion keeps its loop; variadic/boxed/over-arity/closure functions keep the\nuniform entry unchanged.\n\nForward references (a callee defined later) resolve through a syntactic\npre-scan that reserves stable `@r{i}.fast` names for single-definition\ntop-level functions; a finalization stub covers any reserved name that falls\nback to the interpreter, so every musttail target links. A reference to a\nreserved name counts as a global in free-variable analysis, so the caller\nstill compiles natively.\n\n`musttail` is gated (`mustTailSafe`) on being in a fast entry, in tail\nposition, and outside any rooted `let`, so it never strands shadow-stack\nroots. The whole feature is gated per target on aarch64/x86_64, whose LLVM\nbackends support tailcc/musttail; other hosts keep the prior uniform ABI.\n\nVerified: 50M-deep mutual recursion runs native in flat ~3 MB RSS (would\notherwise overflow); GC-safe under forced collection; full unit suite and\n36/36 e2e programs green, incl. a new native-mutual-tail e2e whose\ninterpreter diff doubles as the constant-stack regression check.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T19:48:43+05:30",
-          "tree_id": "b36f7ffa43c838d4c6fde4e11402061af20b8569",
-          "url": "https://github.com/kaappi/kaappi/commit/e95f6b51812e94eae19f5a1b98de85b7a3b685f4"
-        },
-        "date": 1784127018206,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.671164,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.889918,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.881979,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.15441,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006686,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.051003,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461468,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.065116,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.477426,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.775696,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.461,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.40386,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.913235,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.913307,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041249,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044278,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5eb3c9811dc0566660ad33b568d261eb4aa0b87",
+          "message": "Finalize SRFI 231: public lib/srfi/231.sld hub, close #1694 (#1755)\n\n* Finalize SRFI 231: public lib/srfi/231.sld hub, close #1694\n\nMerges the 7 internal phase files (misc, intervals, storage-classes,\narrays, views, combinators, assembly — Slices 8-13) into a public,\nbare-importable (srfi 231) re-export hub, following the (srfi 4) thin\nre-export precedent. The 118-binding public surface is confirmed an\nexact bijection against the reference implementation's own export\nclause, with the 4 %-prefixed internal helpers in (srfi 231 arrays)\ncorrectly excluded.\n\nAlso moves SRFI 179 from tracked to excluded: SRFI 231's own abstract\nstates it is \"a revised and improved version of SRFI 179\" (a breaking\nrevision, not a strict superset like 47/63 — see\ndocs/dev/srfi-exclusions.md for specifics).\n\nBumps the tracked SRFI count 170->171 across CLAUDE.md, README.md, and\nCONFORMANCE.md, all cross-checked against the canonical SRFI registry:\n171 implemented + 7 tracked + 30 excluded = 208, matching exactly.\n\nThis closes issue #1694 (the numeric-vector and array family) in full:\n4/160/66/74 (vector family) and 25/164/63/231 (array family, with 47\nand now 179 excluded as superseded) are all shipped.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add full public-export completeness audit to the hub test\n\nCodeRabbit review of #1755: the hub smoke test only exercised 14\nrepresentative bindings, so it couldn't catch the hub silently\ndropping some OTHER name from its claimed 118-binding surface (a typo\nor missed addition in lib/srfi/231.sld's own export clause).\n\nAdded a single assertion referencing all 118 exported identifiers by\nname, in the same order as the hub's own export clause -- evaluating\nit requires every one to resolve, so a missing export fails the\nassertion immediately rather than going unnoticed. Verified the check\nactually works: temporarily dropped array-block! from the hub's export\nclause and confirmed the audit assertion failed (16 pass, 1 fail)\nbefore restoring the real file.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T10:55:16+05:30",
+          "tree_id": "19a2bc944dbc69ad1e1c2f6cb7a317cfbf78ad04",
+          "url": "https://github.com/kaappi/kaappi/commit/c5eb3c9811dc0566660ad33b568d261eb4aa0b87"
+        },
+        "date": 1785045867883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.417104,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.690055,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.504299,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.472516,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004873,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031798,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.28291,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042137,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.335787,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.128729,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.931677,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307786,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.054815,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.813534,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.027284,
             "unit": "seconds"
           }
         ]
