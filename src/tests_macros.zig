@@ -1329,20 +1329,19 @@ test "SRFI 147: two sibling let-syntax bindings resolving to the same Transforme
 }
 
 test "SRFI 147: reusing a persisted helper across two SEPARATE let-syntax forms doesn't leak" {
-    // CodeRabbit-caught follow-up: the already_seen guard above only
-    // covers the same Transformer reappearing WITHIN one let-syntax
-    // form. It genuinely can't cover this case -- a transformer aliased
-    // into some OTHER, unrelated let-syntax form later needs its own
-    // peer snapshot recomputed for real, since that form's own siblings
-    // differ. But the recomputation itself still unconditionally
-    // overwrote whatever the FIRST form's own processing had already set
-    // here, with no free -- leaking that first (non-empty, thanks to `r1`
-    // being a genuine free reference) pair of allocations. `r1` is a
-    // sibling of `p` in the FIRST let-syntax only; by the second,
-    // separate top-level form, `r1` has reverted to its outer procedure
-    // meaning, so a correct result for `(q 10)` (11, not 1000) also
-    // confirms h's own frozen peer snapshot from its true point of origin
-    // still works, unaffected by the later recomputation.
+    // CodeRabbit-caught follow-up to the sibling-reuse leak fix above: a
+    // transformer aliased into a DIFFERENT, later, unrelated let-syntax
+    // form reaches the SAME peer-computation code a second time.
+    // `r1` here is a plain top-level PROCEDURE, never a macro before
+    // either form, so let_syntax_peer_names/vals (built from
+    // self.macros.get, not self.globals) never captures anything for it
+    // either way -- this test only demonstrates the leak (a non-empty
+    // allocation from a genuine free reference, freed correctly whether
+    // or not the snapshot gets recomputed), not whether recomputing vs.
+    // reusing the snapshot changes the RESULT. See the next two tests for
+    // that: they use a macro (not a procedure) as the shared free
+    // reference specifically because only a macro's identity is
+    // captured by this mechanism at all.
     try th.expectEvalTrue(
         \\(begin
         \\  (define (r1 y) (+ y 1))
@@ -1350,6 +1349,69 @@ test "SRFI 147: reusing a persisted helper across two SEPARATE let-syntax forms 
         \\               (p (begin (define-syntax h (syntax-rules () ((_ x) (r1 x)))) h)))
         \\    (p 5))
         \\  (equal? (let-syntax ((q h)) (q 10)) 11))
+    );
+}
+
+test "SRFI 147: a helper's peer snapshot is frozen at its TRUE point of origin, never recomputed" {
+    // CodeRabbit-caught: an EARLIER draft of this fix let a transformer's
+    // R7RS 4.3.1 sibling-suppression snapshot be recomputed every time it
+    // reached a NEW let-syntax form (guarded only by a scan of that one
+    // call's own tx_vals, matching the leak-only concern above) --
+    // reasoning that a transformer aliased elsewhere "genuinely needs its
+    // own peer snapshot against that different form's siblings". That
+    // reasoning was WRONG: recomputing doesn't just waste an allocation,
+    // it can silently change which binding a macro's free reference
+    // resolves to, since the "peer snapshot" is precisely what freezes a
+    // template's own references against outer shadowing (R7RS 4.3.1) --
+    // recomputing it against a DIFFERENT form's outer bindings defeats
+    // the entire mechanism. Confirmed via direct reproduction: redefining
+    // the top-level MACRO meaning of a shared sibling name between two
+    // forms changed a previously shipped answer from 11 to -10 (using
+    // the SECOND form's redefinition instead of the first's, where h1
+    // was actually defined) before this fix's peers_computed flag made
+    // the snapshot permanent instead of per-call. Using a macro (not a
+    // procedure, as the leak test above does) is essential here: a plain
+    // procedure reference isn't captured by let_syntax_peer_vals at all
+    // (it comes from self.macros, not self.globals), so a test built on
+    // one can't distinguish "recomputed" from "reused" -- only a shared
+    // sibling that is itself a macro can.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax r1 (syntax-rules () ((_ y) (+ y 1))))
+        \\  (define result1
+        \\    (let-syntax ((r1 (syntax-rules () ((_ y) (* y 100))))
+        \\                 (p (begin (define-syntax h1 (syntax-rules () ((_ x) (r1 x)))) h1)))
+        \\      (p 5)))
+        \\  (define-syntax r1 (syntax-rules () ((_ y) (- y))))
+        \\  (define result2
+        \\    (let-syntax ((r1 (syntax-rules () ((_ y) (* y 9999))))
+        \\                 (q1 h1))
+        \\      (q1 10)))
+        \\  (equal? (list result1 result2) (list 6 11)))
+    );
+}
+
+test "SRFI 147: nesting a reuse inside the defining form's own body doesn't corrupt the outer binding" {
+    // CodeRabbit-caught: the reproduction above uses two SEPARATE,
+    // sequential top-level forms. This one nests the reuse INSIDE the
+    // very same let-syntax body that first defines the helper, then
+    // checks the OUTER binding (`p`) still resolves correctly
+    // AFTERWARD -- confirming the corruption isn't specific to top-level
+    // sequencing. Before this fix, the nested `q1`'s own peer
+    // recomputation used ONLY that inner let-syntax's own sibling set
+    // (just `q1` itself, no `r1`), silently emptying h1's peer snapshot
+    // -- which let the OUTER let-syntax's own `r1` sibling rebinding
+    // (`* y 100`) leak through unsuppressed for BOTH the nested call and
+    // the later outer one: `(q1 20)` wrongly returned 2000 instead of 21,
+    // and `(p 5)` -- called AFTER, unrelated to the nested reuse except
+    // for sharing h1's object -- wrongly returned 500 instead of 6.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax r1 (syntax-rules () ((_ y) (+ y 1))))
+        \\  (let-syntax ((r1 (syntax-rules () ((_ y) (* y 100))))
+        \\               (p (begin (define-syntax h1 (syntax-rules () ((_ x) (r1 x)))) h1)))
+        \\    (and (equal? (let-syntax ((q1 h1)) (q1 20)) 21)
+        \\         (equal? (p 5) 6))))
     );
 }
 

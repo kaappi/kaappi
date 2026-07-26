@@ -415,38 +415,26 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     var saved_values: std.ArrayList(?Value) = .empty;
     defer saved_values.deinit(self.gc.allocator);
 
-    for (kw_names.items, tx_vals.items, 0..) |name, transformer, idx| {
+    for (kw_names.items, tx_vals.items) |name, transformer| {
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
         try finalizeTransformer(self, transformer);
         const tx = types.toObject(transformer).as(types.Transformer);
 
-        // SRFI 147 (bare-keyword alias / begin-wrapped helper reference) can
-        // resolve two DIFFERENT bindings in the SAME let-syntax form to the
-        // exact same Transformer Value (e.g. `((p (begin (define-syntax h
-        // ...) h)) (q h))` — CodeRabbit-caught reproduction on this PR).
-        // peer_snap_names/vals are identical for every binding in this one
-        // form, and collectTransformerFreeRefs depends only on the
-        // transformer's own (here, shared) template, so recomputing for a
-        // repeat is always redundant *within this loop* — unlike
-        // `finalized`, which must stay permanent (a transformer aliased
-        // into some OTHER, unrelated let-syntax form later genuinely needs
-        // its own peer snapshot against THAT form's different siblings, so
-        // this check is deliberately scoped to just this call's own
-        // tx_vals, not a Transformer-lifetime flag). Skipping the repeat
-        // avoids re-`dupe`ing and overwriting let_syntax_peer_names/vals
-        // with no free of the first pair.
-        var already_seen = false;
-        for (tx_vals.items[0..idx]) |seen| {
-            if (seen == transformer) {
-                already_seen = true;
-                break;
-            }
-        }
-        if (already_seen) {
+        // R7RS 4.3.1 sibling-suppression snapshot: computed exactly once
+        // per Transformer object, permanently, guarded by peers_computed
+        // (see its own doc comment in types.zig for why recomputing is a
+        // correctness bug, not just a wasted allocation -- a transformer's
+        // free references must resolve against its TRUE point of origin,
+        // not whatever OTHER let-syntax form later happens to alias it by
+        // bare keyword or begin-wrapped reference, SRFI 147). A binding
+        // that reaches an already-finalized peer snapshot here is exactly
+        // that kind of alias -- reuse it unchanged.
+        if (tx.peers_computed) {
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
             continue;
         }
+        tx.peers_computed = true;
 
         // R7RS 4.3.1 suppresses sibling keywords only for references the
         // transformer's TEMPLATE makes (definition-site free references). A
@@ -468,19 +456,18 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
                 peer_vals_f.append(self.gc.allocator, pv) catch return CompileError.OutOfMemory;
             }
         }
-        // CodeRabbit-caught follow-up: the already_seen guard above only
-        // covers the SAME Transformer reappearing within this one
-        // let-syntax form. It genuinely CAN'T cover the transformer being
-        // aliased into some OTHER, unrelated let-syntax form later --
-        // that form's own siblings differ, so its peer snapshot must be
-        // recomputed for real, not skipped. But that recomputation still
-        // unconditionally overwrites whatever an EARLIER form's own
-        // processing left here, with no free -- so free the previous
-        // pair first regardless of which case this is.
-        if (tx.let_syntax_peer_names.len > 0) self.gc.allocator.free(tx.let_syntax_peer_names);
-        if (tx.let_syntax_peer_vals.len > 0) self.gc.allocator.free(tx.let_syntax_peer_vals);
-        tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_names_f.items) catch return CompileError.OutOfMemory;
-        tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_vals_f.items) catch return CompileError.OutOfMemory;
+        // Dupe both new slices before touching the (always default-empty
+        // here, since peers_computed guarantees this runs at most once
+        // per object) old fields, so a failure on the second dupe can't
+        // leave one field already overwritten and the other freed out
+        // from under it (CodeRabbit).
+        const new_peer_names = self.gc.allocator.dupe([]const u8, peer_names_f.items) catch return CompileError.OutOfMemory;
+        const new_peer_vals = self.gc.allocator.dupe(Value, peer_vals_f.items) catch {
+            self.gc.allocator.free(new_peer_names);
+            return CompileError.OutOfMemory;
+        };
+        tx.let_syntax_peer_names = new_peer_names;
+        tx.let_syntax_peer_vals = new_peer_vals;
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
     }
 

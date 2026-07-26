@@ -674,20 +674,47 @@ form's sibling set.
 
 That same review flagged a sixth spot the fifth's fix didn't close: the
 `tx_vals`-prefix scan only ever catches the same `Transformer` reappearing
-*within* one `let-syntax` form. It deliberately can't (and shouldn't) skip
-recomputation when that transformer is aliased into a *different*,
-unrelated `let-syntax` form later, since that form's own sibling set
-differs and genuinely needs its own snapshot -- but the recomputation
-itself still unconditionally overwrote whatever an earlier form's
-processing had already set, with no free. Fixed by freeing the previous
-`let_syntax_peer_names`/`vals` pair immediately before every overwrite,
-regardless of which of the two cases triggered it -- confirmed via a
-second mutation-tested reproduction (the same helper aliased into two
-separate, sequential top-level `let-syntax` forms, each with its own
-distinct sibling of the same name) that the recomputation itself still
-resolves correctly (the helper's template stays bound to whichever
-sibling was in scope at its true point of origin, not whichever form last
-recomputed the snapshot).
+*within* one `let-syntax` form, so a transformer aliased into a
+*different*, unrelated `let-syntax` form later still reached the
+recomputation code -- which still unconditionally overwrote whatever an
+earlier form's processing had set, with no free. The first fix for this
+(shipped, then reviewed) freed the old pair before every such overwrite
+and reasoned that recomputing was *correct*, since "a transformer aliased
+elsewhere genuinely needs its own peer snapshot against that different
+form's siblings." **That reasoning was wrong, not just the leak.** R7RS
+4.3.1's peer snapshot exists precisely to freeze a template's free
+references against whatever was in scope at the template's own true point
+of definition, so that *later* shadowing at some *other* use site can't
+reach in and change what a name resolves to -- recomputing it against a
+different form's outer bindings is exactly the kind of interference the
+mechanism exists to prevent, not a case it needs to additionally handle.
+Caught only by a properly discriminating reproduction: a plain top-level
+*procedure* as the shared free reference can't tell the two designs apart
+at all (a procedure binding was never captured by `let_syntax_peer_vals`
+in the first place, which reads `self.macros`, not `self.globals`) --
+only a *macro* redefined between the two forms exposes it, and did:
+recomputing silently changed a previously-correct answer from 11 to -10,
+using the second form's redefinition instead of the first form's binding
+where the helper was actually written. Nesting the reuse inside the
+defining form's own body (rather than two separate top-level forms) was
+worse: it corrupted the *outer* binding too, since the emptied snapshot
+let an outer sibling rebinding leak through unsuppressed for both calls.
+Fixed by replacing the per-call scan with a permanent, once-per-object
+`Transformer.peers_computed` flag (mirroring `finalized`'s own shape, but
+a distinct field -- peer suppression is `compileLetSyntax`-specific,
+unlike the finalization every macro-defining form needs): the snapshot is
+computed exactly once, at whichever form's processing the object is first
+encountered in, and every later encounter -- same form or a different
+one -- reuses it unchanged. (Verifying the fix took an unrelated detour:
+toggling the worktree between the old and new code via `git stash`/
+`git checkout <sha> -- <path>` without running `kaappi cache clear` after
+each rebuild made the same reproduction file answer differently across
+otherwise-identical rebuilds, looking exactly like nondeterminism until
+traced back to the `.sbc` bytecode cache's build-id half -- the git commit
+hash plus a binary `-dirty` flag, not a hash of what the uncommitted
+changes actually are, so any two different uncommitted edits at the same
+base commit alias to the identical id and share cache entries -- see
+`docs/dev/cache.md`.)
 
 These differ from earlier Zig versions and are easy to get wrong:
 
