@@ -106,22 +106,32 @@
 
 ;;; --- array-block / array-block!: assembles a d-dim array of d-dim
 ;;; blocks; the spec's own "block matrix" shape -- blocks sharing a row
-;;; must share height, blocks sharing a column must share width ---
-(let* ((b00 (const-array 2 2 0)) (b01 (const-array 2 3 1))
-       (b10 (const-array 3 2 2)) (b11 (const-array 3 3 3))
+;;; must share height, blocks sharing a column must share width. Each
+;;; block below has a DELIBERATELY NONZERO lower bound and a
+;;; position-dependent (not constant) value: a block that already sits
+;;; at zero with a uniform value can't distinguish a correct
+;;; local-index/block-lower-bound remap (assembly.sld's
+;;; `(vector-map + local-idx block-lowers)`) from one that is missing,
+;;; sign-flipped, or otherwise wrong -- every probed index would return
+;;; the same value either way.
+(define (pos-array h w tag lower-i lower-j)
+  (array-translate (make-array (make-interval (vector h w)) (lambda (i j) (list tag i j)))
+                    (vector lower-i lower-j)))
+(let* ((b00 (pos-array 2 2 'a 5 7)) (b01 (pos-array 2 3 'b 3 2))
+       (b10 (pos-array 3 2 'c 1 9)) (b11 (pos-array 3 3 'd 4 4))
        (blocks (vector (vector b00 b01) (vector b10 b11)))
        (a-of-a (make-array (make-interval (vector 2 2))
                             (lambda (i j) (vector-ref (vector-ref blocks i) j))))
        (r (array-block a-of-a)))
   (test-equal #t (interval= (array-domain r) (make-interval (vector 5 5))))
-  (test-equal 0 (array-ref r 0 0))
-  (test-equal 0 (array-ref r 1 1))
-  (test-equal 1 (array-ref r 0 2))
-  (test-equal 1 (array-ref r 1 4))
-  (test-equal 2 (array-ref r 2 0))
-  (test-equal 2 (array-ref r 4 1))
-  (test-equal 3 (array-ref r 2 2))
-  (test-equal 3 (array-ref r 4 4))
+  (test-equal (array-ref b00 5 7) (array-ref r 0 0))
+  (test-equal (array-ref b00 6 8) (array-ref r 1 1))
+  (test-equal (array-ref b01 3 2) (array-ref r 0 2))
+  (test-equal (array-ref b01 4 4) (array-ref r 1 4))
+  (test-equal (array-ref b10 1 9) (array-ref r 2 0))
+  (test-equal (array-ref b10 3 10) (array-ref r 4 1))
+  (test-equal (array-ref b11 4 4) (array-ref r 2 2))
+  (test-equal (array-ref b11 6 6) (array-ref r 4 4))
   (test-equal (array-ref r 3 3) (array-ref (array-block! a-of-a) 3 3))  ;; ! is a plain alias
   ;; round trip: array-tile(array-block(A)) reproduces the original blocks.
   ;; array-tile's sub-arrays come from array-extract, which preserves
@@ -130,10 +140,10 @@
   (let* ((tiled (array-tile r (vector (vector 2 3) (vector 2 3))))
          (t00 (array-ref tiled 0 0)) (t01 (array-ref tiled 0 1))
          (t10 (array-ref tiled 1 0)) (t11 (array-ref tiled 1 1)))
-    (test-equal (array-ref b00 0 0) (array-ref t00 0 0))
-    (test-equal (array-ref b01 0 0) (array-ref t01 0 2))
-    (test-equal (array-ref b10 0 0) (array-ref t10 2 0))
-    (test-equal (array-ref b11 0 0) (array-ref t11 2 2)))
+    (test-equal (array-ref b00 5 7) (array-ref t00 0 0))
+    (test-equal (array-ref b01 3 2) (array-ref t01 0 2))
+    (test-equal (array-ref b10 1 9) (array-ref t10 2 0))
+    (test-equal (array-ref b11 4 4) (array-ref t11 2 2)))
   ;; inconsistent widths across a shared column must error
   (let* ((bad-blocks (vector (vector b00 b01) (vector b10 (const-array 3 4 3))))
          (bad-a-of-a (make-array (make-interval (vector 2 2))
