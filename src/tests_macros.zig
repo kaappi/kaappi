@@ -1049,3 +1049,86 @@ test "SRFI 149: consecutive-ellipsis flatten composes with a following fixed tai
         \\  (equal? (flatten-then-tail (1 2) (3 4 5) 'done) '(1 2 3 4 5 done)))
     );
 }
+
+// SRFI 147 (Custom Macro Transformers) regression coverage. Unlike SRFI
+// 139/149, this genuinely needed an engine change: compileDefineSyntax/
+// compileLetSyntax/compileLetrecSyntax (compiler_macro.zig) now resolve a
+// transformer-spec through resolveTransformerSpec before parsing it, so a
+// macro use that itself expands to a literal (syntax-rules ...) form is
+// accepted anywhere a transformer-spec is expected, not just a literal
+// syntax-rules form. These tests guard the resolution loop itself and the
+// GC-rooting fix found while verifying against the full test suite (see
+// the "root strictly around parseSyntaxRules" comments in
+// compiler_macro.zig): an earlier draft rooted the resolved spec via
+// pushRoot+defer popRoot inside compileLetSyntax's per-binding loop, but
+// the SAME iteration pushes an unrelated root for its own result array
+// entry before that deferred pop fires, so the deferred call silently
+// popped the wrong (most recent) entry off the shared LIFO root stack —
+// caught only by tests/scheme/srfi/srfi257.scm failing full-suite, not by
+// any of these targeted tests alone, since it takes a macro-heavy,
+// multi-binding let-syntax to trigger the interleaving.
+
+test "SRFI 147: define-syntax accepts a custom transformer (the spec's own syntax-rules* example)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax syntax-rules*
+        \\    (syntax-rules ()
+        \\      ((_ (literal ...) ((keyword . pattern) . template) ...)
+        \\       (syntax-rules (literal ...) ((keyword . pattern) (begin . template)) ...))))
+        \\  (define-syntax bar (syntax-rules* () ((bar a b) (+ a b) (* a b))))
+        \\  (equal? (bar 5 6) 30))
+    );
+}
+
+test "SRFI 147: let-syntax accepts a custom transformer, with multiple bindings in one form" {
+    // Multiple bindings in one let-syntax exercises the per-binding loop
+    // in compileLetSyntax specifically (the site where the LIFO rooting
+    // bug above was found).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax syntax-rules*
+        \\    (syntax-rules ()
+        \\      ((_ (literal ...) ((keyword . pattern) . template) ...)
+        \\       (syntax-rules (literal ...) ((keyword . pattern) (begin . template)) ...))))
+        \\  (let-syntax ((foo (syntax-rules* () ((foo a b) (+ a b) (* a b))))
+        \\               (baz (syntax-rules* () ((baz a) (- a) (- (- a))))))
+        \\    (equal? (list (foo 3 4) (baz 9)) (list 12 9))))
+    );
+}
+
+test "SRFI 147: letrec-syntax accepts a custom transformer" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax syntax-rules*
+        \\    (syntax-rules ()
+        \\      ((_ (literal ...) ((keyword . pattern) . template) ...)
+        \\       (syntax-rules (literal ...) ((keyword . pattern) (begin . template)) ...))))
+        \\  (letrec-syntax ((baz (syntax-rules* () ((baz a b) (+ a b) (* a b)))))
+        \\    (equal? (baz 2 10) 20)))
+    );
+}
+
+test "SRFI 147: a transformer-spec resolves through multiple expansion steps" {
+    // alias-of-syntax-rules* expands to a syntax-rules* call, which itself
+    // expands to a literal syntax-rules form -- two rounds of resolution.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax syntax-rules*
+        \\    (syntax-rules ()
+        \\      ((_ (literal ...) ((keyword . pattern) . template) ...)
+        \\       (syntax-rules (literal ...) ((keyword . pattern) (begin . template)) ...))))
+        \\  (define-syntax alias-of-syntax-rules*
+        \\    (syntax-rules () ((_ spec) (syntax-rules* () . spec))))
+        \\  (let-syntax ((qux (alias-of-syntax-rules* (((qux a b) (+ a b) (* a b))))))
+        \\    (equal? (qux 1 2) 2)))
+    );
+}
+
+test "SRFI 147: a transformer-spec that resolves to neither syntax-rules nor a macro is a compile error" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = vm.eval("(let-syntax ((oops (not-a-macro))) 1)");
+    try std.testing.expectError(error.CompileError, result);
+}

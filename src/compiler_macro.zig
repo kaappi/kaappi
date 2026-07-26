@@ -304,7 +304,21 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (rest == types.NIL) return CompileError.InvalidSyntax;
     const transformer_spec = types.car(rest);
 
-    const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
+    // A resolved spec that required expansion (SRFI 147) is freshly
+    // allocated and otherwise unrooted; parseSyntaxRules itself allocates
+    // (its own Transformer object among other things), so root across the
+    // call to survive a collection triggered from within it (#1401
+    // pattern: a fresh, unrooted allocating-call result held across a
+    // second allocating call). Pop immediately after, NOT via defer --
+    // this push/pop pair must stay strictly nested with nothing else
+    // pushed to the same LIFO root stack in between, or an unrelated
+    // later pop (e.g. this function's own transformer rooting further
+    // down) would remove the wrong entry.
+    var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
+    self.gc.pushRoot(&resolved_spec);
+    const parsed = parseSyntaxRules(self, resolved_spec, &.{});
+    self.gc.popRoot();
+    const transformer = parsed catch return CompileError.InvalidSyntax;
 
     // Root the transformer for the rest of the enclosing compile scope: it
     // lives only in the compiler-local macro map, which the GC cannot see,
@@ -378,8 +392,15 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        tx_vals.appendAssumeCapacity(parseSyntaxRules(self, transformer_spec, &.{}) catch
-            return CompileError.InvalidSyntax);
+        // See compileDefineSyntax: root strictly around the parseSyntaxRules
+        // call, popping immediately (not via defer) -- this loop pushes
+        // tx_vals's own root for the result right after, and an
+        // out-of-order pop would remove that one instead of this one.
+        var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
+        self.gc.pushRoot(&resolved_spec);
+        const parsed = parseSyntaxRules(self, resolved_spec, &.{});
+        self.gc.popRoot();
+        tx_vals.appendAssumeCapacity(parsed catch return CompileError.InvalidSyntax);
         self.gc.pushRoot(&tx_vals.items[tx_vals.items.len - 1]);
         roots_pushed += 1;
         kw_names.appendAssumeCapacity(types.symbolName(keyword));
@@ -461,7 +482,16 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
+        // See compileDefineSyntax: root strictly around the parseSyntaxRules
+        // call, popping immediately (not via defer) -- this loop later
+        // roots the transformer itself via extra_roots.append, and while
+        // that's a different (non-stack) mechanism, an immediate explicit
+        // pop keeps this pair safely self-contained regardless.
+        var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
+        self.gc.pushRoot(&resolved_spec);
+        const parsed = parseSyntaxRules(self, resolved_spec, &.{});
+        self.gc.popRoot();
+        const transformer = parsed catch return CompileError.InvalidSyntax;
         const name = types.symbolName(keyword);
 
         // Root for the rest of the compile — see compileDefineSyntax (#1401).
@@ -587,6 +617,78 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
 // ---------------------------------------------------------------------------
 // Syntax-rules parsing
 // ---------------------------------------------------------------------------
+
+/// SRFI 147 (custom macro transformers): R7RS's <transformer spec> only
+/// accepts a literal `(syntax-rules ...)` form. This SRFI extends it to
+/// also accept a macro use that itself expands (possibly through several
+/// steps) to a literal `(syntax-rules ...)` form -- letting a library
+/// define its own named transformer-generating-transformer, e.g. a
+/// `syntax-rules*` that automatically wraps multi-form templates in
+/// `begin` (the SRFI's own worked example, and what SRFI 148's
+/// `em-syntax-rules` needs this for).
+///
+/// Deliberately NOT implemented (documented scope reduction, matching
+/// this codebase's practice of shipping an honest, reduced subset): the
+/// grammar's other two new alternatives, a bare keyword making the new
+/// name an alias for an existing one (including a builtin special form,
+/// which has no `Transformer`-shaped value in `self.macros` to alias to
+/// -- builtins are recognized structurally in `ir_mod.isSpecialForm`, not
+/// via this map), and a macro use expanding to `(begin <definition>...
+/// <transformer-spec>)`. Neither is needed by SRFI 148, the reason this
+/// SRFI was implemented.
+fn resolveTransformerSpec(self: *Compiler, spec_in: Value) CompileError!Value {
+    // A transformer-spec can be compiled inside a nested child Compiler
+    // scope (e.g. a let-syntax whose own body sits inside `guard`'s
+    // desugared lambda) whose OWN self.macros doesn't include an
+    // enclosing scope's macros -- they're never copied down automatically,
+    // only merged on demand. Match expandAndCompileMacroUse's own
+    // ancestor-walk here, or a transformer-spec macro-use defined in an
+    // outer scope would wrongly report "not a macro".
+    var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
+    defer merged_macros.deinit();
+    var p: ?*Compiler = self.parent;
+    while (p) |par| : (p = par.parent) {
+        var it = par.macros.iterator();
+        while (it.next()) |entry| {
+            merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+        }
+    }
+    var self_it = self.macros.iterator();
+    while (self_it.next()) |entry| {
+        merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+    }
+
+    var spec = spec_in;
+    self.gc.pushRoot(&spec);
+    defer self.gc.popRoot();
+    var steps: u32 = 0;
+    while (true) {
+        if (!types.isPair(spec)) return CompileError.InvalidSyntax;
+        const head = types.car(spec);
+        if (!types.isSymbol(head)) return CompileError.InvalidSyntax;
+        if (std.mem.eql(u8, types.symbolName(head), "syntax-rules")) return spec;
+        const transformer = merged_macros.get(types.symbolName(head)) orelse return CompileError.InvalidSyntax;
+        steps += 1;
+        if (steps > MAX_MACRO_EXPANSION_DEPTH) return CompileError.InvalidSyntax;
+        const use_check = expander.UseSiteBindingCheck{
+            .ctx = @ptrCast(self),
+            .resolve_fn = &resolveLocalSkipAliases,
+            .frame_resolve_fn = &resolveSameFrameLocal,
+        };
+        self.gc.no_collect += 1;
+        spec = expander.expandMacro(self.gc, spec, transformer, self.globals, &merged_macros, use_check) catch |err| {
+            self.gc.no_collect -= 1;
+            return switch (err) {
+                error.OutOfMemory => CompileError.OutOfMemory,
+                error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
+            };
+        };
+        self.gc.no_collect -= 1;
+        if (expander.isUsertextPair(spec)) spec = expander.unwrapUsertext(spec);
+        if (types.isPair(spec) or types.isVector(spec)) expander.stripUsertextMarkers(self.gc, spec);
+    }
+}
 
 pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []const u8) CompileError!Value {
     if (!types.isPair(spec)) return CompileError.InvalidSyntax;
