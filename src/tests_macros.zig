@@ -1159,3 +1159,168 @@ test "SRFI 147: a nearer ancestor scope's macro shadows a farther one, not the r
         \\  (eq? (outer) 'middle-level))
     );
 }
+
+// Begin-wrapped-definitions and bare-keyword-alias coverage, extending
+// SRFI 147 for SRFI 148's actual needs. Deeper research for SRFI 148
+// (reading its reference implementation, not just spec prose) found that
+// em-syntax-rules-aux1/em-syntax-rules-aux2's own core expansion bottoms
+// out through exactly `(begin (define-syntax a spec) a)` -- initially
+// deferred as unneeded, then shipped once this was traced through. The
+// contract of resolveTransformerSpecRec changed to return an already-
+// parsed Transformer rather than raw syntax-rules source, since the
+// bare-symbol case has no source to hand back.
+
+test "SRFI 147: a bare keyword aliases an existing, non-builtin macro" {
+    try th.expectEvalTrue(
+        \\(let-syntax ((original (syntax-rules () ((_ a) (+ a 3)))))
+        \\  (let-syntax ((alias original))
+        \\    (equal? (alias 4) 7)))
+    );
+}
+
+test "SRFI 147: aliasing a builtin special form is still a compile error" {
+    // Builtins are recognized structurally (ir_mod.isSpecialForm), never
+    // stored as Transformer values in the macro table a bare symbol
+    // resolves against -- so there is nothing to alias.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval("(let-syntax ((my-if if)) (my-if #t 1 2))");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "SRFI 147: em-syntax-rules-aux1 shape -- begin-wrapped helper aliased by bare symbol" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-adder
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin
+        \\         (define-syntax adder (syntax-rules () ((_ x) (+ x n))))
+        \\         adder))))
+        \\  (let-syntax ((add10 (gen-adder 10)))
+        \\    (equal? (add10 5) 15)))
+    );
+}
+
+test "SRFI 147: a begin-internal helper referenced BY NAME from the final template must persist" {
+    // This is the case #1762 alone did not cover: em-syntax-rules-aux2's
+    // own base case expands to `(begin (define-syntax o spec) o)` where
+    // the SURROUNDING syntax-rules body also calls `o` directly from
+    // within its own rules (not just as the bare tail) -- so `o` must
+    // keep resolving every time the macro being defined is later
+    // invoked, not just while resolving this one transformer-spec. A
+    // helper registered only in resolveTransformerSpec's transient,
+    // function-local merged_macros (gone once that call returns) cannot
+    // satisfy this: it must be registered in the real, persistent macro
+    // table (self.macros / lib_env), matching what an ordinary
+    // define-syntax at the same nesting depth gets. Confirmed via direct
+    // reproduction: this failed with "undefined variable '__hyg_N_step1'"
+    // before the fix. Called twice to confirm persistence, not a
+    // one-shot side effect of evaluation order.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-cross-ref
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin
+        \\         (define-syntax step1 (syntax-rules () ((_ x) (* x n))))
+        \\         (define-syntax step2 (syntax-rules () ((_ x) (step1 (+ x 1)))))
+        \\         (syntax-rules () ((_ y) (step2 y)))))))
+        \\  (define-syntax use-cross-ref (gen-cross-ref 3))
+        \\  (and (equal? (use-cross-ref 4) 15)
+        \\       (equal? (use-cross-ref 6) 21)))
+    );
+}
+
+test "SRFI 147: same begin-internal helper name in two unrelated macros does not collide" {
+    // Hygienic renaming must keep each expansion's "step"/"shared-name"
+    // distinct even though both end up permanently registered in the
+    // same persistent macro table.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-plus
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin (define-syntax shared-name (syntax-rules () ((_ x) (+ x n))))
+        \\              shared-name))))
+        \\  (define-syntax gen-minus
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin (define-syntax shared-name (syntax-rules () ((_ x) (- x n))))
+        \\              shared-name))))
+        \\  (define-syntax use-plus (gen-plus 1))
+        \\  (define-syntax use-minus (gen-minus 1))
+        \\  (equal? (list (use-plus 10) (use-minus 10)) (list 11 9)))
+    );
+}
+
+test "SRFI 147: persistent registration works inside a nested body scope, not just top level" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (nested-cross-ref)
+        \\    (define-syntax gen-nested
+        \\      (syntax-rules ()
+        \\        ((_ n)
+        \\         (begin
+        \\           (define-syntax nested-step (syntax-rules () ((_ x) (* x n))))
+        \\           (syntax-rules () ((_ y) (nested-step y)))))))
+        \\    (define-syntax use-nested (gen-nested 100))
+        \\    (use-nested 3))
+        \\  (equal? (nested-cross-ref) 300))
+    );
+}
+
+test "SRFI 147: chained resolution through nested begin-wrapped aliases" {
+    // Simulates em-syntax-rules-aux1 -> aux2's own multi-stage chaining:
+    // a begin-wrapped alias whose own helper's spec is ANOTHER macro use
+    // that itself resolves to a further begin-wrapped alias.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax stage-inner
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin (define-syntax inner-helper (syntax-rules () ((_ x) (* x n))))
+        \\              inner-helper))))
+        \\  (define-syntax stage-outer
+        \\    (syntax-rules ()
+        \\      ((_ n)
+        \\       (begin (define-syntax outer-helper (stage-inner n))
+        \\              outer-helper))))
+        \\  (let-syntax ((chained (stage-outer 7)))
+        \\    (equal? (chained 6) 42)))
+    );
+}
+
+test "SRFI 147: zero-definition begin resolves directly to the final element" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-plain
+        \\    (syntax-rules ()
+        \\      ((_ n) (begin (syntax-rules () ((_ x) (- x n)))))))
+        \\  (let-syntax ((sub2 (gen-plain 2)))
+        \\    (equal? (sub2 10) 8)))
+    );
+}
+
+test "SRFI 147: malformed begin body is a compile error, not a silent success" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval(
+        \\(let-syntax ((oops (begin (define x 1) (syntax-rules () ((_ y) y)))))
+        \\  (oops 1))
+    );
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "SRFI 147: a bare symbol resolving to nothing is a compile error" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval(
+        \\(let-syntax ((oops (begin (define-syntax a (syntax-rules () ((_ x) x))) b)))
+        \\  (oops 1))
+    );
+    try std.testing.expectError(error.CompileError, result);
+}

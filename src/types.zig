@@ -463,6 +463,14 @@ pub const Transformer = struct {
     patterns: []Value,
     templates: []Value,
     num_rules: u16,
+    // Guards captureLocalsOnTransformer/computeBoundFreeRefs (compiler_macro.zig's
+    // finalizeTransformer) against running twice on the same object: a
+    // transformer resolved via a bare-keyword alias or begin-wrapped helper
+    // reference (SRFI 147) can be the exact same Value returned to two or
+    // more different binding sites, and each of those functions allocates
+    // and unconditionally overwrites a slice field with no free of the old
+    // one -- a second call on top of the first leaks the first allocation.
+    finalized: bool = false,
     captured_locals: []CapturedLocal = &.{},
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
