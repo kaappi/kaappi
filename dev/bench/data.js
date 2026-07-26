@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785083209979,
+  "lastUpdate": 1785083475225,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cd35f75ddaaa28a7ae1891a9861bdb772dfb01df",
-          "message": "Add P1 access-semantics codegen experiment (#1473) (#1579)\n\nStep 2 of research problem P1 (KEP-0003 Unresolved Question 2): does shared\nflat-buffer element access have to compile to `unordered` atomics to be\nsound, and what does that cost the numeric loops KEP-0003 exists to serve?\n\nMeasures six kernels (f64 fill/map/sum, i64 checksum, u8 fill/copy) under\nthree encodings (plain / unordered / monotonic) through Kaappi's exact\n`zig cc -O2` native pipeline, with the pre-registered Kalibera-Jones\nstatistics discipline (invocations x iterations, bootstrap CIs, order and\nenvironment-size randomization, no best-of-N).\n\nThe reason for the LLVM-IR-level harness: KEP-0003's shared buffers do not\nexist yet (building them is #1475, gated on this experiment), so the kernels\nare emitted as IR matching KEP-0003's stated element-access lowering and\ncompiled by the same `zig cc -O2` the backend shells out to.\n\nResult, by the pre-registered criteria: the hybrid. `unordered` element\naccess costs +55% to +2747% (bootstrap-CI lower bounds) versus plain on every\nceiling-validated kernel on aarch64-macos (auto-vectorization loss; the\nmemset/memcpy libcall idioms gap widest); the same codegen gap is confirmed\non x86_64-linux by cross-compile. f64_sum drops out as the control. The\ninterpreter tier is free (same machine instruction; ~107 ns/call dispatch\ndwarfs the access). x86_64 timing magnitudes are a documented follow-up.\n\nAdds benchmarks/access-semantics/ (generator, driver, evidence + K-J runner,\ninterpreter-tier control, results) and the report\ndocs/dev/kep-0003-access-semantics-experiment.md. No source changes.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T20:54:24Z",
-          "tree_id": "f069ad39dbde5f4fdb7fa5ec349d30db49c45815",
-          "url": "https://github.com/kaappi/kaappi/commit/cd35f75ddaaa28a7ae1891a9861bdb772dfb01df"
-        },
-        "date": 1784150643732,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.383447,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.397083,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912371,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.518196,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006455,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054121,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509841,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070252,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.371202,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.978431,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.570691,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.44026,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.842646,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765933,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04445,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043951,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "963d3c78b1469da02f3356bcf2efd18ea25c9387",
+          "message": "Reseed the default random source in fork(2)ed children (#1761)\n\nThe default SRFI 27 source is created eagerly at VM startup, so a forked\nchild — e.g. every http-listen-prefork worker, which forks via the FFI —\ninherited the parent's exact PRNG state: all workers continued the same\nstream and drew identical \"random\" values (identical kaappi-web session\nids across workers, and a child's draws exactly equal to the parent's).\n\nA pthread_atfork child handler now marks the source stale. The handler\nitself only writes one word: in the forked child of a multithreaded\nparent, anything that can take a libc lock or allocate is off-limits.\nThe next touch of the default source — every path funnels through\ngetRS — reseeds it in place from OS entropy: in place so the heap object\ncaptured by (srfi 27)'s load-time default-random-source binding stays\nthe live default, and flag-cleared-first so an explicit randomize!/\npseudo-randomize!/state-set! in the child stays authoritative.\n\nWindows and WASI have no fork; the handler is compiled out there.\nCross-compiled x86_64-linux, aarch64-windows, aarch64-netbsd, and wasm;\nfull unit + Scheme suites green (1986 pass).\n\nRegression tests: tests/scheme/ffi/fork-reseed.scm (real fork via FFI —\nthe child's 8 draws were element-for-element identical to the parent's\nbefore this fix) and a state-replay unit test in tests_random_port.zig.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T21:20:10+05:30",
+          "tree_id": "b2e96de4d809d631ff1ed3722f4a634a23f790b2",
+          "url": "https://github.com/kaappi/kaappi/commit/963d3c78b1469da02f3356bcf2efd18ea25c9387"
+        },
+        "date": 1785083472932,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.301921,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.638808,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.948636,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.434615,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006497,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055054,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509945,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06978,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.552324,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.001987,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.61036,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.440979,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.852601,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.741837,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044776,
             "unit": "seconds"
           }
         ]
