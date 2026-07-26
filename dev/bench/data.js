@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785092604418,
+  "lastUpdate": 1785097602604,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "62f781aacb2643578889c6d7278b95d470a6a920",
-          "message": "Update gate/P3 benchmark docs to reflect completed Linux run + #1474 closure (#1581)\n\ndocs/dev/kep-0002-phase7-envelope-benchmarks.md, benchmarks/gate/README.md,\nand the kep-0003 worksheet still described the gate campaign's Linux x86_64\nrun as open/deferred and lever B's shipped-default decision as pending --\nboth landed since (PR #1560, PR #1580). Also corrects a stale conflation:\nthe P3 micro-benchmark's own Linux re-run (bench_channel.zig, still open)\nis a different, unrelated task from the gate campaign's Linux run (done),\nwhich a \"the only open piece is the Linux x86_64 run (item 1)\" sentence\nhad blurred together.\n\nUpdates the worksheet's \"#1474 stays open\" language to note the actual\ndisposition: closed by explicit maintainer decision on 2026-07-16, which\nwas a deliberate deviation from the frozen protocol's own default action\nfor a \"Between\" outcome -- documented so a future reader doesn't mistake\nit for a protocol violation. The revisit trigger is unaffected either way.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T09:25:16+05:30",
-          "tree_id": "3c1a1a4c9041c4b79179593cbea7714dd92e48a1",
-          "url": "https://github.com/kaappi/kaappi/commit/62f781aacb2643578889c6d7278b95d470a6a920"
-        },
-        "date": 1784176041431,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.390809,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.2556,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.910288,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.48286,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006445,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05395,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508684,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069865,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.389118,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.976361,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574402,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435528,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.836413,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.584741,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044021,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038237,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "26d841123133d7d96a61f4d95ce193a2a924a47c",
+          "message": "Fix let_syntax_peer_names/vals leak when siblings share a Transformer (#1764)\n\nCodeRabbit-caught on #1763, after CI had already auto-merged it: the\nsame overwrite-without-free hazard just fixed for captured_locals/\nbound_free_refs (via finalizeTransformer) also applies to\ncompileLetSyntax's own let_syntax_peer_names/vals bookkeeping, which\nlives in a separate code block outside finalizeTransformer's reach.\nReachable as soon as two sibling let-syntax bindings resolve to the same\nTransformer object (a begin-wrapped helper reference for one, a bare\nalias of that same helper for the other).\n\nFixed with a narrower guard than Transformer.finalized: a linear scan of\nthis call's own tx_vals prefix for an identical Value already processed\nearlier in the SAME loop. This can't be a permanent per-object flag like\nfinalized, since a transformer aliased into some OTHER, unrelated\nlet-syntax form later genuinely needs its own peer snapshot computed\nagainst that different form's sibling set.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T19:51:53Z",
+          "tree_id": "b0f9bd8023419df813fea7d50f781e9c0410c7a4",
+          "url": "https://github.com/kaappi/kaappi/commit/26d841123133d7d96a61f4d95ce193a2a924a47c"
+        },
+        "date": 1785097600957,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335232,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.712538,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.894163,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.403217,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006376,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053978,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503101,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069153,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.506244,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.960459,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.599976,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.428366,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.806329,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.456877,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043949,
             "unit": "seconds"
           }
         ]
