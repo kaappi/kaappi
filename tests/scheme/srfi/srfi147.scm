@@ -2,10 +2,11 @@
 ;; genuinely needed an engine change: compileDefineSyntax/compileLetSyntax/
 ;; compileLetrecSyntax (src/compiler_macro.zig) now resolve a
 ;; transformer-spec through resolveTransformerSpec before parsing it, so a
-;; macro use that itself expands to a literal (syntax-rules ...) form is
-;; accepted anywhere a transformer-spec is expected. See lib/srfi/147.sld's
-;; header for the full rationale and the deliberately-deferred grammar
-;; alternatives (bare-keyword aliasing, begin-wrapped definitions). Part of
+;; macro use that itself expands (possibly through a bare-keyword alias or
+;; a begin-wrapped helper definition) to a literal (syntax-rules ...) form
+;; is accepted anywhere a transformer-spec is expected. See
+;; lib/srfi/147.sld's header for the full rationale and the one
+;; deliberately-deferred case (aliasing a builtin special form). Part of
 ;; issue #1699 (SRFI macro & syntax extension libraries).
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi147.scm
 
@@ -50,18 +51,106 @@
  (let-syntax ((multi (alias-of-syntax-rules* (((multi a b) (+ a b) (* a b))))))
    (multi 1 2)))
 
-;;; --- deliberately deferred: a bare keyword aliasing an existing one
-;;; (including a builtin special form) is not supported ---
+;;; --- deliberately deferred: a bare keyword aliasing a BUILTIN special
+;;; form is not supported (builtins have no Transformer value to alias to) ---
 (test-equal #t (guard (e (#t #t)) (eval '(let-syntax ((my-if if)) (my-if #t 1 2)) (interaction-environment)) #f))
 
-;;; --- deliberately deferred: a macro use expanding to
-;;; (begin <definition>... <transformer-spec>) is not supported ---
+;;; --- a bare keyword aliasing an existing, non-builtin macro IS supported ---
+(test-equal
+ 7
+ (let-syntax ((original (syntax-rules () ((_ a) (+ a 3)))))
+   (let-syntax ((alias original))
+     (alias 4))))
+
+;;; --- the em-syntax-rules-aux1/aux2 shape SRFI 148 actually needs: a
+;;; macro use expands to (begin (define-syntax NAME spec) NAME) -- a
+;;; private helper followed by a bare reference to it ---
+(define-syntax gen-adder
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax adder
+         (syntax-rules ()
+           ((_ x) (+ x n))))
+       adder))))
+
+(test-equal
+ 15
+ (let-syntax ((add10 (gen-adder 10)))
+   (add10 5)))
+
+;;; --- begin-wrapped form works in define-syntax and letrec-syntax too,
+;;; not just let-syntax ---
+(define-syntax add100 (gen-adder 100))
+(test-equal 105 (add100 5))
+
+(test-equal
+ 106
+ (letrec-syntax ((add101 (gen-adder 101)))
+   (add101 5)))
+
+;;; --- multiple internal definitions in one begin, the LAST of which is
+;;; the bare-symbol tail (not the first) ---
+(define-syntax gen-two
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax unused-helper
+         (syntax-rules () ((_ x) (- x))))
+       (define-syntax real-helper
+         (syntax-rules () ((_ x) (* x n))))
+       real-helper))))
+
+(test-equal 24 (let-syntax ((triple (gen-two 3))) (triple 8)))
+
+;;; --- chained resolution: a begin-wrapped alias whose own helper's spec
+;;; is ANOTHER macro use that resolves to a further begin-wrapped alias
+;;; (simulating em-syntax-rules's own multi-stage aux1 -> aux2 chaining) ---
+(define-syntax stage-inner
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax inner-helper
+         (syntax-rules () ((_ x) (* x n))))
+       inner-helper))))
+
+(define-syntax stage-outer
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (define-syntax outer-helper
+         (stage-inner n))
+       outer-helper))))
+
+(test-equal 42 (let-syntax ((chained (stage-outer 7))) (chained 6)))
+
+;;; --- zero internal definitions: (begin <transformer-spec>) with nothing
+;;; to define first is the degenerate case of the same grammar rule ---
+(define-syntax gen-plain
+  (syntax-rules ()
+    ((_ n)
+     (begin
+       (syntax-rules () ((_ x) (- x n)))))))
+
+(test-equal 8 (let-syntax ((sub2 (gen-plain 2))) (sub2 10)))
+
+;;; --- malformed begin body (something other than define-syntax before
+;;; the final spec) is a compile error, not a silent success ---
 (test-equal
  #t
  (guard (e (#t #t))
-   (eval '(let-syntax ((foo (begin (define-syntax helper (syntax-rules () ((_ x) x)))
-                                    (syntax-rules () ((foo a) (helper a))))))
-            (foo 1))
+   (eval '(let-syntax ((oops (begin (define x 1) (syntax-rules () ((_ y) y)))))
+            (oops 1))
+         (interaction-environment))
+   #f))
+
+;;; --- a bare symbol that resolves to nothing (not a helper just defined,
+;;; not any other visible macro) is a compile error ---
+(test-equal
+ #t
+ (guard (e (#t #t))
+   (eval '(let-syntax ((oops (begin (define-syntax a (syntax-rules () ((_ x) x))) b)))
+            (oops 1))
          (interaction-environment))
    #f))
 

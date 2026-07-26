@@ -304,21 +304,13 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (rest == types.NIL) return CompileError.InvalidSyntax;
     const transformer_spec = types.car(rest);
 
-    // A resolved spec that required expansion (SRFI 147) is freshly
-    // allocated and otherwise unrooted; parseSyntaxRules itself allocates
-    // (its own Transformer object among other things), so root across the
-    // call to survive a collection triggered from within it (#1401
-    // pattern: a fresh, unrooted allocating-call result held across a
-    // second allocating call). Pop immediately after, NOT via defer --
-    // this push/pop pair must stay strictly nested with nothing else
-    // pushed to the same LIFO root stack in between, or an unrelated
-    // later pop (e.g. this function's own transformer rooting further
-    // down) would remove the wrong entry.
-    var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
-    self.gc.pushRoot(&resolved_spec);
-    const parsed = parseSyntaxRules(self, resolved_spec, &.{});
-    self.gc.popRoot();
-    const transformer = parsed catch return CompileError.InvalidSyntax;
+    // resolveTransformerSpec resolves through SRFI 147's macro-use/alias/
+    // begin alternatives (if any), bottoming out at a parsed Transformer --
+    // freshly allocated and otherwise unrooted, exactly like a direct
+    // parseSyntaxRules call used to be here. Root it immediately below via
+    // extra_roots.append, with nothing able to allocate via the GC in
+    // between.
+    const transformer = try resolveTransformerSpec(self, transformer_spec);
 
     // Root the transformer for the rest of the enclosing compile scope: it
     // lives only in the compiler-local macro map, which the GC cannot see,
@@ -392,15 +384,13 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        // See compileDefineSyntax: root strictly around the parseSyntaxRules
-        // call, popping immediately (not via defer) -- this loop pushes
-        // tx_vals's own root for the result right after, and an
-        // out-of-order pop would remove that one instead of this one.
-        var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
-        self.gc.pushRoot(&resolved_spec);
-        const parsed = parseSyntaxRules(self, resolved_spec, &.{});
-        self.gc.popRoot();
-        tx_vals.appendAssumeCapacity(parsed catch return CompileError.InvalidSyntax);
+        // resolveTransformerSpec returns an already-parsed, otherwise
+        // unrooted Transformer (see compileDefineSyntax) -- root it via
+        // tx_vals's own slot immediately after; appendAssumeCapacity
+        // doesn't allocate (capacity reserved above), so nothing can
+        // trigger a GC in between.
+        const transformer = try resolveTransformerSpec(self, transformer_spec);
+        tx_vals.appendAssumeCapacity(transformer);
         self.gc.pushRoot(&tx_vals.items[tx_vals.items.len - 1]);
         roots_pushed += 1;
         kw_names.appendAssumeCapacity(types.symbolName(keyword));
@@ -482,16 +472,11 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        // See compileDefineSyntax: root strictly around the parseSyntaxRules
-        // call, popping immediately (not via defer) -- this loop later
-        // roots the transformer itself via extra_roots.append, and while
-        // that's a different (non-stack) mechanism, an immediate explicit
-        // pop keeps this pair safely self-contained regardless.
-        var resolved_spec = try resolveTransformerSpec(self, transformer_spec);
-        self.gc.pushRoot(&resolved_spec);
-        const parsed = parseSyntaxRules(self, resolved_spec, &.{});
-        self.gc.popRoot();
-        const transformer = parsed catch return CompileError.InvalidSyntax;
+        // resolveTransformerSpec returns an already-parsed, otherwise
+        // unrooted Transformer (see compileDefineSyntax) -- root it via
+        // extra_roots.append immediately below, nothing allocates via the
+        // GC in between.
+        const transformer = try resolveTransformerSpec(self, transformer_spec);
         const name = types.symbolName(keyword);
 
         // Root for the rest of the compile — see compileDefineSyntax (#1401).
@@ -619,23 +604,34 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
 // ---------------------------------------------------------------------------
 
 /// SRFI 147 (custom macro transformers): R7RS's <transformer spec> only
-/// accepts a literal `(syntax-rules ...)` form. This SRFI extends it to
-/// also accept a macro use that itself expands (possibly through several
-/// steps) to a literal `(syntax-rules ...)` form -- letting a library
-/// define its own named transformer-generating-transformer, e.g. a
-/// `syntax-rules*` that automatically wraps multi-form templates in
-/// `begin` (the SRFI's own worked example, and what SRFI 148's
-/// `em-syntax-rules` needs this for).
+/// accepts a literal `(syntax-rules ...)` form. This SRFI extends it with
+/// three more alternatives, all implemented here:
 ///
-/// Deliberately NOT implemented (documented scope reduction, matching
-/// this codebase's practice of shipping an honest, reduced subset): the
-/// grammar's other two new alternatives, a bare keyword making the new
-/// name an alias for an existing one (including a builtin special form,
-/// which has no `Transformer`-shaped value in `self.macros` to alias to
-/// -- builtins are recognized structurally in `ir_mod.isSpecialForm`, not
-/// via this map), and a macro use expanding to `(begin <definition>...
-/// <transformer-spec>)`. Neither is needed by SRFI 148, the reason this
-/// SRFI was implemented.
+///  1. A macro use that itself expands (possibly through several steps)
+///     to a literal `(syntax-rules ...)` form -- letting a library define
+///     its own named transformer-generating-transformer, e.g. a
+///     `syntax-rules*` that automatically wraps multi-form templates in
+///     `begin` (the SRFI's own worked example).
+///  2. A bare keyword making the new name an alias for an existing
+///     *user-defined* one (resolved via a direct `merged_macros` lookup).
+///     A builtin special form is NOT aliasable this way: builtins are
+///     recognized structurally in `ir_mod.isSpecialForm`, never stored as
+///     `Transformer` values in `merged_macros`, so aliasing one correctly
+///     falls through to `InvalidSyntax` -- there's nothing to find.
+///  3. A macro use expanding to `(begin <definition>... <transformer
+///     spec>)`, letting a transformer-generating-transformer introduce
+///     its own private helper macros while building up the final spec.
+///
+/// SRFI 148's `em-syntax-rules` -- the reason this SRFI was implemented --
+/// needs alternatives 2 and 3 together, not just 1: tracing its reference
+/// implementation's own `em-syntax-rules-aux1`/`em-syntax-rules-aux2`
+/// shows its core expansion mechanism bottoms out through exactly
+/// `(begin (define-syntax a spec) a)` -- a begin-wrapped form whose FINAL
+/// element is a bare reference to the helper just defined, not a fresh
+/// macro use or literal `syntax-rules` form. An initial, shallower
+/// research pass wrongly concluded alternatives 2 and 3 weren't needed;
+/// this correction shipped once the actual reference implementation
+/// (not just the spec prose) was traced through.
 fn resolveTransformerSpec(self: *Compiler, spec_in: Value) CompileError!Value {
     // A transformer-spec can be compiled inside a nested child Compiler
     // scope (e.g. a let-syntax whose own body sits inside `guard`'s
@@ -680,25 +676,88 @@ fn resolveTransformerSpec(self: *Compiler, spec_in: Value) CompileError!Value {
         merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
 
+    var steps: u32 = 0;
+    return resolveTransformerSpecRec(self, spec_in, &merged_macros, &steps);
+}
+
+/// The actual resolution loop, factored out so a `(begin (define-syntax
+/// NAME spec) ...)` alternative can recurse into itself to resolve each
+/// internal helper's own spec, sharing the same `merged_macros` (so a
+/// later helper, or the final transformer-spec, can reference an earlier
+/// one) and the same expansion-step budget (so a pathological chain of
+/// nested begins can't bypass MAX_MACRO_EXPANSION_DEPTH). Returns an
+/// already-parsed Transformer, not raw `syntax-rules` source -- required
+/// because the bare-symbol alias case (below) has no source to hand back,
+/// only a Transformer some earlier step already parsed.
+fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *std.StringHashMap(Value), steps: *u32) CompileError!Value {
     var spec = spec_in;
     self.gc.pushRoot(&spec);
     defer self.gc.popRoot();
-    var steps: u32 = 0;
     while (true) {
+        // Alternative 2: a bare identifier aliases whatever transformer
+        // that name already resolves to -- either a helper this same
+        // begin-unwrap just registered (the shape SRFI 148 needs:
+        // `(begin (define-syntax a spec) a)`) or any other macro already
+        // visible here. A name absent from merged_macros (including any
+        // builtin special form, never stored there) correctly falls
+        // through to InvalidSyntax: there is no Transformer to alias.
+        if (types.isSymbol(spec)) {
+            return merged_macros.get(types.symbolName(spec)) orelse CompileError.InvalidSyntax;
+        }
         if (!types.isPair(spec)) return CompileError.InvalidSyntax;
         const head = types.car(spec);
         if (!types.isSymbol(head)) return CompileError.InvalidSyntax;
-        if (std.mem.eql(u8, types.symbolName(head), "syntax-rules")) return spec;
-        const transformer = merged_macros.get(types.symbolName(head)) orelse return CompileError.InvalidSyntax;
-        steps += 1;
-        if (steps > MAX_MACRO_EXPANSION_DEPTH) return CompileError.InvalidSyntax;
+        const head_name = types.symbolName(head);
+        if (std.mem.eql(u8, head_name, "syntax-rules")) return parseSyntaxRules(self, spec, &.{});
+        if (std.mem.eql(u8, head_name, "begin")) {
+            // spec = (begin def1 def2 ... final-spec). Each def must be a
+            // literal (define-syntax NAME SPEC); SPEC may itself need
+            // further resolution (another macro-use, alias, or nested
+            // begin), so it recurses through this same function --
+            // yielding an already-parsed Transformer directly, with no
+            // separate parse step needed here -- before being registered
+            // transiently into `merged_macros`, visible to later defs and
+            // the final spec within THIS resolution but never leaking
+            // into the enclosing scope.
+            var rest = types.cdr(spec);
+            if (!types.isPair(rest)) return CompileError.InvalidSyntax;
+            while (types.isPair(types.cdr(rest))) {
+                const def = types.car(rest);
+                if (!types.isPair(def)) return CompileError.InvalidSyntax;
+                const def_head = types.car(def);
+                if (!types.isSymbol(def_head) or !std.mem.eql(u8, types.symbolName(def_head), "define-syntax"))
+                    return CompileError.InvalidSyntax;
+                const def_rest1 = types.cdr(def);
+                if (!types.isPair(def_rest1)) return CompileError.InvalidSyntax;
+                const def_name_sym = types.car(def_rest1);
+                if (!types.isSymbol(def_name_sym)) return CompileError.InvalidSyntax;
+                const def_rest2 = types.cdr(def_rest1);
+                if (!types.isPair(def_rest2)) return CompileError.InvalidSyntax;
+                const def_spec_raw = types.car(def_rest2);
+                const def_transformer = try resolveTransformerSpecRec(self, def_spec_raw, merged_macros, steps);
+                // Root for the rest of this compile scope immediately --
+                // it lives only in merged_macros (a local Zig hashmap,
+                // not GC-scanned), matching compileDefineSyntax's own
+                // top-level transformer rooting (#1401 pattern). Nothing
+                // between the recursive call's return and this line
+                // allocates via the GC.
+                self.gc.extra_roots.append(self.gc.allocator, def_transformer) catch return CompileError.OutOfMemory;
+                merged_macros.put(types.symbolName(def_name_sym), def_transformer) catch return CompileError.OutOfMemory;
+                rest = types.cdr(rest);
+            }
+            spec = types.car(rest);
+            continue;
+        }
+        const transformer = merged_macros.get(head_name) orelse return CompileError.InvalidSyntax;
+        steps.* += 1;
+        if (steps.* > MAX_MACRO_EXPANSION_DEPTH) return CompileError.InvalidSyntax;
         const use_check = expander.UseSiteBindingCheck{
             .ctx = @ptrCast(self),
             .resolve_fn = &resolveLocalSkipAliases,
             .frame_resolve_fn = &resolveSameFrameLocal,
         };
         self.gc.no_collect += 1;
-        spec = expander.expandMacro(self.gc, spec, transformer, self.globals, &merged_macros, use_check) catch |err| {
+        spec = expander.expandMacro(self.gc, spec, transformer, self.globals, merged_macros, use_check) catch |err| {
             self.gc.no_collect -= 1;
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
