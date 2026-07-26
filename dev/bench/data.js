@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785009718592,
+  "lastUpdate": 1785029660047,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "64d2e5d7c7b76a4fc81dbd1f64b3b2f4a136b060",
-          "message": "Add `kaappi doctor` installation and environment self-check (#1513) (#1569)\n\n\"Why doesn't `(import (kaappi json))` work?\" has a fixed set of answers —\nlibrary-path resolution, thottam state, a missing native library, the wrong\nbinary on PATH — that were previously diagnosed by hand. Making the toolchain\ncheck itself lets both new users and agents go from a broken setup to a fix\nusing only documented CLI output, the operational test of the machine-\nlegibility epic (#1503).\n\n`doctor` is a meta-command like `explain` and `test`: it inspects the\nenvironment and runs no user code, so it dispatches before any VM/GC/library\nsetup exists. It reports PASS/WARN/FAIL per check across six groups (binary,\nlibrary search path, package manager, native backend, REPL, FFI), each failure\ncarrying an actionable suggestion, in a human table or one `--json` object.\n\nThe exit code is nonzero only on FAIL. WARN describes a degraded-but-usable\nenvironment (no libraries installed yet, no C compiler) and must not fail\nscripts or CI; the one FAIL is an explicit `KAAPPI_LIB_DIR` that does not\nresolve, an unambiguous misconfiguration. When a compiler and `libkaappi_rt.a`\nare both found, a smoke link against the archive proves the native toolchain\nend to end — run in a private 0700 temp dir, and skipped under the test binary\nso unit tests stay hermetic.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T17:17:41+05:30",
-          "tree_id": "3fe0bd1dd1724c2173013e7284569ce186d5f1d0",
-          "url": "https://github.com/kaappi/kaappi/commit/64d2e5d7c7b76a4fc81dbd1f64b3b2f4a136b060"
-        },
-        "date": 1784117780260,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.374633,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.941094,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.894415,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.424641,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006302,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055397,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.495753,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069199,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.509009,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.937368,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.587685,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433354,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.965359,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.682319,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042603,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034042,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04f15e672efc71b160e0a10446f5be84c0f1d938",
+          "message": "Add SRFI 231 bulk combinators and conversions (#1694 array family, phase 4) (#1753)\n\n* Add SRFI 231 bulk combinators and conversions (#1694 array family, phase 4)\n\nFifth of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld for the overall\nroadmap. This slice adds array-map/for-each/fold-left/fold-right/\nreduce/any/every, array-outer-product/inner-product, and the 8 flat and\nnested list/vector conversion procedures (array->list, list->array,\narray->list*, list*->array, array->vector, vector->array,\narray->vector*, vector*->array) -- 17 bindings in total.\n\narray-map/for-each/fold-left/fold-right/any/every are all variadic over\narrays, requiring exact domain equality (interval=, not just matching\nshape) across every argument array. array-reduce is the one exception:\nfixed 2-arg, single array only, and hard-errors on an empty array with\nno safety-flag opt-out, using a private sentinel object rather than a\nseed value (there is no safe placeholder that couldn't collide with a\nreal element).\n\narray-fold-left calls its operator as (operator acc e0 e1 ...);\narray-fold-right calls it as (operator e0 e1 ... acc) -- accumulator\nLAST, not first. Confirmed via the spec's own formal reference\ndefinition that elements are always passed as separate positional\narguments, never packed into one list argument, and verified the\ndivergence is real (not just notational) against the spec's own\nworked examples: (array-fold-left - 0 a) and (array-fold-right - 0 a)\ngive different results for the same non-associative operator.\n\narray-inner-product's compositional definition (curry + permute + copy\n+ outer-product + map + reduce) needed care in two places the spec's\nown prose pseudocode gets subtly wrong, both confirmed only by reading\nthe reference implementation directly: it omits the required second\nargument to array-curry on its second call, and its stated\npreconditions don't mention that the shared axis's width must be\nnonzero (needed because the inner reduction would otherwise call\narray-reduce on an empty array).\n\nlist*->array/array->list*/vector*->array/array->vector* infer or\nproduce a per-dimension shape from nested-list/vector structure\n(recursion depth = target dimension, sibling lengths at each level\nmust match -- a ragged structure is rejected). The empty-collection\nedge cases are genuinely undomesticable by intuition alone and were\nverified by hand-tracing all four of the spec's own worked examples\nagainst the actual algorithm: (list*->array 0 '()) yields a RANK-0,\nvolume-1 array whose single element IS the empty list, while\n(list*->array 1 '()) yields a genuinely EMPTY rank-1 array -- these\nlook superficially similar but are entirely different shapes.\nvector*->array/array->vector* delegate to the list* versions via a\nstructure-preserving nested-vector<->nested-list conversion rather\nthan duplicating the whole shape-inference algorithm in vector form.\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Validate vector*->array's nested-vector shape; drop dead helper\n\nCodeRabbit finding: %nested-vector->nested-list (which vector*->array\ndelegates to) had no vector?/depth check before calling vector->list,\nunlike the list path (%check-nested-list validates via list? at every\nrecursion level and raises a domain-specific \"not the right shape\"\nerror). A malformed nested vector would instead crash with a raw\nvector->list type error. Fixed by validating vector? at each recursion\nlevel before delegating, matching the list path's error message and\nirritants -- rectangularity itself is still validated for free once\n%check-nested-list runs on the converted result.\n\nAlso removed %vector-every, defined but never called anywhere in this\nfile (a leftover from the same helper pattern used in sibling files\nwhere it IS needed).\n\n1 new regression assertion (55 -> 56).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T06:25:43+05:30",
+          "tree_id": "a945ea0e6cf5da2ec5246e63003206fac4083d70",
+          "url": "https://github.com/kaappi/kaappi/commit/04f15e672efc71b160e0a10446f5be84c0f1d938"
+        },
+        "date": 1785029658317,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.345456,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.094976,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.91286,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.460183,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006373,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054464,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505166,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072741,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.530366,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.961158,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.590876,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438201,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.833703,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.682412,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046079,
             "unit": "seconds"
           }
         ]
