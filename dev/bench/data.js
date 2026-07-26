@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785053516391,
+  "lastUpdate": 1785059047934,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "020289ab9c636ae761ad98d274b6656f09854cbb",
-          "message": "Add crash-reporting panic handler with context breadcrumb (#1575)\n\nWhen a bug is in kaappi itself, ReleaseSafe dies with a raw Zig panic and\ntrace. Better than a silent segfault, but the user gets no guidance and no\nversion context, and we get reports that arrive unreproducible or not at all.\n\nAdd a custom panic handler for the user-facing binaries (kaappi, thottam):\neach root file sets `pub const panic = crash.PanicHandler(\"<name>\")`, a\nFullPanic that prints a banner then delegates to defaultPanic so the message\nand full stack trace are preserved. The banner names whose bug it is, the\nexact build (version, arch-os, build mode), the pipeline stage and file in\nflight, and where to report it.\n\nThe `while:` line is driven by a near-zero-cost breadcrumb (a plain enum + a\nslice, read only from the panic handler) updated at reading/expanding/\ncompiling/executing boundaries in runFile, runStdin, the embedded path, the\nREPL, the pipeline dumps, and the native compiler. It is omitted when idle,\nso thottam (no Scheme pipeline) shows only the build + report lines.\n\n`--panic-test[=<stage>]` is an internal, undocumented hook that deliberately\npanics so CI can verify the banner. It is intentionally not Debug-gated: the\nerror suite runs against the shipped ReleaseSafe build, which is the path a\nreal user hits and the mode the banner names.\n\nCloses #1514.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T23:26:39+05:30",
-          "tree_id": "84f006da0d0a6da8a508cb085e71f31d764fdd0e",
-          "url": "https://github.com/kaappi/kaappi/commit/020289ab9c636ae761ad98d274b6656f09854cbb"
-        },
-        "date": 1784140150277,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.363256,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.415797,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.940195,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.490336,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006469,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054269,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50616,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07021,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.459541,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.994219,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.596976,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.442638,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.867736,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.775098,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044849,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043321,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0bf6f03c849d30a05e7584b2ef8fd5f0a2baf207",
+          "message": "Add SRFI 149 (basic syntax-rules template extensions) (#1758)\n\n* Add SRFI 149 (basic syntax-rules template extensions)\n\nSecond of 4 tractable pieces of issue #1699. Like SRFI 139, this needed\nno engine changes despite being grouped with SRFIs that do: Kaappi's\nexpander already implements both of this SRFI's extensions --\nconsecutive ellipses directly after one template element, and letting\na pattern variable be followed by more ellipses than its own\npattern-matched depth, with the excess replicating a shallower sibling\nat the innermost position.\n\nThe spec's own prose gives no worked example for the genuinely-new\nnonzero-depth-excess case, so this needed fetching the reference\nimplementation's expand-template algorithm to understand precisely\nwhat \"innermost\" means, then confirming empirically (against both of\nthe spec's own worked examples, my-append and foo, plus 2 more) that\nKaappi's binding-driven design -- live per-binding depth reduction --\nproduces the identical result via a different mechanism than the\nreference's free-variables-at-this-dimension scan.\n\nlib/srfi/149.sld is a trivial (export syntax-rules) re-export, the\nsame shape as SRFI 46's own \"these R7RS extensions are already native\"\nlibrary. New Zig unit tests in tests_macros.zig plus the usual SRFI-64\nsuite. One pre-existing, unrelated gap found and deliberately left\nalone: an ellipsis with no driving variable at all silently produces\nan empty result instead of erroring -- predates this SRFI and isn't a\ncase it needs to support; fixing it is a separate, broader project.\n\nBumps the SRFI count 172->173, reconciled against the canonical\nregistry: 173 implemented + 5 tracked + 30 excluded = 208.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix markdown lint: avoid #1699 starting a line in CLAUDE.md\n\nCodeRabbit review of #1758: a line starting with \"#1699\" triggers\nMD018 (no-missing-space-atx), since Markdown parses a leading # as an\nATX heading. Reworded to keep it mid-line.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T14:34:36+05:30",
+          "tree_id": "cb0dd54a0cc59ab0c7c9f7fab318a3187d86d2ad",
+          "url": "https://github.com/kaappi/kaappi/commit/0bf6f03c849d30a05e7584b2ef8fd5f0a2baf207"
+        },
+        "date": 1785059045733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.278715,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.023719,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.887319,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.389266,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006348,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05338,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.497781,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068974,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.48396,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.965794,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.561787,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429299,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.796559,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.585379,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043476,
             "unit": "seconds"
           }
         ]
