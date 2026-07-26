@@ -525,7 +525,7 @@ correctly rather than only working for the two examples it was designed
 around.
 
 SRFI 149 (basic syntax-rules template extensions) is the second piece of
-#1699 to ship without engine changes. Its two extensions — consecutive
+issue #1699 to ship without engine changes. Its two extensions — consecutive
 ellipses directly after one template element (`a ... ...`, which R7RS's
 own stricter grammar requires extra parens for instead) and letting a
 pattern variable be followed by MORE ellipses in the template than its own
