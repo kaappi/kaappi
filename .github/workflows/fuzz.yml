@@ -113,7 +113,7 @@ jobs:
       # Every job in this workflow executes fuzzer-generated programs (and the
       # native-diff job runs binaries compiled from them), so don't leave the
       # GITHUB_TOKEN sitting in git config for the process tree.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -212,7 +212,7 @@ jobs:
           - arch: arm64
             runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -280,7 +280,7 @@ jobs:
     steps:
       # This job executes fuzzer-generated programs; don't leave the
       # GITHUB_TOKEN sitting in git config for the process tree.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -358,7 +358,7 @@ jobs:
           - target: powerpc64le-linux
             label: ppc64le
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
