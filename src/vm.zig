@@ -319,6 +319,10 @@ pub const VM = struct {
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     param_overrides: std.AutoHashMap(usize, Value) = undefined,
     default_random_source: Value = types.VOID,
+    /// Set by the pthread_atfork child handler (primitives_random.zig): this
+    /// process inherited the default source's PRNG state from its parent at
+    /// fork(2), and the next use must reseed it in place before drawing.
+    default_rs_needs_reseed: bool = false,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     /// Per-OS-thread I/O readiness/timer multiplexer (KEP-0001). Lazily

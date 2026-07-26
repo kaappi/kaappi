@@ -1,6 +1,8 @@
-//! Unit tests for the SRFI-271 random generator core (types.RandomGen) and
-//! the OS entropy fill (platform.osRandomBytes). End-to-end library semantics
-//! are covered by tests/scheme/srfi/srfi271.scm.
+//! Unit tests for the SRFI-271 random generator core (types.RandomGen), the
+//! OS entropy fill (platform.osRandomBytes), and the SRFI-27 default random
+//! source's after-fork reseed mechanism (primitives_random.zig). End-to-end
+//! library semantics are covered by tests/scheme/srfi/srfi271.scm; the real
+//! fork(2) wiring by tests/scheme/ffi/fork-reseed.scm.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -82,4 +84,33 @@ test "randomized RandomGen yields real entropy bytes (never null on a healthy ho
     var g = types.RandomGen{ .kind = .randomized };
     // Exercise the entropy-refill path many times over (~13 blocks).
     for (0..100) |_| try testing.expect(g.nextByte() != null);
+}
+
+test "stale default random source reseeds in place on next draw (fork child, #atfork)" {
+    const th = @import("testing_helpers.zig");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(random-integer 1000000)");
+    const src_val = ctx.vm.default_random_source;
+    const rs = types.toObject(src_val).as(types.RandomSource);
+
+    // Learn where one draw takes the current state, then rewind.
+    const saved = rs.prng;
+    _ = try ctx.vm.eval("(random-integer 1000000)");
+    const advanced = rs.prng;
+    rs.prng = saved;
+
+    // What the pthread_atfork child handler does in a forked child.
+    ctx.vm.default_rs_needs_reseed = true;
+
+    _ = try ctx.vm.eval("(random-integer 1000000)");
+    try testing.expect(!ctx.vm.default_rs_needs_reseed);
+    // Same heap object: (srfi 27)'s load-time default-random-source
+    // snapshot must stay the live default.
+    try testing.expectEqual(src_val, ctx.vm.default_random_source);
+    // Without the reseed, replaying `saved` would land exactly on
+    // `advanced`; a fresh OS-entropy seed collides only with ~2^-64 odds.
+    try testing.expect(!std.meta.eql(rs.prng, advanced));
 }

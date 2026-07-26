@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const platform = @import("platform.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
@@ -27,20 +28,65 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "%rs-next-real", .func = &rsNextRealFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
 };
 
+// A fork(2)ed child inherits the parent's PRNG state, and the default source
+// is created eagerly at VM startup — so without intervention every forked
+// child (e.g. each http-listen-prefork worker, which forks via the FFI)
+// continues the parent's exact stream, and all workers draw identical
+// "random" values. The atfork child handler only flips a flag: it can run in
+// the forked child of a multithreaded parent, where anything beyond a plain
+// word write (libc locks, allocation, getrandom) is off-limits. getRS does
+// the actual reseed at the next touch.
+const has_fork = builtin.os.tag != .windows and builtin.os.tag != .wasi;
+
+var atfork_installed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+
+fn atforkChildMarkStale() callconv(.c) void {
+    if (vm_mod.vm_instance) |vm| vm.default_rs_needs_reseed = true;
+}
+
+fn installAtForkReseed() void {
+    if (atfork_installed.swap(true, .acq_rel)) return;
+    const c = struct {
+        extern fn pthread_atfork(
+            prepare: ?*const fn () callconv(.c) void,
+            parent: ?*const fn () callconv(.c) void,
+            child: ?*const fn () callconv(.c) void,
+        ) c_int;
+    };
+    _ = c.pthread_atfork(null, null, &atforkChildMarkStale);
+}
+
 pub fn initDefaultRS(vm: *vm_mod.VM) void {
+    if (comptime has_fork) installAtForkReseed();
     vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return;
+    vm.default_rs_needs_reseed = false;
 }
 
 pub fn ensureDefaultRS() void {
     const vm = vm_mod.vm_instance orelse return;
     if (vm.default_random_source == types.VOID) {
         vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return;
+        vm.default_rs_needs_reseed = false;
     }
 }
 
 fn getRS(proc: []const u8, v: Value) PrimitiveError!*types.RandomSource {
     if (!types.isRandomSource(v)) return primitives.typeError(proc, "random-source", v);
-    return types.toObject(v).as(types.RandomSource);
+    const rs = types.toObject(v).as(types.RandomSource);
+    if (vm_mod.vm_instance) |vm| {
+        if (vm.default_rs_needs_reseed and v == vm.default_random_source) {
+            // First default-source touch in a forked child: replace the
+            // inherited parent state with fresh OS entropy, in place — the
+            // same heap object stays valid for (srfi 27)'s load-time
+            // `default-random-source` snapshot binding. Clearing the flag
+            // before the caller runs also keeps an explicit randomize!/
+            // pseudo-randomize!/state-set! authoritative: their mutation
+            // lands after this one.
+            vm.default_rs_needs_reseed = false;
+            rs.prng = std.Random.DefaultPrng.init(freshSeed());
+        }
+    }
+    return rs;
 }
 
 fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
