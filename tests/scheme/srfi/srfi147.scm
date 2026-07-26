@@ -198,22 +198,59 @@
 
 ;;; --- CodeRabbit-caught follow-up: reusing a persisted helper across two
 ;;; SEPARATE let-syntax forms (not siblings in the same one) must not leak
-;;; either. The already_seen guard above only covers a repeat WITHIN one
-;;; form -- a transformer aliased into some OTHER, later, unrelated form
-;;; genuinely needs its own peer snapshot recomputed (that form's own
-;;; siblings differ), but the recomputation itself must free whatever an
-;;; earlier form's processing already set here first. `r1` is a sibling
-;;; of `p` in the FIRST let-syntax only; by the second, separate form,
-;;; `r1` has reverted to its outer procedure meaning, so a correct result
-;;; for `(q 10)` (11, not 1000) also confirms h's own frozen peer snapshot
-;;; from its true point of origin still works, unaffected by the later
-;;; recomputation ---
+;;; either. `r1` here is a plain top-level PROCEDURE, never a macro before
+;;; either form, so let_syntax_peer_names/vals (built from self.macros,
+;;; not self.globals) never captures anything for it either way -- this
+;;; only demonstrates the leak (a genuine, non-empty allocation, freed
+;;; correctly), not whether recomputing vs. reusing the snapshot changes
+;;; the RESULT. See the next two tests for that ---
 (define (r1 y) (+ y 1))
 (begin
   (let-syntax ((r1 (syntax-rules () ((_ y) (* y 100))))
                (p (begin (define-syntax h1 (syntax-rules () ((_ x) (r1 x)))) h1)))
     (p 5))
   (test-equal 11 (let-syntax ((q1 h1)) (q1 10))))
+
+;;; --- CodeRabbit-caught: a helper's R7RS 4.3.1 peer snapshot must be
+;;; frozen at its TRUE point of origin, never recomputed. An earlier draft
+;;; of this fix let it be recomputed every time a transformer reached a
+;;; NEW let-syntax form -- reasoning that an alias elsewhere "genuinely
+;;; needs its own snapshot against that form's different siblings". That
+;;; reasoning was WRONG: recomputing doesn't just waste an allocation, it
+;;; can silently change which binding a macro's free reference resolves
+;;; to. Confirmed via direct reproduction: redefining the top-level MACRO
+;;; meaning of a shared sibling name between two forms changed a
+;;; previously shipped answer from 11 to -10 before this fix. Using a
+;;; macro (not a procedure, as above) for the shared sibling is essential:
+;;; a plain procedure reference isn't captured by let_syntax_peer_vals at
+;;; all (self.macros, not self.globals), so a test built on one can't
+;;; distinguish "recomputed" from "reused" ---
+(define-syntax r2 (syntax-rules () ((_ y) (+ y 1))))
+(define result-a
+  (let-syntax ((r2 (syntax-rules () ((_ y) (* y 100))))
+               (p2 (begin (define-syntax h2 (syntax-rules () ((_ x) (r2 x)))) h2)))
+    (p2 5)))
+(define-syntax r2 (syntax-rules () ((_ y) (- y))))
+(define result-b
+  (let-syntax ((r2 (syntax-rules () ((_ y) (* y 9999))))
+               (q2 h2))
+    (q2 10)))
+(test-equal '(6 11) (list result-a result-b))
+
+;;; --- CodeRabbit-caught: nesting a reuse inside the DEFINING form's own
+;;; body (not two separate top-level forms) must not corrupt the OUTER
+;;; binding either. Before this fix, the nested `q3`'s own peer
+;;; recomputation used ONLY that inner let-syntax's own sibling set (just
+;;; `q3` itself, no `r3`), silently emptying h3's peer snapshot -- which
+;;; let the OUTER let-syntax's own `r3` sibling rebinding leak through
+;;; unsuppressed for BOTH the nested call and the later outer one ---
+(define-syntax r3 (syntax-rules () ((_ y) (+ y 1))))
+(test-equal
+ '(21 6)
+ (let-syntax ((r3 (syntax-rules () ((_ y) (* y 100))))
+              (p3 (begin (define-syntax h3 (syntax-rules () ((_ x) (r3 x)))) h3)))
+   (list (let-syntax ((q3 h3)) (q3 20))
+         (p3 5))))
 
 ;;; --- persistent registration inside a NESTED body scope (not top level):
 ;;; the cross-referencing shape works the same way inside a lambda body,

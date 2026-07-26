@@ -471,6 +471,20 @@ pub const Transformer = struct {
     // and unconditionally overwrites a slice field with no free of the old
     // one -- a second call on top of the first leaks the first allocation.
     finalized: bool = false,
+    // Guards compileLetSyntax's R7RS 4.3.1 sibling-suppression snapshot
+    // (let_syntax_peer_names/vals below) the same way `finalized` guards
+    // captured_locals/bound_free_refs, and for a stronger reason than just
+    // avoiding a leak: recomputing it a second time is not merely
+    // redundant, it's WRONG. A transformer's free references must resolve
+    // according to its own true point of origin (the one let-syntax/
+    // letrec-syntax/define-syntax that actually created it), not whatever
+    // OTHER, unrelated let-syntax form later happens to alias it by name
+    // or by begin-wrapped reference (SRFI 147) -- confirmed via direct
+    // reproduction: redefining an outer binding between two such forms
+    // changed a shared helper's already-resolved answer, proving a second
+    // computation silently overwrote the first with a different, wrong
+    // snapshot rather than just wasting an allocation.
+    peers_computed: bool = false,
     captured_locals: []CapturedLocal = &.{},
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
