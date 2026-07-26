@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785083475225,
+  "lastUpdate": 1785086434236,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "8b45ff1f4bd555e704979cb5bf1f0c908396ffe5",
-          "message": "Release v0.15.0",
-          "timestamp": "2026-07-16T03:20:06+05:30",
-          "tree_id": "bc208878edf2954b61571cf189bd0773917787da",
-          "url": "https://github.com/kaappi/kaappi/commit/8b45ff1f4bd555e704979cb5bf1f0c908396ffe5"
-        },
-        "date": 1784153937636,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.396818,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.349196,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92353,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.482152,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006452,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053766,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507792,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070086,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.371453,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.977191,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584177,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.439926,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.842061,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.722572,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044077,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044776,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "845b75622e3d7a4eac3e7d63f6adee32918a3075",
+          "message": "Extend SRFI 147 with begin-wrapped and bare-alias transformer specs (#1762)\n\nDeeper research for SRFI 148 (reading its reference implementation, not\njust the spec prose) found that em-syntax-rules's own core mechanism\n(em-syntax-rules-aux1/aux2) bottoms out through exactly\n`(begin (define-syntax a spec) a)` -- a private helper definition\nfollowed by a bare reference to it. Both grammar alternatives this\nneeds (begin-wrapped definitions, and bare-keyword aliasing of a\nnon-builtin macro) were deferred in #1760 based on an earlier, shallower\npass that concluded neither was needed.\n\nresolveTransformerSpec now returns an already-parsed Transformer instead\nof raw syntax-rules source, since the bare-symbol alias case has no\nsource to hand back -- only a Transformer an earlier step already\nparsed. Aliasing a builtin special form still correctly falls through to\nInvalidSyntax: builtins are recognized structurally, never stored as\nTransformer values in the macro table a bare symbol resolves against.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T16:43:21Z",
+          "tree_id": "ed8bbbe59ae47dc0485d217451db18b135a1717a",
+          "url": "https://github.com/kaappi/kaappi/commit/845b75622e3d7a4eac3e7d63f6adee32918a3075"
+        },
+        "date": 1785086432884,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.309789,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.914241,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.930957,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.445399,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006397,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054384,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506559,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06879,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.542347,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.972524,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.607075,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437158,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.84202,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.676303,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044597,
             "unit": "seconds"
           }
         ]
