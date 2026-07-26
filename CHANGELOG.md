@@ -62,6 +62,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   chain — archive present, `kaappi doctor` clean, and a compiled binary that
   runs — so this cannot silently regress.
 
+- **`(kaappi parallel)` now ships in the release library bundle** — the
+  release workflow packed `kaappi-lib.tar.gz` from an enumerated list
+  (`lib/srfi/`, `lib/chibi/`) that predates `lib/kaappi/`, so
+  `(import (kaappi parallel))` failed with "library not found" on every
+  installed release from v0.18.0 through v0.21.0 even though the library is
+  documented, correct in the source tree, and already embedded in the binary
+  for `--sandbox` and WASM. The bundle now packs the whole `lib/` tree, and
+  the post-release acceptance suite imports one disk-loaded library per
+  shipped `lib/` subdirectory — including a real `parallel-map` run — on
+  every platform leg, so omitting a library directory from the tarball can
+  no longer go unnoticed (#1741).
+
 #### SRFI 115 (regular expressions)
 
 - **`w/ascii` and `w/unicode` were no-ops** — both were accepted and ignored,
