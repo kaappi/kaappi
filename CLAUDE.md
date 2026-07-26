@@ -672,6 +672,23 @@ a transformer aliased into some OTHER, unrelated `let-syntax` form later
 genuinely needs its own peer snapshot computed against that different
 form's sibling set.
 
+That same review flagged a sixth spot the fifth's fix didn't close: the
+`tx_vals`-prefix scan only ever catches the same `Transformer` reappearing
+*within* one `let-syntax` form. It deliberately can't (and shouldn't) skip
+recomputation when that transformer is aliased into a *different*,
+unrelated `let-syntax` form later, since that form's own sibling set
+differs and genuinely needs its own snapshot -- but the recomputation
+itself still unconditionally overwrote whatever an earlier form's
+processing had already set, with no free. Fixed by freeing the previous
+`let_syntax_peer_names`/`vals` pair immediately before every overwrite,
+regardless of which of the two cases triggered it -- confirmed via a
+second mutation-tested reproduction (the same helper aliased into two
+separate, sequential top-level `let-syntax` forms, each with its own
+distinct sibling of the same name) that the recomputation itself still
+resolves correctly (the helper's template stays bound to whichever
+sibling was in scope at its true point of origin, not whichever form last
+recomputed the snapshot).
+
 These differ from earlier Zig versions and are easy to get wrong:
 
 ```zig
