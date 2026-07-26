@@ -196,6 +196,25 @@
               (q h))
    (q 42)))
 
+;;; --- CodeRabbit-caught follow-up: reusing a persisted helper across two
+;;; SEPARATE let-syntax forms (not siblings in the same one) must not leak
+;;; either. The already_seen guard above only covers a repeat WITHIN one
+;;; form -- a transformer aliased into some OTHER, later, unrelated form
+;;; genuinely needs its own peer snapshot recomputed (that form's own
+;;; siblings differ), but the recomputation itself must free whatever an
+;;; earlier form's processing already set here first. `r1` is a sibling
+;;; of `p` in the FIRST let-syntax only; by the second, separate form,
+;;; `r1` has reverted to its outer procedure meaning, so a correct result
+;;; for `(q 10)` (11, not 1000) also confirms h's own frozen peer snapshot
+;;; from its true point of origin still works, unaffected by the later
+;;; recomputation ---
+(define (r1 y) (+ y 1))
+(begin
+  (let-syntax ((r1 (syntax-rules () ((_ y) (* y 100))))
+               (p (begin (define-syntax h1 (syntax-rules () ((_ x) (r1 x)))) h1)))
+    (p 5))
+  (test-equal 11 (let-syntax ((q1 h1)) (q1 10))))
+
 ;;; --- persistent registration inside a NESTED body scope (not top level):
 ;;; the cross-referencing shape works the same way inside a lambda body,
 ;;; and two separate invocations of the same generator in two separate

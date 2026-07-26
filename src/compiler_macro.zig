@@ -468,6 +468,17 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
                 peer_vals_f.append(self.gc.allocator, pv) catch return CompileError.OutOfMemory;
             }
         }
+        // CodeRabbit-caught follow-up: the already_seen guard above only
+        // covers the SAME Transformer reappearing within this one
+        // let-syntax form. It genuinely CAN'T cover the transformer being
+        // aliased into some OTHER, unrelated let-syntax form later --
+        // that form's own siblings differ, so its peer snapshot must be
+        // recomputed for real, not skipped. But that recomputation still
+        // unconditionally overwrites whatever an EARLIER form's own
+        // processing left here, with no free -- so free the previous
+        // pair first regardless of which case this is.
+        if (tx.let_syntax_peer_names.len > 0) self.gc.allocator.free(tx.let_syntax_peer_names);
+        if (tx.let_syntax_peer_vals.len > 0) self.gc.allocator.free(tx.let_syntax_peer_vals);
         tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_names_f.items) catch return CompileError.OutOfMemory;
         tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_vals_f.items) catch return CompileError.OutOfMemory;
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;

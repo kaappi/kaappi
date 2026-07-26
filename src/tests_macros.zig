@@ -1328,6 +1328,31 @@ test "SRFI 147: two sibling let-syntax bindings resolving to the same Transforme
     );
 }
 
+test "SRFI 147: reusing a persisted helper across two SEPARATE let-syntax forms doesn't leak" {
+    // CodeRabbit-caught follow-up: the already_seen guard above only
+    // covers the same Transformer reappearing WITHIN one let-syntax
+    // form. It genuinely can't cover this case -- a transformer aliased
+    // into some OTHER, unrelated let-syntax form later needs its own
+    // peer snapshot recomputed for real, since that form's own siblings
+    // differ. But the recomputation itself still unconditionally
+    // overwrote whatever the FIRST form's own processing had already set
+    // here, with no free -- leaking that first (non-empty, thanks to `r1`
+    // being a genuine free reference) pair of allocations. `r1` is a
+    // sibling of `p` in the FIRST let-syntax only; by the second,
+    // separate top-level form, `r1` has reverted to its outer procedure
+    // meaning, so a correct result for `(q 10)` (11, not 1000) also
+    // confirms h's own frozen peer snapshot from its true point of origin
+    // still works, unaffected by the later recomputation.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (r1 y) (+ y 1))
+        \\  (let-syntax ((r1 (syntax-rules () ((_ y) (* y 100))))
+        \\               (p (begin (define-syntax h (syntax-rules () ((_ x) (r1 x)))) h)))
+        \\    (p 5))
+        \\  (equal? (let-syntax ((q h)) (q 10)) 11))
+    );
+}
+
 test "SRFI 147: zero-definition begin resolves directly to the final element" {
     try th.expectEvalTrue(
         \\(begin
