@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785059335700,
+  "lastUpdate": 1785079334879,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e797a76817dab6c47237ac5ba5aceca0ce5f87a",
-          "message": "LLVM backend: bind fixed-arity define values as native closures (#1500) (#1577)\n\nA natively-compiled define's global value was still eval'd even though @f\nwas already emitted for its direct call sites. Materialize a fixed-arity\nfunction's value as a native closure over that compiled entry instead\n(emitNativeFnClosureValue), so value uses (map/apply/eq?/returning) run\nnative code and startup skips the per-program parse+compile. Native closures\nnow print as #<procedure name> to match the interpreter's closures.\n\nThe value path runs native @f bodies from new contexts, exposing two issues:\n\n- vm.execute is not re-entrant (it resets to frame 0). A native value whose\n  body reaches an eval/quote fallback, invoked from inside an outer execute,\n  clobbered the suspended outer form. runTopLevelFunction runs the nested\n  thunk through the re-entrant callWithArgs path when the VM is already\n  executing, leaving the outer form intact.\n\n- An eval fallback republishes captured params as globals\n  (bindParamsAsGlobals), which aliases across activations -- a pre-existing\n  native-backend limitation that a native value would widen to the common\n  (define a (f 1)) (define b (f 2)) pattern. Gate the materialization on\n  NativeLambda.has_eval_fallback: a function whose body has a code eval\n  fallback keeps its correctly-capturing interpreter-closure value. A quoted\n  constant is not a code fallback (it can't alias, and the re-entrancy fix\n  covers building it), so quote-body functions stay eligible.\n\nCloses the last child of #1491. The 36 tests/e2e/programs drop from 59 to 27\nemitted eval-fallback sites (20 now at zero). Unit suite, e2e (37/37), and\nthe scheme suites are green.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-15T19:13:28Z",
-          "tree_id": "ba3f0a1e2cddcf4a8fbe0cee3590f95ef37d1d56",
-          "url": "https://github.com/kaappi/kaappi/commit/9e797a76817dab6c47237ac5ba5aceca0ce5f87a"
-        },
-        "date": 1784144805135,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.03654,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.876272,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92127,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.456583,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006716,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053109,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504195,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068114,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.214932,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.96491,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.516778,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477943,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.731698,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.903735,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045401,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045113,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8c69cbc8f8057433f2b7aad3b614e5eb919615cc",
+          "message": "Add SRFI 147 (custom macro transformers) (#1760)\n\n* Add SRFI 147 (custom macro transformers)\n\nThird of 4 tractable pieces of issue #1699, and the first that\ngenuinely needed an engine change. R7RS's <transformer spec> only\naccepts a literal (syntax-rules ...) form; this SRFI extends it to\nalso accept a macro use that itself expands (possibly through several\nsteps) to one -- letting a library define its own\ntransformer-generating-transformer, e.g. the spec's own worked\nexample, a syntax-rules* that auto-wraps multi-form templates in\nbegin. This is exactly what SRFI 148's em-syntax-rules needs, the\nreason this SRFI was implemented.\n\ncompileDefineSyntax/compileLetSyntax/compileLetrecSyntax now route\nevery transformer-spec through a new resolveTransformerSpec, which\nexpands a non-literal spec via the same expander.expandMacro every\nordinary macro call already goes through, looping (depth-bounded)\nuntil it bottoms out at a literal syntax-rules form. Two of the\ngrammar's other alternatives -- bare-keyword aliasing and\nbegin-wrapped-definitions -- are deliberately not implemented, since\nneither is needed by SRFI 148.\n\nVerifying against just the spec's own example wasn't enough --\nbash tests/scheme/run-all.sh caught two real, generalizable bugs no\namount of SRFI-147-specific testing alone would have found:\n\n1. A LIFO root-stack violation: an early draft rooted the resolved\n   spec via pushRoot + defer popRoot() inside compileLetSyntax's\n   per-binding loop, but the same iteration pushes an unrelated root\n   right after, so the deferred pop silently removed the wrong (most\n   recent) entry instead. Surfaced only in srfi257.scm's heavily\n   macro-based library as an unrelated-looking \"invalid syntax\" error.\n   Fixed by popping immediately and explicitly, never via defer across\n   a stretch that itself calls pushRoot -- now documented in\n   .claude/rules/gc-safety.md, whose glob also grew to cover\n   compiler*.zig/expander.zig.\n2. A parent-scope-chain visibility gap: the macro lookup only checked\n   self.macros, unlike the established expandAndCompileMacroUse path,\n   which merges every ancestor Compiler scope's macros first -- a\n   nested child scope (e.g. a let-syntax inside guard's desugared\n   lambda, as SRFI 64's own test-equal produces) never automatically\n   inherits an enclosing scope's macros.\n\nBumps the SRFI count 173->174, reconciled against the canonical\nregistry: 174 implemented + 4 tracked + 30 excluded = 208.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix ancestor-scope shadowing order in resolveTransformerSpec\n\nCodeRabbit review of #1760: the ancestor-chain merge populated\nnearest-to-farthest (matching expandAndCompileMacroUse's own existing\npattern), but since a hash map's put() overwrites, this means a\nFARTHER ancestor's macro definition wins over a NEARER one when both\nredefine the same name -- backwards from correct lexical shadowing.\n\nConfirmed via a 3-level nested-lambda reproduction: an outermost\nmk-transformer definition wrongly won over a middle-scope redefinition\nthat should have shadowed it. Fixed by collecting the ancestor chain\nfirst, then populating farthest-to-nearest (self.macros last of all),\nso a nearer scope's put() call correctly happens after a farther one's.\n\nDeliberately not fixed in expandAndCompileMacroUse itself: it's the\nmost heavily-exercised path in the entire macro system, the scenario\nneeds 2+ ancestor generations redefining the exact same macro name\n(rare, never observed causing a problem there), and touching it\ncarries regression risk disproportionate to this PR's actual scope --\nworth its own dedicated fix.\n\nAlso fixes a markdown-lint nit (blank lines around fenced examples in\ngc-safety.md) and switches a manually-constructed GC/VM test to the\nestablished th.TestContext helper.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-26T20:17:10+05:30",
+          "tree_id": "d9c5a05d813bbc52cf3d2b74d38808e12a28449d",
+          "url": "https://github.com/kaappi/kaappi/commit/8c69cbc8f8057433f2b7aad3b614e5eb919615cc"
+        },
+        "date": 1785079333164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.134434,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.426043,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.650484,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.238276,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006155,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.043289,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.373584,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054549,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.168129,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.43825,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.239222,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.405442,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.383051,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.805854,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036393,
             "unit": "seconds"
           }
         ]
