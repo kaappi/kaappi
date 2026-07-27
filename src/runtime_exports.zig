@@ -61,6 +61,32 @@ pub export fn kaappi_runtime_deinit(vm: ?*vm_mod.VM) callconv(.c) void {
     rt_gc.deinit();
 }
 
+// Populates vm.command_line_args from the process's real argv so
+// `(command-line)` sees a compiled binary's own arguments (kaappi#1744).
+// Threaded from the native `main(argc, argv)` entry point (llvm_emit.zig)
+// right after kaappi_runtime_init. argv is scanned to its NULL sentinel
+// instead of threading argc through: every native_backend_supported target
+// (glibc/musl/macOS libc, mingw-w64's CRT, *BSD libc) guarantees
+// argv[argc] == NULL.
+pub export fn kaappi_set_command_line_args(vm: ?*vm_mod.VM, argv: ?[*]const ?[*:0]const u8) callconv(.c) void {
+    const v = vm orelse return;
+    const av = argv orelse return;
+    v.command_line_args = collectArgv(av) catch {
+        const msg = "failed to collect command-line arguments\n";
+        _ = platform.write(2, msg, msg.len);
+        std.process.exit(1);
+    };
+}
+
+fn collectArgv(argv: [*]const ?[*:0]const u8) ![]const []const u8 {
+    var list: std.ArrayList([]const u8) = .empty;
+    var i: usize = 0;
+    while (argv[i]) |arg| : (i += 1) {
+        try list.append(std.heap.c_allocator, std.mem.span(arg));
+    }
+    return list.toOwnedSlice(std.heap.c_allocator);
+}
+
 pub export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(name_len);

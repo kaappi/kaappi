@@ -345,6 +345,9 @@ pub const LLVMEmitter = struct {
         self.buf = body;
 
         self.write("  %vm = call ptr @kaappi_runtime_init()\n") catch return error.OutOfMemory;
+        // Thread the real argv through so `(command-line)` works in compiled
+        // binaries (#1744) — %argc/%argv are @main's own parameters, set below.
+        self.write("  call void @kaappi_set_command_line_args(ptr %vm, ptr %argv)\n") catch return error.OutOfMemory;
         for (nodes) |node| {
             _ = self.emitNode(node) catch return error.OutOfMemory;
         }
@@ -405,7 +408,14 @@ pub const LLVMEmitter = struct {
             try self.write(def);
         }
 
-        try self.write("\ndefine i32 @main() {\nentry:\n");
+        // argc/argv match the standard C `main(int, char**)` ABI (kaappi#1744):
+        // the CRT startup call always passes argc in the first integer
+        // argument slot and argv in the second, so keeping %argc in the
+        // signature — even though the body never reads it — is required for
+        // %argv to bind to the real argv pointer rather than the argc value.
+        // kaappi_set_command_line_args scans argv to its NULL sentinel, so
+        // argc itself is never threaded any further.
+        try self.write("\ndefine i32 @main(i32 %argc, ptr %argv) {\nentry:\n");
         try self.write(body.items);
 
         try self.write("\n  call void @kaappi_runtime_deinit(ptr %vm)\n");

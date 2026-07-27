@@ -133,6 +133,38 @@ for program in "$SCRIPT_DIR"/programs/*.scm; do
     assert_native_parity "$name" "$program"
 done
 
+# --- Phase 3: command-line argument passthrough (kaappi#1744) ---
+#
+# Not run through assert_native_parity: (command-line)'s first element is
+# the running binary's own path, which legitimately differs between the
+# interpreted and compiled runs, so exact-output parity does not apply.
+# This checks instead that real arguments passed to a compiled binary
+# survive the trip through main(argc, argv) -> (command-line).
+
+echo ""
+echo "=== Phase 3: command-line argument passthrough ==="
+
+argv_ll="$TMPDIR/test-argv.ll"
+argv_bin="$TMPDIR/test-argv"
+
+if "$KAAPPI" --emit-llvm -o "$argv_ll" "$SCRIPT_DIR/test-argv.scm" 2>/dev/null &&
+    $CC -O2 "$argv_ll" -o "$argv_bin" -L"$LIBDIR" -lkaappi_rt -lc -lm -lpthread 2>/dev/null; then
+    actual=$("$argv_bin" a b c 2>&1) || true
+    expected='("a" "b" "c")'
+    if [[ "$actual" == "$expected" ]]; then
+        echo "PASS: command-line argument passthrough"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: command-line argument passthrough"
+        echo "  expected: $expected"
+        echo "  actual:   $actual"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL: command-line argument passthrough — compile/link failed"
+    FAIL=$((FAIL + 1))
+fi
+
 # --- Summary ---
 
 echo ""

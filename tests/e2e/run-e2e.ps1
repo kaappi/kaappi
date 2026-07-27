@@ -76,6 +76,30 @@ foreach ($p in (Get-ChildItem (Join-Path $scriptDir "programs\*.scm") | Sort-Obj
     }
 }
 
+# Command-line argument passthrough (kaappi#1744). Not part of the parity
+# loop above: (command-line)'s first element is the running binary's own
+# path, which legitimately differs between the interpreted and compiled
+# runs, so exact-output parity with the interpreter does not apply here.
+$argvExe = Join-Path $outdir "test-argv.exe"
+$cc_out = (& $Kaappi compile (Join-Path $scriptDir "test-argv.scm") -o $argvExe 2>&1) -join "`n"
+if ($LASTEXITCODE -ne 0) {
+    Write-Output "FAIL: command-line argument passthrough - compile failed"
+    Write-Output $cc_out
+    $fail++; $failed += "command-line-args"
+} else {
+    $actual = (& $argvExe a b c 2>&1) -join "`n"
+    $expected = '("a" "b" "c")'
+    if ($actual -ceq $expected) {
+        Write-Output "PASS: command-line argument passthrough"
+        $pass++
+    } else {
+        Write-Output "FAIL: command-line argument passthrough"
+        Write-Output "  expected: $expected"
+        Write-Output "  actual:   $actual"
+        $fail++; $failed += "command-line-args"
+    }
+}
+
 Remove-Item -Recurse -Force $outdir -ErrorAction SilentlyContinue
 
 Write-Output ""
