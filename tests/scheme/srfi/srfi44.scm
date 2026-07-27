@@ -10,9 +10,11 @@
 ;; (SRFI 44 intentionally broadens those exact names — see the header
 ;; comment in lib/srfi/44.sld) so, like any two libraries with overlapping
 ;; exports, combining them here requires excepting the overlap from one side.
+;; (srfi 69) and (srfi 128) likewise both export string-hash/string-ci-hash,
+;; unused by this file, so (srfi 69)'s copies are excluded too (kaappi#1726).
 
 (import (scheme base) (scheme write) (scheme process-context)
-        (srfi 64) (srfi 69) (srfi 128)
+        (srfi 64) (except (srfi 69) string-hash string-ci-hash) (srfi 128)
         (srfi 44)
         (except (srfi 113)
                 bag? bag-contains? bag-delete bag-delete! bag-delete-all bag-delete-all!))

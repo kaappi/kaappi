@@ -66,8 +66,12 @@
 ;;; key-value pairs" without pinning down the representation.
 
 (define-library (srfi 167)
+  ;; (srfi 69) and (srfi 128) both export string-hash/string-ci-hash;
+  ;; neither is used by this library's own body, so (srfi 69)'s copies are
+  ;; excluded to avoid the R7RS 5.2 colliding-import error (kaappi#1726).
   (import (scheme base) (scheme case-lambda)
-          (srfi 1) (srfi 69) (srfi 128) (srfi 146) (srfi 158))
+          (srfi 1) (except (srfi 69) string-hash string-ci-hash)
+          (srfi 128) (srfi 146) (srfi 158))
   (export
     ;; engine
     make-engine engine?

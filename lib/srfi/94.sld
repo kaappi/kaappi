@@ -36,16 +36,17 @@
 ;;;     Shipping stricter same-named versions here would create an
 ;;;     R7RS-ambiguous binding in any program that imports both
 ;;;     (scheme base) and (srfi 94) -- the common case, including this
-;;;     library's own test file -- since R7RS says it is an error to
+;;;     library's own test file -- since R7RS 5.2 says it is an error to
 ;;;     import two different bindings for one identifier. Kaappi's library
-;;;     system does not currently detect that particular ambiguity (it
-;;;     silently lets the later import win rather than signaling an
-;;;     error), but this library does not rely on that non-standard,
-;;;     undiagnosed shadowing behavior. A program that wants the stricter
-;;;     exact-integer-only behavior under the standard names can shadow it
-;;;     explicitly, e.g. `(import (except (scheme base) quotient remainder
-;;;     modulo) (srfi 94))` plus local definitions built from this
-;;;     library's other procedures.
+;;;     system now detects and rejects exactly that ambiguity (kaappi#1726)
+;;;     instead of silently letting the later import win, so shipping
+;;;     same-named wrappers here would turn "(import (scheme base)
+;;;     (srfi 94))" -- the natural way to reach for both -- into a hard
+;;;     error rather than just an undiagnosed footgun. A program that wants
+;;;     the stricter exact-integer-only behavior under the standard names
+;;;     can shadow it explicitly, e.g. `(import (except (scheme base)
+;;;     quotient remainder modulo) (srfi 94))` plus local definitions built
+;;;     from this library's other procedures.
 ;;;
 ;;; Separately, while implementing and testing this library against
 ;;; Kaappi's engine we found that `expt' does not handle negative reals as

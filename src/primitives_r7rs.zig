@@ -261,8 +261,13 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
 
+    // Shares the (import ...)-form collision check (#1726): two arguments
+    // exporting the same identifier with different bindings must not
+    // silently let whichever comes last win.
+    var tracker = vm_library.ImportTracker.init(gc.allocator);
+    defer tracker.deinit(gc.allocator);
     for (args) |import_set| {
-        vm_library.processImportSet(vm, env_map, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
+        vm_library.importSetChecked(vm, env_map, &tracker, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
     }
 
     return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;

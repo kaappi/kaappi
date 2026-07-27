@@ -170,6 +170,138 @@ test "import only accepts syntax keywords" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r));
 }
 
+// Regression tests for #1726: importing two libraries that export the same
+// identifier with two different bindings used to silently resolve to
+// whichever import came last, with no diagnostic. R7RS 5.2 says this is
+// an error.
+
+test "import raises on colliding export from two libraries" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-a)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'a)))
+    );
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-b)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'b)))
+    );
+
+    const r = vm.eval("(import (test coll-lib-a) (test coll-lib-b))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+    const detail = vm.getErrorDetail();
+    try std.testing.expect(std.mem.indexOf(u8, detail, "'frob'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(test coll-lib-a)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(test coll-lib-b)") != null);
+}
+
+test "import collision is detected regardless of order" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-c)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'c)))
+    );
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-d)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'd)))
+    );
+
+    // Reversed order from the previous test -- still an error either way,
+    // not "first wins" or "last wins" (kaappi#1726's repro flips which
+    // binding silently won; now both orders must simply fail).
+    const r = vm.eval("(import (test coll-lib-d) (test coll-lib-c))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+    const detail = vm.getErrorDetail();
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(test coll-lib-d)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(test coll-lib-c)") != null);
+}
+
+test "import does not raise when the same binding is reachable two ways" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A diamond re-import of the identical binding (same underlying (scheme
+    // base) `car`, reached directly and through `only`) is not "two
+    // different bindings" and must not be rejected.
+    _ = try vm.eval("(import (scheme base) (only (scheme base) car))");
+    const r = try vm.eval("(car (list 7 8))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r));
+
+    // Importing the exact same library twice, directly, is likewise fine.
+    _ = try vm.eval("(import (scheme base) (scheme base))");
+}
+
+test "import collision can be resolved with rename" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-e)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'e)))
+    );
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-f)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'f)))
+    );
+
+    _ = try vm.eval("(import (test coll-lib-e) (rename (test coll-lib-f) (frob frob-f)))");
+    const r1 = try vm.eval("(frob)");
+    try std.testing.expectEqualStrings("e", types.symbolName(r1));
+    const r2 = try vm.eval("(frob-f)");
+    try std.testing.expectEqualStrings("f", types.symbolName(r2));
+}
+
+test "import collision does not span separate top-level import forms" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-g)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'g)))
+    );
+    _ = try vm.eval(
+        \\(define-library (test coll-lib-h)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'h)))
+    );
+
+    // Two SEPARATE (import ...) forms deliberately re-binding the same name
+    // stay legal, exactly like ordinary top-level redefinition -- the
+    // #1726 check is scoped to one import form, not the whole program.
+    _ = try vm.eval("(import (test coll-lib-g))");
+    _ = try vm.eval("(import (test coll-lib-h))");
+    const r = try vm.eval("(frob)");
+    try std.testing.expectEqualStrings("h", types.symbolName(r));
+}
+
 test "import scheme r5rs exports full R5RS identifier set" {
     // Regression for #813: the built-in (scheme r5rs) stub exported only 4
     // identifiers (null-environment, scheme-report-environment, eval,

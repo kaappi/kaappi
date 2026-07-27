@@ -7,8 +7,11 @@
 ;; itself, not just the shipped instances). Many assertions reproduce the
 ;; SRFI's own worked examples against '((1 . 2) (3 . 4) (5 . 6)) verbatim.
 
+;; (srfi 69) and (srfi 128) both export string-hash/string-ci-hash, unused
+;; by this file, so (srfi 69)'s copies are excluded (kaappi#1726).
 (import (scheme base) (scheme write) (scheme process-context)
-        (srfi 64) (srfi 69) (srfi 128) (srfi 225))
+        (srfi 64) (except (srfi 69) string-hash string-ci-hash)
+        (srfi 128) (srfi 225))
 
 (test-begin "srfi-225")
 

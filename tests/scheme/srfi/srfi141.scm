@@ -1,7 +1,14 @@
 ;; SRFI-141 (integer division) conformance tests — audit Phase 3.4
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi141.scm
 
-(import (scheme base) (srfi 141) (scheme process-context) (srfi 64))
+;; (srfi 141) re-exports floor//truncate/ (and their -quotient/-remainder
+;; halves) alongside its own ceiling/round/euclidean/balanced families,
+;; tested uniformly below -- the (scheme base) overlap is excluded to avoid
+;; the R7RS 5.2 colliding-import error (kaappi#1726).
+(import (except (scheme base)
+                 floor/ floor-quotient floor-remainder
+                 truncate/ truncate-quotient truncate-remainder)
+        (srfi 141) (scheme process-context) (srfi 64))
 
 (test-begin "srfi-141")
 

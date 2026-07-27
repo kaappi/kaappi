@@ -1,7 +1,12 @@
 ;; SRFI-125 (intermediate hash tables) conformance tests
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi125.scm
 
-(import (scheme base) (scheme process-context) (srfi 64) (srfi 125) (srfi 128))
+;; (srfi 125) re-exports (srfi 69)'s string-hash/string-ci-hash (this file
+;; tests those below); (srfi 128) has its own copies of the same names, so
+;; they are excluded here to avoid the R7RS 5.2 colliding-import error
+;; (kaappi#1726) -- this file never calls (srfi 128)'s versions directly.
+(import (scheme base) (scheme process-context) (srfi 64) (srfi 125)
+        (except (srfi 128) string-hash string-ci-hash))
 
 (test-begin "srfi-125")
 

@@ -2,7 +2,16 @@
 ;; Covers index-passing callback convention and all exported procedures.
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi43.scm
 
-(import (scheme base) (srfi 43) (scheme process-context) (srfi 64))
+;; (srfi 43) re-implements (scheme base)'s vector API with the
+;; index-passing callback convention this file tests, so the overlapping
+;; (scheme base) names are excluded to avoid the R7RS 5.2 colliding-import
+;; error (kaappi#1726).
+(import (except (scheme base)
+                 make-vector vector vector? vector-ref vector-set!
+                 vector-length vector-map vector-for-each vector-copy
+                 vector-copy! vector-fill! vector-append vector->list
+                 list->vector)
+        (srfi 43) (scheme process-context) (srfi 64))
 
 (test-begin "srfi-43")
 

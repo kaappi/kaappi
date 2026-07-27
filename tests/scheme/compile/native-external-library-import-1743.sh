@@ -154,16 +154,17 @@ expect_compiles_and_runs builtin-srfi-still-works \
 '(1 3 5)'
 
 # --- Case 6 (no false positives): a library defined AND used in the same
-#     file needs no file resolution either. ---
+#     file needs no file resolution either. `sq`, not `square` -- `square`
+#     is itself a (scheme base) export, and this file imports both. ---
 expect_compiles_and_runs self-contained-library-still-works \
 '(define-library (my-math)
-  (export square)
+  (export sq)
   (import (scheme base))
   (begin
-    (define (square x) (* x x))))
+    (define (sq x) (* x x))))
 
 (import (scheme base) (scheme write) (my-math))
-(write (square 7))
+(write (sq 7))
 (newline)' \
 '49'
 

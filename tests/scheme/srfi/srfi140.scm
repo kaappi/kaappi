@@ -1,7 +1,18 @@
 ;; SRFI-140 (Immutable Strings) conformance tests
 ;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi140.scm
 
-(import (scheme base) (scheme process-context) (srfi 140) (srfi 64))
+;; (srfi 140) re-implements most of (scheme base)'s string API for immutable
+;; strings (this file tests those versions, e.g. list->string's start/end
+;; arguments below), so the overlapping (scheme base) names are excluded to
+;; avoid the R7RS 5.2 colliding-import error (kaappi#1726).
+(import (except (scheme base)
+                 string? string string->vector string->list vector->string
+                 list->string string->utf8 utf8->string string-length
+                 string-ref substring string=? string<? string>? string<=?
+                 string>=? string-append string-map string-for-each
+                 make-string string-copy string-set! string-fill!
+                 string-copy!)
+        (scheme process-context) (srfi 140) (srfi 64))
 
 (test-begin "srfi-140")
 

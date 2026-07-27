@@ -1,7 +1,11 @@
 ;; SRFI-167 (Ordered Key Value Store) conformance tests
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi167.scm
 
-(import (scheme base) (scheme process-context) (srfi 69) (srfi 128) (srfi 167) (srfi 64))
+;; (srfi 69) and (srfi 128) both export string-hash/string-ci-hash, unused
+;; by this file, so (srfi 69)'s copies are excluded (kaappi#1726).
+(import (scheme base) (scheme process-context)
+        (except (srfi 69) string-hash string-ci-hash)
+        (srfi 128) (srfi 167) (srfi 64))
 
 (test-begin "srfi-167")
 

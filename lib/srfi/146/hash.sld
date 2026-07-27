@@ -1,5 +1,9 @@
 (define-library (srfi 146 hash)
-  (import (scheme base) (scheme case-lambda) (srfi 69) (srfi 128))
+  ;; (srfi 69) and (srfi 128) both export string-hash/string-ci-hash;
+  ;; neither is used by this library's own body, so (srfi 69)'s copies are
+  ;; excluded to avoid the R7RS 5.2 colliding-import error (kaappi#1726).
+  (import (scheme base) (scheme case-lambda)
+          (except (srfi 69) string-hash string-ci-hash) (srfi 128))
   (export hashmap hashmap-unfold
           hashmap? hashmap-contains? hashmap-empty? hashmap-disjoint?
           hashmap-ref hashmap-ref/default hashmap-key-comparator

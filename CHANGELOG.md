@@ -44,6 +44,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Library import silently let colliding export names resolve to
+  whichever import came last** — `(import (srfi 28) (srfi 29))`, which both
+  export `format`, picked whichever library was written last in the
+  import-set list with no diagnostic either way, and reversing the order
+  silently flipped which binding won. R7RS 5.2 says importing the same
+  identifier from two different libraries with different bindings is an
+  error. `(import ...)` and the `environment` procedure now track which
+  import-set in the same list first claims each name and reject a later
+  one that would bind it to a genuinely different value, naming both
+  import-sets and the identifier; re-importing the identical binding
+  through two paths (e.g. a diamond dependency) still merges silently,
+  since that is the same binding, not two different ones. A few portable
+  SRFI libraries and test files had latent, previously-invisible
+  collisions of exactly this kind and now disambiguate with
+  `only`/`except`/`rename`. Getting here surfaced two related bugs: a
+  non-exported helper macro reachable only through an exported macro's
+  expansion (e.g. SRFI 64's `test-assert` → `%test-comp1body` chain) could
+  leak into an importer's globals as a plain, callable value once the
+  resolved export set was routed through a scratch map first — as
+  only/except/prefix/rename already did, and a plain, unmodified import
+  now also does to run the collision check — so the transitive macro
+  closure is now chased only into the real, final target, never a scratch
+  map that exists purely to answer "what does this import-set resolve
+  to"; and a multi-set `(import a b c)` form that failed partway through
+  used to keep processing the rest, letting a later, successful library
+  load's own native calls clobber the shared error-detail buffer and
+  reduce a specific message to a bare "invalid syntax" — `(import ...)`
+  now stops at the first failing import-set, matching `environment`'s
+  existing behavior (#1726).
+
 - **`kaappi compile` binaries could not see their own command-line
   arguments** — the LLVM-emitted `main()` took no parameters at all, so
   `(command-line)` always returned `()` in a compiled binary no matter what

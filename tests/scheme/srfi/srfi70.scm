@@ -6,7 +6,12 @@
 ;;; NaN-comparison semantics (which Kaappi already implements) are
 ;;; unaffected by importing (srfi 70).
 
-(import (scheme base) (scheme process-context) (scheme inexact) (srfi 70) (srfi 64))
+;; (srfi 70) re-exports quotient/remainder/modulo/gcd/lcm/expt with
+;; stricter, exact-integer-only semantics -- this file tests those, so the
+;; overlapping (scheme base) names are excluded to avoid the R7RS 5.2
+;; colliding-import error (kaappi#1726).
+(import (except (scheme base) quotient remainder modulo gcd lcm expt)
+        (scheme process-context) (scheme inexact) (srfi 70) (srfi 64))
 
 (test-begin "srfi-70")
 
