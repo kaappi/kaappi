@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785109581491,
+  "lastUpdate": 1785113846933,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e2986a76a6806532a86959992bea95c44d93db1f",
-          "message": "Allow dlopen of user FFI libraries in signed macOS releases (#1588)\n\nThe Developer ID signature applies the hardened runtime, whose library\nvalidation refuses any dylib not signed by the same team or by Apple —\nso every locally-built C FFI library (kaappi-net, kaappi-pg,\nkaappi-sqlite, kaappi-crypto) failed ffi-open with a dlopen error on\nrelease binaries, while unsigned source builds loaded the same file\nfine. disable-library-validation is the entitlement Apple provides for\nexactly this plugin-loading case, alongside the allow-jit grant the\nfile already carries.\n\nVerified on macOS arm64 by re-signing a source build ad hoc with the\nhardened runtime: with the shipped entitlements the test dylib is\nrefused; with this change it loads (#1587).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T12:05:12+05:30",
-          "tree_id": "4044abeee169fccb636fc6db1409cd8d5f760a34",
-          "url": "https://github.com/kaappi/kaappi/commit/e2986a76a6806532a86959992bea95c44d93db1f"
-        },
-        "date": 1784185372572,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.386215,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.987767,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.918868,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.483742,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006582,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05395,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507035,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070033,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.390283,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.979294,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574074,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43716,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.845996,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.743857,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043705,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044109,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b1c584c78db89eac640c54b8e808cfa22b2b5ef",
+          "message": "Set peers_computed only after the snapshot is durably stored (#1767)\n\nCodeRabbit-caught: the previous commit set Transformer.peers_computed\ntrue immediately, before the fallible allocations (peer_names_f/\npeer_vals_f appends, both dupe calls) that actually build the\nlet_syntax_peer_names/vals snapshot. An OOM partway through would leave\nthe flag permanently true with both fields still at their default-empty\nvalue -- every later reuse of that transformer would then treat \"no\nsibling suppression needed\" as the final, correct answer instead of\nretrying the computation.\n\nFixed by moving the flag assignment to strictly after both slices are\ndurably stored, immediately before the self.macros.put that was already\nthere.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T00:21:06Z",
+          "tree_id": "36ff10ce1f3a4d8689764568c132e67fef36404c",
+          "url": "https://github.com/kaappi/kaappi/commit/4b1c584c78db89eac640c54b8e808cfa22b2b5ef"
+        },
+        "date": 1785113845148,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.3016,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.414037,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.901747,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.400381,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006399,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054109,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508896,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069633,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.542661,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.998438,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.584733,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431699,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.855915,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.632937,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044316,
             "unit": "seconds"
           }
         ]
