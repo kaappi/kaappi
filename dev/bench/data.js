@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785136408624,
+  "lastUpdate": 1785136820544,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4036bb127823d2590ef5e1a45d719f7838cb689e",
-          "message": "Run the FFI Scheme suite on Windows (#1611) (#1616)\n\nThe suite could not run there: (ffi-open #f) probed only the exe's\nempty export table, tests opened C libraries by POSIX name, and the\nuint64-range fixture only built as .dylib/.so.\n\n- platform.zig: give the dlOpen(null) process handle POSIX\n  dlopen(NULL) semantics — dlSym now probes every loaded module via\n  K32EnumProcessModules, so CRT symbols resolve from ucrtbase.dll.\n- tests: cond-expand ucrtbase for libm (no libm.dll), llabs/int64 for\n  labs/long (LLP64), and the CRT's _byteswap_ulong for ws2_32's htonl;\n  declare qsort with its true size_t signature everywhere; teach\n  uint64-range.scm the repo-relative fixture path.\n- CI: windows-cross cross-compiles libu64test.dll into the artifact;\n  windows-arm-test stages it and runs the ffi suite; run-all.sh builds\n  the host fixture when zig is on PATH, so uint64-range.scm stops\n  silently skipping on every platform.\n\nVerified on a Windows 11 ARM64 VM: all 14 ffi files pass (the fixture\nDLL loads, callbacks round-trip through qsort) and the unit suite is\n1050/0 including the new dlSym regression test. POSIX: full local\nsuite 1871/0.\n\nCloses #1611.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T05:59:00+05:30",
-          "tree_id": "6ac7d67e253752660762a9908631049683a1b273",
-          "url": "https://github.com/kaappi/kaappi/commit/4036bb127823d2590ef5e1a45d719f7838cb689e"
-        },
-        "date": 1784249871044,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.040444,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.642348,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.925987,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.43101,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006768,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053062,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512187,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0686,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.2454,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.986695,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.521478,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471555,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.743944,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.836093,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044636,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043399,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5f6c255d676645853700203b45877bcacd02a35",
+          "message": "Give kaappi compile binaries real argv via (command-line) (#1744) (#1778)\n\nThe LLVM emitter generated every compiled binary's entry point as\n`define i32 @main()` -- zero parameters -- so argc/argv never reached\nthe runtime and (command-line) always returned () regardless of what\narguments the binary was invoked with.\n\nmain now takes the standard C (argc, argv) pair and hands argv to a\nnew kaappi_set_command_line_args runtime export right after init,\nwhich scans it to its NULL sentinel (every native_backend_supported\ntarget's libc/CRT guarantees argv[argc] == NULL, so argc itself never\nneeds to be threaded further). A compiled binary's (command-line) now\nreturns its own path followed by its real arguments, mirroring how\nthe interpreter reports a script's filename followed by its arguments.\n\nAdded a dedicated e2e phase (test-argv.scm + run-e2e.sh/run-e2e.ps1)\nsince the existing interpreter-vs-native parity loop can't cover this:\nthe leading \"command name\" element legitimately differs between an\ninterpreted and a compiled run of the same program.",
+          "timestamp": "2026-07-27T11:36:35+05:30",
+          "tree_id": "37feabeaf197d5b2de765a6914829c90152d0754",
+          "url": "https://github.com/kaappi/kaappi/commit/d5f6c255d676645853700203b45877bcacd02a35"
+        },
+        "date": 1785136818600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.396496,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.633474,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.94693,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.585681,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006505,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.056266,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514895,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069434,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.661279,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.113426,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.598573,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431568,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.029021,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.686757,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044053,
             "unit": "seconds"
           }
         ]
