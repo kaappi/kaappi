@@ -585,8 +585,12 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
 
     // Evaluate all producers in outer scope into temp list registers
     var temp_slots: [MAX]u16 = undefined;
-    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
-    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    // Reference the true (scheme base) list/call-with-values regardless of
+    // any later top-level redefinition (e.g. SRFI 101 replacing `list`,
+    // #1715) — this step always compiles at is_tail=false, so it never
+    // goes through a tail fast path that would otherwise shield it.
+    const list_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "list");
+    const cwv_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
     const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
 
     for (0..count) |i| {
@@ -632,7 +636,21 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         var j = count;
         while (j > 0) {
             j -= 1;
-            const apply_sym = gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
+            // Every inner apply (j > 0) sits in the tail position of its
+            // enclosing consumer lambda, so it always compiles through
+            // compileApplyTail's structural bytecode fast path (matched on
+            // a literal `apply` symbol, checked only against local/upvalue
+            // shadowing) regardless of this form's own is_tail — that path
+            // never looks `apply` up by name, so a bare symbol is already
+            // safe there. Only the outermost (j == 0) apply's tail-ness
+            // follows this let-values's own is_tail; when that's false, it
+            // falls through to ordinary call compilation, which resolves
+            // `apply` like any other identifier and can be shadowed by a
+            // top-level redefinition (#1715).
+            const apply_sym = if (j == 0 and !is_tail)
+                try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "apply")
+            else
+                gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
             const inner_body = gc.allocPair(inner, types.NIL) catch return CompileError.OutOfMemory;
             const consumer = gc.allocPair(lambda_sym, gc.allocPair(formals_arr[j], inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             const temp_sym = temp_syms[j];
@@ -653,7 +671,7 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    const desugared = buildLetValues(self, bindings, body) catch |err| return switch (err) {
+    const desugared = buildLetValues(self, bindings, body, is_tail) catch |err| return switch (err) {
         error.InvalidSyntax => CompileError.InvalidSyntax,
         else => CompileError.OutOfMemory,
     };
@@ -667,16 +685,23 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
 ///   (lambda (a b)
 ///     (call-with-values (lambda () e2) (lambda (c) (begin body)))))
 ///
-/// Each call-with-values is the body of its enclosing consumer lambda, so
-/// it is always in tail position. The compiler's compileCallWithValuesTail
-/// handles the tail case by emitting call_global + tail_apply bytecode
-/// directly, avoiding native re-entrancy and hygiene issues.
-pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
+/// Each *nested* call-with-values (built by the recursive call below) is
+/// the sole body of its enclosing consumer lambda, so it is always in tail
+/// position, hence always compiled through compileCallWithValuesTail's
+/// bytecode fast path — which avoids both native re-entrancy and (since
+/// #1715) shadowing, as it now loads the true `(scheme base)` binding
+/// directly instead of resolving `call-with-values` by name. Only the
+/// OUTERMOST call-with-values (returned to the original, non-recursive
+/// caller) has tail-ness that depends on this let*-values's own is_tail;
+/// when that's false, it falls through to ordinary call compilation, whose
+/// identifier resolution can be shadowed by a top-level redefinition of
+/// `call-with-values` (#1715) — so it takes the same true-binding reference
+/// unconditionally rather than relying on which path the compiler picks.
+pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value, is_tail: bool) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
     defer gc.no_collect -= 1;
     const lambda_sym = try gc.allocSymbol("lambda");
-    const cwv_sym = try gc.allocSymbol("call-with-values");
 
     if (bindings == types.NIL) {
         const let_sym = try gc.allocSymbol("let");
@@ -693,7 +718,7 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     if (!types.isPair(expr_rest)) return error.InvalidSyntax;
     const expr = types.car(expr_rest);
 
-    const inner = try buildLetValues(self, rest_bindings, body);
+    const inner = try buildLetValues(self, rest_bindings, body, true);
 
     // (lambda () expr)
     const producer_body = try gc.allocPair(expr, types.NIL);
@@ -704,5 +729,9 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
     // (call-with-values producer consumer)
+    const cwv_sym = if (is_tail)
+        try gc.allocSymbol("call-with-values")
+    else
+        try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
     return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }
