@@ -296,6 +296,15 @@ pub const IR = struct {
         // The globals map never sees these, so consult the compiler's scope.
         if (self.compiler) |c| {
             if (c.isLexicallyBound(name)) return true;
+            // A truncated `set!` pre-scan means "any name may be reassigned"
+            // (kaappi#1775); suppress every fold rather than trust a partial
+            // set_targets map. Every caller of isRedefined is an optimization
+            // or lint gate (folding here and in tryFoldFromAST/simplifyBooleans,
+            // the KP4xxx built-in-call lint in check_lint), so the only effects
+            // are: no constant folding in this form, and `kaappi check` stays
+            // quiet about its direct built-in calls. Nothing here decides
+            // special-form-vs-call lowering.
+            if (c.set_targets_all) return true;
         }
         if (self.bound_names) |names| {
             for (names) |n| {

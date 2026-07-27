@@ -111,6 +111,13 @@ pub const Compiler = struct {
     // constant folders (IR and legacy) to avoid folding calls to a name that
     // may be reassigned before the call executes.
     set_targets: ?*std.StringHashMap(void) = null,
+    // True when the pre-scan that built `set_targets` had to stop early (see
+    // SetScanBudget), making that map an under-approximation. Both consumers
+    // then behave as if *every* name were a `set!` target: box every local and
+    // fold nothing. Costs optimization, never correctness — the opposite bias
+    // from a silently-truncated scan, which would leave a mutated local
+    // unboxed and reintroduce #1168/#1250 (kaappi#1775).
+    set_targets_all: bool = false,
     scope_depth: u16 = 0,
     next_register: u16 = 0,
     parent: ?*Compiler = null,
@@ -177,6 +184,7 @@ pub const Compiler = struct {
             .lib_env_val = parent.lib_env_val,
             .restricted_env = parent.restricted_env,
             .set_targets = parent.set_targets,
+            .set_targets_all = parent.set_targets_all,
             .parent = parent,
         };
     }
@@ -424,7 +432,7 @@ pub const Compiler = struct {
     /// pattern matchers) quadratic — every level re-expanded its whole subtree.
     pub fn scanSetTargets(self: *Compiler, expr: Value) CompileError!void {
         if (self.set_targets) |st| {
-            try collectSetTargets(self, expr, st, 0, false);
+            try collectSetTargets(self, expr, st, 0, null);
         }
     }
 
@@ -436,7 +444,7 @@ pub const Compiler = struct {
     /// whose car survives restore. (#1168)
     pub fn boxIfSetTarget(self: *Compiler, name: []const u8, slot: u16) CompileError!void {
         const targets = self.set_targets orelse return;
-        if (targets.contains(name)) {
+        if (self.set_targets_all or targets.contains(name)) {
             try self.markLocalBoxedBySlot(slot);
         }
     }
@@ -509,9 +517,15 @@ pub const Compiler = struct {
         // (including in nested lambda bodies, which inherit this set).
         var set_targets = std.StringHashMap(void).init(self.gc.allocator);
         defer set_targets.deinit();
-        try collectSetTargets(self, expr_root, &set_targets, 0, true);
+        var budget = SetScanBudget{ .expansions_left = prescan_expansion_limit };
+        try collectSetTargets(self, expr_root, &set_targets, 0, &budget);
         self.set_targets = &set_targets;
-        defer self.set_targets = null;
+        self.set_targets_all = budget.truncated;
+        if (budget.truncated) prescan_truncations += 1;
+        defer {
+            self.set_targets = null;
+            self.set_targets_all = false;
+        }
 
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
@@ -948,17 +962,61 @@ fn formatSyntaxError(args: Value) void {
     syntax_error_detail_len = w.buffered().len;
 }
 
+/// Work limit for one top-level `set!` pre-scan (kaappi#1775).
+///
+/// The pre-scan expands macros so it can see a `set!` a template introduces
+/// (#1250). That makes it a speculative *evaluator* of compile-time macro
+/// code, and it explores branches the real compiler never takes: at
+/// `(m kt kf)`, where `m` is a helper the enclosing expansion defined with
+/// `define-syntax`, the scan has no binding for `m`, so it treats `kt` and
+/// `kf` as ordinary sub-forms and expands macros inside *both*. The real
+/// compiler registers `m`, expands it, and follows exactly one. Every such
+/// fork doubles the work, so macros that generate macros — SRFI 148's
+/// `em-syntax-rules`, SRFI 257's CK-machine combinators — cost time
+/// exponential in the number of forks.
+///
+/// Exceeding the limit is safe by construction: the scan sets `truncated`,
+/// and Compiler.set_targets_all makes both consumers assume every name is a
+/// `set!` target. A truncated scan therefore loses optimization, never
+/// correctness.
+///
+/// 4096 is ~2.5x the highest count any non-pathological top-level form in
+/// this repo's Scheme suites reaches (p99.99 = 1649 expansions; 87% of forms
+/// need none at all) and well under the 6299+ the macro-generating cases
+/// start at. That headroom matters: a truncated scan boxes every local in the
+/// form, measured at ~2x runtime on compute-heavy code, so ordinary programs
+/// must never reach the limit.
+///
+/// A `var` only so tests can lower it and exercise the truncation path
+/// without a multi-second pathological program; nothing in the compiler
+/// writes it.
+pub var prescan_expansion_limit: u32 = 4096;
+
+/// Number of top-level forms whose `set!` pre-scan truncated. Diagnostic
+/// only — read by tests to assert the guard did (or did not) engage.
+pub threadlocal var prescan_truncations: u64 = 0;
+
+const SetScanBudget = struct {
+    expansions_left: u32,
+    /// Set when the scan stopped early (budget exhausted or depth cap hit),
+    /// meaning `out` is an under-approximation of the real target set.
+    truncated: bool = false,
+};
+
 /// Recursively collect the symbol names that appear as the target of a
 /// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
 /// constant folding of those names within the enclosing form (see
 /// Compiler.set_targets) and to box locals for correct continuation
 /// semantics (R7RS §3.4). Conservative: it scans every sub-form except
-/// the interior of `quote`d data. When `expand_macros` is set and a known
+/// the interior of `quote`d data. When `budget` is non-null and a known
 /// macro is encountered, it is expanded and the expansion is scanned
 /// (#1250). Only the top-level pre-scan expands; the per-expansion Part B
-/// scan passes false (see scanSetTargets).
-fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, expand_macros: bool) CompileError!void {
-    if (depth > 256) return;
+/// scan passes null (see scanSetTargets).
+fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, budget: ?*SetScanBudget) CompileError!void {
+    if (depth > 256) {
+        if (budget) |b| b.truncated = true;
+        return;
+    }
     var cur = expr;
     while (types.isPair(cur)) {
         const head = types.car(cur);
@@ -973,8 +1031,13 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                         out.put(types.symbolName(target), {}) catch return CompileError.OutOfMemory;
                     }
                 }
-            } else if (expand_macros) {
+            } else if (budget) |b| {
                 if (self.lookupMacro(types.symbolName(head))) |transformer| {
+                    if (b.expansions_left == 0) {
+                        b.truncated = true;
+                        return;
+                    }
+                    b.expansions_left -= 1;
                     // Best-effort expansion: uses an empty UseSiteBindingCheck
                     // (no locals exist at pre-scan time), so patterns with
                     // literals may diverge from the real expansion.  Part B
@@ -997,12 +1060,24 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     self.gc.pushRoot(&expanded_root);
                     defer self.gc.popRoot();
                     self.gc.no_collect -= 1;
-                    try collectSetTargets(self, expanded_root, out, depth + 1, expand_macros);
+                    // Fixed point (e.g. SRFI-219 rule 3: (define x e) →
+                    // (define x e)): the expansion is the input, so scanning
+                    // it again can only repeat what this pass already did.
+                    // expandAndCompileMacroUse detects the same case to hand
+                    // the form to its built-in handler; here it just stops the
+                    // scan from re-expanding until the depth cap (kaappi#1775).
+                    // Fall through to the sub-form walk below, which is what
+                    // compiling the built-in form will visit anyway.
+                    if (macro.valuesStructurallyEqual(expanded_root, cur, 128)) {
+                        cur = types.cdr(cur);
+                        continue;
+                    }
+                    try collectSetTargets(self, expanded_root, out, depth + 1, budget);
                     return;
                 }
             }
         }
-        try collectSetTargets(self, head, out, depth, expand_macros);
+        try collectSetTargets(self, head, out, depth, budget);
         cur = types.cdr(cur);
     }
 }

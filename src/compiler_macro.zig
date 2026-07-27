@@ -15,7 +15,7 @@ const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 /// 128 levels is safe because the expander shares pattern-variable subtrees
 /// (a == b short-circuits at the shared node), so only the short template
 /// spine is actually traversed.
-fn valuesStructurallyEqual(a: Value, b: Value, depth: u16) bool {
+pub fn valuesStructurallyEqual(a: Value, b: Value, depth: u16) bool {
     if (a == b) return true;
     if (depth == 0) return false;
     if (types.isPair(a) and types.isPair(b))
