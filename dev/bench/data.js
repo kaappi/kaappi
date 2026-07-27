@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785113846933,
+  "lastUpdate": 1785122067769,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3c03ac9b80feb34541cc089a9bf36ad8759a5ce6",
-          "message": "LLVM backend: fix native let root leak (#1585) + duplicated fallback effects (#1586) (#1589)\n\nTwo pre-existing bugs in the native let/let* emitter. Native codegen is not\ncovered by -Dgc-stress, so the unit suite never caught them.\n\n#1585: an unboxed let lowers its last body expr in tail position, but the\ntail-call emitters popped only frame_entry_roots before `ret` — never the let's\nbinding roots. The trailing kaappi_gc_pop_roots landed in the dead orphan block\nafter the `ret`, leaking one shadow-stack slot per binding on every execution\nuntil GC.pushRoot overflowed at MAX_ROOT_CAPACITY. The self-tail-call\nbranch-back to the loop header leaked the same way, re-pushing the binding roots\neach iteration.\n\nThread the binding roots through a new body_scope_roots emitter counter (a\nsibling to frame_entry_roots): the three tail-call emitters pop\nframe_entry_roots + body_scope_roots before every `ret`, and emitSelfTailCall\npops only body_scope_roots before the loop back-edge (frame_entry_roots live\nbefore the header and persist across iterations). This keeps proper tail calls,\nunlike disabling tail position for any let with bindings.\n\n#1586: emitLet writes binding initializers into the output buffer incrementally\nbut can abandon to the whole-form interpreter fallback partway through, running\nan already-emitted side-effecting init once natively and again from the\nfallback. Make emitLet transactional: snapshot the buffer position and current\nblock before writing any IR, and truncate back to it on abandon (discarding the\npartial inits, their effects, and their root pushes) before emitting the\nfallback. Restoring current_block re-opens the block an init's control flow may\nhave split.\n\nAdd compile-and-run regression tests for both bugs; they fail on the prior code\n(GC root stack overflow / doubled side effects) and pass with the fix.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T07:11:39Z",
-          "tree_id": "8fa3a4e1799f069cd6511fa96841ad6c056cecd6",
-          "url": "https://github.com/kaappi/kaappi/commit/3c03ac9b80feb34541cc089a9bf36ad8759a5ce6"
-        },
-        "date": 1784187636376,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.35135,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.677523,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.90223,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.444145,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006428,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053804,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497036,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069732,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.340918,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.941371,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.579887,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432955,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822984,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.724432,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043956,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044316,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76d6012c1338dd8215ff39a595eff82a777b3df7",
+          "message": "Fix hygiene rename split between a nested syntax-rules pattern and its own quoted template (#1773)\n\nrenameForHygiene unconditionally treated any quoted identifier as inert\nliteral data, skipping the hygienic rename. That's correct for ordinary\nquoted data, but wrong when the quote sits inside a nested syntax-rules\ntemplate being generated by an outer macro: the corresponding pattern-side\noccurrence of the same identifier (walked without QUOTE_FLAG) already\nclaimed a rename, and the template must match it exactly or the inner\nmacro's own pattern-matcher can never bind the two together -- the\ntemplate's occurrence passed through literally instead of substituting the\ncall's actual argument.\n\nFound while porting SRFI 148's reference implementation, whose CK-machine\ntechnique defines helper macros via nested syntax-rules with quoted\ntemplates throughout -- but the bug is general and predates this session's\nSRFI work entirely.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T02:26:44Z",
+          "tree_id": "8ebdf1bbd2d5898b4717580929fe6ac9047fc1f9",
+          "url": "https://github.com/kaappi/kaappi/commit/76d6012c1338dd8215ff39a595eff82a777b3df7"
+        },
+        "date": 1785122065891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.974829,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.821687,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.914973,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.346275,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006713,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052673,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506153,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068082,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.339907,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.943199,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.527337,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.473816,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.720487,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.780091,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044355,
             "unit": "seconds"
           }
         ]
