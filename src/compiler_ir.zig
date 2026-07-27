@@ -300,7 +300,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     var last_dst: u16 = 0;
     var current = scan.remaining;
 
-    if (scan.def_count > 0) {
+    if (scan.step_count > 0) {
         child.beginScope();
 
         var def_slots: [compiler_lambda.BodyScan.MAX_DEFS]u16 = undefined;
@@ -313,24 +313,39 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             try child.markLocalBoxedBySlot(slot);
         }
 
-        for (0..scan.def_count) |i| {
-            last_dst = try child.allocReg();
-            try child.compileExprViaIR(scan.def_inits[i], last_dst, false);
+        for (0..scan.step_count) |si| {
+            switch (scan.def_steps[si]) {
+                .simple => |idx| {
+                    last_dst = try child.allocReg();
+                    try child.compileExprViaIR(scan.def_inits[idx], last_dst, false);
 
-            if (child.func.constants.items.len > 0) {
-                const last_const = child.func.constants.items[child.func.constants.items.len - 1];
-                if (types.isFunction(last_const)) {
-                    const child_func = types.toObject(last_const).as(types.Function);
-                    if (child_func.name == null) {
-                        child_func.name = scan.def_names[i];
+                    if (child.func.constants.items.len > 0) {
+                        const last_const = child.func.constants.items[child.func.constants.items.len - 1];
+                        if (types.isFunction(last_const)) {
+                            const child_func = types.toObject(last_const).as(types.Function);
+                            if (child_func.name == null) {
+                                child_func.name = scan.def_names[idx];
+                            }
+                        }
                     }
-                }
-            }
 
-            try child.emitOp(.set_box_local);
-            try child.emitU16(def_slots[i]);
-            try child.emitU16(last_dst);
-            child.freeReg();
+                    try child.emitOp(.set_box_local);
+                    try child.emitU16(def_slots[idx]);
+                    try child.emitU16(last_dst);
+                    child.freeReg();
+                },
+                .values_group => |form| {
+                    // Already a self-contained set!-performing (or, for a
+                    // zero-name clause, bare side-effecting) form — compile
+                    // it and discard/void the result; no set_box_local,
+                    // since it assigns directly to the pre-declared locals.
+                    last_dst = try child.allocReg();
+                    try child.compileExprViaIR(form, last_dst, false);
+                    try child.emitOp(.load_void);
+                    try child.emitU16(last_dst);
+                    child.freeReg();
+                },
+            }
         }
 
         if (current == types.NIL) {

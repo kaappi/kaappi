@@ -114,9 +114,29 @@ pub const BodyOpts = struct {
 pub const BodyScan = struct {
     pub const MAX_DEFS = 512;
 
+    /// One ordered init/side-effect step of a body's leading letrec* region.
+    /// Decoupled from def_names/def_inits (which track bound *names*, one
+    /// slot each) because a `define-values` clause can bind 0..N names from
+    /// a single shared init expression — it can't be represented as one
+    /// name-to-init pair the way `define` and `define-record-type`'s
+    /// expansions can.
+    pub const DefStep = union(enum) {
+        /// A plain define(-record-type)-style binding: compile
+        /// def_inits[idx] and store the result into def_slots[idx].
+        simple: usize,
+        /// A define-values clause's already-desugared assignment form
+        /// (see buildDefineValuesAssignForm): compile it and discard the
+        /// result — it performs its own set!s against the names this scan
+        /// already pre-declared (or, for a zero-name clause, is just the
+        /// raw init expression, compiled for its side effects only).
+        values_group: Value,
+    };
+
     def_names: [MAX_DEFS][]const u8 = undefined,
     def_inits: [MAX_DEFS]Value = undefined,
     def_count: usize = 0,
+    def_steps: [MAX_DEFS]DefStep = undefined,
+    step_count: usize = 0,
     remaining: Value = types.NIL,
     macro_count: usize = 0,
 
@@ -244,6 +264,27 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
                     CompileError.InvalidSyntax => break,
                     else => return err,
                 };
+            } else if (std.mem.eql(u8, hn, "define-values")) {
+                const dv_args = types.cdr(expr);
+                if (dv_args == types.NIL or !types.isPair(dv_args)) break;
+                var dv_names_buf: [64][]const u8 = undefined;
+                var dv_rest_name: ?[]const u8 = null;
+                const dv_name_count = parseDefineValuesFormals(types.car(dv_args), dv_names_buf[0..], &dv_rest_name) catch |err| switch (err) {
+                    CompileError.InvalidSyntax => break,
+                    else => return err,
+                };
+                for (dv_names_buf[0..dv_name_count]) |dn| {
+                    if (all_def_count < BodyScan.MAX_DEFS) {
+                        all_def_names[all_def_count] = dn;
+                        all_def_count += 1;
+                    }
+                }
+                if (dv_rest_name) |rn| {
+                    if (all_def_count < BodyScan.MAX_DEFS) {
+                        all_def_names[all_def_count] = rn;
+                        all_def_count += 1;
+                    }
+                }
             } else if (!(handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
                 break;
             }
@@ -276,6 +317,9 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
                 scan_result.def_names[scan_result.def_count] = types.symbolName(target);
                 scan_result.def_inits[scan_result.def_count] = types.car(def_rest);
                 scan_result.def_count += 1;
+                if (scan_result.step_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+                scan_result.def_steps[scan_result.step_count] = .{ .simple = scan_result.def_count - 1 };
+                scan_result.step_count += 1;
             } else if (types.isPair(target)) {
                 const fn_name = types.car(target);
                 if (!types.isSymbol(fn_name)) break;
@@ -291,10 +335,14 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
                 }
                 compiler.gc.extra_roots.append(compiler.gc.allocator, scan_result.def_inits[scan_result.def_count]) catch return CompileError.OutOfMemory;
                 scan_result.def_count += 1;
+                if (scan_result.step_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+                scan_result.def_steps[scan_result.step_count] = .{ .simple = scan_result.def_count - 1 };
+                scan_result.step_count += 1;
             } else {
                 break;
             }
         } else if (std.mem.eql(u8, head_name, "define-record-type")) {
+            const rt_before = scan_result.def_count;
             vm_records.expandRecordTypeDefines(
                 compiler.gc,
                 types.cdr(expr),
@@ -306,6 +354,50 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
                 CompileError.InvalidSyntax => break,
                 else => return err,
             };
+            var rt_idx = rt_before;
+            while (rt_idx < scan_result.def_count) : (rt_idx += 1) {
+                if (scan_result.step_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+                scan_result.def_steps[scan_result.step_count] = .{ .simple = rt_idx };
+                scan_result.step_count += 1;
+            }
+        } else if (std.mem.eql(u8, head_name, "define-values")) {
+            const dv_args = types.cdr(expr);
+            if (dv_args == types.NIL or !types.isPair(dv_args)) break;
+            const dv_formals = types.car(dv_args);
+            const dv_rest = types.cdr(dv_args);
+            if (dv_rest == types.NIL or !types.isPair(dv_rest)) break;
+            const dv_expr = types.car(dv_rest);
+
+            var dv_names_buf: [64][]const u8 = undefined;
+            var dv_rest_name: ?[]const u8 = null;
+            const dv_name_count = parseDefineValuesFormals(dv_formals, dv_names_buf[0..], &dv_rest_name) catch |err| switch (err) {
+                CompileError.InvalidSyntax => break,
+                else => return err,
+            };
+
+            const dv_total_new = dv_name_count + @as(usize, if (dv_rest_name != null) 1 else 0);
+            if (scan_result.def_count + dv_total_new > BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+
+            for (dv_names_buf[0..dv_name_count]) |dn| {
+                scan_result.def_names[scan_result.def_count] = dn;
+                scan_result.def_inits[scan_result.def_count] = types.VOID;
+                scan_result.def_count += 1;
+            }
+            if (dv_rest_name) |rn| {
+                scan_result.def_names[scan_result.def_count] = rn;
+                scan_result.def_inits[scan_result.def_count] = types.VOID;
+                scan_result.def_count += 1;
+            }
+
+            const dv_assign_form = buildDefineValuesAssignForm(compiler.gc, dv_names_buf[0..dv_name_count], dv_rest_name, dv_expr) catch |err| switch (err) {
+                CompileError.InvalidSyntax => break,
+                else => return err,
+            };
+            compiler.gc.extra_roots.append(compiler.gc.allocator, dv_assign_form) catch return CompileError.OutOfMemory;
+
+            if (scan_result.step_count >= BodyScan.MAX_DEFS) return CompileError.TooManyLocals;
+            scan_result.def_steps[scan_result.step_count] = .{ .values_group = dv_assign_form };
+            scan_result.step_count += 1;
         } else if (handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
             const ds_args = types.cdr(expr);
             if (ds_args == types.NIL or !types.isPair(ds_args)) break;
@@ -354,7 +446,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
     var last_dst: u16 = opts.dst orelse 0;
     var current = scan.remaining;
 
-    if (scan.def_count > 0) {
+    if (scan.step_count > 0) {
         self.beginScope();
 
         var def_slots: [BodyScan.MAX_DEFS]u16 = undefined;
@@ -367,19 +459,40 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             try self.markLocalBoxedBySlot(slot);
         }
 
-        for (0..scan.def_count) |i| {
-            if (allocates_regs) {
-                last_dst = try self.allocReg();
-                try self.compileExprViaIR(scan.def_inits[i], last_dst, false);
-                try self.emitOp(.set_box_local);
-                try self.emitU16(def_slots[i]);
-                try self.emitU16(last_dst);
-                self.freeReg();
-            } else {
-                try self.compileExprViaIR(scan.def_inits[i], last_dst, false);
-                try self.emitOp(.set_box_local);
-                try self.emitU16(def_slots[i]);
-                try self.emitU16(last_dst);
+        for (0..scan.step_count) |si| {
+            switch (scan.def_steps[si]) {
+                .simple => |idx| {
+                    if (allocates_regs) {
+                        last_dst = try self.allocReg();
+                        try self.compileExprViaIR(scan.def_inits[idx], last_dst, false);
+                        try self.emitOp(.set_box_local);
+                        try self.emitU16(def_slots[idx]);
+                        try self.emitU16(last_dst);
+                        self.freeReg();
+                    } else {
+                        try self.compileExprViaIR(scan.def_inits[idx], last_dst, false);
+                        try self.emitOp(.set_box_local);
+                        try self.emitU16(def_slots[idx]);
+                        try self.emitU16(last_dst);
+                    }
+                },
+                .values_group => |form| {
+                    // Already a self-contained set!-performing (or, for a
+                    // zero-name clause, bare side-effecting) form — compile
+                    // it and discard/void the result; no set_box_local,
+                    // since it assigns directly to the pre-declared locals.
+                    if (allocates_regs) {
+                        last_dst = try self.allocReg();
+                        try self.compileExprViaIR(form, last_dst, false);
+                        try self.emitOp(.load_void);
+                        try self.emitU16(last_dst);
+                        self.freeReg();
+                    } else {
+                        try self.compileExprViaIR(form, last_dst, false);
+                        try self.emitOp(.load_void);
+                        try self.emitU16(last_dst);
+                    }
+                },
             }
         }
 
@@ -622,6 +735,147 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
     }
 }
 
+/// Parse a `define-values` formals spec — the same shape as a lambda
+/// formals list: `()`, a bare symbol, a proper list, or an improper
+/// (dotted) list — into fixed names (written into `names_buf`, count
+/// returned) plus an optional rest name.
+fn parseDefineValuesFormals(formals: Value, names_buf: [][]const u8, rest_name: *?[]const u8) CompileError!usize {
+    rest_name.* = null;
+    if (formals == types.NIL) return 0;
+    if (types.isSymbol(formals)) {
+        rest_name.* = types.symbolName(formals);
+        return 0;
+    }
+    var name_count: usize = 0;
+    var formal = formals;
+    while (formal != types.NIL) {
+        if (types.isSymbol(formal)) {
+            rest_name.* = types.symbolName(formal);
+            break;
+        }
+        if (!types.isPair(formal)) return CompileError.InvalidSyntax;
+        const sym = types.car(formal);
+        if (!types.isSymbol(sym)) return CompileError.InvalidSyntax;
+        if (name_count >= names_buf.len) return CompileError.InvalidSyntax;
+        names_buf[name_count] = types.symbolName(sym);
+        name_count += 1;
+        formal = types.cdr(formal);
+    }
+    return name_count;
+}
+
+/// Build the desugared assignment form for a `define-values` clause, given
+/// its already-parsed fixed names, optional rest name, and init expression.
+/// Returns a complete, self-contained form ready to compile via
+/// `compileExprViaIR`:
+///   - zero names, no rest: `expr` itself, unwrapped (nothing to bind, just
+///     evaluate for side effects).
+///   - zero fixed names, a rest name (the "single symbol" formals shape):
+///     `(set! rest (call-with-values (lambda () expr) list))`.
+///   - otherwise: `(call-with-values (lambda () expr) (lambda (p0 p1 ...
+///     [. prest]) (set! n0 p0) (set! n1 p1) ... [(set! rest prest)]))`.
+/// Does NOT pre-declare the names — callers must ensure they already exist
+/// as locals or globals before compiling the returned form.
+///
+/// Builds a chain of fresh, unrooted pairs, each allocation able to sweep
+/// the previous ones, so collection is disabled for the whole build
+/// (issue #1010). The caller must root the result across whatever compiles
+/// next.
+fn buildDefineValuesAssignForm(gc: *memory.GC, names: []const []const u8, rest_name: ?[]const u8, expr: Value) CompileError!Value {
+    const is_single = names.len == 0 and rest_name != null;
+
+    gc.no_collect += 1;
+    defer gc.no_collect -= 1;
+
+    if (is_single) {
+        // (define-values x expr) → (set! x (call-with-values (lambda () expr) list))
+        const rn_sym = gc.allocSymbol(rest_name.?) catch return CompileError.OutOfMemory;
+        const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+
+        const producer_body = gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
+        const producer_lambda = gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
+        const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+        const producer = gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
+
+        const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+        const cwv_3 = gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory;
+        const cwv_2 = gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
+        const cwv_form = gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
+
+        const set_sym = gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
+        const set_rest2 = gc.allocPair(cwv_form, types.NIL) catch return CompileError.OutOfMemory;
+        const set_args = gc.allocPair(rn_sym, set_rest2) catch return CompileError.OutOfMemory;
+        return gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
+    }
+
+    // Consumer: (lambda (p0 p1 ... [. prest]) (set! n0 p0) (set! n1 p1) ... )
+    // Build set! forms from right to left.
+    var consumer_body: Value = types.NIL;
+
+    if (rest_name) |rn| {
+        if (names.len > 0) {
+            const rn_sym = gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
+            const param_sym = gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory;
+            const set_rest = gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
+            const set_args = gc.allocPair(rn_sym, set_rest) catch return CompileError.OutOfMemory;
+            const set_sym = gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
+            const set_form = gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
+            consumer_body = gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
+        }
+    }
+
+    var i = names.len;
+    while (i > 0) {
+        i -= 1;
+        const orig_sym = gc.allocSymbol(names[i]) catch return CompileError.OutOfMemory;
+        var param_name_buf: [32]u8 = undefined;
+        const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
+        const param_sym = gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
+        const set_rest = gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
+        const set_args = gc.allocPair(orig_sym, set_rest) catch return CompileError.OutOfMemory;
+        const set_sym = gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
+        const set_form = gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
+        consumer_body = gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
+    }
+
+    if (consumer_body == types.NIL) {
+        // (define-values () expr) — no bindings at all; just evaluate expr
+        // for its side effects.
+        return expr;
+    }
+
+    // Build consumer params list
+    var consumer_params: Value = if (rest_name != null and names.len > 0)
+        gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory
+    else
+        types.NIL;
+
+    i = names.len;
+    while (i > 0) {
+        i -= 1;
+        var param_name_buf: [32]u8 = undefined;
+        const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
+        const param_sym = gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
+        consumer_params = gc.allocPair(param_sym, consumer_params) catch return CompileError.OutOfMemory;
+    }
+
+    // Build (lambda consumer_params consumer_body...)
+    const consumer_lambda_args = gc.allocPair(consumer_params, consumer_body) catch return CompileError.OutOfMemory;
+    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+    const consumer = gc.allocPair(lambda_sym, consumer_lambda_args) catch return CompileError.OutOfMemory;
+
+    // Build (lambda () expr)
+    const producer_body = gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
+    const producer_lambda = gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
+    const producer = gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
+
+    // Build (call-with-values producer consumer)
+    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    const cwv_3 = gc.allocPair(consumer, types.NIL) catch return CompileError.OutOfMemory;
+    const cwv_2 = gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
+    return gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
+}
+
 pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const formals = types.car(args);
@@ -629,45 +883,21 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
     if (rest == types.NIL or !types.isPair(rest)) return CompileError.InvalidSyntax;
     const expr = types.car(rest);
 
-    // Collect formal names and count
     var names_buf: [64][]const u8 = undefined;
-    var name_count: usize = 0;
     var rest_name: ?[]const u8 = null;
-    var formal = formals;
-
-    if (formals == types.NIL) {
-        // (define-values () expr) — no bindings, just evaluate for side effects
-        try self.compileExprViaIR(expr, dst, false);
-        try self.emitOp(.load_void);
-        try self.emitU16(dst);
-        return;
-    }
-
-    if (types.isSymbol(formals)) {
-        // (define-values x expr) — single symbol collects all values as list
-        rest_name = types.symbolName(formals);
-    } else {
-        while (formal != types.NIL) {
-            if (types.isSymbol(formal)) {
-                rest_name = types.symbolName(formal);
-                break;
-            }
-            if (!types.isPair(formal)) return CompileError.InvalidSyntax;
-            const sym = types.car(formal);
-            if (!types.isSymbol(sym)) return CompileError.InvalidSyntax;
-            if (name_count >= 64) return CompileError.InvalidSyntax;
-            names_buf[name_count] = types.symbolName(sym);
-            name_count += 1;
-            formal = types.cdr(formal);
-        }
-    }
+    const name_count = try parseDefineValuesFormals(formals, names_buf[0..], &rest_name);
 
     // Build desugared form:
     //   (define x (if #f #f)) ...  ;; pre-define all variables
     //   (call-with-values (lambda () expr) (lambda (a b c ...) (set! x a) (set! y b) ...))
-    // Then compile the desugared begin block.
-
-    // Step 1: emit (define name (if #f #f)) for each name
+    // Then compile the desugared form.
+    //
+    // This pre-definition step is only reachable here for a define-values
+    // clause that is NOT part of a body's leading letrec* region (e.g. one
+    // following an ordinary expression, or at top level) — when it IS part
+    // of that region, scanBodyDefs has already pre-declared these names
+    // letrec*-style and compiles the clause via BodyScan.DefStep.values_group
+    // instead of calling this function (#1719).
     for (names_buf[0..name_count]) |name| {
         var def_args = try buildVoidDefineArgs(self, name);
         self.gc.pushRoot(&def_args);
@@ -681,107 +911,11 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
         try compileDefine(self, def_args, dst);
     }
 
-    // Steps 2+3 build chains of fresh unrooted pairs, each allocation able to
-    // sweep the previous ones, so collection is disabled for the whole build
-    // (issue #1010). The final form is rooted across the compile that follows.
-    var final_form: Value = types.NIL;
-    const is_single = name_count == 0 and rest_name != null;
-    {
-        self.gc.no_collect += 1;
-        defer self.gc.no_collect -= 1;
-
-        // Step 2: Build the consumer lambda params and set! body
-        // Consumer: (lambda (p0 p1 ... [. prest]) (set! x0 p0) (set! x1 p1) ... )
-        var consumer_body: Value = types.NIL;
-
-        // Build set! forms from right to left
-        if (rest_name) |rn| {
-            if (name_count > 0) {
-                const rn_sym = self.gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
-                const param_sym = self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory;
-                const set_rest = self.gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
-                const set_args = self.gc.allocPair(rn_sym, set_rest) catch return CompileError.OutOfMemory;
-                const set_sym = self.gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
-                const set_form = self.gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
-                consumer_body = self.gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
-            }
-        }
-
-        var i = name_count;
-        while (i > 0) {
-            i -= 1;
-            const orig_sym = self.gc.allocSymbol(names_buf[i]) catch return CompileError.OutOfMemory;
-            var param_name_buf: [32]u8 = undefined;
-            const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
-            const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
-            const set_rest = self.gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
-            const set_args = self.gc.allocPair(orig_sym, set_rest) catch return CompileError.OutOfMemory;
-            const set_sym = self.gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
-            const set_form = self.gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
-            consumer_body = self.gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
-        }
-
-        // Build consumer params list
-        var consumer_params: Value = if (rest_name != null and name_count > 0)
-            self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory
-        else
-            types.NIL;
-
-        i = name_count;
-        while (i > 0) {
-            i -= 1;
-            var param_name_buf: [32]u8 = undefined;
-            const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
-            const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
-            consumer_params = self.gc.allocPair(param_sym, consumer_params) catch return CompileError.OutOfMemory;
-        }
-
-        if (is_single) {
-            // Single-symbol case: (define-values x expr) needs list conversion
-            // Desugar: (define-values x expr) → (set! x (call-with-values (lambda () expr) list))
-            const rn_sym = self.gc.allocSymbol(rest_name.?) catch return CompileError.OutOfMemory;
-            const list_sym = self.gc.allocSymbol("list") catch return CompileError.OutOfMemory;
-
-            const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
-            const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
-            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
-
-            const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-            const cwv_3 = self.gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory;
-            const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
-            const cwv_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
-
-            const set_rest2 = self.gc.allocPair(cwv_form, types.NIL) catch return CompileError.OutOfMemory;
-            final_form = self.gc.allocPair(rn_sym, set_rest2) catch return CompileError.OutOfMemory;
-        } else {
-            // Build (lambda consumer_params consumer_body...)
-            const consumer_lambda_args = self.gc.allocPair(consumer_params, consumer_body) catch return CompileError.OutOfMemory;
-            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            const consumer = self.gc.allocPair(lambda_sym, consumer_lambda_args) catch return CompileError.OutOfMemory;
-
-            // Build (lambda () expr)
-            const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
-            const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
-            const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
-
-            // Build (call-with-values producer consumer)
-            const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-            const cwv_3 = self.gc.allocPair(consumer, types.NIL) catch return CompileError.OutOfMemory;
-            const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
-            final_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
-        }
-    }
-
-    self.gc.pushRoot(&final_form);
+    var assign_form = try buildDefineValuesAssignForm(self.gc, names_buf[0..name_count], rest_name, expr);
+    self.gc.pushRoot(&assign_form);
     defer self.gc.popRoot();
-    if (is_single) {
-        try compileSet(self, final_form, dst);
-        return;
-    }
 
-    // Compile the call-with-values expression
-    try self.compileExprViaIR(final_form, dst, false);
+    try self.compileExprViaIR(assign_form, dst, false);
     try self.emitOp(.load_void);
     try self.emitU16(dst);
 }

@@ -545,6 +545,66 @@ test "Unicode symbol write/read round-trip (#1268)" {
     try std.testing.expectEqual(types.TRUE, result);
 }
 
+test "define-values supports letrec*-style mutual reference, like define (#1719)" {
+    // The issue's own repro: two mutually-recursive procedures, each bound
+    // by its own define-values clause inside a procedure body. Before the
+    // fix, `od?` failed to resolve while compiling `ev?`'s body — its name
+    // hadn't been pre-declared yet, since scanBodyDefs's leading-defines
+    // prescan only recognized `define`/`define-record-type`, not
+    // `define-values`.
+    try th.expectEvalTrue(
+        \\(define (test-define-values)
+        \\  (define-values (ev?) (lambda (n) (if (= n 0) #t (od? (- n 1)))))
+        \\  (define-values (od?) (lambda (n) (if (= n 0) #f (ev? (- n 1)))))
+        \\  (ev? 10))
+        \\(test-define-values)
+    );
+}
+
+test "define-values mutual reference works via explicit lambda value (#1719)" {
+    // Same shape as above, but the outer procedure is written with an
+    // explicit `(lambda ...)` value bound by a plain `define`, rather than
+    // the `(define (name) ...)` shorthand — this exercises the IR-pipeline
+    // lambda body compiler (compileLambdaWithIR) instead of the legacy
+    // passthrough (compiler_lambda.compileLambda), a second, independent
+    // copy of the same body-scanning/compiling logic.
+    try th.expectEvalBool(
+        \\(define test-define-values
+        \\  (lambda ()
+        \\    (define-values (ev?) (lambda (n) (if (= n 0) #t (od? (- n 1)))))
+        \\    (define-values (od?) (lambda (n) (if (= n 0) #f (ev? (- n 1)))))
+        \\    (ev? 11)))
+        \\(test-define-values)
+    , false);
+}
+
+test "define-values and plain define forward-reference each other (#1719)" {
+    // A define-values clause may reference a name bound by a LATER plain
+    // `define`, and vice versa — R7RS draws no distinction between them
+    // for a body's letrec* scoping.
+    try th.expectEval(
+        \\(define (mixed-forward-refs)
+        \\  (define (get-b) b)
+        \\  (define-values (a) (lambda () (get-b)))
+        \\  (define-values (b) 14)
+        \\  (define (get-a) (a))
+        \\  (get-a))
+        \\(mixed-forward-refs)
+    , 14);
+}
+
+test "define-values clause where one bound name calls another (#1719)" {
+    // Both names come from the SAME define-values clause's shared init
+    // expression — both must already be visible as locals while that
+    // init compiles, even though neither has a value yet at that point.
+    try th.expectEval(
+        \\(define (self-ref)
+        \\  (define-values (f g) (values (lambda () (g)) (lambda () 42)))
+        \\  (f))
+        \\(self-ref)
+    , 42);
+}
+
 test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     // A VM that registers primitives but never runs vm_bootstrap.install()
     // must raise a clear error from the bootstrapped procedures instead of
