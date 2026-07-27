@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785153871927,
+  "lastUpdate": 1785157703044,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "283d5f1356852e6e91bad342894b5697e49a119d",
-          "message": "Windows native backend: kaappi compile verified end-to-end (#1610) (#1626)\n\nkaappi compile had never produced a running native binary on a Windows\nmachine; doing so surfaced four defects, three of which the issue\npredicted:\n\n- The runtime-archive probes (native_compiler.checkLibDir, doctor's\n  hasArchive) looked for libkaappi_rt.a, but Zig names COFF archives\n  kaappi_rt.lib, so discovery always failed on Windows. A new\n  platform.rt_lib_name carries the platform spelling; the probes, the\n  compile error message, doctor's messages, and --help all use it.\n- kaappi compile foo.scm derived \"foo\" as the output; PowerShell/cmd\n  PATH lookup and double-click need the extension, so the derived name\n  now appends platform.exe_suffix (foo.exe on Windows, unchanged\n  elsewhere). Explicit -o stays as given.\n- The emitted LLVM module triple fell to aarch64-unknown-unknown on\n  Windows; it is now aarch64/x86_64-pc-windows-gnu, matching the gnu\n  ABI the runtime lib is built with (clang's driver-triple override\n  hid this, but only behind the -w the link line passes).\n- New find: linking failed with undefined Winsock symbols. The\n  fd-readiness backends (#1608) call ws2_32 via extern \"ws2_32\"\n  declarations, which Zig links automatically only when it drives the\n  final link itself - a foreign zig cc link of the static archive\n  needs -lws2_32 explicitly. tryLink and doctor's smokeLink add it in\n  place of -lpthread on Windows; the previously-failing doctor\n  smoke-link now passes.\n\nVerified on the Windows 11 ARM64 box (build 26100) with a Zig master\ntoolchain as linker (0.16.0's zig cc access-violates natively, #1613):\ntests/e2e/run-e2e.ps1 - a new PowerShell port of run-e2e.sh's parity\nphase, kept for the post-0.17.0-bump retest - passes 38/38 (all 37\nprograms match the interpreter, incl. closures, self/mutual tail\ncalls, call/cc, macros; plus the derived-.exe check). KAAPPI_LIB_DIR\nand exe-relative lib discovery and the missing-lib error were\nexercised individually. macOS e2e suite stays 37/37; unit suite green\nnatively and as the aarch64-windows compile gate.\n\nCloses #1610\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T16:04:13+05:30",
-          "tree_id": "e1515b82ffd914c06970e34c5400472922482b33",
-          "url": "https://github.com/kaappi/kaappi/commit/283d5f1356852e6e91bad342894b5697e49a119d"
-        },
-        "date": 1784286413461,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.038667,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.252273,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.914616,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.359723,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006816,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053408,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50541,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068173,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.231081,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.95928,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.525965,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.468803,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.748907,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.835667,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044754,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044759,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "053f03d0831eb1d2c41dc19e74dd9bf5a94a364c",
+          "message": "Re-unwrap usertext markers mid-match in matchListPattern's loop (#1788)\n\nmatchPattern unwraps its own pattern_in/input_in parameters once, at\nentry, but matchListPattern's internal loop advanced pat/inp on every\niteration without re-unwrapping. A usertext marker pair spliced into a\ndotted-tail position (e.g. a generated macro's pattern `(_ head . p)`\nwhere p's substituted value is a list) is only caught by the entry-level\nunwrap when it sits in the very first position; anything preceding it in\nthe pattern forces the marker to surface mid-loop as a bogus extra list\nelement, shifting every subsequent position and failing the match.\n\nFound while resuming SRFI 148 (eager syntax-rules, #1699), whose\ngenerated macro pattern is always exactly this dotted-tail shape. Fixes\none of two remaining blockers for that SRFI; the other (#1787) is a\nseparate, deeper bug in identifier-comparison against compound values.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T17:59:20+05:30",
+          "tree_id": "f4f82e850f3b5572ab9826e3829ecadf6130e8c0",
+          "url": "https://github.com/kaappi/kaappi/commit/053f03d0831eb1d2c41dc19e74dd9bf5a94a364c"
+        },
+        "date": 1785157701733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.641222,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.625905,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.508683,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.682333,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004981,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033721,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.285418,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0411,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.585004,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.138538,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.998893,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.318675,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.123621,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.82917,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.028901,
             "unit": "seconds"
           }
         ]
