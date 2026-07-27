@@ -861,7 +861,16 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
 
     var custom_ellipsis: ?[]const u8 = null;
     var after_ellipsis = rest;
-    const first_arg = types.car(rest);
+    // A generating macro may splice a user/pattern-var-supplied ellipsis
+    // identifier into this position (mirrors the literals-list unwrap
+    // below): when a nested syntax-rules template substitutes an outer
+    // pattern variable here, NESTED_SR_FLAG's usertext-marking protocol
+    // wraps the value so the generating macro's own expansion doesn't
+    // re-walk it as template text. Unwrap it before checking whether this
+    // is a bare custom-ellipsis symbol, or it's still a usertext pair (not
+    // a symbol) and the ellipsis is silently missed, misparsing everything
+    // after it as part of the literals list.
+    const first_arg = expander.unwrapUsertext(types.car(rest));
     if (types.isSymbol(first_arg) and !types.isPair(first_arg)) {
         const name_str = types.symbolName(first_arg);
         if (!std.mem.eql(u8, name_str, "_")) {

@@ -404,6 +404,56 @@ test "hygiene: genuinely inert quoted literal in a nested template is still not 
     );
 }
 
+test "hygiene: a template list starting with the symbol quote, but longer than 2 elements, is not treated as a quote form" {
+    // instantiateTemplate's (quote <datum>) fast path used to trigger for
+    // ANY template sub-list whose first element was literally the symbol
+    // `quote`, regardless of the list's actual length. R7RS quote is
+    // strictly unary, so a longer list starting with `quote` for an
+    // unrelated reason -- e.g. passing the bare symbol `quote` as one
+    // argument among several to some other macro -- was misinterpreted as
+    // `(quote <2nd-element>)`, silently discarding every element after the
+    // second. Found while porting SRFI 148's em-syntax-rules, whose own
+    // template literally begins `(em-syntax-rules-aux1 quote ...)`.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax sink
+        \\    (syntax-rules ()
+        \\      ((_ a b c) '(got a b c))))
+        \\  (define-syntax probe
+        \\    (syntax-rules ()
+        \\      ((_ (lit ...))
+        \\       (sink quote (lit ...) 42))))
+        \\  (equal? (probe ()) '(got quote () 42)))
+    );
+}
+
+test "hygiene: a custom ellipsis identifier substituted through a nested syntax-rules template is recognized, not misparsed as a literal" {
+    // parseSyntaxRules's custom-ellipsis detection (the optional symbol
+    // right after `syntax-rules`) requires a bare, unwrapped symbol. When a
+    // nested syntax-rules template substitutes an OUTER pattern variable
+    // into that exact position (NESTED_SR_FLAG's usertext-marking protocol
+    // wraps the value so the generating macro's own expansion doesn't
+    // re-walk it as template text), the wrapped value isn't a bare symbol,
+    // so the ellipsis position was silently missed and the wrapped pair
+    // was misparsed as the literals list instead -- corrupting everything
+    // that should have come after it. Found while porting SRFI 148's
+    // em-syntax-rules, whose custom-ellipsis branch generates exactly this
+    // shape. my-ellipsis is substituted (to the symbol :::) before this
+    // embedded syntax-rules is parsed, so both the declared ellipsis
+    // argument and its two uses (pattern and template) end up as the
+    // literal symbol :::, exercising the exact generated shape.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-with-ellipsis
+        \\    (syntax-rules ()
+        \\      ((_ my-ellipsis)
+        \\       (syntax-rules my-ellipsis ()
+        \\         ((_ x my-ellipsis) '(x my-ellipsis))))))
+        \\  (define-syntax use-it (gen-with-ellipsis :::))
+        \\  (equal? (use-it 1 2 3) '(1 2 3)))
+    );
+}
+
 test "hygiene: template references sibling define that appears later in body" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
