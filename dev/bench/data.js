@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785149456689,
+  "lastUpdate": 1785153040535,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ac4145ba344a678b014ca09aeb4a955ebe256fe5",
-          "message": "Add porting guide for new OSes and CPU architectures (#1624)\n\nThe Windows (#1606/#1608/#1609), WASI (KEP-0001 P4), and riscv64 ports\neach rediscovered where portability lives in this codebase: the\nplatform.zig shim, the reactor Backend switch (the one hard compile\ngate), the runtime capability probes, and the NaN-box 48-bit pointer\nconstraint. docs/dev/porting.md captures that as a support matrix, a\nporting-surface map, the fiber-I/O degradation ladder, and staged\nchecklists for OS and CPU ports, so the next port starts from a plan\ninstead of an archaeology dig. Index it in docs/dev/README.md and\npoint to it from CLAUDE.md's platform section.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T13:07:01+05:30",
-          "tree_id": "f75dd997959d87bd521c463af13d42fbddab1cfa",
-          "url": "https://github.com/kaappi/kaappi/commit/ac4145ba344a678b014ca09aeb4a955ebe256fe5"
-        },
-        "date": 1784275841831,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.376365,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.477914,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.935537,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.457856,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006377,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054372,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50842,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069938,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.47887,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.99689,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.581556,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437309,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.839795,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.74896,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045411,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043671,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "71569effd2b3b3da93737f5f2fc004d46825dae2",
+          "message": "Stop the reactor timer tests failing on a poll() that returns a tick early (#1785)\n\n`tests_reactor.test.addTimer fires when its deadline passes` failed once on\nwindows-x64-test during CI for #1784 (expected 1, found 0) and passed on\nre-run.\n\nThe test asserted that a single `poll()` would fire a timer 1ms out. It does\nnot have to. `effectiveTimeout` bounds the wait at the nearest deadline, and\nan OS wait requested for an interval near the scheduler's tick can return a\nfraction of a tick early; `clockNs()` then still reads below the deadline, so\n`popExpiredTimers` moves nothing and `poll()` returns empty.\n`WindowsEventBackend.wait` ceils its millisecond conversion so a timer never\nfires *early*, but nothing can stop the underlying wait from returning early\n— which is why only the 1ms deadlines here were exposed, and why the 5s waits\nelsewhere in this file never were.\n\nThat is `poll()`'s documented contract, not a bug in it:\n`FiberScheduler.parkOnReactor` treats an empty return as ordinary and\nre-checks after each capped return. The tests were the only callers assuming\none poll suffices, so they now loop the same way.\n\nTwo neighbours had the same defect latent:\n\n- \"the nearer of an fd timeout and a timer deadline bounds the wait\" polls a\n  1ms timer identically and could fail the same way.\n- \"removeTimer cancels a pending timer so it never fires\" fails in the other\n  direction: a poll() cut short before the deadline let it pass without ever\n  proving the cancellation. It now sleeps past the deadline before looking.\n\nRetrying alone would have *weakened* the first two — the loop would quietly\nwait out a badly late timer — so both keep an explicit upper bound on how\npromptly the timer fired (1s: ~60x the coarsest tick behind the flake, and\nthe bound the notify test in this file already uses). Mutation-tested against\nthree breakages: timers that never expire, a wait bound that ignores timers,\nand a no-op removeTimer are each caught.\n\n40 consecutive runs of the reactor suite, clean.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T16:35:49+05:30",
+          "tree_id": "d19869db2df242274fa74227591efd661a9fc2b1",
+          "url": "https://github.com/kaappi/kaappi/commit/71569effd2b3b3da93737f5f2fc004d46825dae2"
+        },
+        "date": 1785153038765,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.052286,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.725277,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.925688,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.65764,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006649,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053297,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.532912,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068733,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.260215,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.975266,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.537761,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471671,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.706136,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.778072,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044666,
             "unit": "seconds"
           }
         ]
