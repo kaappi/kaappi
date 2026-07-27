@@ -74,7 +74,7 @@ fn markShared(value: Value, state: *SharedState) void {
     defer state.depth -= 1;
     const obj = types.toObject(value);
     switch (obj.tag) {
-        .pair, .vector => {
+        .pair, .vector, .record_instance => {
             // Check if already seen
             for (state.seen[0..state.seen_count]) |s| {
                 if (s == value) {
@@ -98,9 +98,14 @@ fn markShared(value: Value, state: *SharedState) void {
             if (obj.tag == .pair) {
                 markShared(types.car(value), state);
                 markShared(types.cdr(value), state);
-            } else {
+            } else if (obj.tag == .vector) {
                 const vec = obj.as(types.Vector);
                 for (vec.data) |elem| {
+                    markShared(elem, state);
+                }
+            } else if (obj.tag == .record_instance) {
+                const ri = obj.as(types.RecordInstance);
+                for (ri.fields) |elem| {
                     markShared(elem, state);
                 }
             }
@@ -142,6 +147,14 @@ fn printValueShared(writer: anytype, value: Value, state: *SharedState, atom_mod
             try printValueShared(writer, elem, state, atom_mode);
         }
         try writer.writeByte(')');
+    } else if (types.isPointer(value) and types.toObject(value).tag == .record_instance) {
+        const ri = types.toObject(value).as(types.RecordInstance);
+        try writer.print("#<{s}", .{ri.record_type.name});
+        for (ri.fields) |field| {
+            try writer.writeByte(' ');
+            try printValueShared(writer, field, state, atom_mode);
+        }
+        try writer.writeByte('>');
     } else {
         try printValue(writer, value, atom_mode);
     }
@@ -197,6 +210,24 @@ fn markCycles(allocator: std.mem.Allocator, value: Value, state: *SharedState) v
     markCyclesRec(allocator, value, state, &on_stack, &done, 0);
 }
 
+/// Elements/fields to walk for a heap type whose cycle-detection treatment is
+/// otherwise identical to a vector's: visit each child once, flag a back-edge
+/// as shared. Record instances join vectors here so a cyclic web of records
+/// (e.g. two record types referencing each other, kaappi#1713) gets a datum
+/// label instead of recursing forever -- without this, such a cycle is
+/// invisible to this pre-pass, `state.shared_count` stays 0, and printing
+/// falls through to the plain depth-limited recursion, which merely bounds
+/// depth rather than detecting the cycle: a record type whose field is a
+/// vector of records that each reference it back fans out combinatorially
+/// long before the depth cap is reached.
+fn vectorLikeChildren(obj: *types.Object) ?[]const Value {
+    return switch (obj.tag) {
+        .vector => obj.as(types.Vector).data,
+        .record_instance => obj.as(types.RecordInstance).fields,
+        else => null,
+    };
+}
+
 fn markCyclesRec(
     allocator: std.mem.Allocator,
     value: Value,
@@ -209,12 +240,11 @@ fn markCyclesRec(
     if (!types.isPointer(value)) return;
     const obj = types.toObject(value);
 
-    if (obj.tag == .vector) {
+    if (vectorLikeChildren(obj)) |children| {
         if (on_stack.contains(value)) return recordSharedNode(state, value);
         if (done.contains(value)) return;
         on_stack.put(value, {}) catch return;
-        const vec = obj.as(types.Vector);
-        for (vec.data) |elem| markCyclesRec(allocator, elem, state, on_stack, done, depth + 1);
+        for (children) |elem| markCyclesRec(allocator, elem, state, on_stack, done, depth + 1);
         _ = on_stack.remove(value);
         done.put(value, {}) catch {};
         return;
@@ -1169,6 +1199,49 @@ test "write-shared shared substructure" {
     const s = try valueToString(std.testing.allocator, outer, .shared);
     defer std.testing.allocator.free(s);
     try std.testing.expectEqualStrings("(#0=(1) #0#)", s);
+}
+
+// Regression tests for #1713: record instances were invisible to both the
+// `write`/`display` cycle-detection pre-pass and the `write-shared`
+// shared-structure pre-pass, so a self-referential record fell through to
+// the plain depth-limited recursive printer instead of getting a datum
+// label. A single direct self-reference "only" recurses ~1024 times before
+// hitting the depth cap, but a fan-out cycle (a record field that's a
+// vector of records each pointing back) blows up combinatorially at every
+// level of that recursion -- see the Scheme-level regression test
+// tests/scheme/smoke/cyclic-record-printer-1713.scm for that shape.
+
+test "write circular record instance" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    // Build a "cell" record whose only field points back to itself.
+    const rt_val = try gc.allocRecordType("cell", 1);
+    const rt = types.toObject(rt_val).as(types.RecordType);
+    const placeholder = [_]Value{types.NIL};
+    const ri = try gc.allocRecordInstance(rt, &placeholder);
+    types.toObject(ri).as(types.RecordInstance).fields[0] = ri;
+
+    const s = try valueToString(std.testing.allocator, ri, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("#0=#<cell #0#>", s);
+}
+
+test "write-shared circular record instance" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const rt_val = try gc.allocRecordType("cell", 1);
+    const rt = types.toObject(rt_val).as(types.RecordType);
+    const placeholder = [_]Value{types.NIL};
+    const ri = try gc.allocRecordInstance(rt, &placeholder);
+    types.toObject(ri).as(types.RecordInstance).fields[0] = ri;
+
+    const s = try valueToString(std.testing.allocator, ri, .shared);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("#0=#<cell #0#>", s);
 }
 
 test "prettyPrint short list stays single-line" {

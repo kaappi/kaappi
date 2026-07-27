@@ -74,6 +74,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   every platform leg, so omitting a library directory from the tarball can
   no longer go unnoticed (#1741).
 
+- **The generic printer no longer hangs on cyclic record structures** —
+  `write`/`display`/`write-shared` already detected and datum-labeled
+  cycles through pairs and vectors, but record instances were invisible to
+  that machinery, so printing a cyclic record fell through to the plain
+  depth-limited recursive printer instead. A direct self-reference merely
+  recursed until hitting the depth cap, but a record field that's a vector
+  of records which each reference it back (e.g. two mutually-referencing
+  record types — the shape that motivated this issue) fans out
+  combinatorially at every level of that recursion, hanging the process
+  long before the cap is reached. Record instances now join pairs and
+  vectors in both cycle-detection passes, so a cyclic web of records prints
+  with the same `#N=`/`#N#` datum-label markers instead of looping forever
+  (#1713).
+
 #### SRFI 115 (regular expressions)
 
 - **`w/ascii` and `w/unicode` were no-ops** — both were accepted and ignored,
