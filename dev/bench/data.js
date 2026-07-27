@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785142079893,
+  "lastUpdate": 1785142857447,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2cebe06c293b6d8dfab3ebdc9b37e62426e2611",
-          "message": "Fuzz #1620: fix two generator leaks + report-job misclassification (#1621)\n\n* Fix two portable-generator leaks producing erroneous programs (#1620)\n\nThe nightly oracle-diff batch flagged seed 10294: Kaappi raised where\nChibi returned. The program was erroneous, i.e. a generator leak, not an\nimplementation bug: genLetMut generated the mutation statement's\nindex/value sub-expressions before registering the fresh binding, so the\npicker could reference an outer same-named int that the new binding\nshadows — the emitted reference resolved to the fresh object instead:\n\n  (let ((c (make-bytevector 1 92))) (bytevector-u8-set! c (modulo c 1) ...) ...)\n\nRegister the binding as .reserved before the mutation statement (hiding\nthe outer name, per the letrec precedent) and upgrade it to its real kind\nfor the body result.\n\nA 4000-seed totality scan after that fix surfaced a second, older leak:\nthe \"x y!\" pool literal recorded len 5 (actually 4), so every derived\nindex could land out of range. This one was invisible to the oracle —\nboth sides raise identically on out-of-range indices. Pool lengths are\nnow computed from the text at comptime (strLit), removing the bug class.\n\nVerified: the failed CI batch (seeds 10000..10999) now runs 0 divergent\nagainst the same Chibi 0.12.0 oracle, and seeds 0..2999 all evaluate\ncleanly. Pinned regression seeds cover both leak shapes.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make fuzz report marker detection artifact-layout-agnostic (#1620)\n\nThe seed-10294 oracle divergence was filed as \"Fuzz CI: infrastructure\nor build failure\" even though the oracle-diff job uploaded its finding\nartifact. Root cause: download-artifact v8 extracts each artifact into\nartifacts/<name>/ EXCEPT when the run produced exactly one artifact\n(the action's `artifacts.length === 1` special case) — then contents\nland in artifacts/ itself. One failed job is the common case, so marker\ndetection anchored on artifacts/<name>/ missed real findings whenever\nexactly one job failed.\n\nThis is also what misfiled seed 2788 (#1584): both artifact containers\nheld loose files, so the wrapper-zip theory behind the \"Unwrap archived\nartifacts\" step was a misdiagnosis. The unwrap step stays as a cheap\nsafety net, reframed.\n\nMarker detection now searches all of artifacts/ for filenames only the\nowning job can produce (seed-*.kaappi.* vs seed-*.{vm,nat}.*, and the\n.zig-cache/f/crash path), and derives each excerpt directory from the\nmatched file, so both layouts — and a job dying before upload while\nanother uploads — classify and excerpt correctly.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Correct the wrapper-zip comment in windows-arm-test (#1620)\n\nNamed artifact downloads extract contents into the path directly; the\nunwrap loop is a defensive no-op, not a required step. Keep it, but stop\nciting the misdiagnosed wrapper-zip behavior as fact.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T07:07:47Z",
-          "tree_id": "78246eea83b869a155ed471ac7da4a929138e97b",
-          "url": "https://github.com/kaappi/kaappi/commit/b2cebe06c293b6d8dfab3ebdc9b37e62426e2611"
-        },
-        "date": 1784274116667,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.41522,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.810396,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.492418,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.545995,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004256,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.029234,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.260309,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.036751,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.989664,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.978473,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.868942,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.314688,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 0.953896,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.270697,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.026754,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045194,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f990d49a578a5d576c4a10df171762560b2b52b0",
+          "message": "Build Linux release binaries against glibc so dynamic loading works (#1783)\n\nZig resolves the bare x86_64-linux / aarch64-linux targets to musl\nstatic, and static musl cannot dlopen — so every released Linux binary\nrejected (kaappi ffi) with 'Dynamic loading not supported', making the\nwhole C-extension ecosystem (net, http, sqlite, pg, redis, crypto)\nunusable from a release install. The docs site's docs-samples CI\ncaught it; the nightly ecosystem tests never could, because they build\nkaappi natively (glibc, dynamic) instead of testing release artifacts.\n\nThe two mainstream Linux targets now compile against glibc with a 2.28\nfloor (RHEL 8 / Debian 10 / Ubuntu 18.10+). A new zig_target matrix\nfield carries the compile triple so artifact names — which install.sh\nmatches (libkaappi_rt-<target>.a) — stay unchanged. Interpreter-tier\narches (riscv64, s390x, ppc64le) stay musl-static: their artifacts\nwere validated on Alpine VMs and gain nothing from a glibc floor.\nTrade-off: glibc binaries don't run on musl distros; Alpine users\nbuild from source until a musl-dynamic variant ships as an extra\nartifact.\n\nA linux-ffi-smoke job now runs the actual x86_64 and aarch64 artifacts\nand proves ffi-open + ffi-fn against libm.so.6 before the release job\npublishes anything, so this class of regression cannot ship again.\n\nVerified locally with zig 0.16.0: x86_64-linux builds 'statically\nlinked' (the bug), x86_64-linux-gnu.2.28 and aarch64-linux-gnu.2.28\nbuild 'dynamically linked' with the correct glibc interpreters, and\n'zig build lib' produces libkaappi_rt.a for the gnu targets.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T13:42:36+05:30",
+          "tree_id": "0e204dc687e640088a69ea69b533a17f9cd24391",
+          "url": "https://github.com/kaappi/kaappi/commit/f990d49a578a5d576c4a10df171762560b2b52b0"
+        },
+        "date": 1785142855659,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.099848,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.985262,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.938519,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.467162,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006723,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053164,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.515844,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067643,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.3342,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.972837,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.531973,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.473288,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.707538,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.811869,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045796,
             "unit": "seconds"
           }
         ]
