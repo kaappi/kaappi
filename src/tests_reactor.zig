@@ -26,6 +26,38 @@ fn newReady() std.ArrayList(*Fiber) {
     return .empty;
 }
 
+/// Safety bound for `pollUntilReady`. Reached only when the thing under
+/// test never fires at all, in which case the caller's own assertion is
+/// what reports the failure — so it can afford to be generous.
+const poll_retry_bound_ns: u64 = 10_000_000_000;
+
+/// Drives `poll` until at least one fiber is ready, or `bound_ns` of wall
+/// time elapses.
+///
+/// A single `poll()` may legitimately come back with an empty ready list
+/// while a timer is still pending. `effectiveTimeout` bounds the wait at
+/// the nearest deadline, and an OS wait requested for an interval near the
+/// scheduler's tick can return a fraction of a tick early; `clockNs()` then
+/// still reads below the deadline, so `popExpiredTimers` finds nothing to
+/// move. Windows' `WaitForMultipleObjects` made that observable on CI with
+/// the 1ms deadlines below — `WindowsEventBackend.wait` ceils its
+/// millisecond conversion so a timer never fires *early*, but nothing can
+/// stop the underlying wait from returning early.
+///
+/// Looping is what the real caller does, not a workaround for the test:
+/// `FiberScheduler.parkOnReactor` treats an empty return as ordinary and
+/// re-checks after each capped return. Asserting on one `poll()` was the
+/// bug.
+fn pollUntilReady(reactor: *Reactor, ready: *std.ArrayList(*Fiber), bound_ns: u64) !void {
+    const give_up_at = fiber_mod.clockNs() + bound_ns;
+    while (true) {
+        const now = fiber_mod.clockNs();
+        if (now >= give_up_at) return;
+        try reactor.poll(give_up_at - now, ready);
+        if (ready.items.len > 0) return;
+    }
+}
+
 /// Writes one byte and asserts it actually landed, so a short write or
 /// failure fails loudly at the syscall instead of surfacing later as an
 /// unrelated assertion mismatch or poll() timeout.
@@ -138,10 +170,20 @@ test "addTimer fires when its deadline passes" {
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
-    try reactor.poll(2_000_000_000, &ready); // generous cap; timer should win
+    const start = fiber_mod.clockNs();
+    try pollUntilReady(&reactor, &ready, poll_retry_bound_ns);
+    const elapsed_ns = fiber_mod.clockNs() - start;
 
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_a, ready.items[0]);
+    // Fired no earlier than its deadline. Free of timing risk: popExpiredTimers
+    // compares against this same clock, so it cannot legitimately fail.
+    try std.testing.expect(fiber_mod.clockNs() >= deadline);
+    // Fired *promptly* after it. Retrying alone would let a badly late timer
+    // pass (the loop would simply wait it out), so the upper bound has to be
+    // stated. 1s is ~60x the coarsest tick that caused the original flake and
+    // the same bound the notify test below has used without trouble.
+    try std.testing.expect(elapsed_ns < 1_000_000_000);
 }
 
 test "the nearer of an fd timeout and a timer deadline bounds the wait" {
@@ -161,12 +203,20 @@ test "the nearer of an fd timeout and a timer deadline bounds the wait" {
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
-    // Cap far larger than the timer: if the cap (not the timer) governed
-    // the wait, this test would hang for seconds instead of ~1ms.
-    try reactor.poll(5_000_000_000, &ready);
+    const start = fiber_mod.clockNs();
+    // Bound far larger than the timer: if the cap (not the timer) governed
+    // the wait, this would sit here for the full bound instead of ~1ms.
+    try pollUntilReady(&reactor, &ready, poll_retry_bound_ns);
+    const elapsed_ns = fiber_mod.clockNs() - start;
 
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_timer, ready.items[0]);
+    // Unlike the test above, this one needs an upper bound to mean anything:
+    // retrying until the timer fires would also "pass" against an
+    // effectiveTimeout that ignored timers entirely and blocked for the whole
+    // cap. Kept 1000x the 1ms deadline and 10x under the bound, so it
+    // discriminates a cap-governed wait without gating on exact timing.
+    try std.testing.expect(elapsed_ns < 1_000_000_000);
 }
 
 test "removeTimer cancels a pending timer so it never fires" {
@@ -175,12 +225,20 @@ test "removeTimer cancels a pending timer so it never fires" {
 
     var fiber_a: Fiber = undefined;
     fiber_a.status = .io_waiting;
-    try reactor.addTimer(fiber_mod.clockNs() + 1_000_000, &fiber_a);
+    const deadline = fiber_mod.clockNs() + 1_000_000;
+    try reactor.addTimer(deadline, &fiber_a);
     reactor.removeTimer(&fiber_a);
+
+    // Get past the deadline before looking. Polling before it proves
+    // nothing — an uncancelled timer would not have fired yet either — and
+    // a poll() bounded near the tick can return early (see pollUntilReady),
+    // so the 20ms cap this used to rely on could be cut short and pass
+    // vacuously.
+    while (fiber_mod.clockNs() < deadline) platform.sleepNs(1_000_000);
 
     var ready = newReady();
     defer ready.deinit(std.testing.allocator);
-    try reactor.poll(20_000_000, &ready); // 20ms cap; nothing should fire
+    try reactor.poll(20_000_000, &ready); // nothing left to fire
 
     try std.testing.expectEqual(@as(usize, 0), ready.items.len);
     try std.testing.expect(reactor.isEmpty());
