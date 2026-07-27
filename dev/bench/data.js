@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785124211694,
+  "lastUpdate": 1785125016283,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a4d1fe2ec510f1455a0bf69ede282a13ff11bac5",
-          "message": "referencesYoung: trace owned_mutexes in the fiber arm (#1605)\n\nInvestigation of a suspected generational-GC gap (flagged during #1602):\nthe fiber arm of referencesYoung omitted owned_mutexes while\nmarkFiberState traces it, so remembered-set pruning looked able to drop\nan old fiber whose only reference to a young mutex is its owned list —\na use-after-free at the next minor sweep, or at abandonFiberMutexes.\n\nVerified false alarm for correctness: every scheduler-resident fiber is\nmarked as an unconditional root each collection (markVMRoots ->\nFiberScheduler.markRoots), minor collections included, so\nmarkFiberState re-traces owned_mutexes every cycle regardless of the\nremembered set — for fibers the pruning path is belt-and-braces, not\nload-bearing. The same argument covers the write-barrier-less\nowned_mutexes.append in mutex-lock!.\n\nAdd the loop anyway, with a comment recording that argument: it\nrestores the markFiberState/referencesYoung pairing convention\n(waiting_on, rv_demand_on) and keeps pruning safe even if the\nroot-marking invariant ever changes.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T16:01:38Z",
-          "tree_id": "4a9a561e47e4f15979a6bf524672717fd94102b8",
-          "url": "https://github.com/kaappi/kaappi/commit/a4d1fe2ec510f1455a0bf69ede282a13ff11bac5"
-        },
-        "date": 1784219628595,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.046126,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.305025,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.919325,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.430356,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006751,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052976,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511059,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067797,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.244251,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.98872,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513769,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471766,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.736071,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.846947,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044671,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043974,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2cad8e5056713db621134718eb456cd51cc7762f",
+          "message": "Isolate record-type/define-values desugaring from vm.macros (#1718) (#1774)\n\ndefine-record-type/define-values compiled their generated definitions\nagainst the process-global macro table instead of an isolated one, so\nonce any program imported a macro shadowing a core special form (e.g.\nlambda), every later library's own record types or define-values forms\ncould fail to compile -- or, when the shadowed name was\ndefine-record-type itself, be silently dropped with no error, since\ncompileLibExpr unconditionally returned after deferring to macro-aware\ncompilation without actually performing it.\n\nRecord-type/define-values desugaring now uses a macro table scoped to\nthe current library (or none at all, for record-type's own\ncompiler-synthesized forms, which never contain user subexpressions),\nand the define-record-type shadow check now consults the active\nlibrary's own scope rather than the whole process's. Also make\nrenaming a special form on import (`(rename (only (scheme base) let*)\n(let* my-let*))`) fail with a clear diagnostic at the import\ndeclaration instead of silently producing a binding that resolves to\nnothing.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T08:23:43+05:30",
+          "tree_id": "4b130be25f54c65fb611e7e38df0d56f6cd1b85d",
+          "url": "https://github.com/kaappi/kaappi/commit/2cad8e5056713db621134718eb456cd51cc7762f"
+        },
+        "date": 1785125014934,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.330009,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.055987,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.008146,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.79278,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006359,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.056234,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.560776,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07232,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.679658,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.215757,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.593543,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434807,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.84345,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.668139,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043907,
             "unit": "seconds"
           }
         ]
