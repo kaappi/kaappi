@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785136820544,
+  "lastUpdate": 1785137318906,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ae970816acc54bc74110b53d60c84b288a256510",
-          "message": "Windows: port thottam package installation (#1609) (#1617)\n\n* Windows: port thottam package installation (#1609)\n\nthottam's install/remove/update were gated on Windows because the\ninstall pipeline shelled out to POSIX userland. Replace those shell-outs\nwith shim-based helpers so the pipeline runs identically everywhere and\nlift the gate:\n\n- new src/thottam_fs.zig: makeDirRecursive (mkdir -p), touchFile,\n  copyFile, copyTree (cp -R src/. dst/ merge semantics), removeTree\n  (rm -rf; retries through makeWritable for git's read-only object\n  files, which block _wunlink on Windows), and collectFilesWithSuffix\n  (the find call sites). Symlinks are never traversed.\n- platform.zig: lstatPath (no-follow stat; FindFirstFileW reports\n  reparse points on Windows), makeWritable/makeReadOnly (_wchmod /\n  chmod), is_symlink on StatInfo.\n- thottam.zig: dylib_ext is .dll on Windows; a manifest `build:` line\n  is refused on Windows with a clear error (every ecosystem build: is a\n  POSIX Makefile; pure-Scheme packages install fine); HOME falls back\n  to USERPROFILE (also in kaappi_paths.getHome, so installed libraries\n  are importable from plain pwsh/cmd shells).\n- thottam.zig now aggregates its sibling modules' tests; the existing\n  thottam_proc/state/semver tests were silently absent from the test\n  binary (Zig only collects tests from files referenced by a test\n  block). The proc test's std.c.getpid usage did not compile for\n  Windows; it now uses the platform shim.\n- CI: windows-arm-test runs thottam-tests.exe plus an install/remove\n  integration test of kaappi-json — removal deletes a real git clone,\n  the read-only hazard above.\n\nCloses #1609\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: fail installs on copy errors, tighten symlink handling\n\n- copyTree skips symlinks entirely (old cp -R duplicated links, never\n  read through them; a package-controlled link must not copy content\n  from outside the tree), and copyFile unlinks a destination symlink\n  before writing so a write can't land outside the lib dir.\n- Library/dylib copy failures now fail the install (exit 1) instead of\n  warning: a partial copy was previously recorded as installed+locked.\n  A missing/unreadable pkg dir still means \"no native libraries\".\n- Windows CI integration step also exercises `thottam update`.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Guard copy destinations against pre-existing symlinks\n\nremoveIfLink now backs every destination the copy pipeline writes or\nrecurses into: a planted link at a destination child (file or dir/\njunction) is removed — with failure propagated, never ignored — before\nany content is created through it. The merge root itself stays\nuntouched: a user may legitimately symlink ~/.kaappi/lib, and cp\nfollows a symlinked destination directory the same way.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* removeIfLink: retry read-only file symlinks; test dst file-link replace\n\nDeleteFile honors READONLY on the link object itself, so the file\nbranch goes through unlinkRetry like every other unlink (RemoveDirectory\nignores READONLY on directory objects, so the junction branch stays\ndirect). The copyTree symlink test now also covers a pre-planted\ndestination *file* link: replaced by a real file, old target untouched.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T08:10:13+05:30",
-          "tree_id": "8c28dbcd323d3ec3f0131a49e39d8a6cecab78cb",
-          "url": "https://github.com/kaappi/kaappi/commit/ae970816acc54bc74110b53d60c84b288a256510"
-        },
-        "date": 1784257699031,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.056795,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.255279,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.948359,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.461813,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006798,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052863,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512316,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068773,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.267328,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.985634,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.51356,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.479241,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.741576,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.918805,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046294,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044053,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db38f24a8c494cb5f4c01bad8016fbefa6ac4186",
+          "message": "Fix custom-ellipsis recognition in ordinary template expansion; split tests_macros.zig (#1779)\n\ninstantiateTemplate's two ellipsis-detection sites (the \"(... template)\"\nescape check and the \"element followed by ellipsis\" check) required a bare\nsymbol, but a nested syntax-rules template's ordinary (non-quoted) position\ncan receive a custom ellipsis identifier substituted from an outer pattern\nvariable, wrapped by NESTED_SR_FLAG's usertext-marking protocol. Neither\nsite unwrapped it, so the ellipsis was silently unrecognized outside quote\n(where the same substitution happens to skip wrapping entirely) -- the\nelement was emitted literally instead of splicing its repetitions.\n\nCaught by CodeRabbit's review of the previous commit, which fixed the\npattern-matching/parsing-side half of this same class of bug but missed\nthis instantiation-side one.\n\nAlso splits the new nested-syntax-rules-generation regression tests into\ntheir own file (tests_macros_nested_sr.zig), keeping tests_macros.zig under\nthe project's 1500-line file-size policy (also flagged by CodeRabbit).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T06:17:10Z",
+          "tree_id": "0ef02e08d53bc4b17aa522cfefaca0cb25518849",
+          "url": "https://github.com/kaappi/kaappi/commit/db38f24a8c494cb5f4c01bad8016fbefa6ac4186"
+        },
+        "date": 1785137317549,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.113651,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.198187,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.95809,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.4621,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006897,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053776,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.524834,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070402,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.366506,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.986485,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.560591,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.475399,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.743634,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.838953,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045828,
             "unit": "seconds"
           }
         ]
