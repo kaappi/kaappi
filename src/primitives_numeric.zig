@@ -1102,7 +1102,7 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    var s = str.data[0..str.len];
+    var s: []const u8 = str.data[0..str.len];
 
     var radix: u8 = 10;
     if (args.len > 1) {
@@ -1147,6 +1147,21 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         }
     }
     if (s.len == 0) return types.FALSE;
+
+    // SRFI 169: `s` may still carry embedded digit-separator underscores at
+    // this point. Validate their placement -- strictly between two valid
+    // digits of `radix`, matching the reader's own rule (bignum.zig's
+    // stripUnderscores doc comment) -- and strip them up front, once, for
+    // every shape below (plain integer, rational numerator/denominator,
+    // decimal float, complex parts). Without this, the small-integer and
+    // rational fast paths call std.fmt.parseInt directly, which has its own
+    // more permissive underscore convenience (mirroring Zig's own integer
+    // literal syntax) that wrongly accepts e.g. a doubled underscore
+    // ("1__2" -> 12) SRFI 169 requires rejecting (#1724). The hex-float and
+    // bignum-overflow paths already call stripUnderscores internally, so
+    // this is a harmless no-op for them once `s` is already clean.
+    var underscore_buf: [4096]u8 = undefined;
+    s = bignum_mod.stripUnderscores(s, radix, &underscore_buf) orelse return types.FALSE;
 
     if (std.mem.eql(u8, s, "+inf.0") or std.mem.eql(u8, s, "-inf.0") or
         std.mem.eql(u8, s, "+nan.0") or std.mem.eql(u8, s, "-nan.0"))
