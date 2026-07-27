@@ -20,8 +20,21 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # Mainstream Linux targets build against glibc (floor 2.28 —
+          # RHEL 8 / Debian 10 / Ubuntu 18.10 and newer) instead of Zig's
+          # default musl-static: static musl cannot dlopen, which made
+          # every released Linux binary reject (kaappi ffi) and with it
+          # the whole C-extension ecosystem (net/http/sqlite/pg/redis/
+          # crypto) — kaappi-lang.org's docs-samples CI caught it. The
+          # linux-ffi-smoke job below gates the release on dlopen working.
+          # `target` stays the artifact-naming key (install.sh matches
+          # libkaappi_rt-<target>.a); `zig_target` is what we compile for.
+          # Trade-off: glibc binaries don't run on musl distros (Alpine) —
+          # those users build from source until a musl-dynamic variant
+          # ships as an extra artifact.
           - os: ubuntu-latest
             target: x86_64-linux
+            zig_target: x86_64-linux-gnu.2.28
             artifact: kaappi-x86_64-linux
             exe_ext: ''
             lib_src: libkaappi_rt.a
@@ -29,6 +42,7 @@ jobs:
             strip: true
           - os: ubuntu-24.04-arm
             target: aarch64-linux
+            zig_target: aarch64-linux-gnu.2.28
             artifact: kaappi-aarch64-linux
             exe_ext: ''
             lib_src: libkaappi_rt.a
@@ -158,8 +172,8 @@ jobs:
 
       - name: Build release binaries and runtime library
         run: |
-          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=${{ matrix.strip }}
-          zig build lib -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.zig_target || matrix.target }} -Dstrip=${{ matrix.strip }}
+          zig build lib -Doptimize=ReleaseSafe -Dtarget=${{ matrix.zig_target || matrix.target }}
 
       - name: Sign and notarize macOS binaries
         if: matrix.target == 'aarch64-macos'
@@ -247,8 +261,37 @@ jobs:
           path: zig-out/bin/kaappi.wasm
           retention-days: 1
 
+  # The bug this guards against: a Linux artifact built without working
+  # dynamic loading (e.g. Zig's default musl-static target) passes every
+  # build step but cannot load a single C-extension library once
+  # installed. Run the actual release artifact and prove dlopen works
+  # before anything is published.
+  linux-ffi-smoke:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: kaappi-x86_64-linux
+          - os: ubuntu-24.04-arm
+            artifact: kaappi-aarch64-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.artifact }}
+
+      - name: Smoke-test interpreter and dynamic loading
+        run: |
+          chmod +x ${{ matrix.artifact }}
+          echo '(display (+ 1 2)) (newline)' | ./${{ matrix.artifact }} /dev/stdin | grep -qx '3'
+          printf '(import (kaappi ffi))\n(define libm (ffi-open "libm.so.6"))\n(define c-sqrt (ffi-fn libm "sqrt" (quote (double)) (quote double)))\n(display (c-sqrt 4.0)) (newline)\n' \
+            | ./${{ matrix.artifact }} /dev/stdin | grep -qx '2.0'
+          echo "dynamic loading OK"
+
   release:
-    needs: [build, build-wasm]
+    needs: [build, build-wasm, linux-ffi-smoke]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
