@@ -23,14 +23,15 @@ trap 'rm -rf "$DIR"' EXIT
 
 mkdir -p "$DIR/lib/myapp"
 
-# Leaf library with no dependencies
+# Leaf library with no dependencies. `sq` (not `square`) -- `square` is
+# itself a (scheme base) export, and main.scm below imports both.
 cat > "$DIR/lib/myapp/util.sld" << 'SCHEME'
 (define-library (myapp util)
   (import (scheme base))
-  (export double square)
+  (export double sq)
   (begin
     (define (double x) (* x 2))
-    (define (square x) (* x x))))
+    (define (sq x) (* x x))))
 SCHEME
 
 # Middle library depending on util
@@ -48,7 +49,7 @@ cat > "$DIR/lib/myapp/app.sld" << 'SCHEME'
   (import (scheme base) (myapp util) (myapp math))
   (export run-app)
   (begin
-    (define (run-app n) (+ (quad n) (square n)))))
+    (define (run-app n) (+ (quad n) (sq n)))))
 SCHEME
 
 # Main program importing all libraries in one form

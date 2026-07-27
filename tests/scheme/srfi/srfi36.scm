@@ -1,4 +1,7 @@
-(import (scheme base) (scheme write) (srfi 35) (srfi 36))
+;; (srfi 36)'s read-error? is a different, more specific predicate than
+;; (scheme base)'s -- this file tests (srfi 36)'s, so (scheme base)'s is
+;; excluded to avoid the R7RS 5.2 colliding-import error (kaappi#1726).
+(import (except (scheme base) read-error?) (scheme write) (srfi 35) (srfi 36))
 
 (define pass 0)
 (define fail 0)

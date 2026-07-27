@@ -65,15 +65,15 @@
 ;;;   "SRFI-28 and SRFI-29 compliant version of format" alongside the
 ;;;   bundle machinery), this library exports its own `format` — a superset
 ;;;   of (srfi 28)'s that additionally understands ~N@*. Note: Kaappi's
-;;;   `import` does not diagnose colliding export names between libraries
-;;;   (verified empirically — it is a plain last-write-wins map insert, see
-;;;   `importBinding` in src/vm_library.zig); a program that imports both
-;;;   (srfi 28) and (srfi 29) unqualified silently gets whichever `format`
-;;;   was imported *last*, with no warning either way. This is a pre-existing
-;;;   Kaappi behavior across all libraries, not specific to this one, but it
-;;;   is worth flagging here since this file is an unusually likely place to
-;;;   trigger it. Use `rename`/`only`/`except` to be explicit, or just import
-;;;   (srfi 29) alone when its templates are in use.
+;;;   `import` diagnoses colliding export names between libraries
+;;;   (kaappi#1726; see `importSetChecked` in src/vm_library.zig): a program
+;;;   that imports both (srfi 28) and (srfi 29) unqualified now gets a
+;;;   compile-time error naming both libraries and `format`, rather than
+;;;   silently picking whichever was imported *last*. This applies across
+;;;   all libraries, not specific to this one, but it is worth flagging here
+;;;   since this file is an unusually likely place to trigger it. Use
+;;;   `rename`/`only`/`except` to disambiguate, or just import (srfi 29)
+;;;   alone when its templates are in use.
 ;;;
 ;;; `store-bundle!`/`load-bundle!`: the spec leaves the storage mechanism
 ;;; completely unspecified, explicitly allowing an implementation that

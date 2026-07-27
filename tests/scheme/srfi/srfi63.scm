@@ -1,7 +1,11 @@
 ;; SRFI 63 (Homogeneous and Heterogeneous Arrays) tests.
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi63.scm
 
-(import (scheme base) (scheme process-context) (srfi 64) (srfi 63))
+;; (srfi 63)'s equal? is an array-augmented superset of (scheme base)'s --
+;; this file tests that (see "array-augmented equal?" below), so (scheme
+;; base)'s is excluded to avoid the R7RS 5.2 colliding-import error
+;; (kaappi#1726).
+(import (except (scheme base) equal?) (scheme process-context) (srfi 64) (srfi 63))
 
 (test-begin "srfi-63")
 

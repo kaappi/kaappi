@@ -7,6 +7,7 @@ const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
 const diagnostics = @import("diagnostics.zig");
 const file_utils = @import("file_utils.zig");
+const printer = @import("printer.zig");
 const Value = types.Value;
 
 const macro = @import("compiler_macro.zig");
@@ -16,7 +17,21 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
 /// Import a binding into the target environment, routing macros to vm.macros.
-fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, val: Value) !void {
+///
+/// `chase_transitive` controls whether a transformer's free references are
+/// additionally chased into `target` (see `copyTransformerFreeRefs`). Pass
+/// `false` when `target` is a private, throwaway map used only to answer
+/// "what does this import-set resolve to" (e.g. `resolveImportBindings`,
+/// used by only/except/prefix/rename and by the #1726 collision check) --
+/// chasing free references there does not merely waste work, it actively
+/// leaks non-exported helper macros as if they were real exports, because
+/// `copyTransformerFreeRefs` has no way to tell "a throwaway resolution map"
+/// apart from "a real scope like lib_env that legitimately needs a
+/// transitively-referenced helper macro to stay resolvable" (issue #877) --
+/// both are simply `target != vm.globals` to it. Pass `true` only for the
+/// single, final merge into a real target (vm.globals, a library's lib_env,
+/// or an `environment` object).
+fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, val: Value, chase_transitive: bool) !void {
     if (target == vm.globals) {
         // Structural put into the shared globals map — exclude concurrent
         // child-thread readers (#958). Held only around the put; the
@@ -31,10 +46,12 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
         if (target == vm.globals) {
             vm.macros.put(name, val) catch return error.OutOfMemory;
         }
-        const tx = types.toObject(val).as(types.Transformer);
-        var visited = std.AutoHashMap(*types.Transformer, void).init(vm.gc.allocator);
-        defer visited.deinit();
-        try copyTransformerFreeRefs(vm, target, tx, &visited, 0);
+        if (chase_transitive) {
+            const tx = types.toObject(val).as(types.Transformer);
+            var visited = std.AutoHashMap(*types.Transformer, void).init(vm.gc.allocator);
+            defer visited.deinit();
+            try copyTransformerFreeRefs(vm, target, tx, &visited, 0);
+        }
         return;
     }
     if (target == vm.globals) {
@@ -121,19 +138,122 @@ fn copyTransformerFreeRefs(
     }
 }
 
+/// Where an already-tracked name in an `ImportTracker` came from: the value
+/// it was bound to, and an owned, printed rendering of the import-set that
+/// introduced it (e.g. "(srfi 28)"), used only for the #1726 collision
+/// diagnostic below.
+const ImportOrigin = struct {
+    value: Value,
+    label: []const u8,
+};
+
+/// Tracks which sibling import-set (within one batch -- one `(import ...)`
+/// form or declaration, or one `(environment ...)` call) introduced each
+/// name, so a later import-set in the SAME batch that would bind an
+/// already-claimed name to a *different* value can be rejected per R7RS 5.2
+/// ("it is an error to import the same identifier more than once with
+/// different bindings") instead of silently overwriting it -- the "last
+/// import wins" bug of kaappi#1726. Deliberately scoped to a single batch:
+/// importing (or shadowing) the same name across two SEPARATE top-level
+/// `(import ...)` forms stays legal, exactly like ordinary top-level
+/// redefinition -- this tracker never looks at what was already in `target`
+/// before the batch started.
+pub const ImportTracker = struct {
+    map: std.StringHashMap(ImportOrigin),
+
+    pub fn init(allocator: std.mem.Allocator) ImportTracker {
+        return .{ .map = std.StringHashMap(ImportOrigin).init(allocator) };
+    }
+
+    pub fn deinit(self: *ImportTracker, allocator: std.mem.Allocator) void {
+        var it = self.map.valueIterator();
+        while (it.next()) |origin| allocator.free(origin.label);
+        self.map.deinit();
+    }
+};
+
+/// Resolve one import-set (plain library name, or wrapped in only/except/
+/// prefix/rename) and merge its bindings into `target`, atomically: every
+/// name it would introduce is first checked against `tracker`, and if ANY
+/// of them collides with a different value from an earlier import-set in
+/// this batch, the whole import-set is rejected with no partial merge --
+/// mirroring only/except/rename's own "validate all before importing any"
+/// discipline. A name re-imported with the identical binding (e.g. two
+/// import-sets that both bottom out at the same underlying library) is not
+/// a collision and merges silently, since it is genuinely the same binding,
+/// not two different ones (#1726).
+pub fn importSetChecked(
+    vm: *VM,
+    target: *std.StringHashMap(Value),
+    tracker: *ImportTracker,
+    import_set: Value,
+) !void {
+    var bindings = try resolveImportBindings(vm, import_set);
+    defer bindings.deinit();
+
+    // A rendering of this import-set (e.g. "(srfi 28)"), used to attribute
+    // every name it introduces for later collision diagnostics, and in the
+    // diagnostic itself if this very import-set is the one that collides.
+    // Rendered once regardless of how many names `bindings` holds.
+    const label = printer.valueToString(vm.gc.allocator, import_set, .write) catch return error.OutOfMemory;
+    defer vm.gc.allocator.free(label);
+
+    // Validate first (atomic semantics, matching only/except/rename above):
+    // reject the whole import-set if it would bind any name to a value
+    // different from what an earlier import-set in this batch already
+    // claimed for that name.
+    var it = bindings.iterator();
+    while (it.next()) |entry| {
+        if (tracker.map.get(entry.key_ptr.*)) |existing| {
+            if (existing.value != entry.value_ptr.*) {
+                vm.setErrorDetail(
+                    "identifier '{s}' is imported with different bindings from both {s} and {s} -- R7RS 5.2: \"it is an error to import the same identifier more than once with different bindings\"; disambiguate with only/except/rename/prefix",
+                    .{ entry.key_ptr.*, existing.label, label },
+                );
+                return error.UndefinedVariable;
+            }
+        }
+    }
+
+    // All clear -- record any newly-claimed names (so a later sibling
+    // import-set in this batch can be checked against them too) and merge
+    // every binding into the real target.
+    it = bindings.iterator();
+    while (it.next()) |entry| {
+        if (!tracker.map.contains(entry.key_ptr.*)) {
+            const owned_label = vm.gc.allocator.dupe(u8, label) catch return error.OutOfMemory;
+            tracker.map.put(entry.key_ptr.*, .{ .value = entry.value_ptr.*, .label = owned_label }) catch {
+                vm.gc.allocator.free(owned_label);
+                return error.OutOfMemory;
+            };
+        }
+        // This is the batch's real target (never a resolveImportBindings
+        // scratch map -- see importSetChecked's own doc comment), so the
+        // transitive macro closure must run here.
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, true) catch return error.OutOfMemory;
+    }
+}
+
 /// Handle (import import-set ...) into a specific target environment.
+///
+/// Stops at the first import-set that fails, rather than attempting the
+/// rest: `vm.last_error_detail` is a single shared buffer, and continuing
+/// past a failure risks a later, unrelated (and successful) library load
+/// clobbering it with fresh detail from its own native calls -- turning a
+/// specific, useful message (e.g. a #1726 collision naming both libraries)
+/// into a bare, generic "invalid syntax" by the time it's reported. This
+/// matches the `environment` procedure's own precedent (primitives_r7rs.zig),
+/// which has always stopped at the first failing import-set.
 pub fn handleImportInto(vm: *VM, target: *std.StringHashMap(Value), args: Value) VMError!Value {
     var current = args;
-    var had_error = false;
+    var tracker = ImportTracker.init(vm.gc.allocator);
+    defer tracker.deinit(vm.gc.allocator);
     while (current != types.NIL) {
         if (!types.isPair(current)) return VMError.CompileError;
         const import_set = types.car(current);
-        processImportSet(vm, target, import_set) catch {
-            had_error = true;
-        };
+        importSetChecked(vm, target, &tracker, import_set) catch return VMError.CompileError;
         current = types.cdr(current);
     }
-    if (had_error) return VMError.CompileError;
     return types.VOID;
 }
 
@@ -180,7 +300,10 @@ pub fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: 
     if (vm.libraries.get(lib_name)) |lib| {
         var it = lib.exports.iterator();
         while (it.next()) |entry| {
-            importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            // `target` here is always a resolveImportBindings scratch map
+            // (see importSetChecked's doc comment) -- never chase transitive
+            // macro free refs into it.
+            importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, false) catch return error.OutOfMemory;
         }
         return;
     }
@@ -221,7 +344,8 @@ pub fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: 
     };
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
-        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        // Same scratch-map reasoning as the registry-hit branch above.
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, false) catch return error.OutOfMemory;
     }
 }
 
@@ -972,7 +1096,9 @@ fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !v
         const id = types.car(id_list);
         const id_name = types.symbolName(id);
         if (source.get(id_name)) |val| {
-            importBinding(vm, target, id_name, val) catch return error.OutOfMemory;
+            // `target` here is always a resolveImportBindings scratch map
+            // too (see importSetChecked's doc comment).
+            importBinding(vm, target, id_name, val, false) catch return error.OutOfMemory;
         }
         id_list = types.cdr(id_list);
     }
@@ -1001,10 +1127,11 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         id_list = types.cdr(id_list);
     }
 
-    // Import everything remaining.
+    // Import everything remaining. `target` is always a resolveImportBindings
+    // scratch map (see importSetChecked's doc comment).
     var it = source.iterator();
     while (it.next()) |entry| {
-        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, false) catch return error.OutOfMemory;
     }
 }
 
@@ -1027,7 +1154,8 @@ fn processImportPrefix(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         defer vm.gc.allocator.free(prefixed_buf);
         const sym = vm.gc.allocSymbol(prefixed_buf) catch return error.OutOfMemory;
         const interned_name = types.symbolName(sym);
-        importBinding(vm, target, interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        // `target` is always a resolveImportBindings scratch map here too.
+        importBinding(vm, target, interned_name, entry.value_ptr.*, false) catch return error.OutOfMemory;
     }
 }
 
@@ -1091,10 +1219,11 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         source.put(p.new_name, p.value) catch return error.OutOfMemory;
     }
 
-    // Import everything (with renames applied).
+    // Import everything (with renames applied). `target` is always a
+    // resolveImportBindings scratch map here too.
     var it = source.iterator();
     while (it.next()) |entry| {
-        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, false) catch return error.OutOfMemory;
     }
 }
 

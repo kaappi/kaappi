@@ -1,8 +1,12 @@
 (define-library (srfi 125)
+  ;; (srfi 128) also exports string-hash/string-ci-hash, but this library
+  ;; re-exports (srfi 69)'s copies (below, alongside hash/hash-by-identity,
+  ;; which only (srfi 69) has) -- exclude (srfi 128)'s to avoid the R7RS 5.2
+  ;; colliding-import error (kaappi#1726).
   (import (scheme base)
           (rename (srfi 69)
                   (hash-table-ref srfi69-ref))
-          (srfi 128))
+          (except (srfi 128) string-hash string-ci-hash))
   (export make-hash-table hash-table hash-table?
           hash-table-contains? hash-table-empty? hash-table-size
           hash-table-ref hash-table-ref/default
