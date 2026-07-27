@@ -425,17 +425,15 @@ earlier are deliberately `false`: `sexprNeedsEvalFallback` recurses blindly into
 sub-forms, so listing `else` would reject every natively lowered `cond`/`case`
 with an else clause.
 
-Publishing the frame's bindings as globals instead (`bindParamsAsGlobals`, the
-#1410 mechanism the `letrec`/`let` fallbacks use) is **not** an alternative
-here: it aliases across activations, it cannot see `let`-locals at all, and it
-permanently clobbers a same-named global. Declining the frame is what keeps the
-interpreter's own lexical scope authoritative.
+Publishing the frame's bindings as globals instead (`bindParamsAsGlobals`,
+the kaappi#1410 mechanism the `letrec`/`let` fallbacks use) is **not** an
+alternative here: it aliases across activations, it cannot see `let`-locals at
+all, and it permanently clobbers a same-named global. Declining the frame is
+what keeps the interpreter's own lexical scope authoritative.
 
-The cost is that a function using `apply` is not natively compiled at all —
-`(apply + xs)` is idiomatic, so this is a real gap. Lowering `apply` natively
-(a runtime entry point that splices a list onto a fixed argument array before
-`kaappi_call_scheme`) would close it; until then correctness comes from the
-interpreter.
+The cost is that a function using `apply` is not natively compiled at all.
+`(apply + xs)` is idiomatic Scheme, so this is a real limitation of the current
+backend rather than a corner case.
 
 The per-function analysis buffers (parameters, body nodes, captured free
 variables, bound names) grow on the emitter's arena, so the only size ceiling is

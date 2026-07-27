@@ -63,9 +63,20 @@ check_both() {
         return
     fi
 
-    (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" > /dev/null 2>&1) || true
+    # Both halves matter, and they fail differently: a nonzero exit means the
+    # compiler itself rejected the program (keep its diagnostics), while a zero
+    # exit with no executable means it claimed success and produced nothing.
+    # Checking only for the file would let a failing compile that still left an
+    # executable behind pass as a green run.
+    local compile_out compile_status=0
+    compile_out="$(cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" 2>&1)" || compile_status=$?
+    if [[ $compile_status -ne 0 ]]; then
+        echo "FAIL: $label — kaappi compile exited $compile_status: $compile_out" >&2
+        FAILED=1
+        return
+    fi
     if [[ ! -x "$bin" ]]; then
-        echo "FAIL: $label — native compile did not produce a binary" >&2
+        echo "FAIL: $label — kaappi compile succeeded but produced no binary" >&2
         FAILED=1
         return
     fi
