@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785123422679,
+  "lastUpdate": 1785123635724,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3f02051d4b7c6cc8048663f5c099c1ea96b9cfb4",
-          "message": "Fix --profile dropping functions promoted to the old generation (#1599)\n\nprintProfileReport, writeProfileJson, and resetProfileCounters walked\nonly gc.objects, but sweepYoung promotes functions surviving two minor\ncollections onto gc.old_objects. Long-running programs therefore printed\nno profile at all (count == 0 hit the silent return), mid-length runs\nprinted a report silently missing the oldest — hottest — functions, and\nREPL profile resets left stale counters on promoted functions. Coverage\nreporting is unaffected (it reads counters via library export refs, not\na heap walk).\n\nAll three walkers now share an allObjects iterator over both generation\nlists. Regression tests force promotion with explicit minor collections\nand assert reset and JSON output both reach old-generation functions;\nboth fail on the young-list-only walk.\n\nFound while capturing --profile traces of kaappi-examples for the\nKEP-0003 revisit-trigger check (#1596).\n\nCloses #1598\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T17:02:36+05:30",
-          "tree_id": "97e096c83a8a495363153452bdaf9e19b386d579",
-          "url": "https://github.com/kaappi/kaappi/commit/3f02051d4b7c6cc8048663f5c099c1ea96b9cfb4"
-        },
-        "date": 1784203586160,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.375372,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.555533,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.897716,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.48501,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006477,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054793,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508008,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070129,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.320437,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.046789,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580299,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430599,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.86786,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.692816,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044698,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044066,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "281e135c480862edf2a01eaf1e36e5cb8b20f10d",
+          "message": "Refuse kaappi compile when an import can't resolve at runtime (#1743) (#1770)\n\nThe compiled binary's own runtime starts a fresh VM with no library\nsearch path, and the native backend never bundles .sld sources into\nthe binary the way --compile/-Dbundle-src does. So any import the\ncompiling VM resolves from a file — a third-party package or one of\nthe 159 portable SRFIs, not just kaappi-json — compiled cleanly but\ndied at runtime with \"library not found\" despite kaappi compile\nreporting success and exiting 0.\n\nemitLlvmFile now detects this by reusing the .sbc bundler's own\nfile-collection hook (populated only when a library is resolved from\ndisk, never for built-ins) and refuses to emit anything, naming the\nunresolvable library file(s) and pointing at the interpreter or\nzig build -Dbundle-src as working alternatives. Covers both\nkaappi compile and --emit-llvm, with no false positives for built-in\nlibraries or self-contained define-library files.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T08:05:49+05:30",
+          "tree_id": "31727b22fbac02b7bcb61f25c539e58142e355df",
+          "url": "https://github.com/kaappi/kaappi/commit/281e135c480862edf2a01eaf1e36e5cb8b20f10d"
+        },
+        "date": 1785123634432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.32826,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.386337,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.902162,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.43885,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006334,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05401,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508503,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069434,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.536588,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.002797,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574674,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.422828,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.812384,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.617504,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043845,
             "unit": "seconds"
           }
         ]
