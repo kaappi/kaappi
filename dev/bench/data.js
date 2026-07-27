@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785157703044,
+  "lastUpdate": 1785159468081,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "19ff254a1b1bf476ee533106f710d36fda27f1ff",
-          "message": "Unwind an idle in-place I/O drive pinned over a resolved wait (#1625) (#1628)\n\n* Unwind an idle in-place I/O drive pinned over a resolved wait\n\nA guard-wrapped blocking read in a spawned fiber cannot park-and-retry:\nthe guard's call/ec + with-exception-handler natives are re-entrant Zig\nframes, so waitForFd takes drive mode and runs the scheduler in place.\nWhen that drive went idle, parkOnReactor polled unbounded on the fiber's\nown fd — hasRunnableFibers counts the fiber's .io_waiting and the fd\nkeeps the reactor non-empty, so the generic deadlock escape never fires.\nAn enclosing drive whose wait had already resolved (a fiber-join whose\ntarget completed, an expired thread-sleep!) stayed pinned beneath those\nnative frames forever: the whole OS thread wedged in kevent (#1625).\n\nThe reported \"parked fiber redispatched by a later join\" was a misread\nof the same stack: the hang is the pre-parking join itself — a\nguard-wrapped reader never survives in a parked state past the eval\nthat dispatches it, because it drives instead of parking.\n\nFix: every runSchedulerStep drive publishes its wait in a type-erased\nper-scheduler stack (driving_waits), so a nested drive can evaluate\nwhether an ancestor's condition is satisfied or timed out — resolutions\nnothing else announces, since a driving fiber is never .waiting and no\nwake path targets it. At the idle point (runnable siblings always get\ndispatched first), a wait that opted in (IoWait only) breaks off, and\nwaitForFd surfaces that as a catchable \"port I/O abandoned\" error: the\nre-entrant frames that made parking impossible are exception plumbing,\nso an ordinary raise is exactly the unwind they handle. Join, channel,\nmutex, and condvar drives are unaffected — with no fd of their own they\nalready fall out through parkOnReactor's deadlock check — and pure\nsleeps still run their full duration.\n\nCloses #1625\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Propagate OOM from the driving_waits push instead of degrading\n\nReview follow-up (PR #1628): unlike the ready ring or waiter_index,\nwhose OOM degradation is backed by correctness-preserving fallback\nscans, driving_waits is a correctness registry with no fallback — an\nentry silently dropped on OOM would re-open the #1625 wedge for the\ndrive's descendants as a silent hang. runSchedulerStep already\npropagates OutOfMemory mid-drive (saveCurrentFiber's growth,\nparkOnReactor's poll), so failing the wait loudly is the established,\nalready-handled path, and it simplifies the enrollment to a plain\nappend + defer pop.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T11:06:41Z",
-          "tree_id": "9d2655f12e977e592f32362c8798c9482ae2a277",
-          "url": "https://github.com/kaappi/kaappi/commit/19ff254a1b1bf476ee533106f710d36fda27f1ff"
-        },
-        "date": 1784288098335,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.134708,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.092447,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.714191,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.41331,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005285,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041086,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.394881,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053104,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.564591,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.528671,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.171751,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.371494,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.345181,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.513331,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036891,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.028901,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1792c0e6e53144d6acefffbcbf61ea8f32ee3b00",
+          "message": "Add a slowdown-investigation runbook; fix the cache's dirty-build-id claim (#1789)\n\nPerformance material was spread across eight documents, organized by tool\nor subsystem rather than by question. Someone holding \"this compiles too\nslowly, where do I start?\" had no entry point: the answer spanned\ntimings.md (which stage), an undocumented profiler step (which caller),\nand testing.md (is it a regression?). That gap has a measured cost —\n#1775 lost two sessions to plausible theories about expander.zig because\n`--timings` reported `expand 2765.8ms` and nothing said what to do next.\n\ndocs/dev/performance.md is a runbook in the same genre as fuzzing.md and\nporting.md: find the stage then the caller, measure before theorizing,\nA/B without fooling yourself, check the growth shape. It deliberately\ncarries no numbers — current figures belong to the benchmark dashboard,\npast results to lessons-learned.md section 11, campaign data to the KEP\ndocuments — so it has nothing to rot. Everything already documented\nelsewhere is linked, not restated.\n\nWhile checking what content would be genuinely new, found cache.md\nasserting the opposite of the truth on the one thing A/B measurement\ndepends on:\n\n    Rebuild after any edit -> dirty tree -> build id changes -> miss.\n\n`-dirty` is a flag, not a hash of the working tree (gitBuildId appends\nthe literal suffix whenever `git status --porcelain` prints anything), so\nthe id changes on the first clean->dirty transition and then never again.\nVerified by building two different uncommitted edits at the same commit:\nboth produced `370d8e85-dirty`, so they share .sbc cache entries and one\ncan execute bytecode the other produced. That is the original #1516\nfootgun surviving in the case contributors hit most, and it reads exactly\nlike nondeterminism in the code under test.\n\ncache.md now documents the case the build id does not cover and the\n`kaappi cache clear` remedy; bytecode_file.zig's two comments that\noverstated the same guarantee are corrected. compilerHashFor itself is\ncorrect and its test asserts nothing false — the aliasing is upstream in\nbuild.zig — so neither is changed.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T18:07:46+05:30",
+          "tree_id": "49d3ef0436bbb047c6f49ef25ea5298fc872963e",
+          "url": "https://github.com/kaappi/kaappi/commit/1792c0e6e53144d6acefffbcbf61ea8f32ee3b00"
+        },
+        "date": 1785159466960,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.643284,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.788782,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.082157,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.237931,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006279,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.057462,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.583952,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.073966,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.561667,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.393289,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.601622,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431523,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.803349,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.638421,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043442,
             "unit": "seconds"
           }
         ]
