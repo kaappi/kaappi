@@ -103,7 +103,7 @@ pub const llvm_node_table: [18]LLVMNodeEntry = .{
     // a `(define (f …) …)` shorthand — does compile natively. Every *other*
     // passthrough shape is eval'd whole, so the keywords that produce one
     // contribute to `eval_fallback_form_names` from `other_special_forms`
-    // instead of from this entry.
+    // instead of from this entry (kaappi#1799).
     .{ .tag = .passthrough, .capability = .native },
 };
 
@@ -160,7 +160,7 @@ pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: 
         i += 1;
     }
     // The keyword-only special forms that reach the interpreter as a whole
-    // `.passthrough` form. The `.passthrough` node itself carries
+    // `.passthrough` form (kaappi#1799). The `.passthrough` node itself carries
     // `.capability = .native` in `llvm_node_table` — correct for what the tag
     // *can* be, since its `(define (f …) …)` shape compiles natively — so these
     // names have to come from the keyword map, which knows which shapes do not.
@@ -492,8 +492,8 @@ pub const sexpr_form_map = std.StaticStringMap(FormKind).initComptime(.{
 // in the GLOBAL environment, so `true` entries must appear in
 // `eval_fallback_form_names` — otherwise an enclosing native lambda frame or
 // `let` compiles natively and the eval'd text loses every lexical binding it
-// referenced (`(define (s xs) (apply + xs))` compiled cleanly and failed at run
-// time with "undefined variable 'xs'"). `isSpecialForm`, which every other caller
+// referenced (kaappi#1799: `(define (s xs) (apply + xs))` compiled cleanly and
+// failed at run time with "undefined variable 'xs'"). `isSpecialForm`, which every other caller
 // uses, ignores the payload entirely.
 //
 // `false` covers the two kinds of keyword that never reach `emitPassthrough` as

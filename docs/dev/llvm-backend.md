@@ -395,13 +395,13 @@ past the fixed arity before branching, so variadic named functions loop too
   `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
 - contains a keyword-only special form that reaches the interpreter as a whole
   `passthrough` — `apply`, `call/cc`,
-  `call-with-current-continuation`, `call-with-values`, `eval`;
+  `call-with-current-continuation`, `call-with-values`, `eval` (kaappi#1799);
 - contains an internal `define` (the closure tier sets up no locals scope for
   it), or a rest parameter that is captured and mutated (no box model yet); or
 - captures an unmutated `let`-local, or a rest parameter, that has no copyable
   slot.
 
-### Why `apply` declines the whole enclosing scope
+### Why `apply` declines the whole enclosing scope (kaappi#1799)
 
 All four native-compilation gates — the two closure tiers,
 `tryCompileDefineFunction`, and `emitLet` — ask

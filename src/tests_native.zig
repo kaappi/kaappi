@@ -143,7 +143,7 @@ pub fn expectNativeDef(ll: []const u8, name: []const u8) !void {
 // The negation of expectNativeDef: no native definition of `name` was emitted,
 // so every use of it goes through the interpreter. Asserted by the tests for
 // forms that must decline native compilation of their enclosing scope rather
-// than split it across the native/interpreted boundary (#827).
+// than split it across the native/interpreted boundary (#827/#1799).
 pub fn expectNoNativeDef(ll: []const u8, name: []const u8) !void {
     var fast_buf: [128]u8 = undefined;
     var uniform_buf: [128]u8 = undefined;
@@ -1233,7 +1233,7 @@ test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#14
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
-// -- Passthrough forms must not be evaluated inside a native scope --
+// -- Passthrough forms must not be evaluated inside a native scope (#1799) --
 //
 // `emitPassthrough` hands an `apply` / `call/cc` / `call-with-values` / `eval`
 // form to the interpreter as source text, and `kaappi_eval` runs in the GLOBAL
@@ -1249,7 +1249,7 @@ test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#14
 // analysis too — and the eval fallback raised "undefined variable 'xs'" at run
 // time. The three shapes below are the ones the bug report characterized.
 
-test "LLVM emit: apply over a parameter declines native compilation" {
+test "LLVM emit: apply over a parameter declines native compilation (#1799)" {
     var res = try emitMultiResult("(define (s xs) (apply + xs))");
     defer res.deinit();
     const ll = res.toSlice();
@@ -1259,7 +1259,7 @@ test "LLVM emit: apply over a parameter declines native compilation" {
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
-test "LLVM emit: apply over a let-bound name declines native compilation" {
+test "LLVM emit: apply over a let-bound name declines native compilation (#1799)" {
     var res = try emitMultiResult("(define (s) (let ((xs (list 1 2 3))) (apply + xs)))");
     defer res.deinit();
     const ll = res.toSlice();
@@ -1268,7 +1268,7 @@ test "LLVM emit: apply over a let-bound name declines native compilation" {
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
-test "LLVM emit: a bare let whose body applies falls back whole" {
+test "LLVM emit: a bare let whose body applies falls back whole (#1799)" {
     // emitLet's own #827 gate, with no enclosing define to decline first: the
     // let must be evaluated as one form, not lowered to native allocas whose
     // body then resolves `xs` in the global environment.
@@ -1279,7 +1279,7 @@ test "LLVM emit: a bare let whose body applies falls back whole" {
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
-test "LLVM emit: apply with a computed operator declines native compilation" {
+test "LLVM emit: apply with a computed operator declines native compilation (#1799)" {
     // The operator position is as lexical as the argument list: `f` was named
     // by the same "undefined variable" error before the fix.
     var res = try emitMultiResult("(define (s f xs) (apply f xs))");
@@ -1289,7 +1289,7 @@ test "LLVM emit: apply with a computed operator declines native compilation" {
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
-test "LLVM emit: call/cc and call-with-values decline native compilation" {
+test "LLVM emit: call/cc and call-with-values decline native compilation (#1799)" {
     // Same passthrough path as apply, same failure before the fix.
     var cc = try emitMultiResult("(define (s x) (call/cc (lambda (k) (+ x 1))))");
     defer cc.deinit();
@@ -1300,7 +1300,7 @@ test "LLVM emit: call/cc and call-with-values decline native compilation" {
     try expectNoNativeDef(cwv.toSlice(), "s");
 }
 
-test "eval-fallback name set covers the passthrough-evaluated special forms" {
+test "eval-fallback name set covers the passthrough-evaluated special forms (#1799)" {
     // A direct check on the derived list, so a future edit to
     // `other_special_forms` that drops a payload fails here rather than as a
     // baffling run-time "undefined variable" in a compiled binary.
@@ -1329,7 +1329,7 @@ test "eval-fallback name set covers the passthrough-evaluated special forms" {
     }
 }
 
-test "LLVM emit: an else clause still lowers cond natively (exclusion guard)" {
+test "LLVM emit: an else clause still lowers cond natively (#1799 exclusion guard)" {
     // The counterpart to the exclusion above, checked through the emitter.
     var res = try emitMultiResult("(define (f n) (cond ((> n 0) 1) (else 0)))");
     defer res.deinit();

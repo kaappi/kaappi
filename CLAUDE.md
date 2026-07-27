@@ -182,7 +182,7 @@ environment, any lexical scope containing one (the enclosing `define`/`lambda`
 frame or `let`) declines native compilation as a whole rather than splitting
 itself across the boundary. The keyword set driving that decision is
 `ir.eval_fallback_form_names`; a keyword missing from it is a silent
-miscompilation, not a missed optimization (kaappi#827/#1496 — see
+miscompilation, not a missed optimization (kaappi#827/#1496/#1799 — see
 `docs/dev/llvm-backend.md`).
 
 **Always use `zig cc` (not `clang`) for linking native binaries against

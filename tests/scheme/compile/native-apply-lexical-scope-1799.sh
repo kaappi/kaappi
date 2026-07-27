@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regression test (LLVM native backend): `apply` over any LOCAL
+# Regression test for #1799 (LLVM native backend): `apply` over any LOCAL
 # binding miscompiled. `(define (s xs) (apply + xs))` compiled cleanly and then
 # died at run time with "undefined variable 'xs'. Did you mean 's'?".
 #
@@ -21,7 +21,7 @@
 # Every case below asserts the compiled binary agrees with the interpreter, so
 # the test stays honest if the backend ever learns to lower `apply` natively.
 #
-# Usage: bash tests/scheme/compile/native-apply-lexical-scope.sh [path-to-kaappi]
+# Usage: bash tests/scheme/compile/native-apply-lexical-scope-1799.sh [path-to-kaappi]
 
 set -euo pipefail
 
