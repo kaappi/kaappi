@@ -5,6 +5,7 @@ test {
     _ = @import("tests_derived_forms.zig");
     _ = @import("tests_numeric.zig");
     _ = @import("tests_macros.zig");
+    _ = @import("tests_macros_nested_sr.zig");
     _ = @import("tests_libraries.zig");
     _ = @import("tests_exceptions.zig");
     _ = @import("tests_records.zig");

@@ -828,9 +828,23 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     }
 
     // Check for ellipsis escape: (... <template>) — treat ... as literal inside
+    //
+    // Both ellipsis checks below unwrap a usertext marker first: a nested
+    // syntax-rules template's ordinary (non-quoted) position can receive a
+    // custom ellipsis identifier substituted from an OUTER pattern variable
+    // (SRFI 147/148's generating-macro pattern), which NESTED_SR_FLAG's
+    // marking protocol wraps so the generating macro's own later expansion
+    // doesn't re-walk it as template text. Only a quoted position skips the
+    // wrap (QUOTE_FLAG suppresses it, see the pattern-variable substitution
+    // case above) -- an ordinary template position needs the unwrap to even
+    // recognize the ellipsis at all; without it, `(x my-ellipsis)` never
+    // matches "element followed by ellipsis" and my-ellipsis is emitted
+    // literally (as an unresolvable wrapped pair) instead of splicing x's
+    // repetitions.
     const elem = types.car(template);
     const rest = types.cdr(template);
-    if (!in_escape and types.isSymbol(elem) and isEllipsis(types.symbolName(elem))) {
+    const elem_unwrapped = unwrapUsertext(elem);
+    if (!in_escape and types.isSymbol(elem_unwrapped) and isEllipsis(types.symbolName(elem_unwrapped))) {
         if (rest != types.NIL and types.isPair(rest) and types.cdr(rest) == types.NIL) {
             const inner = types.car(rest);
             return instantiateTemplate(gc, inner, bindings, intro_scope | ESCAPE_FLAG, literals, macro_keyword, globals, macros);
@@ -840,7 +854,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
     // Check for ellipsis in template: (Te ...) — skip inside escape context
     if (!in_escape and rest != types.NIL and types.isPair(rest)) {
-        const maybe_ellipsis = types.car(rest);
+        const maybe_ellipsis = unwrapUsertext(types.car(rest));
         if (types.isSymbol(maybe_ellipsis) and isEllipsis(types.symbolName(maybe_ellipsis))) {
             // Inside a nested syntax-rules template, an ellipsis whose
             // element references no outer list binding belongs to the inner
