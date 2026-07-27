@@ -23,6 +23,7 @@ belongs here.
 | LLVM native backend | `llvm-backend.md` |
 | GC safety | `gc-safety-and-error-handling.md` |
 | Tests | `testing.md`, `test-runner.md` |
+| A slowdown (compiler or generated code) | `performance.md` |
 | Fuzzing | `fuzzing.md`, `fuzzing-feasibility.md` |
 | Porting to a new OS/arch | `porting.md` + the OS-specific doc (`windows.md`, `freebsd.md`, `openbsd.md`, `netbsd.md`) |
 | CLI subcommands | `check.md`, `fmt.md`, `features.md`, `doctor.md`, `cache.md`, `timings.md` |

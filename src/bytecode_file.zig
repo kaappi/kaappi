@@ -27,7 +27,8 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 // path after the compiler hash, so `kaappi cache status` can report which
 // source and which binary produced each cache entry. The compiler hash itself
 // now folds in the git build id (see `compilerHash`), so a dev rebuild at the
-// same version string — different commit or a dirty tree — no longer collides.
+// same version string — different commit, or clean vs. dirty — no longer
+// collides. Two *dirty* builds at the same commit still do; see compilerHashFor.
 // v9 (kaappi#1506): line-table entries carry a column alongside the line so
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
@@ -106,11 +107,17 @@ pub fn sourceHash(source: []const u8) u64 {
 /// version string with the git build id (short HEAD hash, `-dirty` when the
 /// tree had uncommitted changes; "unknown" when git is unavailable at build
 /// time). Two binaries built from the same commit with a clean tree share a
-/// key and may reuse each other's cache; any other pair — a dev rebuild after
-/// an edit, a different commit, a dirty vs. clean tree — differs, so a stale
-/// entry is rejected on load and recompiled. This closes the long-standing
-/// footgun where same-version rebuilds silently ran the previous binary's
-/// bytecode (kaappi#1516). Pure in its inputs so the keying is unit-testable.
+/// key and may reuse each other's cache; a different commit, or a dirty vs.
+/// clean tree, differs — so a stale entry is rejected on load and recompiled.
+/// This closes most of the long-standing footgun where same-version rebuilds
+/// silently ran the previous binary's bytecode (kaappi#1516).
+///
+/// It does NOT separate two *dirty* builds at the same commit: `-dirty` is a
+/// flag, not a hash of the working tree, so every uncommitted state shares one
+/// build id and rebuilds of different uncommitted changes reuse each other's
+/// entries. `kaappi cache clear` between rebuilds is still required when
+/// A/B-testing compiler changes — see docs/dev/cache.md and
+/// docs/dev/performance.md. Pure in its inputs so the keying is unit-testable.
 pub fn compilerHashFor(version_str: []const u8, build_id: []const u8) u64 {
     var h = std.hash.Wyhash.init(0);
     h.update(version_str);
