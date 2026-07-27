@@ -66,6 +66,38 @@ fn nativeUnsupportedMessage(buf: []u8, arch_name: []const u8, path: []const u8) 
     ) catch "error: native compilation is not supported on this architecture\n";
 }
 
+/// #1743 refuse-loudly diagnostic: `files` is the set of library .sld files
+/// this compile resolved from disk (see the call site's comment for why that
+/// makes them unusable from the compiled binary's own runtime). Lists each
+/// one and points at the two working alternatives instead of silently handing
+/// back a binary that fails at runtime with "library not found" despite
+/// compiling cleanly.
+fn reportUnresolvableLibraryImports(path: []const u8, files: *std.StringHashMap([]const u8)) void {
+    writeStderr("error: `kaappi compile` cannot produce a working binary for this program.\n\n");
+    writeStderr("It imports the following library file(s), which are not built into kaappi\n");
+    writeStderr("and were resolved from disk at compile time:\n");
+
+    var it = files.keyIterator();
+    while (it.next()) |key| {
+        var buf: [600]u8 = undefined;
+        const line = std.fmt.bufPrint(&buf, "    {s}\n", .{key.*}) catch continue;
+        writeStderr(line);
+    }
+
+    writeStderr(
+        "\nThe LLVM native backend does not embed library sources into the compiled\n" ++
+            "binary, and the binary's own runtime has no library search path -- so this\n" ++
+            "import fails with \"library not found\" at runtime even though compilation\n" ++
+            "reports success.\n\n" ++
+            "Run the program with the interpreter instead:\n",
+    );
+    var runbuf: [1088]u8 = undefined;
+    writeStderr(std.fmt.bufPrint(&runbuf, "    kaappi {s}\n", .{path}) catch "");
+    writeStderr("or produce a self-contained binary that embeds library sources:\n");
+    var bundlebuf: [1088]u8 = undefined;
+    writeStderr(std.fmt.bufPrint(&bundlebuf, "    zig build -Dbundle-src={s}\n", .{path}) catch "");
+}
+
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -97,6 +129,30 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     var r = reader_mod.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
+
+    // #1743: the compiled binary's own runtime (kaappi_runtime_init in
+    // runtime_exports.zig) starts a fresh VM with no library search path, and
+    // the native backend never bundles .sld sources into the binary the way
+    // the --compile/-Dbundle-src .sbc pathway does. So any import that this
+    // (compiling) VM resolves from a file — a third-party package or one of
+    // the 159 portable SRFIs, as opposed to a library built into the Zig
+    // binary — compiles cleanly here but reliably fails at runtime with
+    // "library not found", since the runtime's fresh VM can never find it.
+    // Reuse the .sbc bundler's own file-collection hook purely to detect this:
+    // processImportSet (vm_library.zig) checks the built-in registry first and
+    // only records a file here when a library is resolved from disk, so a
+    // built-in library never appears in this map.
+    var collect_files = std.StringHashMap([]const u8).init(allocator);
+    defer {
+        var cit = collect_files.iterator();
+        while (cit.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        collect_files.deinit();
+    }
+    vm.compile_collect_files = &collect_files;
+    defer vm.compile_collect_files = null;
 
     var ir_nodes: std.ArrayList(*ir_mod.Node) = .empty;
     defer ir_nodes.deinit(allocator);
@@ -181,6 +237,11 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         // Record any define/set! target from this form so that the next
         // form's constant folding does not assume the primitive is unmodified.
         collectRedefinedNames(expr, &redefined_names);
+    }
+
+    if (collect_files.count() > 0) {
+        reportUnresolvableLibraryImports(path, &collect_files);
+        return error.UnresolvableLibraryImport;
     }
 
     var emitter = llvm_emit.LLVMEmitter.init(allocator);
