@@ -206,10 +206,22 @@ pub fn importSetChecked(
     while (it.next()) |entry| {
         if (tracker.map.get(entry.key_ptr.*)) |existing| {
             if (existing.value != entry.value_ptr.*) {
-                vm.setErrorDetail(
-                    "identifier '{s}' is imported with different bindings from both {s} and {s} -- R7RS 5.2: \"it is an error to import the same identifier more than once with different bindings\"; disambiguate with only/except/rename/prefix",
-                    .{ entry.key_ptr.*, existing.label, label },
-                );
+                // When the colliding import declaration is a library's own,
+                // the error location cites the top-level form that triggered
+                // the load — so name the library early in the message (the
+                // detail buffer truncates) or the reader hunts the wrong file
+                // (found the hard way via kaappi-mpl's sin.sld).
+                if (vm.loading_library_name) |loading| {
+                    vm.setErrorDetail(
+                        "identifier '{s}' is imported with different bindings inside library ({s})'s own import declaration, from both {s} and {s} -- R7RS 5.2: \"it is an error to import the same identifier more than once with different bindings\"; disambiguate with only/except/rename/prefix",
+                        .{ entry.key_ptr.*, loading, existing.label, label },
+                    );
+                } else {
+                    vm.setErrorDetail(
+                        "identifier '{s}' is imported with different bindings from both {s} and {s} -- R7RS 5.2: \"it is an error to import the same identifier more than once with different bindings\"; disambiguate with only/except/rename/prefix",
+                        .{ entry.key_ptr.*, existing.label, label },
+                    );
+                }
                 return error.UndefinedVariable;
             }
         }
@@ -1256,6 +1268,15 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         vm.gc.allocator.destroy(lib_env);
         vm.gc.allocator.free(lib_name);
     };
+
+    // Attribute diagnostics raised while processing this library's own
+    // declarations (e.g. an import collision) to this library, not to the
+    // top-level form whose file:line the error will cite. Registered after
+    // the lib_name-freeing defer above so the restore runs first (LIFO)
+    // and the name is never read after free.
+    const prev_loading_name = vm.loading_library_name;
+    vm.loading_library_name = lib_name;
+    defer vm.loading_library_name = prev_loading_name;
 
     // Root the library environment so GC can trace closures defined in
     // begin blocks before the library is registered. Push/pop for

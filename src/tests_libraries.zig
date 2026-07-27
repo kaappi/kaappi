@@ -231,6 +231,50 @@ test "import collision is detected regardless of order" {
     try std.testing.expect(std.mem.indexOf(u8, detail, "(test coll-lib-c)") != null);
 }
 
+test "collision inside a library's own import declaration names that library" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test coll-inner-a)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'a)))
+    );
+    _ = try vm.eval(
+        \\(define-library (test coll-inner-b)
+        \\  (import (scheme base))
+        \\  (export frob)
+        \\  (begin (define (frob) 'b)))
+    );
+
+    // The colliding import declaration is *inside* coll-inner, but the
+    // error location cites the top-level form that triggered the load --
+    // so the message itself must say which library the declaration lives
+    // in (found the hard way via kaappi-mpl's sin.sld, kaappi-mpl#2).
+    const r = vm.eval(
+        \\(define-library (test coll-inner)
+        \\  (import (test coll-inner-a) (test coll-inner-b))
+        \\  (export frob)
+        \\  (begin (define unused 1)))
+    );
+    try std.testing.expectError(th.VMError.CompileError, r);
+    const detail = vm.getErrorDetail();
+    try std.testing.expect(std.mem.indexOf(u8, detail, "'frob'") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "(test.coll-inner)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "own import declaration") != null);
+
+    // The failed load must restore the context: the same collision at top
+    // level stays attributed to the import form alone, not to any library.
+    const r2 = vm.eval("(import (test coll-inner-a) (test coll-inner-b))");
+    try std.testing.expectError(th.VMError.CompileError, r2);
+    const detail2 = vm.getErrorDetail();
+    try std.testing.expect(std.mem.indexOf(u8, detail2, "import declaration") == null);
+    try std.testing.expect(std.mem.indexOf(u8, detail2, "'frob'") != null);
+}
+
 test "import does not raise when the same binding is reachable two ways" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
