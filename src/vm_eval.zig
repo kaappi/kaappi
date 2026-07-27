@@ -83,7 +83,7 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     // same name); when one is in scope, fall through instead of returning
     // here so the form reaches ordinary macro-aware compilation below,
     // exactly like every other top-level form does.
-    if (std.mem.eql(u8, name, "define-record-type") and vm.macros.get("define-record-type") == null)
+    if (std.mem.eql(u8, name, "define-record-type") and !isMacroShadowed(vm, "define-record-type"))
         return vm_records.handleDefineRecordType(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-values")) return handleDefineValues(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "include")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), false);
@@ -100,6 +100,23 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     return null;
 }
 
+// Whether `name` is shadowed by a macro in the currently-relevant scope: the
+// active library's own env when compiling a library body, else the
+// process-global macro table at true top level. Using vm.macros
+// unconditionally here would let one program's own special-form-shadowing
+// macro (imported into vm.globals, hence vm.macros) silently affect how a
+// completely unrelated library's top-level forms are dispatched later in
+// the same process (#1718) -- current_lib_env is what the library's own
+// define-syntax/import bindings actually land in (see compileLibExpr's
+// lib_macros), so it's the only scope that matters while compiling that
+// library's body.
+fn isMacroShadowed(vm: *VM, name: []const u8) bool {
+    if (vm.current_lib_env) |env| {
+        return if (env.get(name)) |v| types.isTransformer(v) else false;
+    }
+    return vm.macros.get(name) != null;
+}
+
 // Predicate mirror of the dispatch chain in handleTopLevelForm: true for the
 // top-level-only forms that eval() interprets specially rather than compiling
 // to a single reusable Function. compileCachedForm (#1494) consults this to
@@ -112,7 +129,7 @@ fn isSpecialTopLevelForm(vm: *VM, expr: Value) bool {
     const name = types.symbolName(head);
     return std.mem.eql(u8, name, "import") or
         std.mem.eql(u8, name, "define-library") or
-        (std.mem.eql(u8, name, "define-record-type") and vm.macros.get("define-record-type") == null) or
+        (std.mem.eql(u8, name, "define-record-type") and !isMacroShadowed(vm, "define-record-type")) or
         std.mem.eql(u8, name, "define-values") or
         std.mem.eql(u8, name, "include") or
         std.mem.eql(u8, name, "include-ci") or
@@ -255,7 +272,25 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     if (!types.isPair(rest)) return VMError.CompileError;
     const expr = types.car(rest);
 
-    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+    // Compile against a macro table scoped to the current library, not the
+    // process-global vm.macros: unlike define-record-type's desugaring,
+    // this initializer is user-authored code that legitimately needs to see
+    // whatever macros are in scope here -- but ONLY here, not an unrelated
+    // program's own special-form-shadowing macro sitting in vm.macros
+    // (#1718). Mirrors compileLibExpr's own lib_macros pattern (#877).
+    var scope_macros = if (vm.current_lib_env) |env| blk: {
+        var m = std.StringHashMap(Value).init(vm.gc.allocator);
+        var it = env.iterator();
+        while (it.next()) |entry| {
+            if (types.isTransformer(entry.value_ptr.*)) {
+                m.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
+            }
+        }
+        break :blk m;
+    } else vm.macros;
+    defer if (vm.current_lib_env != null) scope_macros.deinit();
+
+    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &scope_macros, vm.globals) catch return VMError.CompileError;
     var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
