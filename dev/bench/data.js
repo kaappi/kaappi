@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785137686514,
+  "lastUpdate": 1785141246584,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "347432b586c99823b0c34ef3b0252e15cc90ee9b",
-          "message": "Add skip-issues argument to /parallel-issues skill\n\nAccepts an optional second comma-separated argument of issue numbers\nto exclude from analysis, e.g. `/parallel-issues label1 7898,7845`.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T11:46:23+05:30",
-          "tree_id": "3ce363fe2923fc0645fa8845d71df32ff7e62421",
-          "url": "https://github.com/kaappi/kaappi/commit/347432b586c99823b0c34ef3b0252e15cc90ee9b"
-        },
-        "date": 1784270751364,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.293725,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.371626,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.879266,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.39343,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006203,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052552,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500625,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069233,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.357352,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.93222,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.542779,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.424188,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.826308,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.662019,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044265,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045491,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78744a1727fc64b53344bc6dede4cd3eba755717",
+          "message": "Detect colliding import bindings across libraries (#1726) (#1781)\n\n(import (srfi 28) (srfi 29)), which both export format, silently picked\nwhichever library came last in the import-set list with no diagnostic\neither way, reversing the order flipped which binding won. R7RS 5.2 says\nimporting the same identifier from two different libraries with different\nbindings is an error. handleImportInto and the environment procedure now\ntrack which import-set in the same batch first claims each name and reject\na later one that would bind it to a genuinely different value, naming both\nimport-sets and the identifier atomically, per import-set. Re-importing the\nidentical binding through two paths (a diamond dependency) still merges\nsilently, since that is the same binding, not two different ones, and\nshadowing across separate top-level (import ...) forms stays legal.\n\nGetting there surfaced two related, previously-invisible bugs. First, a\nnon-exported helper macro reachable only through an exported macro's\nexpansion (e.g. SRFI 64's test-assert -> %test-comp1body chain) could leak\ninto an importer's globals as a plain, callable value once the resolved\nexport set was routed through a scratch map first -- true for\nonly/except/prefix/rename already, and now also true for a plain,\nunmodified import since it needs the same scratch-map resolution to run the\ncollision check. Fixed by chasing the transitive macro closure only into\nthe real, final target (importBinding's new chase_transitive parameter),\nnever a scratch map that exists purely to answer \"what does this\nimport-set resolve to\". Second, a multi-set (import a b c) form that\nfailed partway through kept processing the rest, letting a later,\nsuccessful library load's own native calls clobber the shared\nerror-detail buffer and reduce a specific message to a bare \"invalid\nsyntax\" by the time it was reported. handleImportInto now stops at the\nfirst failing import-set, matching environment's existing behavior.\n\nA few portable SRFI libraries ((srfi 167), (srfi 146 hash)) had internal\ncollisions between (srfi 69) and (srfi 128) over string-hash/\nstring-ci-hash that previously loaded silently; several SRFI test files\nand two native-compile fixtures likewise combined libraries with\nundiagnosed collisions (square colliding with (scheme base), etc.). All\nnow disambiguate explicitly with only/except/rename.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T13:17:19+05:30",
+          "tree_id": "049fb848c8280b0c0a802a32221b0096c91e93f1",
+          "url": "https://github.com/kaappi/kaappi/commit/78744a1727fc64b53344bc6dede4cd3eba755717"
+        },
+        "date": 1785141244839,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.326866,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.581544,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.946035,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.733654,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006314,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.05519,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.513521,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070539,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.579726,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.058079,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.603111,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.439936,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.827459,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.674988,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043456,
             "unit": "seconds"
           }
         ]
