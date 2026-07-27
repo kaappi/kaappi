@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785137318906,
+  "lastUpdate": 1785137686514,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4f4ec49dd8dced29f312d755fa930bfb96c56d58",
-          "message": "Windows socket readiness: WSAEventSelect reactor backend (#1608 stage 1) (#1619)\n\n* Windows socket readiness: WSAEventSelect reactor backend (#1608 stage 1)\n\nLift the blocking-port degradation for socket-backed ports on Windows,\nper the issue's suggested staging. A socket enters the port layer as a\nCRT fd wrapping a SOCKET (_open_osfhandle — the bridge contract for\nkaappi-net-style FFI code and fd->port):\n\n- maybeSetNonblocking probes isSocketFd on first touch and routes socket\n  ports through platform.sockRecv/sockSend unconditionally — CRT\n  _read/_write cannot operate on (overlapped) SOCKET handles at all —\n  and additionally flips FIONBIO once a scheduler exists, so would-block\n  surfaces as the EAGAIN the shared park-and-retry protocol expects.\n- WindowsEventBackend (reactor.zig) grows real fd readiness: every armed\n  socket posts to one shared manual-reset event via WSAEventSelect (no\n  64-handle cap), wait() blocks on [notify, sock_event] bounded by the\n  nearest timer deadline, and a WSAEnumNetworkEvents sweep maps records\n  onto ReadyEvents. A 0-timeout select() probe right after each arm\n  closes the documented WSAEventSelect races (FD_WRITE/FD_CLOSE are\n  edge-recorded and re-issuing WSAEventSelect clears pending records).\n- platform.close tries closesocket before _close on every fd: a socket\n  closed by bare CloseHandle leaks ws2_32's per-handle state, which then\n  falsely claims whatever file recycles that handle value is a socket\n  (observed as silently dropped writes); isSocketFd cross-checks\n  GetFileType for the same reason.\n\nPipes and files keep blocking reads (no would-block mode at the CRT\nlayer); the completion-based rework stays open as #1608 stage 2.\n\nThe fd-readiness suites (tests_reactor, tests_scheduler, tests_port_io)\nnow run on Windows — testing_helpers grows cross-platform fd pairs\n(pipes/socketpairs on POSIX, loopback TCP pairs on Windows) — resolving\nthe suite-exclusion cleanup from the issue thread, and two new portable\ntests pin the pre-arm race behavior on every backend.\n\nShipping this surfaced a repo-wide latent bug: Zig's auto struct layout\nmoved Port.header off byte offset 0 when two bools were added, silently\ncorrupting every port Value (most makePointer call sites pass the struct\npointer while Object.as() addresses the header field). A comptime layout\nguard in types.zig now turns any such drift into a compile error, and\nthe new Port state is a single packed u8 (sock_state) that keeps the\noffset at 0; normalizing the call sites is #1618.\n\nVerified: full unit + Scheme + R7RS suites on macOS; full unit suite\n(1111 pass, 0 fail) and R7RS on a Windows 11 ARM64 machine.\n\nCloses nothing; part of #1608.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review findings: single-owner socket close, verified probe, module split\n\n- platform.close is plain _close again, even for sockets: the paired\n  closesocket closed the same handle value twice, a TOCTOU where another\n  thread's allocation could receive the value between the calls and get\n  its handle closed from under it. Kernel teardown via CloseHandle is\n  equivalent (peers still observe FD_CLOSE/EOF); the stale ws2_32\n  bookkeeping it leaves is instead neutralized where it bites:\n- isSocketFd gains a third, kernel-verified gate — ioctlsocket(FIONREAD)\n  round-trips to AFD, so only a handle that is a socket right now\n  passes; a stale ws2_32 entry pointing at a recycled pipe/file handle\n  errors out. (GetFileType and getsockopt(SO_TYPE) remain as the cheap\n  first gates.)\n- ensureWinsock publishes ready only when WSAStartup succeeds; a failure\n  is retried on the next call instead of being cached as ready.\n- WindowsEventBackend.deinit disarms every still-registered socket\n  (WSAEventSelect(sock, null, 0)) before closing the shared event.\n- The Windows socket substrate moves to platform_win_sock.zig\n  (platform.zig had crossed the 1500-line policy; the seam was already\n  self-contained), re-exported so callers keep the platform.* names.\n- CHANGELOG: the earlier Windows-target entry no longer claims all ports\n  block — superseded by the socket-readiness entry.\n\nVerified: full unit suite on macOS and on Windows 11 ARM64\n(1112 pass / 0 fail), cross-compile gate green.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T06:15:10Z",
-          "tree_id": "1016be29b2f102b1b796fae6349848a31c081cef",
-          "url": "https://github.com/kaappi/kaappi/commit/4f4ec49dd8dced29f312d755fa930bfb96c56d58"
-        },
-        "date": 1784270743031,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.366904,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.097669,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920756,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.441201,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006378,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054009,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506305,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070319,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.46945,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.966729,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584881,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438186,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.847136,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.773492,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044934,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045828,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "129c56acf712a8da04b9282385400a8c83f95ba3",
+          "message": "Support letrec*-style mutual reference in define-values (#1780)\n\nR7RS draws no distinction between `define` and `define-values` for a\nbody's letrec* scoping (5.3.2/5.3.3): a definition may reference\nanother definition appearing later in the same body, as long as the\nreference isn't evaluated before that binding is initialized. Plain\n`define` already worked this way, but a `define-values` clause could\nnot reference a name bound by a later `define-values` (or `define`)\nclause -- the reference silently compiled as a global lookup instead\nof a local/upvalue (since the name hadn't been declared as a local\nyet), surfacing as a runtime \"undefined variable\" error once the\nenclosing procedure was actually called.\n\nThe root cause is scanBodyDefs, the shared prescan that gives `define`\nits forward visibility by declaring every leading definition's name\nas a boxed local before compiling any of their init expressions -- it\nonly recognized `define` and `define-record-type`. `define-values` now\nparticipates: BodyScan gains an ordered `DefStep` (a `.simple`\nname-to-init step, or a `.values_group` step carrying an\nalready-desugared call-with-values/set! form, since one clause can\nbind 0..N names from a single shared init that doesn't fit the\nexisting one-name-one-init shape).\n\nTwo independent, duplicated \"declare locals then compile inits\" loops\nconsume the scan's output and both needed the identical fix:\ncompiler_lambda.compileBodyForms (let-family bodies and the legacy\nlambda path) and compiler_ir.compileLambdaWithIR (the modern\nIR-pipeline lambda path, reached only via `(define name (lambda\n...))` long-hand or a bare `(lambda ...)` -- the far more common\n`(define (name args) body)` shorthand always routes through the\nformer).\n\nFixes #1719\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T11:51:25+05:30",
+          "tree_id": "2d23485e7e99d533716dea4339355876a7dc6496",
+          "url": "https://github.com/kaappi/kaappi/commit/129c56acf712a8da04b9282385400a8c83f95ba3"
+        },
+        "date": 1785137684171,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.43366,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.878428,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.968242,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.608393,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00635,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055141,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.527016,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071303,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.587695,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.035692,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.617809,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437276,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.90263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69979,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045491,
             "unit": "seconds"
           }
         ]
