@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785122067769,
+  "lastUpdate": 1785123401786,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7b27e7c785f50c2297a7fa9708ea98fd3c2b05c6",
-          "message": "Split bytecode_file.zig along the serialize/deserialize seam (#1593)\n\nbytecode_file.zig had grown to 1594 lines, past the 1500-line policy.\nA serialization module has a natural architectural seam — the write half\nand the read half share only a format contract — so split there rather\nthan by function count.\n\n- bytecode_file.zig (684): hub owning the shared format contract (magic,\n  version, constant tags, size limits), BytecodeError, and the cache-key\n  hashing both halves agree on; re-exports the read/write API so external\n  callers still see a single `bytecode_file` module. Round-trip tests\n  stay here since they exercise both halves.\n- bytecode_file_write.zig (389): serializer (Writer, writeConstant,\n  function collection, writeFileWithTopLevel/writeFileWithBundle).\n- bytecode_file_read.zig (594): deserializer (Reader, readConstant,\n  bytecode validation, deserializeFromBuffer, readHeaderInfo,\n  DeserializeResult/HeaderInfo).\n\nPublic API is unchanged: every externally-used symbol is re-exported\nfrom the hub, so main.zig, cache.zig, kaappi_lsp.zig, and the tests_*\nfiles keep resolving through bytecode_file.X with no edits. The read and\nwrite halves import the shared contract via `const bf = @import(...)`,\nthe same mutual-import pattern the VM and compiler splits use.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T09:47:48Z",
-          "tree_id": "72d990cd603eeb6dbee79caa7d0a8b2f05c2ccdf",
-          "url": "https://github.com/kaappi/kaappi/commit/7b27e7c785f50c2297a7fa9708ea98fd3c2b05c6"
-        },
-        "date": 1784197170287,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332687,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.510782,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.012222,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.602714,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006473,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.056071,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.514655,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069432,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.463425,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.986161,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592271,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.443611,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.810779,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.83329,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045084,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044355,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "672db1f109080ba0300b8be4a29eebf4fb7572fa",
+          "message": "Promote expt to complex for negative base + non-integer exponent (#1725) (#1769)\n\nexptFn's real-number fallback called std.math.pow unconditionally,\nwhich returns +nan.0 for a negative base combined with a non-integer\nreal exponent (e.g. (expt -8.0 0.5), (expt -8 1/3)) instead of the\nwell-defined complex result — the same input shape sqrt already\npromotes correctly.\n\nFactored the existing z^w = e^(w*ln(z)) formula out of the\nalready-complex branch into a shared complexPowGeneral helper, and\nroute a finite negative base with a finite non-integer exponent\nthrough it before falling back to std.math.pow. Integer exponents\n(even via a flonum, e.g. -8.0^3.0) are left untouched since pow\nalready handles those correctly for a negative base.",
+          "timestamp": "2026-07-27T08:05:00+05:30",
+          "tree_id": "2c383fac6554457a1284c7c0b6197f216cad3a98",
+          "url": "https://github.com/kaappi/kaappi/commit/672db1f109080ba0300b8be4a29eebf4fb7572fa"
+        },
+        "date": 1785123400646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.092422,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.545508,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.950123,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.412205,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006846,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052556,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.507999,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068205,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.318538,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.969588,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.530846,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.48407,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.766816,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.742168,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04521,
             "unit": "seconds"
           }
         ]
