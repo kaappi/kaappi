@@ -159,3 +159,52 @@ test "hygiene: a custom ellipsis substituted into an ORDINARY (non-quoted) templ
         \\  (equal? (use-it2 1 2 3) '(1 2 3)))
     );
 }
+
+test "hygiene: a WHOLE generated rule pattern spliced from user text keeps its keyword slot" {
+    // Third site of the same usertext-marker-in-the-spine gap (#1787). When
+    // a generating macro splices an entire rule PATTERN (not just a tail),
+    // the marker wraps the whole thing: `(_ x y)` arrives as
+    // `(MARKER _ x y)`. expandMacro drops the pattern's first element to
+    // skip the macro keyword -- so it dropped the MARKER instead, leaving
+    // `(_ x y)` to line up against the argument list `(1 2)`. Every
+    // position then sat one slot late: the user's own `_` keyword
+    // placeholder swallowed the first argument, `x` took the second, and
+    // `y` had nothing left, so a perfectly well-formed call failed to match
+    // at all. (The keyword-name extraction a few lines above had the same
+    // gap, reading the marker symbol as the macro's own name.)
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-rule
+        \\    (syntax-rules ()
+        \\      ((_ pat tmpl)
+        \\       (syntax-rules () (pat tmpl)))))
+        \\  (define-syntax use-rule (gen-rule (_ x y) (list 'ok x y)))
+        \\  (equal? (use-rule 1 2) '(ok 1 2)))
+    );
+}
+
+test "hygiene: an ellipsis followed by a spliced dotted tail reserves the right number of trailing elements" {
+    // Fourth site (#1787), and the only one that failed SILENTLY rather
+    // than erroring. matchEllipsis splits the input by counting how many
+    // elements the pattern after the ellipsis needs -- but a marker pair
+    // spliced into that trailing position is a wrapper, not an element, so
+    // the count came out one too high and the ellipsis stopped one element
+    // short. The trailing pattern still matched (the marker symbol behaved
+    // like an anonymous pattern variable and bound the element the ellipsis
+    // should have taken), so the expansion succeeded with a SHORT ellipsis
+    // binding: `(use-tail 1 2 99)` below yielded `(ok 1)` instead of
+    // `(ok 1 2)` with no diagnostic anywhere. The literal `99` in the
+    // spliced tail is what makes this observable -- a trailing pattern
+    // VARIABLE absorbs the off-by-one on both sides and gives the right
+    // answer for the wrong reason.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-tail
+        \\    (syntax-rules ()
+        \\      ((_ tailpat)
+        \\       (syntax-rules ()
+        \\         ((_ a (... ...) . tailpat) (list 'ok a (... ...)))))))
+        \\  (define-syntax use-tail (gen-tail (99)))
+        \\  (equal? (use-tail 1 2 99) '(ok 1 2)))
+    );
+}

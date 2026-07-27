@@ -192,7 +192,10 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     // back to the same macro.
     var macro_keyword: ?[]const u8 = null;
     if (transformer.num_rules > 0) {
-        const first_pat = transformer.patterns[0];
+        // Unwrap first: a generating macro that splices a WHOLE rule pattern
+        // from user text hands this transformer a marker-wrapped pattern,
+        // whose car is the marker symbol rather than the keyword.
+        const first_pat = unwrapUsertext(transformer.patterns[0]);
         if (types.isPair(first_pat)) {
             const kw = types.car(first_pat);
             if (types.isSymbol(kw)) {
@@ -231,8 +234,12 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     for (0..transformer.num_rules) |i| {
         var bind_count: usize = 0;
 
-        // Skip the keyword in the pattern (first element of pattern)
-        const pattern_body = types.cdr(transformer.patterns[i]);
+        // Skip the keyword in the pattern (first element of pattern).
+        // Same whole-pattern unwrap as the keyword extraction above: without
+        // it this cdr strips the MARKER instead of the keyword, so every
+        // pattern position lines up one slot late against the input and the
+        // user's own `_` keyword placeholder swallows the first argument.
+        const pattern_body = types.cdr(unwrapUsertext(transformer.patterns[i]));
 
         if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count, gc, literal_bound, use_check)) {
             return instantiateTemplate(gc, transformer.templates[i], bindings[0..bind_count], intro_scope, transformer.literals, macro_keyword, globals, macros);
@@ -385,11 +392,12 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
         // loop iteration (not just at entry), that marker pair surfaces as
         // an ordinary-looking extra list element on a LATER iteration,
         // shifting every remaining pattern/input position by one and
-        // breaking the match entirely (kaappi#1775's still-open companion
-        // bug: SRFI 148's em-syntax-rules generates exactly this shape for
-        // every rule, `(_ :prepare s . p)`). unwrapUsertext is a no-op on
-        // anything that isn't actually a marker pair, so this is safe to
-        // apply unconditionally.
+        // breaking the match entirely (#1787: SRFI 148's em-syntax-rules
+        // generates exactly this shape for every rule it emits,
+        // `(_ :prepare s . p)`). unwrapUsertext is a no-op on anything that
+        // isn't actually a marker pair, so this is safe to apply
+        // unconditionally. Two more spine walks need the same unwrap --
+        // expandMacro's keyword-skip and countPairs/matchEllipsis.
         pat = unwrapUsertext(pat);
         inp = unwrapUsertext(inp);
         if (!types.isPair(pat)) {
@@ -436,12 +444,22 @@ fn countPairs(v: Value) ?usize {
         if (slow == fast) return null;
     }
 
+    // Both callers (matchEllipsis, below) count a PATTERN or INPUT spine, so
+    // a usertext marker sitting in that spine — a chunk a generating macro
+    // spliced into a dotted-tail position — is a wrapper, not an element.
+    // Counting it makes the ellipsis reserve one element too many for the
+    // tail, so the split lands one position early: the trailing pattern
+    // still matches (the marker symbol binds the element the ellipsis
+    // should have taken), silently producing a SHORT ellipsis binding
+    // rather than an error. unwrapUsertext is a no-op on anything else; a
+    // forged cyclic marker chain still terminates on the MAX_ELLIPSIS_VALUES
+    // bound below.
     var n: usize = 0;
-    var cur = v;
+    var cur = unwrapUsertext(v);
     while (types.isPair(cur)) {
         n += 1;
         if (n > MAX_ELLIPSIS_VALUES) return null;
-        cur = types.cdr(cur);
+        cur = unwrapUsertext(types.cdr(cur));
     }
     return n;
 }
@@ -481,9 +499,12 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
         @setRuntimeSafety(false);
         break :b undefined;
     };
-    var inp = input;
+    // Same spine unwrapping as countPairs: the repetition walk must step
+    // over marker cells rather than consume one as an element.
+    var inp = unwrapUsertext(input);
     for (0..repeat_count) |_| {
         var sub_count: usize = 0;
+        if (!types.isPair(inp)) return false;
         if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count, gc, literal_bound, use_check))
             return false;
 
@@ -515,11 +536,11 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
             }
         }
 
-        inp = types.cdr(inp);
+        inp = unwrapUsertext(types.cdr(inp));
     }
 
     // Match remaining input against rest_pattern
-    if (rest_pattern == types.NIL) return inp == types.NIL;
+    if (unwrapUsertext(rest_pattern) == types.NIL) return inp == types.NIL;
     return matchListPattern(rest_pattern, inp, literals, bindings, count, gc, literal_bound, use_check);
 }
 
