@@ -102,6 +102,36 @@ test "hygiene: a custom ellipsis identifier substituted through a nested syntax-
     );
 }
 
+test "hygiene: a usertext marker spliced into a generated macro's dotted-tail pattern position is unwrapped mid-match, not just at pattern-matching entry" {
+    // A pattern variable bound to a LIST (here `p`, bound to the 2-element
+    // list `(a b)`) that a generating macro's own template splices into a
+    // NESTED syntax-rules pattern's dotted tail (`. p`) becomes, once
+    // flattened through the cons chain, structurally indistinguishable from
+    // a run of ordinary list elements: `(_ head . p)` with p=(a b) becomes
+    // `(_ head MARKER a b)` where MARKER is a real usertext-marker pair
+    // (car = the reserved __hyg-usertext symbol), not a literal token.
+    // matchPattern's own entry point unwraps its immediate pattern_in/
+    // input_in parameters, which is enough when the marker sits in the
+    // FIRST position (nothing consumed yet) -- but matchListPattern's own
+    // internal loop advances past `head` first without re-unwrapping, so a
+    // marker arriving at any LATER position (mid-match, after some
+    // elements are already consumed -- forced here by the leading `head`)
+    // surfaced as a bogus extra pattern element, shifting every subsequent
+    // position and failing the match outright. Found while porting SRFI
+    // 148's em-syntax-rules, whose generated pattern is always exactly
+    // this dotted-tail shape (`(_ :prepare s . p)`).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-dotted
+        \\    (syntax-rules ()
+        \\      ((_ p)
+        \\       (syntax-rules ()
+        \\         ((_ head . p) '(matched . p))))))
+        \\  (define-syntax use-it (gen-dotted (a b)))
+        \\  (equal? (use-it 99 10 20) '(matched 10 20)))
+    );
+}
+
 test "hygiene: a custom ellipsis substituted into an ORDINARY (non-quoted) template position is also recognized" {
     // Companion to the test above: the same NESTED_SR_FLAG usertext-marking
     // protocol only wraps a substituted value outside quote (QUOTE_FLAG
