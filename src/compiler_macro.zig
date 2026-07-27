@@ -51,243 +51,370 @@ fn resolveSameFrameLocal(ctx: ?*const anyopaque, name: []const u8) bool {
     return false;
 }
 
+/// Undo record for one temporarily adjusted global (the hygiene "dance"
+/// below); restored LIFO when the expansion chain finishes.
+const TempGlobal = struct { name: []const u8, old_val: ?Value, was_present: bool };
+
+/// Undo record for one let-syntax sibling keyword swapped to its outer
+/// value (R7RS 4.3.1); restored LIFO when the expansion chain finishes.
+const PeerSave = struct { name: []const u8, old: ?Value };
+
+/// Does `form`'s head name a macro that compileForm would expand right
+/// back through expandAndCompileMacroUse, in the same position (same dst,
+/// same tail flag)? Mirrors compileForm's own macro-dispatch conditions
+/// exactly: the usertext-marker safety net, local/upvalue shadowing, and
+/// fixed-point suppression (a suppressed name must fall through to
+/// compileForm, which consumes the suppression). Non-null means the chain
+/// loop in expandAndCompileMacroUse can iterate instead of recursing.
+fn chainNextMacroUse(self: *Compiler, form: Value) CompileError!?struct { name: []const u8, transformer: Value } {
+    if (!types.isPair(form)) return null;
+    const head = types.car(form);
+    if (!types.isSymbol(head)) return null;
+    const hname = types.symbolName(head);
+    if (std.mem.eql(u8, hname, expander.USERTEXT_MARKER)) return null;
+    const effective_name = types.stripHygienicPrefix(hname);
+    const is_shadowed = std.mem.eql(u8, effective_name, hname) and
+        (self.resolveLocal(hname) != null or (try self.resolveUpvalue(hname)) != null);
+    if (is_shadowed) return null;
+    if (self.suppress_macro_name) |smn| {
+        if (std.mem.eql(u8, hname, smn)) return null;
+    }
+    const t = self.lookupMacro(hname) orelse return null;
+    if (self.resolveLocal(hname) != null or (try self.resolveUpvalue(hname)) != null) return null;
+    return .{ .name = hname, .transformer = t };
+}
+
 pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, transformer: Value, dst: u16, is_tail: bool) CompileError!void {
     if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
         self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
     {
         return CompileError.MacroExpansionLimit;
     }
+    // Depth counts NESTED expansions only — a macro use compiled from
+    // inside another expansion's result recurses natively through
+    // compileExpr, so this cap is what keeps the native stack bounded.
+    // Head-position chains (an expansion that IS directly another macro
+    // use in the same position — SRFI 148's CK-machine steps, or a
+    // degenerate (loop) → (loop)) iterate in the loop below at O(1)
+    // native stack and are bounded by MAX_MACRO_EXPANSION_STEPS instead.
+    // The two must not be conflated: raising THIS constant to cover deep
+    // chains overflows the native stack — and in a Debug/test build the
+    // segfault then fires inside the DebugAllocator's own stack capture,
+    // whose SelfInfo lock the segfault handler needs, deadlocking the
+    // whole test run at 0% CPU (kaappi#1796).
     self.macro_expansion_depth += 1;
-    self.macro_expansion_steps += 1;
     defer self.macro_expansion_depth -= 1;
-    // Build merged macro view including parent scopes
-    var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
+
+    const gpa = self.gc.allocator;
+
+    // ---- Chain-accumulated bookkeeping -------------------------------
+    // Every link of the chain contributes temporary state that must stay
+    // active until the FINAL (non-macro) form finishes compiling —
+    // identifiers introduced by link k's template can survive into the
+    // final form, so link k's injected locals, adjusted globals, and peer
+    // swaps have to be live while it compiles. The old nested recursion
+    // kept all of that alive in per-level native frames; these heap-side
+    // accumulators keep the same lifetimes with per-link native cost
+    // zero, unwound LIFO by the defers below on success and error alike.
+
+    var merged_macros = std.StringHashMap(Value).init(gpa);
     defer merged_macros.deinit();
-    var p: ?*Compiler = self.parent;
-    while (p) |par| : (p = par.parent) {
-        var it = par.macros.iterator();
-        while (it.next()) |entry| {
-            try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
-        }
-    }
-    var it = self.macros.iterator();
-    while (it.next()) |entry| {
-        try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
-    }
-    const tx = types.toObject(transformer).as(types.Transformer);
-    // Temporarily add/modify globals so the expander doesn't
-    // rename template free references.
-    const TempGlobal = struct { name: []const u8, old_val: ?Value, was_present: bool };
-    var temp_globals: [128]TempGlobal = undefined;
-    var temp_global_count: usize = 0;
-    // Track non-procedure global free vars that need local injection
-    // to prevent shadowing by use-site locals (R7RS 4.3.1).
-    var global_free_names: [64][]const u8 = undefined;
-    var global_free_count: usize = 0;
-    if (self.globals) |g| {
-        // The sentinel puts below structurally mutate the globals
-        // map when g is the VM's shared one — exclude SRFI-18
-        // child-thread readers for the whole dance (#958). glk is
-        // non-null exactly when g is the current thread's shared
-        // globals map.
-        const glk = globals_mod.acquireGlobalsWrite(g);
-        defer globals_mod.releaseGlobalsWrite(glk);
-        for (tx.captured_locals) |cap| {
-            if (temp_global_count < 128) {
-                if (g.get(cap.name)) |gval| {
-                    temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = gval, .was_present = true };
-                    temp_global_count += 1;
-                    _ = g.remove(cap.name);
-                }
-            }
-        }
-        if (tx.def_env) |env| {
-            var env_it = env.iterator();
-            while (env_it.next()) |entry| {
-                if (!g.contains(entry.key_ptr.*) and temp_global_count < 128) {
-                    temp_globals[temp_global_count] = .{ .name = entry.key_ptr.*, .old_val = null, .was_present = false };
-                    temp_global_count += 1;
-                    try g.put(entry.key_ptr.*, entry.value_ptr.*);
-                }
-            }
-        }
-        // Temporarily mark non-procedure free globals as VOID so
-        // renameForHygiene preserves them. Only mark identifiers that
-        // were bound at macro definition time (bound_free_refs) —
-        // template-introduced identifiers that coincidentally share a
-        // name with a later user define must still be renamed (#1208).
-        if (globals_mod.globals_ctx) |gctx| {
-            for (tx.bound_free_refs) |cname| {
-                const in_g = g.get(cname);
-                // glk != null means g IS the shared globals map
-                // and we already hold its exclusive lock; else
-                // this read needs its own child-thread lock.
-                const in_vm = if (glk != null)
-                    (if (gctx.globals.count() > 0) gctx.globals.get(cname) else null)
-                else in_vm_blk: {
-                    gctx.lockShared();
-                    defer gctx.unlockShared();
-                    break :in_vm_blk if (gctx.globals.count() > 0) gctx.globals.get(cname) else null;
-                };
-                const existing = in_g orelse in_vm;
-                if (existing) |val| {
-                    if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
-                        if (temp_global_count < 128) {
-                            temp_globals[temp_global_count] = .{ .name = cname, .old_val = in_g, .was_present = in_g != null };
-                            temp_global_count += 1;
-                            try g.put(cname, types.VOID);
-                        }
-                        // Track for local injection after expansion
-                        if (global_free_count < 64) {
-                            global_free_names[global_free_count] = cname;
-                            global_free_count += 1;
-                        }
+
+    var temp_globals: std.ArrayList(TempGlobal) = .empty;
+    defer {
+        if (self.globals) |g| {
+            if (temp_globals.items.len > 0) {
+                const glk = globals_mod.acquireGlobalsWrite(g);
+                var tgi = temp_globals.items.len;
+                while (tgi > 0) {
+                    tgi -= 1;
+                    const tg = temp_globals.items[tgi];
+                    if (tg.was_present) {
+                        g.put(tg.name, tg.old_val.?) catch {};
+                    } else {
+                        _ = g.remove(tg.name);
                     }
                 }
+                globals_mod.releaseGlobalsWrite(glk);
             }
+        }
+        temp_globals.deinit(gpa);
+    }
+
+    // R7RS 4.3.1: let-syntax transformers resolve free macro references
+    // from the definition-site environment, not the use-site environment.
+    var peer_saves: std.ArrayList(PeerSave) = .empty;
+    defer {
+        var pi = peer_saves.items.len;
+        while (pi > 0) {
+            pi -= 1;
+            const ps = peer_saves.items[pi];
+            if (ps.old) |old| {
+                self.macros.put(ps.name, old) catch {};
+            } else {
+                _ = self.macros.remove(ps.name);
+            }
+        }
+        peer_saves.deinit(gpa);
+    }
+
+    // Injected locals (hygienic captured-local aliases plus non-procedure
+    // global aliases) accumulate across links. The chain's result lives in
+    // dst by the time this unwinds, so the aliases are dead, and
+    // compileExpr is register-balanced, making the LIFO rewind safe.
+    // Leaking an alias register would break the balanced-register contract
+    // expression compilation relies on — a call site allocates CONTIGUOUS
+    // argument registers, so a leak inside one argument shifts every later
+    // argument slot while the call still reads the original window (found
+    // by the Kaappi-vs-Chibi differential oracle, #1396).
+    const saved_locals_len = self.locals.items.len;
+    var injected_reg_count: u16 = 0;
+    defer {
+        while (self.locals.items.len > saved_locals_len) {
+            _ = self.locals.pop();
+        }
+        while (injected_reg_count > 0) : (injected_reg_count -= 1) {
+            self.freeReg();
         }
     }
-    defer if (self.globals) |g| {
-        const glk = globals_mod.acquireGlobalsWrite(g);
-        var tgi = temp_global_count;
-        while (tgi > 0) {
-            tgi -= 1;
-            const tg = temp_globals[tgi];
-            if (tg.was_present) {
-                g.put(tg.name, tg.old_val.?) catch {};
-            } else {
-                _ = g.remove(tg.name);
-            }
-        }
-        globals_mod.releaseGlobalsWrite(glk);
-    };
-    // Suppress GC during expansion: the expanded form isn't
-    // rooted until pushRoot below, so a collection triggered
-    // by allocPair inside expandMacro could free AST nodes
-    // that the partially-built result references.
-    self.gc.no_collect += 1;
+
+    const saved_suppress = self.suppress_macro_name;
+    defer self.suppress_macro_name = saved_suppress;
+
+    // `kaappi check`: a macro expansion is not the user's direct source, so
+    // suppress lint over everything compiled from it (kaappi#1511). Only calls
+    // the user wrote outside any macro use are "direct calls to a built-in".
+    var lint_enters: usize = 0;
+    defer while (lint_enters > 0) : (lint_enters -= 1) check_lint.exitMacroExpansion();
+
     const use_check = expander.UseSiteBindingCheck{
         .ctx = @ptrCast(self),
         .resolve_fn = &resolveLocalSkipAliases,
         .frame_resolve_fn = &resolveSameFrameLocal,
     };
-    const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros, use_check) catch |err| {
-        self.gc.no_collect -= 1;
-        return switch (err) {
-            error.OutOfMemory => CompileError.OutOfMemory,
-            error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-            error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
-        };
-    };
-    var expanded_root = expanded;
-    self.gc.pushRoot(&expanded_root);
-    defer self.gc.popRoot();
-    self.gc.no_collect -= 1;
-    // Unwrap user-text provenance markers before compiling; specs of macros
-    // this expansion defines (syntax-rules subtrees) keep theirs.
-    if (expander.isUsertextPair(expanded_root)) {
-        expanded_root = expander.unwrapUsertext(expanded_root);
-    }
-    if (types.isPair(expanded_root) or types.isVector(expanded_root)) {
-        expander.stripUsertextMarkers(self.gc, expanded_root);
-    }
-    try self.scanSetTargets(expanded_root);
-    const saved_locals_len = self.locals.items.len;
-    try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
-    // Inject non-procedure global free vars as locals so
-    // use-site locals don't shadow the definition-site
-    // global binding (R7RS 4.3.1 referential transparency).
-    // Alias registers are freed after the expansion is compiled: leaking
-    // them breaks the balanced-register contract expression compilation
-    // relies on — a call site allocates CONTIGUOUS argument registers, so
-    // a leak inside one argument shifts every later argument slot while
-    // the call still reads the original window (found by the Kaappi-vs-
-    // Chibi differential oracle, #1396).
-    var injected_reg_count: u16 = 0;
-    for (global_free_names[0..global_free_count]) |gname| {
-        // Skip if already covered by captured_locals
-        var already_captured = false;
-        for (tx.captured_locals) |cap| {
-            if (std.mem.eql(u8, cap.name, gname)) {
-                already_captured = true;
-                break;
+
+    var cur_expr = expr;
+    var cur_name = name;
+    var cur_transformer = transformer;
+    var final_form = expr;
+
+    while (true) {
+        if (self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS) {
+            return CompileError.MacroExpansionLimit;
+        }
+        self.macro_expansion_steps += 1;
+
+        // Merged macro view including parent scopes, rebuilt per link so a
+        // peer swap made by an earlier link stays visible (matching the
+        // nested recursion, where each level built its own merged view
+        // after the enclosing level's swap).
+        merged_macros.clearRetainingCapacity();
+        {
+            var p: ?*Compiler = self.parent;
+            while (p) |par| : (p = par.parent) {
+                var it = par.macros.iterator();
+                while (it.next()) |entry| {
+                    try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
+                }
+            }
+            var it = self.macros.iterator();
+            while (it.next()) |entry| {
+                try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
             }
         }
-        if (already_captured) continue;
-        // Load the global value into a fresh register
-        const gslot = self.allocReg() catch continue;
-        injected_reg_count += 1;
-        const gsym = self.gc.allocSymbol(gname) catch continue;
-        const gsym_idx = self.addConstant(gsym) catch continue;
-        self.emitOp(.get_global) catch continue;
-        self.emitU16(gslot) catch continue;
-        self.emitU16(gsym_idx) catch continue;
-        try self.locals.append(self.gc.allocator, .{
-            .name = gname,
-            .depth = self.scope_depth,
-            .slot = gslot,
-            .binding_id = compiler_mod.freshBindingId(),
-            .is_global_alias = true,
-        });
-    }
-    // R7RS 4.3.1: let-syntax transformers resolve free macro references
-    // from the definition-site environment, not the use-site environment.
-    // Temporarily swap sibling keywords to their outer values.
-    const peer_names = tx.let_syntax_peer_names;
-    const peer_outer = tx.let_syntax_peer_vals;
-    std.debug.assert(peer_names.len == peer_outer.len);
-    const saved_peer = if (peer_names.len > 0)
-        self.gc.allocator.alloc(?Value, peer_names.len) catch return CompileError.OutOfMemory
-    else
-        null;
-    defer if (saved_peer) |sp| self.gc.allocator.free(sp);
-    if (saved_peer) |sp| {
-        for (peer_names, peer_outer, 0..) |pn, pv, i| {
-            sp[i] = self.macros.get(pn);
+
+        const tx = types.toObject(cur_transformer).as(types.Transformer);
+
+        // Track non-procedure global free vars that need local injection
+        // to prevent shadowing by use-site locals (R7RS 4.3.1). Per-link,
+        // consumed by the injection loop right after expansion.
+        var global_free_names: [64][]const u8 = undefined;
+        var global_free_count: usize = 0;
+
+        // Temporarily add/modify globals so the expander doesn't rename
+        // template free references. Undo records accumulate for the whole
+        // chain; the per-link cap of 128 preserves the old fixed-array
+        // behavior.
+        if (self.globals) |g| {
+            var level_count: usize = 0;
+            // The sentinel puts below structurally mutate the globals
+            // map when g is the VM's shared one — exclude SRFI-18
+            // child-thread readers for the whole dance (#958). glk is
+            // non-null exactly when g is the current thread's shared
+            // globals map.
+            const glk = globals_mod.acquireGlobalsWrite(g);
+            defer globals_mod.releaseGlobalsWrite(glk);
+            for (tx.captured_locals) |cap| {
+                if (level_count < 128) {
+                    if (g.get(cap.name)) |gval| {
+                        temp_globals.append(gpa, .{ .name = cap.name, .old_val = gval, .was_present = true }) catch return CompileError.OutOfMemory;
+                        level_count += 1;
+                        _ = g.remove(cap.name);
+                    }
+                }
+            }
+            if (tx.def_env) |env| {
+                var env_it = env.iterator();
+                while (env_it.next()) |entry| {
+                    if (!g.contains(entry.key_ptr.*) and level_count < 128) {
+                        temp_globals.append(gpa, .{ .name = entry.key_ptr.*, .old_val = null, .was_present = false }) catch return CompileError.OutOfMemory;
+                        level_count += 1;
+                        try g.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+            }
+            // Temporarily mark non-procedure free globals as VOID so
+            // renameForHygiene preserves them. Only mark identifiers that
+            // were bound at macro definition time (bound_free_refs) —
+            // template-introduced identifiers that coincidentally share a
+            // name with a later user define must still be renamed (#1208).
+            if (globals_mod.globals_ctx) |gctx| {
+                for (tx.bound_free_refs) |cname| {
+                    const in_g = g.get(cname);
+                    // glk != null means g IS the shared globals map
+                    // and we already hold its exclusive lock; else
+                    // this read needs its own child-thread lock.
+                    const in_vm = if (glk != null)
+                        (if (gctx.globals.count() > 0) gctx.globals.get(cname) else null)
+                    else in_vm_blk: {
+                        gctx.lockShared();
+                        defer gctx.unlockShared();
+                        break :in_vm_blk if (gctx.globals.count() > 0) gctx.globals.get(cname) else null;
+                    };
+                    const existing = in_g orelse in_vm;
+                    if (existing) |val| {
+                        if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
+                            if (level_count < 128) {
+                                temp_globals.append(gpa, .{ .name = cname, .old_val = in_g, .was_present = in_g != null }) catch return CompileError.OutOfMemory;
+                                level_count += 1;
+                                try g.put(cname, types.VOID);
+                            }
+                            // Track for local injection after expansion
+                            if (global_free_count < 64) {
+                                global_free_names[global_free_count] = cname;
+                                global_free_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Suppress GC during expansion: the expanded form isn't rooted
+        // until the extra_roots append below, so a collection triggered
+        // by allocPair inside expandMacro could free AST nodes that the
+        // partially-built result references.
+        self.gc.no_collect += 1;
+        const expanded = expander.expandMacro(self.gc, cur_expr, cur_transformer, self.globals, &merged_macros, use_check) catch |err| {
+            self.gc.no_collect -= 1;
+            return switch (err) {
+                error.OutOfMemory => CompileError.OutOfMemory,
+                error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
+            };
+        };
+        // Root for the rest of the enclosing compile scope via extra_roots
+        // (released by that scope's shrinkRetainingCapacity, exactly like
+        // compileDefineSyntax's transformers): the fixed root stack's 1024
+        // slots cannot hold one root per chain link, and material from
+        // EVERY link (injected local name slices, set!-target keys) must
+        // stay reachable until the final form finishes compiling.
+        self.gc.extra_roots.append(gpa, expanded) catch {
+            self.gc.no_collect -= 1;
+            return CompileError.OutOfMemory;
+        };
+        self.gc.no_collect -= 1;
+
+        var expanded_root = expanded;
+        // Unwrap user-text provenance markers before compiling; specs of
+        // macros this expansion defines (syntax-rules subtrees) keep
+        // theirs.
+        if (expander.isUsertextPair(expanded_root)) {
+            expanded_root = expander.unwrapUsertext(expanded_root);
+        }
+        if (types.isPair(expanded_root) or types.isVector(expanded_root)) {
+            expander.stripUsertextMarkers(self.gc, expanded_root);
+        }
+        try self.scanSetTargets(expanded_root);
+        try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
+        // Inject non-procedure global free vars as locals so use-site
+        // locals don't shadow the definition-site global binding
+        // (R7RS 4.3.1 referential transparency).
+        for (global_free_names[0..global_free_count]) |gname| {
+            // Skip if already covered by captured_locals
+            var already_captured = false;
+            for (tx.captured_locals) |cap| {
+                if (std.mem.eql(u8, cap.name, gname)) {
+                    already_captured = true;
+                    break;
+                }
+            }
+            if (already_captured) continue;
+            // Load the global value into a fresh register
+            const gslot = self.allocReg() catch continue;
+            injected_reg_count += 1;
+            const gsym = self.gc.allocSymbol(gname) catch continue;
+            const gsym_idx = self.addConstant(gsym) catch continue;
+            self.emitOp(.get_global) catch continue;
+            self.emitU16(gslot) catch continue;
+            self.emitU16(gsym_idx) catch continue;
+            try self.locals.append(gpa, .{
+                .name = gname,
+                .depth = self.scope_depth,
+                .slot = gslot,
+                .binding_id = compiler_mod.freshBindingId(),
+                .is_global_alias = true,
+            });
+        }
+        // Swap let-syntax sibling keywords to their outer values while
+        // material from this transformer is live; the undo record is
+        // appended before each swap so a mid-chain error restores
+        // everything applied so far.
+        std.debug.assert(tx.let_syntax_peer_names.len == tx.let_syntax_peer_vals.len);
+        for (tx.let_syntax_peer_names, tx.let_syntax_peer_vals) |pn, pv| {
+            peer_saves.append(gpa, .{ .name = pn, .old = self.macros.get(pn) }) catch return CompileError.OutOfMemory;
             if (pv != types.NIL) {
                 self.macros.put(pn, pv) catch {};
             } else {
                 _ = self.macros.remove(pn);
             }
         }
-    }
-    // Fixed-point detection: if the expansion is structurally identical to
-    // the input (e.g. SRFI-219 rule 3: (define x e) → (define x e)) AND the
-    // keyword is a built-in special form, suppress macro re-expansion so the
-    // built-in handler takes over.  For non-special-form macros (e.g. a
-    // degenerate (loop) → (loop)), let the expansion-limit catch it instead.
-    const is_fixed_point = valuesStructurallyEqual(expanded_root, expr, 128) and
-        ir_mod.isSpecialForm(types.stripHygienicPrefix(name));
-    const saved_suppress = self.suppress_macro_name;
-    if (is_fixed_point) self.suppress_macro_name = name;
-    defer self.suppress_macro_name = saved_suppress;
 
-    // `kaappi check`: a macro expansion is not the user's direct source, so
-    // suppress lint over everything compiled from it (kaappi#1511). Only calls
-    // the user wrote outside any macro use are "direct calls to a built-in".
-    check_lint.enterMacroExpansion();
-    defer check_lint.exitMacroExpansion();
+        check_lint.enterMacroExpansion();
+        lint_enters += 1;
 
-    const result_err = self.compileExpr(expanded_root, dst, is_tail);
-    if (saved_peer) |sp| {
-        for (peer_names, 0..) |pn, i| {
-            if (sp[i]) |old| {
-                self.macros.put(pn, old) catch {};
-            } else {
-                _ = self.macros.remove(pn);
-            }
+        // Fixed-point detection: if the expansion is structurally identical
+        // to the input (e.g. SRFI-219 rule 3: (define x e) → (define x e))
+        // AND the keyword is a built-in special form, suppress macro
+        // re-expansion so the built-in handler takes over — compileForm
+        // consumes the suppression, so the chain must break to it. For
+        // non-special-form macros (a degenerate (loop) → (loop)), keep
+        // chaining and let the step limit catch it.
+        if (valuesStructurallyEqual(expanded_root, cur_expr, 128) and
+            ir_mod.isSpecialForm(types.stripHygienicPrefix(cur_name)))
+        {
+            self.suppress_macro_name = cur_name;
+            final_form = expanded_root;
+            break;
         }
+
+        // Head-position chain: the expansion is itself directly a macro
+        // use that compileForm would route straight back here with the
+        // same dst and tail flag. Iterate instead of recursing so chain
+        // length costs no native stack (kaappi#1796) — the shape both
+        // SRFI 148's CK machine and runaway (loop)-style macros have.
+        if (try chainNextMacroUse(self, expanded_root)) |next| {
+            cur_expr = expanded_root;
+            cur_name = next.name;
+            cur_transformer = next.transformer;
+            continue;
+        }
+
+        final_form = expanded_root;
+        break;
     }
-    // Remove injected locals and rewind their alias registers: the
-    // expansion's result now lives in dst, so the aliases are dead, and
-    // compileExpr itself is register-balanced, making the LIFO rewind safe.
-    while (self.locals.items.len > saved_locals_len) {
-        _ = self.locals.pop();
-    }
-    while (injected_reg_count > 0) : (injected_reg_count -= 1) {
-        self.freeReg();
-    }
-    return result_err;
+
+    return self.compileExpr(final_form, dst, is_tail);
 }
 
 // ---------------------------------------------------------------------------
