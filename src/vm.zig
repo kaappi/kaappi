@@ -274,6 +274,13 @@ pub const VM = struct {
     last_error_line: u32 = 0,
     last_error_col: u32 = 0,
     last_error_source: ?[]const u8 = null,
+    /// Dotted name of the library whose declarations are currently being
+    /// processed (nested loads save/restore it), or null at top level.
+    /// Error locations point at the top-level form that triggered the load,
+    /// so diagnostics raised from inside a library's own declarations — the
+    /// import-collision check especially — use this to name the library the
+    /// problem actually lives in.
+    loading_library_name: ?[]const u8 = null,
     // Diagnostic code of the escaping error (KEP-0005, #1504). Set by
     // noteUncaughtException from the raised error object; reset per top-level
     // form in resetExecutionState. When `.uncategorized`, the reporting layer
