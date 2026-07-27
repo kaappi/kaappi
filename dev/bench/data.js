@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785141246584,
+  "lastUpdate": 1785142079893,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "684fe63bde7f114dbc12753f7cf7acc38db5ccf3",
-          "message": "Skip blocked-upstream issues in /parallel-issues skill\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T11:54:12+05:30",
-          "tree_id": "6ac3c0a18054ca4bee9849a8cdd568825de136dd",
-          "url": "https://github.com/kaappi/kaappi/commit/684fe63bde7f114dbc12753f7cf7acc38db5ccf3"
-        },
-        "date": 1784271251074,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.429856,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.521899,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934445,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.562878,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006509,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055642,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506841,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07081,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.550999,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.01751,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.651867,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.452449,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.920487,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.716949,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045081,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043456,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9ce6cffd9a44d50aa2f9bb2bb5871184e5ebafa",
+          "message": "Fix literal let/if matching in macro-generated nested syntax-rules (#1720) (#1782)\n\nlet and if are deliberately excluded from well_known_forms so a macro's\nown executable use of them stays hygienic under use-site shadowing, but\nthat exclusion meant a nested syntax-rules's let/if LITERAL (e.g. a\ngenerated dispatch macro's syntax-rules (let) ...) also got hygiene-\nrenamed by the generating macro's expansion. matchPattern's literal\nfallback only stripped a hygiene rename off the input side (for the\nreverse case, e.g. SRFI 257's cm-match), never off the literal side, so\na renamed literal could never match a real, unrenamed token typed at the\ngenerated macro's own use site. Strip both sides before comparing.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T13:39:24+05:30",
+          "tree_id": "6bbab6baa07bd8094071a6b07e45cc815011efe0",
+          "url": "https://github.com/kaappi/kaappi/commit/c9ce6cffd9a44d50aa2f9bb2bb5871184e5ebafa"
+        },
+        "date": 1785142078322,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.043022,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.804879,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.931135,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.469486,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006701,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054179,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.515231,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068757,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.283002,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.973155,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.540703,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471939,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.706167,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.816634,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045194,
             "unit": "seconds"
           }
         ]
