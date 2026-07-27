@@ -296,9 +296,15 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
 
 pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
     // (call-with-values producer consumer) in tail position.
-    // Emits bytecode directly: call_global("call-with-values", producer, list) → values,
-    // then tail_apply(consumer, values). Uses get_global/call_global to avoid
-    // resolving `list`/`call-with-values` in the user's lexical scope.
+    // Emits bytecode directly: load `list`/`call-with-values`, call the
+    // latter with (producer, list) -> values, then tail_apply(consumer,
+    // values). `list`/`call-with-values` are loaded via
+    // self.emitTrueBuiltinLoad, which marks the reference to resolve
+    // through the true (scheme base) binding at run time rather than
+    // by ordinary name lookup, so neither a lexical shadow NOR a later
+    // top-level redefinition of either name can affect this call (#1715;
+    // the previous plain get_global/call_global-by-name approach only
+    // ever protected against the former).
     const args = types.cdr(expr);
     if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
     const producer = types.car(args);
@@ -307,7 +313,6 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
     const consumer = types.car(rest);
     if (types.cdr(rest) != types.NIL) return CompileError.InvalidSyntax;
 
-    const gc = self.gc;
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
 
@@ -319,17 +324,10 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
 
     try self.compileExprViaIR(producer, producer_reg, false);
 
-    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
-    const list_idx = try self.addConstant(list_sym);
-    try self.emitOp(.get_global);
-    try self.emitU16(list_reg);
-    try self.emitU16(list_idx);
-
-    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-    const cwv_idx = try self.addConstant(cwv_sym);
-    try self.emitOp(.call_global);
+    try self.emitTrueBuiltinLoad("list", list_reg);
+    try self.emitTrueBuiltinLoad("call-with-values", cwv_base);
+    try self.emitOp(.call);
     try self.emitU16(cwv_base);
-    try self.emitU16(cwv_idx);
     try self.emit(2);
 
     self.freeReg(); // list_reg

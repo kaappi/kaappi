@@ -1605,14 +1605,33 @@ pub fn stripHygienicPrefix(name: []const u8) []const u8 {
     return n;
 }
 
+/// Prefix marking a compiler-synthesized reference to a name's pristine
+/// `(scheme base)` binding (#1715; see globals.zig's lookupBaseBinding for
+/// the resolution side). Defined here, rather than in globals.zig, purely
+/// so isContinuationBarrier below can recognize a prefixed name as
+/// equivalent to its bare counterpart without types.zig depending on
+/// globals.zig (which itself depends on types.zig).
+pub const base_binding_prefix = "__kaappi_base__";
+
 pub fn isContinuationBarrier(name: []const u8) bool {
-    return std.mem.eql(u8, name, "call-with-current-continuation") or
-        std.mem.eql(u8, name, "call/cc") or
-        std.mem.eql(u8, name, "call/ec") or
-        std.mem.eql(u8, name, "call-with-escape-continuation") or
-        std.mem.eql(u8, name, "call-with-values") or
-        std.mem.eql(u8, name, "dynamic-wind") or
-        std.mem.eql(u8, name, "with-exception-handler");
+    // A prefixed reference (e.g. "__kaappi_base__call-with-values",
+    // synthesized by let-values/let*-values's desugaring, #1715) must be
+    // recognized the same as its bare form: compileCallGlobal's "superinstr-
+    // uction" fast path skips the standard frame setup call-with-values
+    // needs for correct continuation capture (see the commit that
+    // introduced this exclusion, fa6ecf47), and that requirement doesn't
+    // change just because the reference is spelled differently.
+    const n = if (std.mem.startsWith(u8, name, base_binding_prefix))
+        name[base_binding_prefix.len..]
+    else
+        name;
+    return std.mem.eql(u8, n, "call-with-current-continuation") or
+        std.mem.eql(u8, n, "call/cc") or
+        std.mem.eql(u8, n, "call/ec") or
+        std.mem.eql(u8, n, "call-with-escape-continuation") or
+        std.mem.eql(u8, n, "call-with-values") or
+        std.mem.eql(u8, n, "dynamic-wind") or
+        std.mem.eql(u8, n, "with-exception-handler");
 }
 
 // ---------------------------------------------------------------------------

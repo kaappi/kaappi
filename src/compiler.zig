@@ -263,6 +263,33 @@ pub const Compiler = struct {
         return @intCast(self.func.constants.items.len - 1);
     }
 
+    /// Build a reference to `name`'s pristine `(scheme base)` binding,
+    /// immune to any later top-level/library redefinition of `name`
+    /// (#1715). Returns an ordinary symbol carrying
+    /// `globals_mod.base_binding_prefix`; get_global/call_global recognize
+    /// the prefix and resolve the suffix through the base-library registry
+    /// instead of vm.globals (see that constant's doc comment for why this
+    /// must stay a runtime, by-name lookup rather than a pre-resolved
+    /// constant). Used for compiler-synthesized references to
+    /// `list`/`apply`/`call-with-values` in let-values/let*-values's
+    /// desugaring, which must always mean the standard procedures
+    /// regardless of what the user's program does with those names.
+    pub fn trueBuiltinRefOrSymbol(gc: *memory.GC, name: []const u8) CompileError!Value {
+        var buf: [96]u8 = undefined;
+        const prefixed = globals_mod.baseBindingSymbolName(&buf, name);
+        return gc.allocSymbol(prefixed) catch return CompileError.OutOfMemory;
+    }
+
+    /// Emit code loading `name`'s pristine `(scheme base)` binding into
+    /// `reg` (#1715, see `trueBuiltinRefOrSymbol`).
+    pub fn emitTrueBuiltinLoad(self: *Compiler, name: []const u8, reg: u16) CompileError!void {
+        const ref = try trueBuiltinRefOrSymbol(self.gc, name);
+        const idx = try self.addConstant(ref);
+        try self.emitOp(.get_global);
+        try self.emitU16(reg);
+        try self.emitU16(idx);
+    }
+
     pub fn currentOffset(self: *Compiler) usize {
         return self.func.code.items.len;
     }

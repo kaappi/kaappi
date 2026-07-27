@@ -123,3 +123,55 @@ pub fn srfiFeatureAvailable(name: []const u8) bool {
     if (srfi_feature_checker) |checker| return checker(name);
     return false;
 }
+
+/// Callback resolving `name` to its pristine `(scheme base)` binding — the
+/// value captured when the VM registered its standard libraries, before any
+/// user or library code could have run. Registered by the VM so compiler-
+/// synthesized code can reference the true original procedure instead of
+/// whatever `name` currently resolves to in vm.globals, which ordinary
+/// top-level `define`s (and library-level redefinitions, e.g. SRFI 101
+/// replacing `list`) are free to overwrite. Used by let-values/let*-values's
+/// internal desugaring, which otherwise resolves its own hard-coded
+/// references to `list`/`apply`/`call-with-values` exactly as if the user
+/// had written those names at the use site (#1715).
+pub const BaseBindingFn = *const fn (name: []const u8) ?Value;
+pub var base_binding_lookup: ?BaseBindingFn = null;
+
+pub fn lookupBaseBinding(name: []const u8) ?Value {
+    if (base_binding_lookup) |lookup| return lookup(name);
+    return null;
+}
+
+/// Marks a compiler-synthesized global-variable reference as one that must
+/// resolve through `lookupBaseBinding` instead of vm.globals (#1715).
+/// get_global/call_global (vm_dispatch.zig) check for this prefix before
+/// doing an ordinary by-name lookup, and strip it via `stripBaseBindingPrefix`
+/// when found. Re-exported from types.zig, where it also lets
+/// isContinuationBarrier recognize a prefixed name as equivalent to its bare
+/// counterpart (types.zig can't depend on this module, which depends on it).
+///
+/// This has to be a naming convention on an ordinary symbol constant, not a
+/// resolved value embedded directly in the constant pool: the .sbc bytecode
+/// cache's writeConstant has no tag for procedure values, and silently
+/// downgrades anything it doesn't recognize to `'()` (bytecode_file_write.zig)
+/// -- so a pre-resolved NativeFn constant would read back as nil after a
+/// cache round-trip. A symbol is the one constant kind the format already
+/// preserves exactly, so resolution has to stay a runtime lookup, done fresh
+/// every time get_global/call_global executes regardless of whether the
+/// bytecode was just compiled or loaded from cache.
+pub const base_binding_prefix = types.base_binding_prefix;
+
+/// Build the marked symbol name for `name` (see `base_binding_prefix`).
+/// Writes into `buf` and returns the written slice; `buf` must be at least
+/// `base_binding_prefix.len + name.len` bytes (callers use a fixed buffer
+/// sized for the short, fixed set of names this is used for).
+pub fn baseBindingSymbolName(buf: []u8, name: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ base_binding_prefix, name }) catch name;
+}
+
+/// If `name` carries `base_binding_prefix`, return the unprefixed suffix;
+/// otherwise return null.
+pub fn stripBaseBindingPrefix(name: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, name, base_binding_prefix)) return null;
+    return name[base_binding_prefix.len..];
+}

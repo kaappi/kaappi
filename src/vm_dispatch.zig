@@ -219,26 +219,30 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
-                // Map reads under the child-thread shared lock; the error
-                // path runs after release (findSimilarName locks internally).
-                self.lockGlobalsShared();
-                const found: ?Value = env.get(name) orelse blk: {
-                    if (func.env != null and !func.restricted_globals) {
-                        if (self.globals.get(name)) |gval| break :blk gval;
-                    }
-                    // Hygienic-prefix fallback is intentionally ungated by
-                    // restricted_globals: macro-introduced references must
-                    // still resolve through globals even in restricted envs.
-                    const base = types.stripHygienicPrefix(name);
-                    if (base.len != name.len) {
-                        if (env.get(base)) |bval| break :blk bval;
-                        if (env != self.globals) {
-                            if (self.globals.get(base)) |gval| break :blk gval;
+                const found: ?Value = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
+                    resolveBaseBindingLocked(self, env, base_name)
+                else blk: {
+                    // Map reads under the child-thread shared lock; the error
+                    // path runs after release (findSimilarName locks internally).
+                    self.lockGlobalsShared();
+                    defer self.unlockGlobalsShared();
+                    break :blk env.get(name) orelse blk2: {
+                        if (func.env != null and !func.restricted_globals) {
+                            if (self.globals.get(name)) |gval| break :blk2 gval;
                         }
-                    }
-                    break :blk null;
+                        // Hygienic-prefix fallback is intentionally ungated by
+                        // restricted_globals: macro-introduced references must
+                        // still resolve through globals even in restricted envs.
+                        const base = types.stripHygienicPrefix(name);
+                        if (base.len != name.len) {
+                            if (env.get(base)) |bval| break :blk2 bval;
+                            if (env != self.globals) {
+                                if (self.globals.get(base)) |gval| break :blk2 gval;
+                            }
+                        }
+                        break :blk2 null;
+                    };
                 };
-                self.unlockGlobalsShared();
                 const val = found orelse return raiseUndefinedVariable(self, name);
                 self.registers[dst_idx] = val;
                 if (func.env == null and (types.isClosure(val) or types.isNativeFn(val))) {
@@ -945,9 +949,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, the_func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    self.lockGlobalsShared();
-                    const found = env.get(name);
-                    self.unlockGlobalsShared();
+                    const found = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
+                        resolveBaseBindingLocked(self, env, base_name)
+                    else blk: {
+                        self.lockGlobalsShared();
+                        defer self.unlockGlobalsShared();
+                        break :blk env.get(name);
+                    };
                     const val = found orelse return raiseUndefinedVariable(self, name);
                     self.registers[base] = val;
                 }
@@ -1408,6 +1416,9 @@ noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
 }
 
 inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []const u8) ?Value {
+    if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name| {
+        return resolveBaseBindingLocked(self, env, base_name);
+    }
     self.lockGlobalsShared();
     const found: ?Value = env.get(name) orelse blk: {
         const b = types.stripHygienicPrefix(name);
@@ -1418,6 +1429,17 @@ inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []
     };
     self.unlockGlobalsShared();
     return found;
+}
+
+/// Resolve a `globals_mod.base_binding_prefix`-marked name (#1715): prefer
+/// the true `(scheme base)` binding, immune to redefinition; degrade to an
+/// ordinary lookup of the unprefixed name only in the bootstrap edge case
+/// where that registry isn't populated yet (scheme.base not registered).
+inline fn resolveBaseBindingLocked(self: *VM, env: *std.StringHashMap(Value), base_name: []const u8) ?Value {
+    if (vm_mod.globals_mod.lookupBaseBinding(base_name)) |val| return val;
+    self.lockGlobalsShared();
+    defer self.unlockGlobalsShared();
+    return env.get(base_name);
 }
 
 pub fn buildRestList(gc: *memory.GC, args: []const Value) VMError!Value {

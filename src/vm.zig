@@ -34,6 +34,7 @@ pub fn setVMInstance(vm: *VM) void {
     });
     globals_mod.library_exists_checker = &checkLibraryExists;
     globals_mod.srfi_feature_checker = &checkSrfiFeature;
+    globals_mod.base_binding_lookup = &lookupBaseBinding;
 }
 
 fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
@@ -44,6 +45,16 @@ fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
 fn checkSrfiFeature(name: []const u8) bool {
     const vm = vm_instance orelse return false;
     return vm_library.srfiFeatureAvailable(vm, name);
+}
+
+/// Look up `name` in `(scheme base)`'s own export table — populated once at
+/// startup from vm.globals and never touched again afterward — rather than
+/// vm.globals itself, which a later top-level `define` (or a library like
+/// SRFI 101 redefining `list`) freely overwrites (#1715).
+fn lookupBaseBinding(name: []const u8) ?Value {
+    const vm = vm_instance orelse return null;
+    const lib = vm.libraries.get("scheme.base") orelse return null;
+    return lib.exports.get(name);
 }
 
 pub const GlobalsRwLock = globals_mod.GlobalsRwLock;
