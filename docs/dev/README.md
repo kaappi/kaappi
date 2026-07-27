@@ -30,6 +30,7 @@ investigation produced analysis worth keeping.
 | [porting.md](porting.md) | Porting to a new OS or CPU architecture: the support matrix, where portability lives, the degradation ladder, staged checklists, what "supported" means |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |
+| [performance.md](performance.md) | Investigating a slowdown: finding the stage vs. the caller, measuring before theorizing, trustworthy A/B protocol, benchmarking generated code |
 | [test-runner.md](test-runner.md) | `kaappi test`: the first-class SRFI-64 runner — discovery, worker subprocesses, `--json` schema, `--seed` |
 | [fmt.md](fmt.md) | `kaappi fmt`: the canonical comment-preserving formatter — the CST reader, the layout rules, the round-trip safety net, `--check` |
 | [fuzzing.md](fuzzing.md) | Fuzzing runbook: the targets, the scheduled CI job, turning a failure into a regression test |

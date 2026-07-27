@@ -27,17 +27,45 @@ half hashed only the *version string*, which does not change between rebuilds
 during development — so a freshly rebuilt `kaappi` would silently execute
 bytecode compiled by the **previous** binary. The standing workaround was
 "delete the cache before testing compiler changes," which was tribal knowledge.
-Folding the build id into the key removes the footgun by construction:
+Folding the build id into the key covers the committed cases:
 
-- Rebuild after any edit → dirty tree → build id changes → **miss**.
 - A different commit → different `HEAD` hash → **miss**.
 - Clean vs. dirty tree at the same commit → different id → **miss**.
 - Two clean builds of the *same* commit → same id → a hit is safe (identical
   compiler), so CI builds and installed releases can share entries.
 
-A collision is self-correcting, never a wrong result: even if two different
-source paths hashed to the same cache filename, the stored source hash would not
-match, so the load misses and recompiles.
+### The one case it does *not* cover: two dirty builds
+
+`-dirty` is a **flag, not a hash of the working tree** (`gitBuildId` in
+`build.zig` appends the literal suffix whenever `git status --porcelain`
+prints anything). So every uncommitted state at the same commit shares one
+build id:
+
+```text
+edit A, uncommitted, at 370d8e85  →  370d8e85-dirty
+edit B, uncommitted, at 370d8e85  →  370d8e85-dirty   ← identical
+```
+
+The id changes on the first clean→dirty transition and then stays put no
+matter how many further edits you make. Two rebuilds of *different*
+uncommitted compiler changes therefore **share cache entries**, and the
+second one can execute bytecode the first one produced.
+
+This is the original footgun surviving in the case contributors hit most —
+iterating on uncommitted changes — and it is worst during A/B work, where
+toggling between two versions (`git stash`, `git checkout <sha> -- <path>`)
+makes the same input file answer differently across otherwise-identical
+rebuilds. It reads exactly like nondeterminism in the code under test.
+
+**Run `kaappi cache clear` after every rebuild when A/B-testing compiler
+changes, or measure with `--no-ir-opt`, which bypasses the cache in both
+directions.** See [performance.md](performance.md) for the full A/B protocol.
+
+A *filename* collision is self-correcting, never a wrong result: even if two
+different source paths hashed to the same cache filename, the stored source
+hash would not match, so the load misses and recompiles. The dirty-build-id
+case above is different in kind — the key genuinely matches — which is why it
+needs the manual step.
 
 The header also records, purely for `cache status` to display, the **producing
 build id** and the **source path** (see `src/bytecode_file.zig`, format
