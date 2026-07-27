@@ -374,6 +374,24 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
     var inp = input;
 
     while (pat != types.NIL) {
+        // Unwrap a usertext marker BEFORE inspecting this iteration's shape.
+        // matchPattern's own top only unwraps its immediate pattern_in/
+        // input_in parameters; a marker pair spliced into a dotted-tail
+        // position by a generating macro's own template instantiation (a
+        // pattern-variable value that's a LIST, substituted into `. p`) is
+        // never wrapped in an extra cons cell of its own -- it becomes the
+        // literal cdr of the preceding pair, e.g. `(s . (marker . (%a)))` =
+        // `(s marker %a)` when walked. Without re-unwrapping here on every
+        // loop iteration (not just at entry), that marker pair surfaces as
+        // an ordinary-looking extra list element on a LATER iteration,
+        // shifting every remaining pattern/input position by one and
+        // breaking the match entirely (kaappi#1775's still-open companion
+        // bug: SRFI 148's em-syntax-rules generates exactly this shape for
+        // every rule, `(_ :prepare s . p)`). unwrapUsertext is a no-op on
+        // anything that isn't actually a marker pair, so this is safe to
+        // apply unconditionally.
+        pat = unwrapUsertext(pat);
+        inp = unwrapUsertext(inp);
         if (!types.isPair(pat)) {
             // Dotted pattern tail
             return matchPattern(pat, inp, literals, bindings, count, gc, literal_bound, use_check);
