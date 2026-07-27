@@ -24,19 +24,18 @@
 ;;; there is nothing to export.
 ;;;
 ;;; Scope note: this port makes no deliberate `string->number` change for
-;;; SRFI 169 (the spec doesn't ask for it). In practice `string->number`
-;;; already tolerates *some* underscore placements today, for two
-;;; unrelated, pre-existing reasons: its small-integer fast path calls
-;;; Zig's std.fmt.parseInt directly, which has its own (more permissive
-;;; than SRFI 169) underscore convenience -- e.g. it wrongly accepts a
-;;; doubled underscore ("1__2" -> 12) that SRFI 169 requires rejecting,
-;;; a pre-existing gap unrelated to this port, filed as #1724 rather than
-;;; silently left -- and its hex-float path shares `parseHexFloat` with
-;;; the reader (added for SRFI 270, which *does* require `string->number`
-;;; support), which does apply this library's own stricter validation.
-;;; Bottom line: do not rely on `string->number` for SRFI-169-correct
-;;; underscore handling; only the reader syntax itself is validated to
-;;; spec.
+;;; SRFI 169 (the spec doesn't ask for it), but `string->number` does
+;;; validate underscore placement to the same rule: `stringToNumber`
+;;; (src/primitives_numeric.zig) calls `bignum.stripUnderscores` once, up
+;;; front on the whole numeric body, before any shape-specific parsing --
+;;; so the plain-integer, rational numerator/denominator, hex-float,
+;;; bignum-overflow, decimal-float, and complex-parts paths all see
+;;; already-validated, already-stripped digits. This closed a real gap
+;;; (#1724): the small-integer and rational fast paths used to call Zig's
+;;; std.fmt.parseInt directly on unvalidated input, which has its own,
+;;; more permissive underscore convenience (mirroring Zig's own integer
+;;; literal syntax) that wrongly accepted a doubled underscore
+;;; ("1__2" -> 12) SRFI 169 requires rejecting.
 
 (define-library (srfi 169)
   (export)
