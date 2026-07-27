@@ -44,6 +44,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A special-form-shadowing macro imported by one program could corrupt
+  `define-record-type`/`define-values` in a completely unrelated library
+  loaded afterward** — `define-record-type`'s and `define-values`'s
+  desugaring compiled their generated definitions against the
+  process-global macro table instead of an isolated one, so once any
+  program imported a macro shadowing a core special form (e.g. `lambda`),
+  every later library's own record types or `define-values` forms could
+  fail to compile, or — when the shadowed name was `define-record-type`
+  itself — be silently dropped with no error at all. Record-type/
+  define-values desugaring is now isolated from the importing program's
+  own macro scope, and the shadow-detection that lets a library define its
+  own `define-record-type` macro (SRFI 136/131/57) now checks that
+  library's own scope rather than the whole process's. Importing a special
+  form under a new name (`(rename (only (scheme base) let*) (let*
+  my-let*))`) now fails with a clear diagnostic at the `import` instead of
+  silently producing a binding that resolves to nothing (#1718).
+
 - **The installer now installs the native backend's runtime archive** —
   releases have published `libkaappi_rt-<target>.a` since 0.8.0, but the
   install script never downloaded it, so anyone who installed via

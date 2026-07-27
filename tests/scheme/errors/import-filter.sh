@@ -90,10 +90,24 @@ echo '(import (rename (scheme base) (totally-bogus-name tbn)))' > "$TMPDIR_TESTS
 assert_exit_code "rename: unknown old name errors" 1 "$KAAPPI" "$TMPDIR_TESTS/rename-bogus.scm"
 assert_stderr_contains "rename: error names the identifier" "totally-bogus-name" "$KAAPPI" "$TMPDIR_TESTS/rename-bogus.scm"
 
-# --- rename: syntax keyword accepted ---
+# --- rename: special form errors clearly instead of silently binding nothing (#1718) ---
+# Special forms have no runtime value to move to a new name: `def` used to be
+# silently left unbound (a confusing "undefined variable" only at its use
+# site) rather than erroring here, at the actual mistake.
 echo '(import (rename (scheme base) (define def)))' > "$TMPDIR_TESTS/rename-syntax.scm"
 echo '(display "ok")' >> "$TMPDIR_TESTS/rename-syntax.scm"
-assert_exit_code "rename: syntax keyword accepted" 0 "$KAAPPI" "$TMPDIR_TESTS/rename-syntax.scm"
+assert_exit_code "rename: special form keyword errors" 1 "$KAAPPI" "$TMPDIR_TESTS/rename-syntax.scm"
+assert_stderr_contains "rename: error names the special form" "define" "$KAAPPI" "$TMPDIR_TESTS/rename-syntax.scm"
+
+echo '(import (rename (only (scheme base) let*) (let* my-let*)))' > "$TMPDIR_TESTS/rename-let-star.scm"
+echo '(display "ok")' >> "$TMPDIR_TESTS/rename-let-star.scm"
+assert_exit_code "rename: let* errors" 1 "$KAAPPI" "$TMPDIR_TESTS/rename-let-star.scm"
+assert_stderr_contains "rename: error names let*" "let\*" "$KAAPPI" "$TMPDIR_TESTS/rename-let-star.scm"
+
+echo '(import (rename (only (scheme base) lambda) (lambda my-lambda)))' > "$TMPDIR_TESTS/rename-lambda.scm"
+echo '(display "ok")' >> "$TMPDIR_TESTS/rename-lambda.scm"
+assert_exit_code "rename: lambda errors" 1 "$KAAPPI" "$TMPDIR_TESTS/rename-lambda.scm"
+assert_stderr_contains "rename: error names lambda" "lambda" "$KAAPPI" "$TMPDIR_TESTS/rename-lambda.scm"
 
 # --- rename: valid succeeds ---
 echo '(import (rename (scheme base) (car my-car)))' > "$TMPDIR_TESTS/rename-valid.scm"

@@ -93,10 +93,17 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
 
+        // Compiled against an empty macro table, never vm.macros: this form
+        // is 100% compiler-synthesized (lambda/let/define plus internal
+        // primitive calls, no user subexpressions), so it must never be
+        // reinterpreted by a same- or cross-library macro that happens to
+        // shadow one of those keywords (#1718).
+        var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+        defer no_macros.deinit();
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
         else
-            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| return err;
@@ -127,10 +134,14 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
 
+        // See the constructor's compile call above (#1718): empty macro
+        // table, never vm.macros.
+        var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+        defer no_macros.deinit();
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
         else
-            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| return err;
@@ -163,10 +174,14 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
+            // See the constructor's compile call above (#1718): empty
+            // macro table, never vm.macros.
+            var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+            defer no_macros.deinit();
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
             else
-                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;
@@ -198,10 +213,14 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
+            // See the constructor's compile call above (#1718): empty
+            // macro table, never vm.macros.
+            var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+            defer no_macros.deinit();
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
             else
-                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;
@@ -295,10 +314,16 @@ fn compileAndRunDefine(vm: *VM, define_expr_in: Value) VMError!void {
     vm.gc.pushRoot(&define_expr);
     defer vm.gc.popRoot();
 
+    // Empty macro table, never vm.macros (#1718): every form reaching here
+    // is compiler-synthesized record-type boilerplate, never user code, so
+    // it must never be reinterpreted by a same- or cross-library macro that
+    // happens to shadow lambda/let/define/etc.
+    var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+    defer no_macros.deinit();
     const func = if (vm.current_lib_env) |env|
-        compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+        compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
     else
-        compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+        compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
     define_expr = types.makePointer(&func.header);
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     _ = vm.execute(func) catch |err| return err;

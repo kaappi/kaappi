@@ -1053,7 +1053,18 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         const new_sym = types.car(new_rest);
         if (!types.isSymbol(old_sym) or !types.isSymbol(new_sym)) return error.InvalidSyntax;
         const old_name = types.symbolName(old_sym);
-        if (!source.contains(old_name) and !ir.isSpecialForm(old_name)) {
+        if (!source.contains(old_name)) {
+            // Special forms (lambda, let*, define, ...) have no runtime
+            // value -- they were never a real entry in `source` to begin
+            // with, so silently "passing" this check (the old behavior)
+            // left the new name bound to nothing: using it later fell
+            // through every special-form check and became a confusing
+            // "undefined variable" at the use site instead of a clear
+            // error here, at the actual mistake (#1718).
+            if (ir.isSpecialForm(old_name)) {
+                vm.setErrorDetail("import rename: cannot rename special form '{s}' -- special forms are not first-class bindings and cannot be rebound under a new name", .{old_name});
+                return error.UndefinedVariable;
+            }
             vm.setErrorDetail("import rename: identifier '{s}' not found in import set", .{old_name});
             return error.UndefinedVariable;
         }
@@ -1187,8 +1198,15 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         defer vm.current_lib_env = saved_env;
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = try result;
+            return;
         }
-        return;
+        // handleTopLevelForm deferred (e.g. define-record-type is shadowed
+        // by a macro in this library's own scope, per isMacroShadowed) --
+        // fall through to the macro-aware compileExpressionInEnv path below
+        // instead of silently dropping the form (#1718). Returning
+        // unconditionally here used to mean a null result was treated the
+        // same as "handled": the form was neither compiled as the builtin
+        // special form nor as an ordinary macro use.
     }
 
     // Compile against a per-library macro table seeded from lib_env rather
