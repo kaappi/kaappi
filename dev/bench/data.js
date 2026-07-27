@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785153040535,
+  "lastUpdate": 1785153871927,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dd3a8360bd5db137a02578913d665c8b91091008",
-          "message": "Windows pipe readiness: polled backend lifts the blocking-pipe degradation (#1608 stage 2) (#1623)\n\n* Windows pipe readiness: polled backend lifts the blocking-pipe degradation (#1608 stage 2)\n\nResolves the #1608 stage-2 question — do pipes/files justify a\ncompletion-based (IOCP/overlapped) rework of the park-and-retry\nprotocol? — with a no, and ships the design that fits instead:\n\n- IOCP cannot serve the pipe fds the port layer actually sees: CRT\n  _pipe/inherited/CreatePipe handles lack FILE_FLAG_OVERLAPPED, so the\n  only general completion design is a blocking worker pool whose\n  issued-read semantics can lose data on cancellation — something the\n  never-read-until-ready model structurally cannot.\n- Regular files gain nothing on any OS: POSIX has no regular-file\n  readiness either (O_NONBLOCK is a no-op, epoll rejects them), so\n  blocking file reads are the cross-platform baseline, not a Windows\n  gap.\n- Pipes need only readiness, and Windows can express it by polling:\n  PeekNamedPipe answers read-readiness, and\n  NtQueryInformationFile(FilePipeLocalInformation).WriteQuotaAvailable\n  answers write-readiness (libuv's own non-overlapped-pipe query).\n\nA pipe port under a scheduler now enters emulated non-blocking mode\n(port.nonblocking set with no OS-level flip): pipeRead/pipeWrite\npre-check peek/quota and synthesize the EAGAIN the shared protocol\nexpects — writes clamp to the known-free space so the blocking CRT\nwrite underneath can never block — and the WindowsEventBackend bounds\nits wait at a 10 ms quantum while pipe interest is armed, re-running\nthe same checks in its sweep (level-triggered, so none of\nWSAEventSelect's edge-record races apply; the quantum is paid only\nwhile a pipe waiter exists). Sequential programs keep plain blocking\npipe I/O and their exact syscall profile.\n\nThe Port fd-kind byte becomes fd_state (probe_done/is_socket/is_pipe),\nclassified once per port by the new platform.fdKind. New OS-pipe-pair\ntests (testing_helpers.makePipeFdPair) run the park/wake, write-full,\nsequential-blocking, and close-wake patterns over real pipes on every\nplatform — on Windows they are the new backend's coverage and would\nhave deadlocked before this change.\n\nVerified: macOS full unit suite + R7RS + the new suites under\n-Dgc-stress=true; Windows 11 ARM64 VM unit suite 1115 passed / 0\nfailed (15 skips) and R7RS 0 fail; wasm32-wasi and x86_64-linux\ncross-builds.\n\nCloses #1608\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address #1623 review round: finalizer quota gate, file-size policy, test hardening\n\n- gc_collect freeObject flush: route emulated-non-blocking pipe ports\n  through pipeWrite. The flush's contract is \"a would-block drops the\n  remainder\", but plain _write on a full Windows pipe blocks — and a GC\n  sweep can never park — so an abandoned port with pending output and a\n  full pipe would hang the whole OS thread. Regression test constructs\n  exactly that port and collects it.\n- platform.zig back under the 1500-line policy (1419): the kernel32/ntdll\n  pipe externs move into platform_win_pipe.zig (their only consumer —\n  unlike the ws2_32 slice, which stays in platform.win because reactor\n  and testing_helpers share it), and the inline tests move to a new\n  tests_platform.zig (appendQuotedArg/buildCommandLineW now pub for it).\n- Park/wake tests prove the reader reached .io_waiting before the peer\n  fiber is spawned, so a lucky schedule can't pass them without the\n  parked-pipe path; raw setup writes are asserted so a setup failure\n  fails loudly instead of hanging the blocking read.\n- platform_win_pipe.zig documents MSDN's multithreaded-PeekNamedPipe\n  caveat and why it sits outside the runtime's ports-never-cross-threads\n  model.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T09:03:40Z",
-          "tree_id": "1bd76a5ce26249541aab4401cb1e109434ce06ff",
-          "url": "https://github.com/kaappi/kaappi/commit/dd3a8360bd5db137a02578913d665c8b91091008"
-        },
-        "date": 1784280768362,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.376888,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.868321,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920529,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.439789,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006378,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054204,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50379,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070348,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.484386,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.965277,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.576172,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435615,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.85032,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.692865,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043744,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044666,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "370d8e85cac4ca3a532b1c634eabec9f33c6f555",
+          "message": "Name the library whose own import declaration collides (#1726 follow-up) (#1786)\n\nThe KP2001 import-collision diagnostic cites the file:line of the\ntop-level form that triggered the library load, so when the colliding\nimport declaration lives inside a library's .sld, the reader is pointed\nat the wrong file entirely: kaappi-mpl's sin.sld collision surfaced as\n\"test-mpl.scm:8: identifier 'sqrt' is imported with different bindings\nfrom both (except (scheme base) ...) and (mpl sqrt)\" -- naming\nimport-sets that appear nowhere near test-mpl.scm line 8. During the\n2026-07-27 nightly triage this masqueraded as a core import-resolution\nregression and cost two wrong root-cause theories before the real one\n(fixed in kaappi-mpl#2).\n\nhandleDefineLibrary now records the library name in a save/restored\nvm.loading_library_name while its declarations are processed (nesting\nvia the call stack), and the collision message names it: \"... imported\nwith different bindings inside library (mpl.sin)'s own import\ndeclaration, from both ...\". The name sits early in the message because\nthe 256-byte detail buffer truncates the tail. Top-level import forms\nkeep the original message.\n\nThe regression test also checks the context is restored after a failed\nload, so a subsequent top-level collision is not misattributed to the\nlibrary that failed before it.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T16:56:33+05:30",
+          "tree_id": "346a9da9410e1a828259541a41577d5e83b6e851",
+          "url": "https://github.com/kaappi/kaappi/commit/370d8e85cac4ca3a532b1c634eabec9f33c6f555"
+        },
+        "date": 1785153869757,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.299649,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.266447,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.930896,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.643098,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00633,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055136,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511519,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06957,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.665713,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.201206,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.577296,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43111,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.81663,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.63555,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044759,
             "unit": "seconds"
           }
         ]
