@@ -359,6 +359,51 @@ test "hygiene: macro-generating macro shares binding with inner macro" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
+test "hygiene: nested syntax-rules pattern variable referenced inside its own quoted template" {
+    // The outer macro's template defines an inner macro via a NESTED
+    // syntax-rules. The inner macro's own pattern variable `y` is renamed
+    // for hygiene where it appears in the PATTERN `(_ y)` (walked without
+    // QUOTE_FLAG), but its template `'(fixed y)` wraps `y` in `quote`.
+    // renameForHygiene used to treat any quoted identifier as inert literal
+    // data and skip renaming it there unconditionally, splitting the
+    // pattern and template occurrences of the SAME inner pattern variable:
+    // the inner macro's own matcher then had nothing to bind to the
+    // template's unrenamed `y`, so it passed through literally instead of
+    // substituting the call's actual argument (99).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax outer-qs
+        \\    (syntax-rules ()
+        \\      ((_)
+        \\       (begin
+        \\         (define-syntax inner-qs
+        \\           (syntax-rules ()
+        \\             ((_ y) '(fixed y))))
+        \\         (inner-qs 99)))))
+        \\  (equal? (outer-qs) '(fixed 99)))
+    );
+}
+
+test "hygiene: genuinely inert quoted literal in a nested template is still not renamed" {
+    // Companion to the test above: a symbol quoted inside a nested macro's
+    // template that is NOT one of the inner macro's own pattern variables
+    // must still come through unrenamed (the fix must not start renaming
+    // every quoted identifier in a nested syntax-rules template -- only
+    // ones that already have a same-scope pattern-side rename to match).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax outer-qs2
+        \\    (syntax-rules ()
+        \\      ((_)
+        \\       (begin
+        \\         (define-syntax inner-qs2
+        \\           (syntax-rules ()
+        \\             ((_ y) (list 'literal-tag y))))
+        \\         (inner-qs2 99)))))
+        \\  (equal? (outer-qs2) '(literal-tag 99)))
+    );
+}
+
 test "hygiene: template references sibling define that appears later in body" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
