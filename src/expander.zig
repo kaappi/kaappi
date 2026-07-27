@@ -759,20 +759,35 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
     const in_escape = (intro_scope & ESCAPE_FLAG) != 0;
 
-    // Check for (quote ...) — substitute pattern vars but skip hygiene renaming
+    // Check for (quote <datum>) — substitute pattern vars but skip hygiene
+    // renaming. Must be a genuine, exactly-2-element quote form (R7RS quote
+    // is strictly unary): a template sub-list that merely STARTS with the
+    // symbol `quote` for an unrelated reason (e.g. passing the bare symbol
+    // `quote` as one argument among several to some other macro/procedure)
+    // is not a quote form at all, and treating it as one silently discarded
+    // every element after the second (e.g. `(op quote free-identifier=?
+    // more...)` instantiated as `(op (quote free-identifier=?))`, dropping
+    // `more...`).
     const tmpl_head = types.car(template);
     if (types.isSymbol(tmpl_head) and std.mem.eql(u8, types.symbolName(tmpl_head), "quote")) {
         const q_rest = types.cdr(template);
         if (q_rest != types.NIL and types.isPair(q_rest)) {
-            const quoted = types.car(q_rest);
-            const new_quoted = try instantiateTemplate(gc, quoted, bindings, intro_scope | QUOTE_FLAG, literals, macro_keyword, globals, macros);
-            var nq_root = new_quoted;
-            gc.pushRoot(&nq_root);
-            defer gc.popRoot();
-            const tail = try gc.allocPair(nq_root, types.NIL);
-            return gc.allocPair(tmpl_head, tail);
+            if (types.cdr(q_rest) == types.NIL) {
+                const quoted = types.car(q_rest);
+                const new_quoted = try instantiateTemplate(gc, quoted, bindings, intro_scope | QUOTE_FLAG, literals, macro_keyword, globals, macros);
+                var nq_root = new_quoted;
+                gc.pushRoot(&nq_root);
+                defer gc.popRoot();
+                const tail = try gc.allocPair(nq_root, types.NIL);
+                return gc.allocPair(tmpl_head, tail);
+            }
+            // More than 2 elements: `quote` is not forming a quote special
+            // form here, just an ordinary (possibly data) value in head
+            // position -- fall through to regular pair processing so the
+            // rest of the list survives instead of being silently dropped.
+        } else {
+            return template;
         }
-        return template;
     }
 
     // Quasiquote: its symbols are data (no renaming, like quote), but a
