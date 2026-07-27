@@ -198,6 +198,25 @@ emit through `kaappi_eval_cached` like other passthrough forms, but as special
 top-level forms they are not cacheable — `kaappi_eval_cached` declines them and
 runs a plain `eval` each time (see [Cached eval fallback](#cached-eval-fallback)).
 
+**`import` only works at runtime for libraries built into the Zig binary**
+(#1743). `kaappi_runtime_init` (`runtime_exports.zig`) starts the compiled
+binary's own VM with no library search path, and the native backend does not
+bundle `.sld` sources into the binary the way the `--compile`/`-Dbundle-src`
+`.sbc` pathway does. So while the compiling VM resolves an `import` against
+its own `--lib-path`/auto-discovered directories just fine — including a
+third-party package or any of the 159 portable SRFIs — that exact resolution
+is unrepeatable inside the runtime binary's fresh VM, and re-running the
+serialized `import` form there raises "library not found". `emitLlvmFile`
+therefore refuses to emit anything (a compile-time error, not a broken
+binary) when it resolves any import from a `.sld` file rather than kaappi's
+built-in registry: it repurposes the `.sbc` bundler's own
+`vm.compile_collect_files` hook purely to detect this, since
+`processImportSet` (`vm_library.zig`) checks the built-in registry first and
+only records a file there when a library is resolved from disk. Both
+`kaappi compile` and `--emit-llvm` go through `emitLlvmFile`, so both refuse
+identically; the working alternatives are the interpreter or
+`zig build -Dbundle-src=<file>`.
+
 ## Heap-Allocated Constants
 
 Constants that are heap objects (pairs, vectors, symbols, strings) cannot
