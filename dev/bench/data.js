@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785159468081,
+  "lastUpdate": 1785169002245,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04fdfdc635071089886b7c209c6e2d9accced98c",
-          "message": "Run the shell-based test suites on Windows (#1612) (#1630)\n\n* Run the shell-based test suites on Windows (#1612)\n\nThe bash-driven suites (errors, compile, test-runner, pipeline, doctor,\nfmt, cache, timings, the smoke .sh scripts, sandbox, robustness) had\nnever executed on Windows — exactly the surface most likely to differ:\nexit codes, error formats, path handling, subcommand output. Verified on\nthe reference Windows 11 ARM64 VM under Git Bash (34 pass, 0 fail,\n15 skip) and wired into the windows-arm-test CI job.\n\nThe first sweep caught two real runtime bugs, both fixed here:\n\n* The CRT's preopened fds 0/1/2 stayed in text mode, so every \\n reached\n  pipes as \\r\\n — piped output differed byte-for-byte from POSIX (files\n  already open O_BINARY for exactly this reason). platform.initConsole\n  (console UTF-8 + VT mode) also turned out to be dead code, never\n  called since the port landed. The new platform.initStandardStreams,\n  called first in all three binaries' mains, flips stdout/stderr to\n  binary unconditionally, flips stdin only when it is not the\n  interactive console (the plain REPL's line reader relies on console\n  text mode), and performs the console setup for real. In kaappi-lsp\n  this also protects Content-Length framing.\n* kaappi test --changed/--list-affected discovery used std.fs.path.join\n  (the runtime's one platform-separator join), so discovered paths\n  carried '\\' and never matched the '/'-spelled import-graph and\n  git-diff paths.\n\nTheir regression tests are the suites themselves, now in CI on Windows:\nrepl-multiple-values.sh and test-runner/changed.sh each fail without the\ncorresponding fix.\n\ntests/scheme/shell-common.sh is the shell analogue of the .scm tests'\ncond-expand (windows ...) gate: skip_on_windows exits 77 (reported as\nSKIP by run-all.sh and CI), plus native_path (the C:/... spelling kaappi\nitself prints) and rt_lib_name (kaappi_rt.lib vs libkaappi_rt.a). The\ncompile/ suite self-skips — each script rebuilds with a native zig,\nwhich #1613 breaks until the 0.17.0 bump — as does\nprofile-json-escaping.sh, whose planted \"/\\ filename characters Windows\nforbids. The remaining drivers needed only spelling-level fixes\n(/dev/stdin arguments → real stdin, abort() exit 3 vs died-by-signal,\nplatform archive names, autocrlf-hermetic git fixture), all\nbehavior-identical on POSIX: the full POSIX suite stays green\n(1871 pass, 0 fail).\n\nCloses #1612.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Guard the CI shell-suite loop against the runner's implicit bash -e\n\nGitHub's `shell: bash` runs steps with -e, so the plain `out=$(...)`\nassignment aborted the whole step at the first skipping script's\nexit 77 (the VM harness ran without -e, masking this). Capture the\nstatus with `|| status=$?` instead.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T12:28:39Z",
-          "tree_id": "05986e572abb483271fa418c7a8acf3218cfecf3",
-          "url": "https://github.com/kaappi/kaappi/commit/04fdfdc635071089886b7c209c6e2d9accced98c"
-        },
-        "date": 1784293041379,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.379536,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.300813,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.928544,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.417168,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006462,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054003,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.504934,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068543,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.399567,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.935896,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.58259,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434284,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.825291,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.72015,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044224,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043442,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f68a1e376316bdfdc4ea11d2b28b59de61de275",
+          "message": "Unwrap usertext markers in the two remaining pattern-spine walks (#1787) (#1790)\n\nThe preceding commit fixed matchListPattern's loop. Two more spine walks\nhad the same gap, and together they were the whole of what actually\nblocked SRFI 148 -- not the free-identifier=?/compound-identifier bug\n#1787 was filed for, which does not exist (see below).\n\nA pattern variable substituted into a NESTED syntax-rules template is\nwrapped as (__hyg-usertext . value) so the generated macro's own later\nexpansion inserts it verbatim instead of re-walking it as template text.\nWhen the substitution target is a list POSITION the wrapper gets its own\ncons cell and every consumer sees it; when the target is a SPINE position\n-- a dotted tail, or the whole pattern -- the wrapper becomes the cdr of\nan existing cell, so a naive walk reads the marker as one more ordinary\nelement. instantiateTemplate and stripUsertextWalk already handled that\nshape; three matching-side walks did not.\n\n  - expandMacro drops the pattern's first element to skip the macro\n    keyword. For a whole rule pattern spliced from user text -- a\n    generator taking (pat tmpl) and emitting (syntax-rules () (pat tmpl))\n    -- that dropped the marker instead, so every position sat one slot\n    late and the user's own `_` keyword placeholder swallowed the first\n    argument. The keyword-name extraction above it read the marker symbol\n    as the macro's name for the same reason.\n\n  - matchEllipsis splits the input by counting the elements the pattern\n    after the ellipsis needs. Counting a marker made it reserve one too\n    many, so the ellipsis stopped one element short -- and the trailing\n    pattern still matched, because the marker symbol behaves like an\n    anonymous pattern variable and binds the element the ellipsis should\n    have taken. That one failed SILENTLY, expanding with a short ellipsis\n    binding and no diagnostic. Fixed in countPairs (both callers walk a\n    marker-bearing spine) and in the repetition walk.\n\nWith all three, every em-syntax-rules-defined macro in a full SRFI 148\nport now expands correctly end-to-end -- em-cons, em-cons*, em-car/cdr,\nem-fold, em-map, em-filter, em-append, em-quasiquote, both identifier\ncomparisons, and custom-ellipsis variants -- where before the fix each\none failed with \"bad arguments to macro call\".\n\n#1787's own headline bug is not real. Its repro writes a bare `...` in a\nmacro template to pass the ellipsis identifier through to\nfree-identifier=?, but a template `...` IS the ellipsis; R7RS spells that\n(... ...), which is what SRFI 148's own em-syntax-rules writes. Kaappi\nexpands a driver-less ellipsis to zero copies in silence, so\n`(free-identifier=? ... (quote t) 'yes 'no)` quietly became\n`((quote t) 'yes 'no)` -- the \"not a procedure\" the issue reports, and\nnothing to do with identifier comparison. chibi-scheme rejects that same\nrepro at definition time with \"too many ...'s\". With the ellipsis escaped\ncorrectly, free-identifier=? and bound-identifier=? already answered\nevery compound-vs-symbol case right, before and after this commit. The\nsilent zero-expansion is a real diagnostic gap, filed separately.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T21:07:39+05:30",
+          "tree_id": "ce013bed71210ff6a21f8f1e3ff5823e4aacd0a9",
+          "url": "https://github.com/kaappi/kaappi/commit/9f68a1e376316bdfdc4ea11d2b28b59de61de275"
+        },
+        "date": 1785169000502,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.889281,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.567803,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.889946,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.259545,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006452,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.050988,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511368,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067799,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.646429,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.815326,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.455769,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.405469,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.669011,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.916351,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041558,
             "unit": "seconds"
           }
         ]
