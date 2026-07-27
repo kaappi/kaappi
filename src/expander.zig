@@ -272,16 +272,26 @@ fn matchPattern(pattern_in: Value, input_in: Value, literals: []const Value, bin
                 if (!types.isSymbol(input)) return false;
                 const input_name = types.symbolName(input);
                 if (!std.mem.eql(u8, input_name, name)) {
-                    // A hygiene-renamed template identifier still
-                    // free-identifier=?s an UNBOUND literal of its base name:
-                    // the rename was minted precisely because the identifier
-                    // had no binding. (SRFI 257's cm-match emits template
-                    // tokens `<...>`/`<_>` that its helper matchers declare
-                    // as syntax-rules literals.) Bound literals keep strict
-                    // binding comparison.
-                    const stripped = types.stripHygienicPrefix(input_name);
-                    if (stripped.len == input_name.len) return false;
-                    if (!std.mem.eql(u8, stripped, name)) return false;
+                    // A hygiene-renamed identifier on EITHER side still
+                    // free-identifier=?s an UNBOUND literal of the same base
+                    // name: a rename is minted precisely because the
+                    // identifier had no binding. Strip both sides before
+                    // giving up, so either direction matches: (a) the INPUT
+                    // is renamed but the literal is bare (SRFI 257's
+                    // cm-match emits template tokens `<...>`/`<_>` that its
+                    // helper matchers declare as syntax-rules literals), or
+                    // (b) the LITERAL itself is renamed but the input is
+                    // bare -- a literal declared by a macro-generated nested
+                    // syntax-rules (e.g. `let` in a generated dispatch
+                    // macro) is template-introduced from its generating
+                    // macro's own point of view and gets hygiene-renamed
+                    // like any other such identifier, but must still match a
+                    // real, unrenamed token typed at the generated macro's
+                    // own, later use site (#1720). Bound literals keep
+                    // strict binding comparison below.
+                    const stripped_input = types.stripHygienicPrefix(input_name);
+                    const stripped_name = types.stripHygienicPrefix(name);
+                    if (!std.mem.eql(u8, stripped_input, stripped_name)) return false;
                     const def_slot_s = if (lit_idx < literal_bound.len) literal_bound[lit_idx] else LITERAL_UNBOUND;
                     if (def_slot_s != LITERAL_UNBOUND) return false;
                     if (use_check.resolve(input_name) != LITERAL_UNBOUND) return false;
