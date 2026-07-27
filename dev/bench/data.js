@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785123635724,
+  "lastUpdate": 1785124211694,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "40da1661e81e8136778c6b2f150221961d7971e9",
-          "message": "Rendezvous semantics for (make-channel 0) on both representations (#1602, #1603) (#1604)\n\n* Rendezvous semantics for (make-channel 0) on both representations\n\nCapacity 0 shipped in v0.15.0 as the documented degenerate \"permanently\nfull\" channel: construction succeeded but send waited for a slot that\ncannot exist and receive for a value that can never be enqueued — every\nuntimed pairing deadlocked (#1600). Per the KEP-0002 §4/§6 amendment\n(kaappi/keps#28, model-checked first), capacity 0 is now a Go-style\nrendezvous channel: a send completes only against a committed receiver,\nwhichever side arrives first waits.\n\nRendezvous is the dynamic-capacity generalization of the existing\nreservation/wake-all-retry protocol — the admission bound becomes\nrv_demand, the count of committed receivers, and the value still\ntransfers through the queue. Receivers hold demand tokens\n(Fiber.rv_demand_on: acquired idempotently at the park decision since\nyield_retry re-executes the whole primitive; released on every terminal\nexit and on fiber death via retireSlot/thread-terminate!, the\nabandonFiberMutexes precedent; traced like waiting_on, but surviving\nwakes). New demand rings parked senders exactly like a freed slot\n(model finding 4). promoteChannel seeds SharedChannel.rv_demand from\nthe local counter, so pre-promotion local-park tokens stay counted\nacross migration.\n\nTwo rules keep timeouts honest (§6): delivery-wins — both operations'\ntimeout redispatch decides through one actual send()/receive(), never\ndiscarding a handoff that materialized with the timer pop — and\nreservation-drain — a timed-out receiver outwaits reserved > 0 so a\nsend past its point of no return is never silently stranded (the abort\npath now rings recv_waiters on rendezvous channels even while open).\n\nOne rule testing found, now regression-tested: dispatched fibers must\nflat-park (yield_retry) on rendezvous waits, never in-call park.\nRendezvous is the only capacity where a parked sender and receiver can\nexist simultaneously, and an in-call park makes the fiber a frozen\nancestor when its drive transitively dispatches the counterparty\n(#1487) — a main-fiber receiver stacked on top raised a spurious\nKP3000 with viable timed senders frozen beneath it. Timers survive\nre-parks via the preserved-deadline discriminator.\n\nCloses #1602. Closes #1603. Tracking: #1600.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address #1604 review: close two demand-accounting races + hardening\n\nCodeRabbit's review found two genuine concurrency races in the\nrendezvous demand accounting, both instances of one flaw — counter\ntransitions in separate critical sections from the queue/reservation\nstate that justifies them. Both are specified and model-checked first\nin kaappi/keps#29 (findings 5 and 6, with rejected-variant witnesses).\n\nFinding 5 (withdraw-at-pop): receive() gains holds_token and withdraws\nthe caller's demand inside the pop's mutex section — previously the\ntoken stayed counted through the unlocked copy-out, and the freed-slot\nring could admit a second send against an already-satisfied receiver,\nstranding its value when no receiver remained. On the copy-failure\nraise the token stays withdrawn (terminal exit; the re-queued envelope\nfalls under §6's abnormal-exit rule), so callers clear the fiber field\nwithout decrementing again.\n\nFinding 6 (atomic timeout-withdraw): tryTimeoutWithdraw replaces\nreservedCount — the queue check (delivery-wins), the reservation check\n(drain), and the demand decrement are one lock section, so a sender's\nadmission and a timed-out receiver's withdrawal serialize; previously a\nsender could reserve against the still-held token between the zero\ncheck and the withdraw and push into demand that no longer existed.\n\nAlso from the review:\n- threadEntryFn releases a terminated child's demand token beside its\n  mutex abandonment — the parent-side path deliberately never touches\n  an OS thread's fiber, and thread-terminate! is a normal API, so this\n  leak was reachable without OOM.\n- Post-park send timeouts decide through one real send()/admission\n  check (delivery-wins symmetry with the entry redispatch), both\n  representations.\n- Every fallible park path (addTimer/enrollSharedWaiter/\n  runSchedulerStep) rolls back the token and detaches the timer on\n  error, matching the status/waiting_on cleanup those handlers already\n  did; the main fiber has no retireSlot backstop, so these were real\n  (if OOM-only) phantom-demand leaks.\n- Two-sender tests now pin one-demand/one-send admission: exactly one\n  delivery, one timeout, and an emptiness probe (Zig + Scheme).\n- New deterministic cross-thread close-wake test polls sc.rv_demand —\n  the child's commitment is exactly the observable the counter provides\n  — instead of the Scheme twin's thread-sleep! guess.\n- tests_shared_channel.zig was over the 1500-line policy (1682):\n  rendezvous coverage moves to tests_shared_channel_rendezvous.zig\n  (the tests_native.zig split, #1595, is the precedent), with finding\n  5/6 protocol-level regressions added there.\n\nVerification: full unit suite; gc-stress (tests_fibers +\ntests_shared_channel*); full Scheme suite 1871 pass / 0 fail; TLA suite\n16/16 at expected outcomes with Cap>0 pass-configs bit-identical.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T14:59:05Z",
-          "tree_id": "4857472ff1450c7e1a81c682fb29fe5b955a2141",
-          "url": "https://github.com/kaappi/kaappi/commit/40da1661e81e8136778c6b2f150221961d7971e9"
-        },
-        "date": 1784215820359,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.053005,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.007058,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.938363,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.453209,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006991,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052768,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509994,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070282,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.272646,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.976006,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.523492,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477303,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.745844,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.937965,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044654,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043845,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4284fadcb52be2f98e5af097943da6dad8b8a33d",
+          "message": "Fix let-values/let*-values corruption when list/apply/call-with-values are shadowed (#1771)\n\nBoth forms desugar internally to code that invokes list, apply, and\ncall-with-values by name. Those were ordinary, shadowable identifier\nreferences, so a program redefining any of them at the top level --\nexactly what SRFI 101 does for `list` -- could corrupt the desugaring\ninstead of the compiler always meaning the true (scheme base)\nprocedures. The reported symptom was a spurious \"apply: expected\nproper list, got #<record_instance>\" error: the shadowed `list`\nhanded back something other than a real list, and the\ncorrectly-resolved `apply` then correctly rejected it.\n\nCompiler-synthesized references to these three names now resolve\nthrough a protected path: a __kaappi_base__-prefixed symbol that\nget_global/call_global recognize and resolve against (scheme base)'s\nown pristine export table (captured once at VM startup, never\ntouched again) instead of the live, mutable globals map. The\nreference has to stay a plain symbol rather than a pre-resolved\nvalue, since the .sbc bytecode cache has no serialization tag for\nprocedure constants and would silently corrupt one to nil on a cache\nround-trip.\n\nAlso fixes an adjacent gap: even the \"protected\" call_global fast\npath already used by let*-values only ever guarded against lexical\nshadowing, not a top-level redefinition of call-with-values itself --\nand isContinuationBarrier needed to recognize the new prefixed name\nso call-with-values keeps the standard frame setup its continuation\ncapture semantics depend on.\n\nFixes #1715\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T08:23:29+05:30",
+          "tree_id": "d05dd7be0867f3efd4b318aaf0b127e4b516af6a",
+          "url": "https://github.com/kaappi/kaappi/commit/4284fadcb52be2f98e5af097943da6dad8b8a33d"
+        },
+        "date": 1785124210361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.397541,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.597212,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.940857,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.528775,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006426,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055121,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.515354,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068968,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.510032,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.996336,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.63078,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.44271,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.85868,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.665281,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043974,
             "unit": "seconds"
           }
         ]
