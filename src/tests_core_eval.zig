@@ -624,3 +624,57 @@ test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     try std.testing.expect(std.mem.indexOf(u8, detail, "vm_bootstrap.install") != null);
     try std.testing.expect(std.mem.indexOf(u8, detail, "'map'") != null);
 }
+
+// Regression test: `call_global`/`tail_call_global` populated the per-Function
+// inline cache but never stamped `cache_version`, leaving it at its default 0
+// while `global_version` had already been bumped past 0 by bootstrap
+// (vm_bootstrap.zig) and every library import (vm_library.zig). The fast-path
+// guard `cache_version == global_version` was therefore false forever, so every
+// call to a global fell through to a full hash-map lookup — measured ~1.4x
+// slower on call-dense code. `get_global` already self-healed (memset +
+// re-stamp); the two call opcodes did not.
+//
+// Asserting the stamp rather than timing keeps this deterministic. Child
+// SRFI-18 VMs masked the bug: initForThread leaves global_version at 0, which
+// happens to match the un-stamped default.
+test "call_global stamps cache_version so its inline cache can hit" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // `(>= i n)` and `(+ i 1)` both compile to call_global inside `tick`.
+    _ = try ctx.vm.eval("(define (tick i n) (if (>= i n) i (tick (+ i 1) n)))");
+    _ = try ctx.vm.eval("(tick 0 3)");
+
+    const tick = ctx.vm.globals.get("tick") orelse return error.TestUnexpectedResult;
+    const func = types.toObject(tick).as(types.Closure).func;
+
+    // The cache must exist and be valid for this VM, or it can never hit.
+    try std.testing.expect(func.global_cache != null);
+    try std.testing.expectEqual(ctx.vm.global_version, func.cache_version);
+    // global_version is non-zero in a real VM: that is precisely why an
+    // un-stamped (default 0) cache_version could never match.
+    try std.testing.expect(ctx.vm.global_version != 0);
+}
+
+// The heal must clear the whole cache before re-stamping (issue #812's rule),
+// never bless entries cached before the rebinding that bumped the version.
+// `(g)` compiles to call_global, so this exercises the call path specifically.
+test "call_global heal does not serve a stale callee after rebinding" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define (g) 1)");
+    _ = try ctx.vm.eval("(define counter 0)");
+    _ = try ctx.vm.eval("(define (redefine!) (set! g (lambda () 2)))");
+    _ = try ctx.vm.eval(
+        \\(define (h)
+        \\  (g)
+        \\  (redefine!)
+        \\  (set! counter 1)
+        \\  (g))
+    );
+    const result = try ctx.vm.eval("(h)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
