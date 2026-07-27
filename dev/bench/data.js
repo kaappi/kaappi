@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785169002245,
+  "lastUpdate": 1785188879120,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "fee98e0af031c5bbeb42c9c23bd750629b2ab72c",
-          "message": "Release v0.16.0",
-          "timestamp": "2026-07-17T18:23:20+05:30",
-          "tree_id": "331f61b07355fe5d2eead3f6c8bcf450879409f3",
-          "url": "https://github.com/kaappi/kaappi/commit/fee98e0af031c5bbeb42c9c23bd750629b2ab72c"
-        },
-        "date": 1784294892101,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.372166,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.702784,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934027,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.403512,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006618,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054114,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509293,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069413,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.409859,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.046359,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.613332,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.44369,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.845576,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.711131,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043075,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041558,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d04dc522591d8e94e17690febd578f048178e4eb",
+          "message": "Iterate head-position macro chains instead of recursing (#1796) (#1797)\n\n* Iterate head-position macro chains instead of recursing (#1796)\n\nAn expansion that is directly another macro use in the same position —\nSRFI 148's CK-machine steps, or a degenerate (loop) → (loop) — used to\ncompile by native recursion, one compileForm → expandAndCompileMacroUse\n→ compileExpr cycle per link, which made MAX_MACRO_EXPANSION_DEPTH an\nimplicit native-stack guard. Raising it to 4096 (what SRFI 148 seemed\nto need) overflowed the stack; the segfault fired inside the Debug test\nallocator's own stack capture while it held the std.debug SelfInfo\nlock, and the segfault handler then deadlocked on that same lock —\nthe unit suite's eternal 0%-CPU \"hang\". The pre-scan hypothesis from\nthe issue was refuted by profiling: collectSetTargets' own caps are\nindependent of this constant.\n\nexpandAndCompileMacroUse now loops over head-position chain links at\nO(1) native stack, bounded by MAX_MACRO_EXPANSION_STEPS (10,000);\nMAX_MACRO_EXPANSION_DEPTH stays 256 and guards only genuinely nested\nexpansions, which are what actually recurses natively. Per-link\nbookkeeping (temp-globals hygiene dance, injected captured-local\naliases, let-syntax peer swaps, lint suppression) accumulates in\nheap-side undo stacks and unwinds LIFO after the final form compiles,\npreserving the exact lifetimes the nested frames provided — an early\nlink's template identifiers can survive into the final form. Chain\nlinks are rooted via extra_roots; the fixed 1024-slot root stack was a\nsecond latent cliff at one pushRoot per nested level.\n\nDeep chains now just work at the shipped constant: em-member and\nem-set-union from the drafted SRFI 148 port run correctly at 256,\nremoving #1699's final blocker without touching the constant. Runaway\nchains still fail with the same deterministic KP2003, via the step\nlimit.\n\nFixes #1796.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: flat per-link cost, emit-failure propagation, temp-globals test\n\n- Rebuild the chain's merged macro view only after a link that actually\n  performed a let-syntax peer swap: nothing else can change any macro\n  table between links (no compilation runs inside the loop), and the\n  unconditional per-link rebuild made a runaway chain's failure path\n  O(links x macros in scope) now that links are bounded by the\n  10,000-step budget instead of 256 nesting levels.\n- Propagate failures in the global-alias emit sequence instead of\n  swallowing them: emitOp(.get_global) succeeding and a later emitU16\n  failing left a truncated instruction in the chunk for the VM to\n  decode as garbage. Register exhaustion stays non-fatal (skips the\n  injection), as before.\n- The divergent-chain test now also asserts the temp-globals dance's\n  chain-wide undo: kick's template references a non-procedure global\n  that expansion temporarily marks VOID (#1208), and the failed compile\n  must restore its value.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T21:06:58Z",
+          "tree_id": "a804da82f3586fbe6324008264aecdebaf18be66",
+          "url": "https://github.com/kaappi/kaappi/commit/d04dc522591d8e94e17690febd578f048178e4eb"
+        },
+        "date": 1785188877188,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.308292,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.089748,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.925309,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.452204,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006671,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052892,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512063,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068454,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.38422,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.076868,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.531838,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.473256,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.8625,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.760718,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046137,
             "unit": "seconds"
           }
         ]
