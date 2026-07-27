@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785130936615,
+  "lastUpdate": 1785136408624,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4585791606e76c1e1ed30d96c08ad1e24a191f53",
-          "message": "Document the root cause of the ARM64 Windows toolchain crashes (#1613, #1607) (#1615)\n\nBoth the Zig 0.16.0 native-compilation crash (#1613) and the stripped\nkaappi.exe startup crash (#1607) trace to one upstream bug: under strip,\nZig demotes threadlocals to private linkage, and LLVM's AArch64 COFF\nS_HI12 fixup emits a +64 KB TLS offset for them (Codeberg ziglang#31865,\nfixed via llvm/llvm-project#199581). Verified on the reference VM: Zig\nmaster 0.17.0-dev.1413 compiles natively on the box, and a 7-line\nthreadlocal probe reproduces the strip crash under 0.16.0 and runs clean\nwhen built by master. Update windows.md and the release.yml strip\ncomment so nobody starts the now-obsolete #1607 bisection; both issues\nunblock at the 0.17.0 toolchain bump.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T20:58:04Z",
-          "tree_id": "c4151adf3f9bb6104e9619afe1aed05c54838733",
-          "url": "https://github.com/kaappi/kaappi/commit/4585791606e76c1e1ed30d96c08ad1e24a191f53"
-        },
-        "date": 1784237396660,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.810649,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.036382,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.865889,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.090056,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006501,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.051699,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.460137,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.063953,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.458431,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.721067,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.47179,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.405382,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.670115,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.973771,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040612,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045073,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "87085096f1b5c93e03f37f6cd58e6e1e46adbc8b",
+          "message": "Fix string->number to reject misplaced digit-separator underscores (#1724) (#1777)\n\nstringToNumber's small-integer and rational numerator/denominator parsing\ncalled std.fmt.parseInt directly on unvalidated input, which has its own\nunderscore convenience more permissive than SRFI 169 (it only rejects a\nleading/trailing underscore, not a doubled one), so \"1__2\" silently\ncollapsed to 12 instead of #f. Validate and strip underscores once, up\nfront, using bignum.stripUnderscores -- the same validator the reader and\nthe hex-float/bignum-overflow paths already relied on -- before any\nshape-specific parsing runs.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T11:15:03+05:30",
+          "tree_id": "7cfedd6983279e5c466ab0ef3525d70df78b1d74",
+          "url": "https://github.com/kaappi/kaappi/commit/87085096f1b5c93e03f37f6cd58e6e1e46adbc8b"
+        },
+        "date": 1785136406822,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391552,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.776782,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.963213,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.617471,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006384,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055219,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.546729,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071155,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.707694,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.100148,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.613748,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434456,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.840036,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.622388,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043399,
             "unit": "seconds"
           }
         ]
