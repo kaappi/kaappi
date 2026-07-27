@@ -393,10 +393,49 @@ past the fixed arity before branching, so variadic named functions loop too
 **Falls back to the [cached eval](#cached-eval-fallback) when the body:**
 - contains an eval-fallback form (`letrec`, `guard`, named `let`, …), or a
   `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
+- contains a keyword-only special form that reaches the interpreter as a whole
+  `passthrough` — `apply`, `call/cc`,
+  `call-with-current-continuation`, `call-with-values`, `eval`;
 - contains an internal `define` (the closure tier sets up no locals scope for
   it), or a rest parameter that is captured and mutated (no box model yet); or
 - captures an unmutated `let`-local, or a rest parameter, that has no copyable
   slot.
+
+### Why `apply` declines the whole enclosing scope
+
+All four native-compilation gates — the two closure tiers,
+`tryCompileDefineFunction`, and `emitLet` — ask
+`freevars.sexprNeedsEvalFallback`, which matches head keywords against the
+comptime-derived `ir.eval_fallback_form_names`. A keyword missing from that set
+is a **silent miscompilation**, not a missed optimization: the enclosing frame
+compiles natively, its body's `passthrough` is serialized and run by
+`kaappi_eval`, and `kaappi_eval` resolves names in the **global** environment.
+`(define (s xs) (apply + xs))` compiled cleanly and then failed at run time with
+`undefined variable 'xs'` — or, worse, silently read an unrelated global of the
+same name.
+
+The five keywords above were missing because the `passthrough` **node** is
+`.capability = .native` in `llvm_node_table`, which is right for the one shape
+`emitPassthrough` compiles (a `(define (f …) …)` shorthand) and wrong for every
+other. They are contributed instead by `ir.other_special_forms`, whose `bool`
+payload records exactly "an evaluated form headed by this keyword becomes a
+passthrough the interpreter runs". `else`, `=>`, `_`, `...`,
+`unquote`/`unquote-splicing` and the keywords `lowerFormWithMacros` intercepts
+earlier are deliberately `false`: `sexprNeedsEvalFallback` recurses blindly into
+sub-forms, so listing `else` would reject every natively lowered `cond`/`case`
+with an else clause.
+
+Publishing the frame's bindings as globals instead (`bindParamsAsGlobals`, the
+#1410 mechanism the `letrec`/`let` fallbacks use) is **not** an alternative
+here: it aliases across activations, it cannot see `let`-locals at all, and it
+permanently clobbers a same-named global. Declining the frame is what keeps the
+interpreter's own lexical scope authoritative.
+
+The cost is that a function using `apply` is not natively compiled at all —
+`(apply + xs)` is idiomatic, so this is a real gap. Lowering `apply` natively
+(a runtime entry point that splices a list onto a fixed argument array before
+`kaappi_call_scheme`) would close it; until then correctness comes from the
+interpreter.
 
 The per-function analysis buffers (parameters, body nodes, captured free
 variables, bound names) grow on the emitter's arena, so the only size ceiling is
