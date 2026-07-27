@@ -148,7 +148,9 @@ fn tryConstantFold(self: *Compiler, expr: Value, dst: u16) bool {
     // A `set!` to this name in the enclosing form may run before this call,
     // so folding would use a stale primitive value. Suppress it.
     if (self.set_targets) |st| {
-        if (st.contains(name)) return false;
+        // set_targets_all: the pre-scan was truncated, so treat every name as
+        // possibly reassigned (kaappi#1775).
+        if (self.set_targets_all or st.contains(name)) return false;
     }
 
     if (self.resolveLocal(name) != null) return false;

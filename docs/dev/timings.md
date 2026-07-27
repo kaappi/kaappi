@@ -119,6 +119,41 @@ once:
 - `native_compiler` — `read`, `llvm-emit`, `link`.
 - `main.zig` run/compile drivers — `read`, `execute`, and cache HIT/MISS.
 
+## What `--timings` cannot tell you: who the caller is
+
+`--timings` attributes wall time to a *stage*, never to a *caller*. When one
+stage dominates, that is the end of what it can say — and the stage is often
+not where the fix is.
+
+[#1775](https://github.com/kaappi/kaappi/issues/1775) is the worked example. A
+macro-generating macro compiled in 41s, and `--timings` reported:
+
+```text
+timings: read 1.4ms | expand 2765.8ms | lower 0.0ms | optimize 0.0ms | ...
+```
+
+Correct, and misleading: the time really was inside `expander.expandMacro`, but
+nothing in `expander.zig` was wrong. The expansions were being driven by
+`compiler.collectSetTargets` — a `set!` pre-scan that explored branches the real
+compiler never takes. Two sessions read the `expand` number as "the expander is
+slow" and profiled `instantiateTemplate` and `stripUsertextMarkers` by hand,
+ruling out theories one at a time.
+
+A stack profiler answers the caller question directly and needs no
+instrumentation — ReleaseSafe binaries keep frame pointers, so this works on the
+ordinary `zig build` output:
+
+```bash
+kaappi slow.scm & sample $! 8 -f /tmp/prof.txt
+```
+
+On Linux use `perf record -g -- kaappi slow.scm && perf report`. The #1775
+profile put 99% of samples under `collectSetTargets` in the first run.
+
+**Rule of thumb: `--timings` to find out *which stage*, `sample`/`perf` to find
+out *which caller*.** Reach for the profiler as soon as a stage number is
+surprising, before forming a theory about the code inside that stage.
+
 ## Cost when absent, and threading
 
 Every `begin`/`end` is a single predicted branch (`if (!enabled) return`) when
