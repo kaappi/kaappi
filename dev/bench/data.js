@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785123401786,
+  "lastUpdate": 1785123422679,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fb4723a3d37c1a93324672883164e848e61f4ed1",
-          "message": "Split free-variable/capture analysis out of llvm_emit_lambda.zig (#1591) (#1592)\n\nllvm_emit_lambda.zig was ~1590 lines, over the 1500-line file-size policy.\nMove the free-variable walking + capture-analysis section into a new focused\nmodule, llvm_emit_freevars.zig, keeping the closure/lambda emission tiers in\nplace. Pure code motion, no behavior change — same discipline as the #1583\nsplit.\n\nThe seam is clean: the analysis functions never call back into emission code;\nthey only walk ir/types data and use three public emitter predicates\n(allocator, isNameShadowed, isKnownOrReservedGlobal). Four functions become\npub (sexprContainsDefine, analyzeBoxedParams, hasFreeVars, collectFreeVars) so\nthe lambda and let emitters can call them across the module boundary; the\nother analysis entry points were already pub. The two emission helpers that\nsat inside the analysis region (freeVarsAnyBoxed, emitBoxedParamSlots) stay in\nllvm_emit_lambda.zig.\n\nllvm_emit_lambda.zig: 1589 -> 835 lines; new llvm_emit_freevars.zig: 781.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-16T09:51:38Z",
-          "tree_id": "0dc28dc20b4c2008583e097abf8374ff2848f1b9",
-          "url": "https://github.com/kaappi/kaappi/commit/fb4723a3d37c1a93324672883164e848e61f4ed1"
-        },
-        "date": 1784197429046,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.519759,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.709202,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.83929,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.96156,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006624,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.050377,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.455556,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.065537,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.418855,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.707279,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.454554,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.397595,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.929573,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.906138,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041973,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04521,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7fd9417875c9b0dc122d7f8afd5630b3de9f56d2",
+          "message": "Detect cycles through record instances in the printer (#1713) (#1768)\n\nwrite/display/write-shared already datum-labeled cycles through pairs\nand vectors, but record instances were invisible to that machinery, so\nprinting fell through to the plain depth-limited recursive printer. A\ndirect self-reference merely recursed to the depth cap, but a record\nfield that's a vector of records which each reference it back (e.g.\ntwo mutually-referencing record types, the SRFI 209 enum/enum-type\nshape that motivated this issue) fans out combinatorially at every\nlevel of that recursion, hanging the process well before the cap.\n\nRecord instances now join pairs and vectors in both cycle-detection\npasses (markCyclesRec, markShared) and in the shared-aware printer, so\na cyclic web of records prints with #N=/#N# datum labels instead of\nlooping forever.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-27T08:03:58+05:30",
+          "tree_id": "5f13324199f5d46f80b9ca86ec5068d189b39932",
+          "url": "https://github.com/kaappi/kaappi/commit/7fd9417875c9b0dc122d7f8afd5630b3de9f56d2"
+        },
+        "date": 1785123421662,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.341017,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.197353,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.895551,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.417431,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006274,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053498,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506268,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069531,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.512027,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.94447,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.621699,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430284,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.805024,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.640263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044066,
             "unit": "seconds"
           }
         ]
