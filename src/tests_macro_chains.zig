@@ -80,25 +80,33 @@ test "hygienic captured-local alias from an early chain link survives to the fin
 }
 
 test "divergent chain fails with a compile error and leaves the compiler usable" {
-    // (kick) → (bad-step 1 2 3): the second link's expansion has no
+    // (kick) → (bad-step gv 2 3): the second link's expansion has no
     // matching pattern. The chain must surface the same compile error the
     // nested recursion produced, and a mid-chain abort must restore all
-    // accumulated state (macro table, temp globals) — the same macros keep
-    // working afterwards.
+    // accumulated state. Two observables discriminate the chain-wide
+    // unwind: the macro table (bad-step still works afterwards) and the
+    // temp-globals hygiene dance — kick's template references `gv`, a
+    // non-procedure global, which expansion temporarily marks VOID in the
+    // globals map (#1208); a failed restore would leave gv VOID after the
+    // aborted compile.
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
     _ = try vm.eval(
+        \\(define gv 5)
         \\(define-syntax bad-step
         \\  (syntax-rules () ((_ ok) 'fine)))
         \\(define-syntax kick
-        \\  (syntax-rules () ((_) (bad-step 1 2 3))))
+        \\  (syntax-rules () ((_) (bad-step gv 2 3))))
     );
     const roots_before = gc.root_count;
     try std.testing.expectError(th.VMError.CompileError, vm.eval("(kick)"));
     try std.testing.expectEqual(roots_before, gc.root_count);
+
+    const gv_after = try vm.eval("gv");
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(gv_after));
 
     const after = try vm.eval("(bad-step 'x)");
     try std.testing.expect(types.isSymbol(after));

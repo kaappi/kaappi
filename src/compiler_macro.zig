@@ -197,6 +197,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     var cur_name = name;
     var cur_transformer = transformer;
     var final_form = expr;
+    var merged_stale = true;
 
     while (true) {
         if (self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS) {
@@ -204,12 +205,14 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         }
         self.macro_expansion_steps += 1;
 
-        // Merged macro view including parent scopes, rebuilt per link so a
-        // peer swap made by an earlier link stays visible (matching the
-        // nested recursion, where each level built its own merged view
-        // after the enclosing level's swap).
-        merged_macros.clearRetainingCapacity();
-        {
+        // Merged macro view including parent scopes. Nothing that runs
+        // between links can change any macro table except this function's
+        // own let-syntax peer swap below (no compilation happens inside
+        // the loop), so the view is rebuilt only after a link that
+        // actually swapped — keeping a runaway chain's per-link cost flat
+        // instead of O(links × macros in scope).
+        if (merged_stale) {
+            merged_macros.clearRetainingCapacity();
             var p: ?*Compiler = self.parent;
             while (p) |par| : (p = par.parent) {
                 var it = par.macros.iterator();
@@ -221,6 +224,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             while (it.next()) |entry| {
                 try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
             }
+            merged_stale = false;
         }
 
         const tx = types.toObject(cur_transformer).as(types.Transformer);
@@ -350,14 +354,18 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
                 }
             }
             if (already_captured) continue;
-            // Load the global value into a fresh register
+            // Load the global value into a fresh register. Register
+            // exhaustion skips the injection (non-fatal, as before), but a
+            // failure mid-emit must propagate: swallowing it after
+            // emitOp(.get_global) succeeded would leave a truncated
+            // instruction in the chunk for the VM to decode as garbage.
             const gslot = self.allocReg() catch continue;
             injected_reg_count += 1;
-            const gsym = self.gc.allocSymbol(gname) catch continue;
-            const gsym_idx = self.addConstant(gsym) catch continue;
-            self.emitOp(.get_global) catch continue;
-            self.emitU16(gslot) catch continue;
-            self.emitU16(gsym_idx) catch continue;
+            const gsym = try self.gc.allocSymbol(gname);
+            const gsym_idx = try self.addConstant(gsym);
+            try self.emitOp(.get_global);
+            try self.emitU16(gslot);
+            try self.emitU16(gsym_idx);
             try self.locals.append(gpa, .{
                 .name = gname,
                 .depth = self.scope_depth,
@@ -378,6 +386,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             } else {
                 _ = self.macros.remove(pn);
             }
+            merged_stale = true;
         }
 
         check_lint.enterMacroExpansion();
