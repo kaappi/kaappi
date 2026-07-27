@@ -1193,7 +1193,31 @@ fn scopeTableContains(scope: u32, name: []const u8) bool {
 }
 
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
-    if ((scope & QUOTE_FLAG) != 0) return gc.allocSymbol(name);
+    if ((scope & QUOTE_FLAG) != 0) {
+        // Inside a nested syntax-rules template, a quoted identifier may be a
+        // reference to that inner macro's OWN pattern variable rather than
+        // inert literal data -- e.g. `((_ y) '(fixed y))`: the pattern's `y`
+        // is walked without QUOTE_FLAG and already claimed a hygienic rename
+        // in scope_table (case 5 below), but the template's `y` sits inside
+        // `quote` and used to always come back unrenamed, splitting the two
+        // occurrences (the inner macro's own matcher would then never bind
+        // its own template's `y` to anything, and the reference passed
+        // through literally). Reusing the SAME clean_scope lookup as the
+        // non-quoted path (QUOTE_FLAG stripped, so the two occurrences hash
+        // identically) restores that consistency when a same-scope rename
+        // already exists. Genuinely inert quoted data (no matching pattern-
+        // side rename, e.g. a literal symbol the inner template just quotes)
+        // keeps today's behavior: emitted verbatim, unrenamed.
+        if ((scope & NESTED_SR_FLAG) != 0) {
+            const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK | QUOTE_FLAG);
+            for (scope_table[0..scope_table_count]) |entry| {
+                if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
+                    return gc.allocSymbol(entry.renamed_to);
+                }
+            }
+        }
+        return gc.allocSymbol(name);
+    }
 
     // Already renamed by an enclosing expansion: macro-generating macros
     // bake __hyg_ names into the inner macro's stored template. Gensyms are
