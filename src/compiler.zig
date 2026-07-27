@@ -989,8 +989,10 @@ fn formatSyntaxError(args: Value) void {
 ///
 /// A `var` only so tests can lower it and exercise the truncation path
 /// without a multi-second pathological program; nothing in the compiler
-/// writes it.
-pub var prescan_expansion_limit: u32 = 4096;
+/// writes it. Threadlocal for the same reason as `ir.optimize_enabled`: an
+/// SRFI-18 child thread compiling concurrently keeps the default rather than
+/// racing on whatever a test left in a shared global.
+pub threadlocal var prescan_expansion_limit: u32 = 4096;
 
 /// Number of top-level forms whose `set!` pre-scan truncated. Diagnostic
 /// only — read by tests to assert the guard did (or did not) engage.
@@ -1013,6 +1015,15 @@ const SetScanBudget = struct {
 /// (#1250). Only the top-level pre-scan expands; the per-expansion Part B
 /// scan passes null (see scanSetTargets).
 fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, budget: ?*SetScanBudget) CompileError!void {
+    // This is the scan's *own* recursion cap, deliberately not shared with
+    // compiler_macro.MAX_MACRO_EXPANSION_DEPTH despite both being 256: they
+    // count different things. That one bounds the real expansion of code that
+    // will be compiled, and exceeding it is a user-visible error (KP2003).
+    // This one bounds a speculative walk that also descends into branches the
+    // compiler discards, so it is reached by programs whose real expansion
+    // depth never comes close — measured: every SRFI 257 suite trips this cap
+    // several times per run while compiling and passing normally. Tying the
+    // two together would assert an equivalence the measurements contradict.
     if (depth > 256) {
         if (budget) |b| b.truncated = true;
         return;

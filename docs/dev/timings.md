@@ -128,7 +128,7 @@ not where the fix is.
 [#1775](https://github.com/kaappi/kaappi/issues/1775) is the worked example. A
 macro-generating macro compiled in 41s, and `--timings` reported:
 
-```
+```text
 timings: read 1.4ms | expand 2765.8ms | lower 0.0ms | optimize 0.0ms | ...
 ```
 
