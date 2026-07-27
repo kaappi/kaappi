@@ -433,23 +433,37 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             return gc.allocComplex(rr, ri) catch return PrimitiveError.OutOfMemory;
         }
         // General: z^w = e^(w * ln(z))
-        // ln(z) = ln|z| + i*arg(z)
-        const mag = @sqrt(zr * zr + zi * zi);
-        const arg = std.math.atan2(zi, zr);
-        const ln_r = @log(mag);
-        const ln_i = arg;
-        // w * ln(z)
-        const prod_r = wr * ln_r - wi * ln_i;
-        const prod_i = wr * ln_i + wi * ln_r;
-        // e^(prod_r + i*prod_i)
-        const exp_r = @exp(prod_r);
-        const result_r = exp_r * @cos(prod_i);
-        const result_i = exp_r * @sin(prod_i);
-        return gc.allocComplex(result_r, result_i) catch return PrimitiveError.OutOfMemory;
+        return complexPowGeneral(gc, zr, zi, wr, wi);
     }
     const base_f = try toF64Ext(args[0]);
     const exp_f = try toF64Ext(args[1]);
+    // A negative real base raised to a non-integer real exponent has no real
+    // result (e.g. (-8)^(1/3)) — promote to complex, matching sqrt's handling
+    // of negative reals. Integer exponents are excluded since std.math.pow
+    // already handles those correctly for a negative base.
+    if (std.math.isFinite(base_f) and base_f < 0.0 and
+        std.math.isFinite(exp_f) and exp_f != @trunc(exp_f))
+    {
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        return complexPowGeneral(gc, base_f, 0.0, exp_f, 0.0);
+    }
     return makeFlonumVal(std.math.pow(f64, base_f, exp_f));
+}
+
+// z^w = e^(w * ln(z)), where ln(z) = ln|z| + i*arg(z).
+fn complexPowGeneral(gc: *memory.GC, zr: f64, zi: f64, wr: f64, wi: f64) PrimitiveError!Value {
+    const mag = @sqrt(zr * zr + zi * zi);
+    const arg = std.math.atan2(zi, zr);
+    const ln_r = @log(mag);
+    const ln_i = arg;
+    // w * ln(z)
+    const prod_r = wr * ln_r - wi * ln_i;
+    const prod_i = wr * ln_i + wi * ln_r;
+    // e^(prod_r + i*prod_i)
+    const exp_r = @exp(prod_r);
+    const result_r = exp_r * @cos(prod_i);
+    const result_i = exp_r * @sin(prod_i);
+    return gc.allocComplex(result_r, result_i) catch return PrimitiveError.OutOfMemory;
 }
 
 fn squareFn(args: []const Value) PrimitiveError!Value {
