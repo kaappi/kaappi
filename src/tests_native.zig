@@ -162,8 +162,11 @@ test "LLVM emit: preamble has target triple and runtime calls" {
     defer res.deinit();
     const ll = res.toSlice();
     try expectContains(ll, "target triple");
-    try expectContains(ll, "define i32 @main()");
+    // main takes argc/argv (kaappi#1744) so (command-line) works in compiled
+    // binaries — see kaappi_set_command_line_args below.
+    try expectContains(ll, "define i32 @main(i32 %argc, ptr %argv)");
     try expectContains(ll, "@kaappi_runtime_init");
+    try expectContains(ll, "call void @kaappi_set_command_line_args(ptr %vm, ptr %argv)");
     try expectContains(ll, "@kaappi_runtime_deinit");
     try expectContains(ll, "ret i32 0");
 }
@@ -173,6 +176,7 @@ test "LLVM emit: preamble declares runtime functions" {
     defer res.deinit();
     const ll = res.toSlice();
     try expectContains(ll, "declare ptr @kaappi_runtime_init()");
+    try expectContains(ll, "declare void @kaappi_set_command_line_args(ptr, ptr)");
     try expectContains(ll, "declare i64 @kaappi_global_lookup(ptr, ptr, i64)");
     try expectContains(ll, "declare i64 @kaappi_call_scheme(ptr, i64, ptr, i64)");
     try expectContains(ll, "declare i64 @kaappi_fixnum_add(i64, i64)");
@@ -720,7 +724,7 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 26), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 27), native_decls.decls.len);
 }
 
 // -- Compile-once eval-fallback cache (#1494) --

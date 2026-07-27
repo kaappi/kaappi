@@ -27,6 +27,7 @@ pub const Decl = struct {
 pub const decls: []const Decl = &.{
     .{ .export_name = "kaappi_runtime_init", .scheme_name = null, .param_types = &.{}, .ret = .ptr, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_runtime_deinit", .scheme_name = null, .param_types = &.{.ptr}, .ret = .void_ty, .inline_kind = .not_inlined },
+    .{ .export_name = "kaappi_set_command_line_args", .scheme_name = null, .param_types = &.{ .ptr, .ptr }, .ret = .void_ty, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_global_lookup", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64 }, .ret = .i64, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_call_scheme", .scheme_name = null, .param_types = &.{ .ptr, .i64, .ptr, .i64 }, .ret = .i64, .inline_kind = .not_inlined },
     .{ .export_name = "kaappi_define_global", .scheme_name = null, .param_types = &.{ .ptr, .ptr, .i64, .i64 }, .ret = .void_ty, .inline_kind = .not_inlined },

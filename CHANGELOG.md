@@ -44,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`kaappi compile` binaries could not see their own command-line
+  arguments** — the LLVM-emitted `main()` took no parameters at all, so
+  `(command-line)` always returned `()` in a compiled binary no matter what
+  arguments it was invoked with. `main` now takes the standard C
+  `(argc, argv)` pair and hands `argv` to the runtime right after init, so a
+  compiled binary's `(command-line)` reports its own path followed by its
+  real arguments, mirroring how the interpreter reports a script's name
+  followed by its arguments (#1744).
+
 - **A special-form-shadowing macro imported by one program could corrupt
   `define-record-type`/`define-values` in a completely unrelated library
   loaded afterward** — `define-record-type`'s and `define-values`'s
