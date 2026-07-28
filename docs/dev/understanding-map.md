@@ -115,7 +115,14 @@ the leakiness measurement.
 - **Where:** `src/expander.zig`, `src/compiler_macro.zig`
 - **Theory:** syntax-rules matching and template instantiation, free-ref
   collection (`computeBoundFreeRefs`, PR #1344), why renaming is the hard
-  part, and where the current model's edges are.
+  part, and where the current model's edges are. Since PR #1811 also the
+  procedural-transformer path (SRFI 211/213): `expandProceduralMacro`'s
+  threadlocal per-invocation ER context, why `rename` *is*
+  `renameForHygiene` under a fresh scope (procedural macros inherit
+  exactly the engine's syntax-rules hygiene strength, holes included),
+  and why import copies a procedural transformer's *whole* def_env where
+  template macros get a free-ref scan — their references are computed by
+  running code, so no static scan exists.
 - **Why core:** the one subsystem where bugs proved effectively unbounded —
   the first attempt at SRFI-257 (#1644) was abandoned because each expander
   fix uncovered another; the port that eventually shipped (PR #1678) took
