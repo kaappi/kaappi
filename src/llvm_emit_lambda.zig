@@ -264,6 +264,10 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         // A fresh frame starts with no let-binding roots (#1585); saveScope
         // restored the enclosing value on exit.
         self.body_scope_roots = 0;
+        // A closure never gets the self-tail-loop treatment (current_fn_name/
+        // body_label above are null), so nothing reads this — reset anyway so
+        // no stale enclosing-scope value could leak in (#1808).
+        self.loop_stack_save = null;
 
         const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch return null;
         defer self.allocator().free(header);
@@ -599,6 +603,10 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // A tail call in this body may be a guaranteed `musttail` only from a
         // `tailcc` fast entry (#1499).
         self.in_fast_entry = use_fast;
+        // No self-tail loop is active until the body_lbl header below sets
+        // this (#1808); a stale value from the enclosing scope must not leak
+        // into this frame's body.
+        self.loop_stack_save = null;
 
         var p = std.StringHashMap(u8).init(self.backing_alloc);
         defer p.deinit();
@@ -660,6 +668,14 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
 
         self.print("  br label %{s}\n{s}:\n", .{ body_lbl, body_lbl }) catch return null;
         self.current_block = body_lbl;
+
+        // Capture the stack pointer at the loop header so a self-tail call
+        // (emitSelfTailCall) can reclaim this pass's `alloca`s before
+        // branching back (#1808). Only when the self-tail loop is actually
+        // active (mirrors self.body_label's own !boxed.any condition) — a
+        // boxed frame's only `ret` is the trailing one, so there is no
+        // repeated pass to reclaim.
+        self.loop_stack_save = if (!boxed.any) (self.emitStackSave() catch return null) else null;
 
         if (boxed.any and !emitBoxedParamSlots(self, param_names, boxed)) return null;
 

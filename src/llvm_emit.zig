@@ -223,6 +223,13 @@ pub const LLVMEmitter = struct {
     // `musttail call tailcc` only here — the uniform (ccc) entries, closures,
     // and the top-level body never can (calling-convention mismatch).
     in_fast_entry: bool = false,
+    // The `llvm.stacksave` result captured at the top of the current self-tail
+    // loop header (body_label), or null when no self-tail loop is active for
+    // this frame (kaappi#1808). emitSelfTailCall restores to this pointer
+    // right before branching back to the header, reclaiming every `alloca`
+    // made during the pass just completed — root-push slots and call-argument
+    // arrays alike — so the native stack does not grow per iteration.
+    loop_stack_save: ?[]const u8 = null,
     // Forward-reference plumbing (#1499): populated once by preScanReserve and
     // then read-only. reserved_fast maps a reserved top-level define name to its
     // stable @r{i}/@r{i}.fast names; fulfilled_fast records names whose real
@@ -250,6 +257,7 @@ pub const LLVMEmitter = struct {
         frame_entry_roots: usize,
         body_scope_roots: usize,
         in_fast_entry: bool,
+        loop_stack_save: ?[]const u8,
     };
 
     pub fn saveScope(self: *LLVMEmitter) SavedScope {
@@ -269,6 +277,7 @@ pub const LLVMEmitter = struct {
             .frame_entry_roots = self.frame_entry_roots,
             .body_scope_roots = self.body_scope_roots,
             .in_fast_entry = self.in_fast_entry,
+            .loop_stack_save = self.loop_stack_save,
         };
     }
 
@@ -288,6 +297,7 @@ pub const LLVMEmitter = struct {
         self.frame_entry_roots = s.frame_entry_roots;
         self.body_scope_roots = s.body_scope_roots;
         self.in_fast_entry = s.in_fast_entry;
+        self.loop_stack_save = s.loop_stack_save;
     }
 
     pub fn init(backing: std.mem.Allocator) LLVMEmitter {
@@ -754,6 +764,13 @@ pub const LLVMEmitter = struct {
         // rest-list slot) live BEFORE the header and are deliberately NOT popped
         // — they persist across iterations, overwritten in place above.
         try self.emitPopRoots(self.body_scope_roots);
+
+        // Reclaim every `alloca` made while computing this pass (root-push
+        // slots, call-argument arrays, let/do-variable slots) before starting
+        // the next one (#1808) — `alloca` frees only at function return, so
+        // without this the native stack grows by one pass's worth on every
+        // iteration and eventually overflows on a long-running loop.
+        if (self.loop_stack_save) |sp| try self.emitStackRestore(sp);
 
         try self.print("  br label %{s}\n", .{body_lbl});
 
@@ -1593,6 +1610,30 @@ pub const LLVMEmitter = struct {
         try self.write("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)\n");
         try self.write("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)\n");
         try self.write("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)\n");
+        // Reclaim per-iteration `alloca`s (root-push slots, call-argument
+        // arrays, let/do-variable slots) at the end of every native loop pass
+        // (kaappi#1808). `alloca` frees only at function *return*, never at
+        // "next loop iteration" — without this, a self-tail-call loop or a
+        // `do` loop that evaluates so much as one rooted call per pass grows
+        // the native stack by that call's alloca footprint on every pass,
+        // eventually overflowing the OS thread stack on a long-running loop
+        // regardless of whether the values involved are fixnums or bignums.
+        try self.write("declare ptr @llvm.stacksave()\n");
+        try self.write("declare void @llvm.stackrestore(ptr)\n");
+    }
+
+    // Capture the current native stack pointer (kaappi#1808). Call at the top
+    // of a loop pass and pass the result to emitStackRestore right before the
+    // back-edge that starts the next pass, to reclaim every `alloca` made
+    // during the pass just completed.
+    pub fn emitStackSave(self: *LLVMEmitter) EmitError![]const u8 {
+        const sp = try self.freshTemp();
+        try self.print("  {s} = call ptr @llvm.stacksave()\n", .{sp});
+        return sp;
+    }
+
+    pub fn emitStackRestore(self: *LLVMEmitter, sp: []const u8) EmitError!void {
+        try self.print("  call void @llvm.stackrestore(ptr {s})\n", .{sp});
     }
 
     pub fn emitRootPush(self: *LLVMEmitter, tmp: []const u8) EmitError!void {
