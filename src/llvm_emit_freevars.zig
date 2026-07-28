@@ -6,6 +6,7 @@
 //
 // Entry points consumed by llvm_emit_lambda.zig / llvm_emit_let.zig:
 //   sexprNeedsEvalFallback  body has a form the backend can't compile (#827)
+//   sexprHasMacroUse        body calls a name bound as a macro (#1807)
 //   sexprContainsDefine     body has an internal define (closure-tier reject, #819)
 //   bodyHasCapturingLambda  a nested lambda captures a given local (#827)
 //   sexprBodySetsName       a set! of a given name appears in the body (#1422/#1497)
@@ -52,6 +53,38 @@ pub fn sexprNeedsEvalFallback(expr: Value) bool {
 fn isEvalFallbackForm(name: []const u8) bool {
     for (ir.eval_fallback_form_names) |f| {
         if (std.mem.eql(u8, name, f)) return true;
+    }
+    return false;
+}
+
+// True if `expr` (a raw S-expression) contains a use of a name currently bound
+// as a macro in the VM's macro table. Mirrors sexprNeedsEvalFallback's blind
+// traversal (every nested pair, `quote` opaque) but checks self.isMacroName
+// instead of the fixed eval-fallback keyword list.
+//
+// Without this, emitLet/the lambda closure tiers lower a let/lambda body's raw
+// sub-expressions via a scratch IR instance with no macro table (#827's
+// per-expression re-lowering never had one to begin with), so a macro use like
+// `(foo xs)` compiles as a call to a same-named global instead of expanding —
+// silently wrong in a compiled binary while the interpreter (which does
+// expand it) is correct (#1807). Mirrors #1496's isMacroName gate for
+// natively-lowered cond/case/do, the model this follows: detect the macro use
+// early, on the raw form, and decline native compilation of the whole
+// enclosing scope rather than split it across the native/interpreted
+// boundary. Conservative like sexprNeedsEvalFallback: a let-bound variable or
+// binding name that happens to share a macro's name is not actually a call,
+// but flagging it anyway only costs a missed optimization, never correctness.
+pub fn sexprHasMacroUse(self: *LLVMEmitter, expr: Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const name = types.symbolName(head);
+        if (self.isMacroName(name)) return true;
+        if (std.mem.eql(u8, name, "quote")) return false;
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprHasMacroUse(self, types.car(cur))) return true;
     }
     return false;
 }

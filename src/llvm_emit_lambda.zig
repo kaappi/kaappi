@@ -33,11 +33,15 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     if (body_list == types.NIL) return null;
     if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
 
-    // #827: reject if body contains forms needing interpreter eval fallback
+    // #827: reject if body contains forms needing interpreter eval fallback.
+    // #1807: also reject a macro use anywhere in the body — its own IR
+    // lowering below (body_ir, a scratch instance) has no macro table, so an
+    // unguarded macro call would compile as a same-named global lookup.
     {
         var be = body_list;
         while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
             if (freevars.sexprNeedsEvalFallback(types.car(be))) return null;
+            if (freevars.sexprHasMacroUse(self, types.car(be))) return null;
         }
     }
 
@@ -116,11 +120,14 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         }
     }
 
-    // #827: reject if body contains forms needing interpreter eval fallback
+    // #827: reject if body contains forms needing interpreter eval fallback.
+    // #1807: also reject a macro use anywhere in the body (see the sibling
+    // check in tryCompilePureLambdaAsNativeClosure above for why).
     {
         var be2 = body_list;
         while (be2 != types.NIL and types.isPair(be2)) : (be2 = types.cdr(be2)) {
             if (freevars.sexprNeedsEvalFallback(types.car(be2))) return null;
+            if (freevars.sexprHasMacroUse(self, types.car(be2))) return null;
         }
     }
 
@@ -454,11 +461,17 @@ pub fn tryCompileLambdaNative(self: *LLVMEmitter, data: ir.LambdaData) ?[]const 
 pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: Value, body: Value) ?[]const u8 {
     if (body == types.NIL) return null;
 
-    // #827: reject if body contains forms needing interpreter eval fallback
+    // #827: reject if body contains forms needing interpreter eval fallback.
+    // #1807: also reject a macro use anywhere in the body — this is the exact
+    // gap that let a macro shadowing a known global (e.g. `(define-syntax car
+    // ...)`) silently compile as a call to the `car` primitive instead of
+    // expanding: the free-variable analysis below only declines native
+    // compilation when the shadowed name ISN'T already a legitimate global.
     {
         var be = body;
         while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
             if (freevars.sexprNeedsEvalFallback(types.car(be))) return null;
+            if (freevars.sexprHasMacroUse(self, types.car(be))) return null;
         }
     }
 

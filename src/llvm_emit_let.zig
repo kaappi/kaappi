@@ -110,8 +110,11 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
     // #827: If the let form (bindings or body) contains sub-expressions
     // that need interpreter eval fallback (cond, do, letrec, etc.),
     // compile the entire let via the interpreter to preserve correct
-    // lexical scoping.
-    if (freevars.sexprNeedsEvalFallback(args)) {
+    // lexical scoping. #1807: the same goes for a macro use anywhere in the
+    // bindings or body — this let's own bindings/body are lowered below via a
+    // macro-blind scratch IR, so an unguarded macro call would compile as a
+    // same-named global lookup instead of expanding.
+    if (freevars.sexprNeedsEvalFallback(args) or freevars.sexprHasMacroUse(self, args)) {
         return emitLetFallback(self, args, sequential);
     }
     // #827/#1497: A body lambda that captures a let-bound variable cannot

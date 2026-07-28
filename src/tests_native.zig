@@ -62,6 +62,45 @@ fn emitSourceResult(source: []const u8) !EmitResult {
     return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
 }
 
+// Like emitSourceResult, but wires `macros` into the emitter so isMacroName
+// recognizes them (#1807). LLVMEmitter.macros defaults to null and every
+// other helper here leaves it that way — see its doc comment in llvm_emit.zig
+// ("no name is treated as a macro, which is correct because those tests never
+// exercise macros inside these forms") — so this is the only way to unit-test
+// the emitLet / lambda closure-tier macro-use gates without driving the whole
+// VM+define-syntax pipeline. `macros` is caller-owned and must outlive `res`.
+fn emitSourceResultWithMacros(source: []const u8, macros: *const std.StringHashMap(types.Value)) !EmitResult {
+    var gc = memory.GC.init(emitter_alloc);
+    errdefer gc.deinit();
+
+    // See emitSourceResult: collection is deferred until emission is done.
+    gc.no_collect += 1;
+
+    var reader = reader_mod.Reader.init(&gc, source);
+    defer reader.deinit();
+    const expr = try reader.readDatum();
+
+    var ir_instance = ir_mod.IR.init(emitter_alloc);
+    errdefer ir_instance.deinit();
+
+    var root = try ir_mod.lower(&ir_instance, expr);
+    ir_mod.markTailPositions(root, false);
+    root = ir_mod.foldConstants(&ir_instance, root);
+    root = ir_mod.eliminateDeadBranches(&ir_instance, root);
+    root = ir_mod.simplifyBooleans(&ir_instance, root);
+    root = ir_mod.eliminateIdentity(&ir_instance, root);
+    root = ir_mod.simplifyBegin(&ir_instance, root);
+
+    var nodes = [_]*ir_mod.Node{root};
+    var emitter = llvm_emit.LLVMEmitter.init(emitter_alloc);
+    errdefer emitter.deinit();
+    emitter.macros = macros;
+    try emitter.emitProgram(&nodes);
+
+    gc.no_collect -= 1;
+    return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
+}
+
 pub fn emitMultiResult(source: []const u8) !EmitResult {
     return emitMultiResultOpts(source, true);
 }
@@ -1423,4 +1462,97 @@ test "LLVM emit: a cond containing letrec falls back to the interpreter (#1496)"
     // the correct choice is a whole-form eval, not a native block chain.
     try expectNotContains(ll, "cond_merge_");
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+// -- macro-use gate in natively-lowered let/lambda scopes (#1807) --
+//
+// emitLet and the lambda closure tiers (tryCompileNativeClosure,
+// tryCompilePureLambdaAsNativeClosure, tryCompileDefineFunction) re-lower
+// their raw bindings/body via a scratch IR instance with no macro table.
+// Before this gate, a macro use anywhere in one of these scopes silently
+// compiled as a call to a same-named global instead of expanding — wrong in
+// the compiled binary while the interpreter (fully macro-aware) stayed
+// correct. See emitLet's and tryCompileDefineFunction's own gate comments.
+
+test "LLVM emit: a let body using a macro falls back to the interpreter (#1807)" {
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("foo", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(let ((xs 21)) (foo xs))", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    // Pre-fix, this compiled `foo` as a plain global lookup ("undefined
+    // variable: foo" at run time) instead of expanding it.
+    try expectNotContains(ll, "call i64 @kaappi_global_lookup(");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a let binding initializer using a macro falls back to the interpreter (#1807)" {
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("foo", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(let ((xs (foo 21))) xs)", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNotContains(ll, "call i64 @kaappi_global_lookup(");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a let* body using a macro falls back to the interpreter (#1807)" {
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("foo", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(let* ((xs 21)) (foo xs))", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNotContains(ll, "call i64 @kaappi_global_lookup(");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a let with an unrelated macro in scope still compiles natively (#1807)" {
+    // Precision guard: a non-null macros table must not make every let
+    // ineligible — only an actual use of a bound macro name should.
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("unrelated-macro", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(let ((xs 21)) (+ xs 1))", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a function body using a macro that shadows a known global falls back to eval (#1807)" {
+    // The exact shape from the issue: (define-syntax car ...) followed by a
+    // function calling (car p). Before this gate, free-variable analysis
+    // treated `car` as a legitimate global reference (it IS a known
+    // primitive) and compiled a call to the real `car` primitive, silently
+    // ignoring the macro.
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("car", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(define (f p) (car p))", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "f");
+}
+
+test "LLVM emit: a function body using a macro with no colliding global falls back to eval (#1807)" {
+    // The "accidentally safe" half from the issue: even without this gate,
+    // free-variable analysis already declines native compilation here
+    // because `foo` isn't a known global. Kept as a guard against the gate
+    // ever regressing this case (e.g. via an overly narrow shadowing-only
+    // check instead of a general macro-use check).
+    var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
+    defer macros.deinit();
+    try macros.put("foo", types.NIL);
+
+    var res = try emitSourceResultWithMacros("(define (f p) (foo p))", &macros);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "f");
 }
