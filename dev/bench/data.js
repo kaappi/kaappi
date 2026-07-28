@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785274551481,
+  "lastUpdate": 1785275451223,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dad1401200fbbdd59430fd372221dca2a67dbd74",
-          "message": "Document the native-backend architecture-scope decision (#1658)\n\nThe #1654 port campaign proved interpreter-tier CPU ports are free, and\nits riscv64 experiment proved the native backend is not: kaappi compile\non an unsupported arch links via the -w-hidden driver override of the\nunknown-unknown-unknown triple and produces a binary that segfaults\n(#1656). Record why the backend stays aarch64/x86_64 — triage ergonomics\n(no ppc64le unwinder), the runtime tether (21 C-ABI exports + eval\nfallback), per-arch LLVM variance, and the e2e-on-target verification\nbill plus permanent matrix tax — and what a real port would take, with\nriscv64 as the designated pathfinder.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T03:04:23+05:30",
-          "tree_id": "f9cb7e65a8f7819bf9b2e95b9e44ddfe48f1eef0",
-          "url": "https://github.com/kaappi/kaappi/commit/dad1401200fbbdd59430fd372221dca2a67dbd74"
-        },
-        "date": 1784412674188,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.032694,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.414326,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924354,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.562605,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00672,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052758,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.514228,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068486,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.216695,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.9992,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.507379,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.47339,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.744144,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.839382,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047858,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045445,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d9c38fefd0443641edb311d0cb49f05af9354c6",
+          "message": "Split src/types.zig into 11 domain files, fixing #1731 (#1827)\n\ntypes.zig had grown to 1871 lines (already 1605 before #1730, both over\nthe 1500-line policy), one heap-type addition at a time across 105\ncommits. Splits struct/enum definitions by domain (types_ffi.zig,\ntypes_port.zig, types_continuation.zig, ...) while types.zig re-exports\nevery name (`pub const Foo = types_x.Foo;`), so the dozens of existing\n`types.Foo` call sites across primitives_*.zig, vm*.zig, gc_collect.zig,\ngc_deep_copy.zig, and printer.zig need no changes. Object.expectedTag()'s\nswitch is also untouched — it already referenced bare names, which now\nresolve through the re-export aliases.\n\ntypes.zig drops to ~1200 lines; each new file is 35-190 lines. Verified\nwith zig build, zig build test, the full Scheme suite (2008 pass), and\nzig build test -Dgc-stress=true, per the issue's own re-verification\nchecklist for the GC mark/sweep switches.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T21:12:31Z",
+          "tree_id": "311a2f08ec9f5cbf0f3e0bd9c60a43262728ebfe",
+          "url": "https://github.com/kaappi/kaappi/commit/5d9c38fefd0443641edb311d0cb49f05af9354c6"
+        },
+        "date": 1785275449153,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.774613,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.015899,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.543421,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.667183,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006797,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044669,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.286428,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054396,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.679593,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.085522,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.489511,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.404505,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.637716,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.939072,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040679,
             "unit": "seconds"
           }
         ]
