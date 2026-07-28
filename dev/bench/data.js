@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785258707870,
+  "lastUpdate": 1785261919872,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1b7995b59347819ee290b576af1f02f0c46630aa",
-          "message": "Implement SRFI 271 (Random Port Libraries) (#1641)\n\n* Implement SRFI 271 (random port libraries)\n\nSRFI 271 (finalized 2026-07-18) provides binary input ports that yield\nrandom bytes through the standard R7RS port interface, split into\ncryptographic-quality \"randomized\" ports and reproducible \"determinized\"\nports.\n\nA random stream is unbounded, so a random port cannot be a fixed\nbytevector port. Instead it is backed by a new types.RandomGen owned by\nthe Port and driven from readOneByte, so read-u8 / read-bytevector /\nu8-ready? work on it unchanged. Randomized ports refill each block from OS\nentropy (new platform.osRandomBytes: getrandom / arc4random_buf /\nRtlGenRandom, with a best-effort fallback); determinized ports run a\nxoshiro256** PRNG whose full observable state — the four words plus the\ncurrent 8-byte output block and how much of it was consumed — is snapshot\nas a self-describing bytevector. Because the snapshot is a bytevector it\nround-trips through write/read verbatim as a #u8(...) literal, which is\nexactly the external-representation invariance the SRFI requires of\nstates, and equal snapshots imply identical byte streams.\n\nFive %-prefixed core primitives (primitives_random_port.zig) do the\ngeneration and state marshaling; the user-facing API — the three\nmake-random-port cases, the state predicates, random-port-state=?, and the\nrandom-port-initialization-error? condition — lives in the portable\nlib/srfi/271*.sld libraries. (srfi 271) aliases the randomized library.\nThe build-time lib/srfi scan registers 271 automatically, so features and\ncond-expand see it.\n\nTests: tests/scheme/srfi/srfi271.scm (SRFI-64, 35 checks) and\nsrc/tests_random_port.zig unit tests for the generator core; green under\nzig build test, -Dgc-stress=true, and the full run-all.sh suite.\n\nCloses #1636.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Harden SRFI-271 randomized ports against weak entropy fallback\n\nReview follow-up: osRandomBytes silently drained randomSeed64/monotonicNs\nwhen OS entropy was unavailable — most reachably on WASI, where the old code\nalways took the clock path — handing a \"cryptographic-quality\" randomized\nport predictable, timing-derived bytes.\n\n- osRandomBytes now uses a real CSPRNG on every platform (WASI random_get,\n  which the browser playground shim backs with crypto.getRandomValues) and\n  returns bool instead of void; on genuine OS-source failure it returns\n  false rather than substituting clock/PRNG bytes.\n- RandomGen.nextByte returns ?u8 (null only when a randomized refill cannot\n  obtain entropy; determinized ports never fail), and readOneByte raises a\n  catchable \"OS entropy source unavailable\" error instead of a silent EOF.\n\nDeterminized ports are unaffected. Green under zig build test, zig build\nwasm, and tests/scheme/srfi/srfi271.scm.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Fix Linux getrandom errno decode (std.os.linux.E.init removed in Zig 0.16)\n\nosRandomBytes' Linux branch used std.os.linux.E.init(rc), which doesn't\nexist in Zig 0.16 — the branch is comptime-gated to Linux so it compiled\nfine on macOS but broke every Linux CI job (ubuntu x86_64/arm, riscv64,\nbenchmark-pr) with \"enum 'os.linux.E' has no member named 'init'\".\n\ngetrandom is a raw syscall that returns the byte count or a negative\n-errno directly (it does not set libc errno), so decode the signed return\nin place — advance on a positive count, retry on -EINTR, fail otherwise —\nrather than routing through std.posix.errno (which under libc reads C errno\nand expects the -1 convention). Verified with zig build -Dtarget=x86_64-linux\nand -Dtarget=riscv64-linux.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T12:06:21Z",
-          "tree_id": "69783719124547d985fd97417bdc70751bcd9333",
-          "url": "https://github.com/kaappi/kaappi/commit/1b7995b59347819ee290b576af1f02f0c46630aa"
-        },
-        "date": 1784378231980,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.372824,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.819064,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.698755,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.476802,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006415,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044349,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.39049,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058796,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.115262,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.512262,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.312795,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.444502,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.460135,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.088442,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038114,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044175,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8c1b1431649a2913c819a514ab9e8d80892d5824",
+          "message": "Surface the real cause behind cross-thread channel/thread failures (#1742) (#1820)\n\nThe cross-thread channel mechanism itself is correct: a channel only\ncrosses a thread boundary when lexically captured by the thread's thunk,\nand a top-level define (a shared, pointer-shared global) is rightly\nrejected rather than promoted. Two diagnostics bugs made that hard to\nsee, both traced in #1742's own investigation comment:\n\n1. thread-join! wraps a child's failure in a generic \"uncaught exception\n   in thread\" ErrorObject and stashes the real cause in its\n   uncaught_reason field -- a field the default top-level report never\n   looked at, so the one sentence that explains everything (e.g. \"channel\n   belongs to another thread; pass it through the thread thunk to share\n   it\") was reachable only via `(error-object-message\n   (uncaught-exception-reason e))` inside a guard.\n   VM.noteUncaughtException now unwraps uncaught_reason (bounded, for\n   nested thread-join! chains), gated strictly on error_type ==\n   .uncaught_exception so it never fires for the unrelated io_decoding/\n   io_encoding error types that reuse the same field slot.\n\n2. channel-receive/channel-send's deadlock message for a channel that was\n   never shared with another thread read \"...and all fibers are blocked\"\n   even when another OS thread was alive and well, implying fiber\n   scheduling was the whole story. The four local (unpromoted-channel)\n   deadlock sites now name that thread explicitly via a new\n   localChannelDeadlockMsg helper, reusing the existing\n   crossThreadWaitPossible() predicate the sibling shared-channel path\n   already relies on for the same distinction. Pure wording change: a\n   local channel's deadlock decision was already immediate regardless of\n   crossThreadWaitPossible(), traced through fiber.zig's parkOnReactor/\n   runSchedulerStep.\n\nRegression coverage: unit tests in tests_shared_channel.zig and\ntests_fibers.zig, plus end-to-end shell assertions in error-format.sh\ncovering the issue's exact repro.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T22:41:42+05:30",
+          "tree_id": "019b05148a0c1fbc4a623d2bd3e110e0fe54bae6",
+          "url": "https://github.com/kaappi/kaappi/commit/8c1b1431649a2913c819a514ab9e8d80892d5824"
+        },
+        "date": 1785261916986,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.070491,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.768923,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.461313,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.220488,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00536,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034756,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231135,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.043184,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.614463,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.889634,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.186344,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.376403,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.323158,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.376923,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035513,
             "unit": "seconds"
           }
         ]
