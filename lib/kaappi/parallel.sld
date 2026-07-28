@@ -11,27 +11,15 @@
 ;; degrades to spawning fiber workers on the calling thread's scheduler
 ;; instead: structurally the same pool, cooperative instead of parallel.
 ;;
-;; Known limitation (kaappi#1520): a closure that crosses a thread-start!
-;; boundary and then CALLS a separately-defined library-top-level procedure
-;; hangs (the identical logic inlined directly into the closure works) --
-;; so a pool must only be used from the thread that created it (or one that
-;; received it some other way that doesn't route through a fresh
-;; thread-start! thunk); do not thread-start! your own worker whose thunk
-;; calls pool-submit/task-wait/pool-shutdown!. This is why the worker loop
-;; below is inlined into each spawned thunk rather than factored into a
-;; shared procedure -- see the comment at %spawn-worker.
-;;
-;; Known limitation (kaappi#1487, kaappi#1489): parallel-map/parallel-for-each
-;; submit one task per list element, so a large list means many concurrent
-;; pool-submit/task-wait round trips on the shared task/reply channels --
-;; and the cross-thread wakeup path has open correctness issues that surface
-;; as an intermittent hang somewhere past a few hundred concurrent
-;; submissions (probability grows with count, not a hard cutoff). Reliable
-;; in testing through list sizes in the low hundreds. For larger inputs,
-;; chunk manually with make-pool/pool-submit/task-wait -- one task per
-;; processor, each covering a slice of the input with an ordinary
-;; sequential loop -- which is also simply more efficient for this shape of
-;; work. See kaappi-examples/parallel-primes for a worked chunking example.
+;; A pool crosses a thread-start! boundary the same way any (kaappi fibers)
+;; channel does: only via lexical capture (kaappi#1742) -- a pool reached
+;; instead through a shared top-level define is never promoted and raises a
+;; descriptive error rather than corrupting memory. parallel-map and
+;; parallel-for-each submit one task per list element; for very large
+;; inputs, chunking manually with make-pool/pool-submit/task-wait -- one
+;; task per processor, each covering a slice of the input with an ordinary
+;; sequential loop -- reduces per-task submission overhead. See
+;; kaappi-examples/parallel-primes for a worked chunking example.
 
 (define-library (kaappi parallel)
   (import (scheme base) (srfi 1) (kaappi fibers))
@@ -49,12 +37,9 @@
       (tasks %pool-tasks) (workers %pool-workers))
 
     ;; The worker loop is inlined directly into each spawned thunk below,
-    ;; not factored into a shared named procedure called from within it.
-    ;; A library-level procedure *called* (not just referenced) from inside
-    ;; a closure that crosses thread-start!'s thread boundary hangs -- the
-    ;; identical logic inlined into the thunk itself works correctly. Fully
-    ;; inlining also matches the KEP-0002 §8 reference pseudocode, which
-    ;; never factors this loop out.
+    ;; not factored into a shared named procedure called from within it --
+    ;; matching the KEP-0002 §8 reference pseudocode, which never factors
+    ;; this loop out either.
     ;;
     ;; Parks on the tasks channel's notifier; closed => drain queue, then
     ;; exit on eof. A task's exception is caught here (not left to escape)

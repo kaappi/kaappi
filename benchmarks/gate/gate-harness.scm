@@ -25,15 +25,19 @@
 ;;    submit exactly w disjoint tasks; task-wait each; reassemble -- NOT
 ;;    parallel-map over a per-element list. This is what §1 actually describes
 ;;    (disjoint bands / chunks / blocks) and is also lib/kaappi/parallel.sld's
-;;    documented recommendation for large inputs, sidestepping the kaappi#1489
-;;    many-submission wakeup hazard (w is small).
+;;    documented recommendation for large inputs; keeping submission counts
+;;    small (w is small) also incidentally sidestepped what was, at the time
+;;    data collection ran, an open many-submission wakeup hazard (kaappi#1489,
+;;    fixed 2026-07-14).
 ;;
 ;;  * Every worker task thunk is FULLY SELF-CONTAINED: it captures only fixnums,
 ;;    flonums, and payload objects, and calls only built-in primitives -- never a
-;;    top-level procedure defined in this file. A closure that crosses a worker
-;;    boundary and then calls a separately-defined procedure can hang
-;;    (kaappi#1520); the serial baselines, which never cross a thread, are free to
-;;    call the shared top-level kernels.
+;;    top-level procedure defined in this file. This was a protocol constraint
+;;    of the frozen run, not a live engine limitation: at the time data
+;;    collection ran, a closure that crossed a worker boundary and then called
+;;    a separately-defined procedure could hang (kaappi#1520, fixed
+;;    2026-07-15); the serial baselines, which never cross a thread, were free
+;;    to call the shared top-level kernels regardless.
 ;;
 ;;  * E (§3) is wall time from the first pool-submit to the last reassembly copy;
 ;;    pool creation/teardown and payload construction are excluded (they are
