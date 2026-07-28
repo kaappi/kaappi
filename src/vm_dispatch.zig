@@ -1067,7 +1067,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     callee = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
-                    if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {
+                    // #1812: don't cache a def_env_binding_prefix resolution
+                    // — see get_global's own comment on why self.global_version
+                    // can't be trusted to invalidate it.
+                    if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee)) and
+                        vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
+                    {
                         if (func.global_cache) |cache| {
                             if (func.cache_version != self.global_version) {
                                 @memset(cache, types.VOID);
