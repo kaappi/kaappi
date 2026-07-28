@@ -173,10 +173,17 @@ FFI-`dlopen` directory, so an archive placed there is invisible to
 `<exe_dir>/../lib` entry with no env var set.
 
 **Features compiled natively:** arithmetic, comparisons, if/and/or/when/unless,
-let/let*, lambda (with closures and variadic parameters), self-tail-call
-optimization (compiled as loops), tail calls to other native functions.
-Forms not yet compiled natively (letrec, named-let, do, etc.) fall back to
-`kaappi_eval` at runtime.
+let/let*, cond/case/do, lambda (with closures and variadic parameters),
+self-tail-call optimization (compiled as loops), tail calls to other native
+functions. Forms not yet compiled natively (letrec, named-let, guard,
+quasiquote, `apply`, `call/cc`, `call-with-values`, `eval`, …) run through
+`kaappi_eval` at runtime — and because that eval resolves names in the *global*
+environment, any lexical scope containing one (the enclosing `define`/`lambda`
+frame or `let`) declines native compilation as a whole rather than splitting
+itself across the boundary. The keyword set driving that decision is
+`ir.eval_fallback_form_names`; a keyword missing from it is a silent
+miscompilation, not a missed optimization (kaappi#827/#1496/#1799 — see
+`docs/dev/llvm-backend.md`).
 
 **Always use `zig cc` (not `clang`) for linking native binaries against
 `libkaappi_rt.a`.** The Zig-compiled static library references

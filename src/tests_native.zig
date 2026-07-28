@@ -140,6 +140,21 @@ pub fn expectNativeDef(ll: []const u8, name: []const u8) !void {
     }
 }
 
+// The negation of expectNativeDef: no native definition of `name` was emitted,
+// so every use of it goes through the interpreter. Asserted by the tests for
+// forms that must decline native compilation of their enclosing scope rather
+// than split it across the native/interpreted boundary (#827/#1799).
+pub fn expectNoNativeDef(ll: []const u8, name: []const u8) !void {
+    var fast_buf: [128]u8 = undefined;
+    var uniform_buf: [128]u8 = undefined;
+    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine tailcc i64 @", .{name});
+    const uniform = try std.fmt.bufPrint(&uniform_buf, "; {s}\ndefine i64 @", .{name});
+    if (std.mem.indexOf(u8, ll, fast) != null or std.mem.indexOf(u8, ll, uniform) != null) {
+        std.debug.print("\n--- unexpected native definition for {s} ---\n{s}\n", .{ name, ll });
+        return error.TestUnexpectedNativeDef;
+    }
+}
+
 // Total eval-fallback (code) call sites in emitted IR, regardless of caching:
 // a define-time binding, a general expression, or a lambda the closure tiers
 // can't express. These route through either plain @kaappi_eval or the
@@ -1216,6 +1231,111 @@ test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#14
     const ll = res.toSlice();
     try expectNotContains(ll, "cond_merge_");
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+// -- Passthrough forms must not be evaluated inside a native scope (#1799) --
+//
+// `emitPassthrough` hands an `apply` / `call/cc` / `call-with-values` / `eval`
+// form to the interpreter as source text, and `kaappi_eval` runs in the GLOBAL
+// environment. The keywords producing such a form therefore have to be in
+// `ir.eval_fallback_form_names`, the set `freevars.sexprNeedsEvalFallback`
+// consults, so all four native-compilation gates (the two closure tiers,
+// tryCompileDefineFunction, and emitLet) decline the enclosing lexical scope.
+//
+// They were missing: the `.passthrough` node carries `.capability = .native`
+// in `llvm_node_table` (right for its `(define (f …) …)` shape, wrong for the
+// rest), and nothing else contributed their keywords. So a body using `apply`
+// compiled natively — `apply` is an `isKnownGlobal`, so it passed free-variable
+// analysis too — and the eval fallback raised "undefined variable 'xs'" at run
+// time. The three shapes below are the ones the bug report characterized.
+
+test "LLVM emit: apply over a parameter declines native compilation (#1799)" {
+    var res = try emitMultiResult("(define (s xs) (apply + xs))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "s");
+    // The whole define crosses to the interpreter, which owns the lexical frame.
+    try expectContains(ll, "(define (s xs) (apply + xs))");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: apply over a let-bound name declines native compilation (#1799)" {
+    var res = try emitMultiResult("(define (s) (let ((xs (list 1 2 3))) (apply + xs)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "s");
+    try expectContains(ll, "(define (s) (let ((xs (list 1 2 3))) (apply + xs)))");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: a bare let whose body applies falls back whole (#1799)" {
+    // emitLet's own #827 gate, with no enclosing define to decline first: the
+    // let must be evaluated as one form, not lowered to native allocas whose
+    // body then resolves `xs` in the global environment.
+    var res = try emitMultiResult("(let ((xs (list 1 2 3))) (display (apply + xs)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "(let ((xs (list 1 2 3))) (display (apply + xs)))");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: apply with a computed operator declines native compilation (#1799)" {
+    // The operator position is as lexical as the argument list: `f` was named
+    // by the same "undefined variable" error before the fix.
+    var res = try emitMultiResult("(define (s f xs) (apply f xs))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "s");
+    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+}
+
+test "LLVM emit: call/cc and call-with-values decline native compilation (#1799)" {
+    // Same passthrough path as apply, same failure before the fix.
+    var cc = try emitMultiResult("(define (s x) (call/cc (lambda (k) (+ x 1))))");
+    defer cc.deinit();
+    try expectNoNativeDef(cc.toSlice(), "s");
+
+    var cwv = try emitMultiResult("(define (s x) (call-with-values (lambda () (values x 2)) +))");
+    defer cwv.deinit();
+    try expectNoNativeDef(cwv.toSlice(), "s");
+}
+
+test "eval-fallback name set covers the passthrough-evaluated special forms (#1799)" {
+    // A direct check on the derived list, so a future edit to
+    // `other_special_forms` that drops a payload fails here rather than as a
+    // baffling run-time "undefined variable" in a compiled binary.
+    const must_have = [_][]const u8{ "apply", "call/cc", "call-with-current-continuation", "call-with-values", "eval" };
+    for (must_have) |name| {
+        var found = false;
+        for (ir_mod.eval_fallback_form_names) |f| {
+            if (std.mem.eql(u8, f, name)) found = true;
+        }
+        if (!found) {
+            std.debug.print("\n--- '{s}' missing from ir.eval_fallback_form_names ---\n", .{name});
+            return error.TestExpectedEqual;
+        }
+    }
+    // `else` and `=>` must stay OUT: sexprNeedsEvalFallback recurses blindly
+    // into clause bodies, so listing them would reject every natively-lowered
+    // cond/case that has an else clause (#1496).
+    const must_not_have = [_][]const u8{ "else", "=>", "if", "lambda" };
+    for (must_not_have) |name| {
+        for (ir_mod.eval_fallback_form_names) |f| {
+            if (std.mem.eql(u8, f, name)) {
+                std.debug.print("\n--- '{s}' must not be in ir.eval_fallback_form_names ---\n", .{name});
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
+
+test "LLVM emit: an else clause still lowers cond natively (#1799 exclusion guard)" {
+    // The counterpart to the exclusion above, checked through the emitter.
+    var res = try emitMultiResult("(define (f n) (cond ((> n 0) 1) (else 0)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "f");
+    try expectContains(ll, "cond_merge_");
 }
 
 test "LLVM emit: a cond containing letrec falls back to the interpreter (#1496)" {

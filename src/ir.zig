@@ -99,6 +99,11 @@ pub const llvm_node_table: [18]LLVMNodeEntry = .{
     .{ .tag = .letrec, .capability = .eval_fallback, .form_name = "letrec" },
     .{ .tag = .letrec_star, .capability = .eval_fallback, .form_name = "letrec*" },
     .{ .tag = .sexpr_form, .capability = .eval_fallback },
+    // Tag-level `.native` because the shape `emitPassthrough` special-cases —
+    // a `(define (f …) …)` shorthand — does compile natively. Every *other*
+    // passthrough shape is eval'd whole, so the keywords that produce one
+    // contribute to `eval_fallback_form_names` from `other_special_forms`
+    // instead of from this entry (kaappi#1799).
     .{ .tag = .passthrough, .capability = .native },
 };
 
@@ -130,6 +135,9 @@ fn countEvalFallbackNames() usize {
         if (isNativeLoweredForm(fk)) continue;
         count += 1;
     }
+    for (other_special_forms.values()) |evals_via_passthrough| {
+        if (evals_via_passthrough) count += 1;
+    }
     return count;
 }
 
@@ -149,6 +157,16 @@ pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: 
         const fk: FormKind = @enumFromInt(f.value);
         if (isNativeLoweredForm(fk)) continue;
         names[i] = fk.keyword();
+        i += 1;
+    }
+    // The keyword-only special forms that reach the interpreter as a whole
+    // `.passthrough` form (kaappi#1799). The `.passthrough` node itself carries
+    // `.capability = .native` in `llvm_node_table` — correct for what the tag
+    // *can* be, since its `(define (f …) …)` shape compiles natively — so these
+    // names have to come from the keyword map, which knows which shapes do not.
+    for (other_special_forms.keys(), other_special_forms.values()) |name, evals_via_passthrough| {
+        if (!evals_via_passthrough) continue;
+        names[i] = name;
         i += 1;
     }
     break :blk names;
@@ -467,39 +485,61 @@ pub const sexpr_form_map = std.StaticStringMap(FormKind).initComptime(.{
     .{ "cond-expand", .cond_expand },
 });
 
-const other_special_forms = std.StaticStringMap(void).initComptime(.{
-    .{ "quote", {} },
-    .{ "if", {} },
-    .{ "lambda", {} },
-    .{ "define", {} },
-    .{ "set!", {} },
-    .{ "begin", {} },
-    .{ "and", {} },
-    .{ "or", {} },
-    .{ "when", {} },
-    .{ "unless", {} },
-    .{ "let", {} },
-    .{ "let*", {} },
-    .{ "letrec", {} },
-    .{ "letrec*", {} },
-    .{ "syntax-error", {} },
-    .{ "syntax-rules", {} },
-    .{ "apply", {} },
-    .{ "call-with-values", {} },
-    .{ "call-with-current-continuation", {} },
-    .{ "call/cc", {} },
-    .{ "eval", {} },
-    .{ "define-record-type", {} },
-    .{ "import", {} },
-    .{ "define-library", {} },
-    .{ "include", {} },
-    .{ "include-ci", {} },
-    .{ "else", {} },
-    .{ "=>", {} },
-    .{ "_", {} },
-    .{ "...", {} },
-    .{ "unquote", {} },
-    .{ "unquote-splicing", {} },
+// Special-form keywords with no `FormKind` of their own. The bool payload is
+// the LLVM backend's question, not the compiler's: when this keyword heads an
+// *evaluated* form, does that form lower to a `.passthrough` node that
+// `emitPassthrough` then hands whole to `kaappi_eval`? An interpreter eval runs
+// in the GLOBAL environment, so `true` entries must appear in
+// `eval_fallback_form_names` — otherwise an enclosing native lambda frame or
+// `let` compiles natively and the eval'd text loses every lexical binding it
+// referenced (kaappi#1799: `(define (s xs) (apply + xs))` compiled cleanly and
+// failed at run time with "undefined variable 'xs'"). `isSpecialForm`, which every other caller
+// uses, ignores the payload entirely.
+//
+// `false` covers the two kinds of keyword that never reach `emitPassthrough` as
+// an evaluated head, and whose presence in the name set would wrongly reject
+// natively-lowered code wholesale:
+//
+//   - the ones `lowerFormWithMacros` intercepts before the `isSpecialForm`
+//     check — `if`, `lambda`, `let`, `define`, … (`letrec`/`letrec*` still
+//     reach the name set, via their own `llvm_node_table` entries);
+//   - syntax-position keywords that only ever appear *inside* another form:
+//     `else`/`=>` inside `cond`/`case` (both natively lowered, kaappi#1496),
+//     `_`/`...` inside `syntax-rules` patterns, and `unquote`/`unquote-splicing`
+//     inside `quasiquote` (already a fallback form in its own right).
+const other_special_forms = std.StaticStringMap(bool).initComptime(.{
+    .{ "quote", false },
+    .{ "if", false },
+    .{ "lambda", false },
+    .{ "define", false },
+    .{ "set!", false },
+    .{ "begin", false },
+    .{ "and", false },
+    .{ "or", false },
+    .{ "when", false },
+    .{ "unless", false },
+    .{ "let", false },
+    .{ "let*", false },
+    .{ "letrec", false },
+    .{ "letrec*", false },
+    .{ "syntax-error", true },
+    .{ "syntax-rules", true },
+    .{ "apply", true },
+    .{ "call-with-values", true },
+    .{ "call-with-current-continuation", true },
+    .{ "call/cc", true },
+    .{ "eval", true },
+    .{ "define-record-type", true },
+    .{ "import", true },
+    .{ "define-library", true },
+    .{ "include", true },
+    .{ "include-ci", true },
+    .{ "else", false },
+    .{ "=>", false },
+    .{ "_", false },
+    .{ "...", false },
+    .{ "unquote", false },
+    .{ "unquote-splicing", false },
 });
 
 pub fn isSpecialForm(name: []const u8) bool {
