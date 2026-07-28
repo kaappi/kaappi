@@ -216,6 +216,13 @@ const core_specs = [_]PrimSpec{
     .{ .name = "set-cdr!", .func = &setCdr, .arity = .{ .exact = 2 }, .libs = BRS1 },
     .{ .name = "list", .func = &list, .arity = .{ .variadic = 0 }, .libs = BRS1 },
     .{ .name = "length", .func = &length, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    // Internal alias for case-lambda's compiled arity dispatch (kaappi#1714):
+    // a library that legitimately shadows `length` (e.g. `except`s it and
+    // supplies its own) must not break case-lambda's dispatch, which needs
+    // the real list-length primitive regardless of what `length` currently
+    // means in scope. Same %-prefixed-internal-primitive convention as
+    // %record-set! etc. below.
+    .{ .name = "%length", .func = &length, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "append", .func = &append, .arity = .{ .variadic = 0 }, .libs = BRS1 },
     .{ .name = "reverse", .func = &reverse, .arity = .{ .exact = 1 }, .libs = BRS1 },
     .{ .name = "caar", .func = &caarFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
