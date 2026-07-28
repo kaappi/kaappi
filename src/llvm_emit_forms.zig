@@ -276,6 +276,13 @@ pub fn emitDo(self: *LLVMEmitter, args: Value, is_tail: bool) EmitError![]const 
 
     try self.print("  br label %{s}\n", .{header});
     try self.startBlock(header);
+    // Capture the stack pointer at the top of every pass (both the initial
+    // entry and every iteration via the body's back-edge below) so it can be
+    // reclaimed before the next one starts (#1808): `alloca` frees only at
+    // function return, so a body/step that evaluates so much as one rooted
+    // call would otherwise grow the native stack by that call's footprint on
+    // every iteration, eventually overflowing it on a long-running loop.
+    const loop_sp = try self.emitStackSave();
     const test_node = try lower(self, test_expr, false);
     const tval = try self.emitNode(test_node);
     const cmp = try self.freshTemp();
@@ -315,6 +322,7 @@ pub fn emitDo(self: *LLVMEmitter, args: Value, is_tail: bool) EmitError![]const 
     for (0..ns) |k| {
         try self.print("  store i64 {s}, ptr {s}\n", .{ step_tmps[k], allocas[stepped[k]] });
     }
+    try self.emitStackRestore(loop_sp);
     try self.print("  br label %{s}\n", .{header});
 
     // Exit: evaluate the result expressions (or void), then drop the roots.
