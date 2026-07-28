@@ -53,22 +53,14 @@
 ;;;    step). An unrecognized macro call is treated as a command and
 ;;;    placed in whatever `mixed-lambda` segment it falls into; Kaappi's
 ;;;    own body compiler *does* independently recognize a macro-produced
-;;;    `define` reached that way, but only when the macro is invoked in
-;;;    the same lambda-body scope where it (or an enclosing macro that
-;;;    expands to it) was defined. SRFI 251's own `define-thunk` worked
-;;;    example nests the definition group containing `define-thunk`'s use
-;;;    one level deeper than the group defining `define-thunk` itself
-;;;    (there's a `display` command, hence a new group, in between) —
-;;;    confirmed empirically (not just asserted) to raise "undefined
-;;;    variable" here, rather than the spec's "the result is: 0": a
-;;;    body-local macro that expands to a `define`, invoked from a nested
-;;;    lambda scope different from the one where the macro itself was
-;;;    defined, isn't recognized as introducing a definition in that
-;;;    inner scope, regardless of how the body reached that shape (this
-;;;    reproduces with a hand-written pair of nested `(lambda () ...)`
-;;;    forms and no SRFI 251 macro involved at all). The test suite
-;;;    exercises and documents this precisely rather than asserting the
-;;;    spec's answer.
+;;;    `define` reached that way, including when the macro is invoked from
+;;;    a nested lambda scope different from the one where it (or an
+;;;    enclosing macro that expands to it) was defined — SRFI 251's own
+;;;    `define-thunk` worked example nests the definition group containing
+;;;    `define-thunk`'s use one level deeper than the group defining
+;;;    `define-thunk` itself (there's a `display` command, hence a new
+;;;    group, in between), and gives the spec's own "the result is: 0"
+;;;    (kaappi#1800; used to raise "undefined variable" here instead).
 ;;;  - The spec requires rejecting, as a static (compile-time) error, a
 ;;;    command or initializer that illegally references an identifier from
 ;;;    a *later* definition group. This is not enforced: Kaappi bodies

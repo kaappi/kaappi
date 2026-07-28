@@ -598,6 +598,36 @@ test "hygiene: template set! reaches the global past a use-site shadow" {
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(global));
 }
 
+test "hygiene: macro-expanded body-position define is visible to later siblings (#1800)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // form is a pattern variable, so substituting it preserves the
+    // use-site identifier x unrenamed -- expandAndCompileMacroUse used to
+    // pop the compiler local compileDefine's in_body_scope branch had just
+    // added for x, on the mistaken assumption that everything added while
+    // compiling a macro use is transient chain bookkeeping (hygienic
+    // aliases). A body-scope `define` reached through the expansion is a
+    // real, sibling-visible local, not an alias.
+    _ = try vm.eval("(define-syntax n800 (syntax-rules () ((n800 form) form)))");
+    const result = try vm.eval("(let () (n800 (define x 10)) x)");
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(result));
+
+    // A local injected purely for R7RS 4.3.1 referential transparency
+    // (the sibling test above) must still be discarded after the macro
+    // use finishes, even when a LATER, separate macro use in the same
+    // body also leaves behind a real, surviving local.
+    _ = try vm.eval("(define counter 0)");
+    _ = try vm.eval("(define-syntax bump! (syntax-rules () ((bump!) (set! counter (+ counter 1)))))");
+    const combined = try vm.eval("(let ((counter 100)) (n800 (define z 5)) (bump!) (list counter z))");
+    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(types.car(combined)));
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(types.car(types.cdr(combined))));
+    const global_counter = try vm.eval("counter");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(global_counter));
+}
+
 test "hygiene: template binding shadows a builtin procedure of the same name" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

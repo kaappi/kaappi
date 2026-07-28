@@ -21,21 +21,26 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi148.scm
 ;;
 ;; Deviations from the reference suite: none of the test logic itself was
-;; changed. 8 of the ~142 assertions are marked test-expect-fail below,
-;; citing two SEPARATE, general, pre-existing engine bugs found while
-;; porting this suite -- neither is specific to SRFI 148 or to this
-;; library's own combinators, which are otherwise fully verified correct:
-;;   - #1800: a macro that expands to a bare (define x v) in body position
-;;     doesn't make x visible to later sibling forms in the same body.
-;;     Reproduced with a plain, non-eager syntax-rules macro -- nothing to
-;;     do with em-syntax-rules. Affects "Match quoted pattern with quoted
-;;     element", "Match quoted pattern with eager macro use", "Match
-;;     unquoted pattern with element", em-cons, em-list, em-append.
+;; changed. 2 of the ~142 assertions are marked test-expect-fail below,
+;; citing a SEPARATE, general, pre-existing engine bug found while porting
+;; this suite -- not specific to SRFI 148 or to this library's own
+;; combinators, which are otherwise fully verified correct:
 ;;   - #1801: two separate expansions of a macro whose template introduces
 ;;     "the same" literal symbol are wrongly bound-identifier=? to each
 ;;     other. Breaks em-gensym/em-generate-temporaries, which deliberately
 ;;     rely on hygiene alone (not a counter) for uniqueness, per the
 ;;     reference's own (em-gensym) => 'g definition.
+;;
+;; #1800 (a macro expanding to a bare (define x v) in body position didn't
+;; make x visible to later sibling forms -- affected "Match quoted pattern
+;; with quoted element", "Match quoted pattern with eager macro use",
+;; "Match unquoted pattern with element", em-cons, em-list, em-append) is
+;; FIXED: expandAndCompileMacroUse's post-expansion cleanup popped every
+;; compiler local added while compiling a macro's final expanded form back
+;; off before returning, on the mistaken assumption that everything added
+;; during a macro-use compile is transient chain bookkeeping (hygienic
+;; aliases). A body-scope `define` reached through the expansion adds a
+;; REAL, sibling-visible local, not an alias, and needs to survive.
 ;; A third, more severe issue (#1802: importing this library alone costs
 ;; ~80s, superlinearly in definition count, independent of test count) is
 ;; NOT a per-assertion failure and has no test-expect-fail equivalent --
@@ -48,14 +53,8 @@
 
 ;; Each name needs its own test-expect-fail call: passing several
 ;; specifiers to ONE call ANDs them together (test-match-all), so a
-;; single batched call here would require a test to simultaneously BE all
-;; 8 names at once -- impossible, hence matching nothing.
-(test-expect-fail "Match quoted pattern with quoted element")
-(test-expect-fail "Match quoted pattern with eager macro use")
-(test-expect-fail "Match unquoted pattern with element")
-(test-expect-fail "em-cons")
-(test-expect-fail "em-list")
-(test-expect-fail "em-append")
+;; single batched call here would require a test to simultaneously BE both
+;; names at once -- impossible, hence matching nothing.
 (test-expect-fail "em-gensym")
 (test-expect-fail "em-generate-temporaries")
 

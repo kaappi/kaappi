@@ -93,25 +93,27 @@
 ;; 0". This port's mixed-let nests define-thunk's *use* (define xx 42;
 ;; define-thunk foo x -- a new group, since a display command separates it
 ;; from the group that defines define-thunk) one lambda scope deeper than
-;; define-thunk's own definition. Confirmed (see lib/srfi/251.sld) that
-;; Kaappi does not recognize a body-local macro's produced `define` across
-;; that scope boundary, independent of SRFI 251 entirely -- so this port
-;; raises an "undefined variable" error here instead of computing the
-;; spec's answer. Documented as a known gap rather than silently wrong.
-(test-assert "known gap: macro-produced definition across a nested scope"
-  (guard (e (#t #t))
-    (captured
-     (lambda (port)
-       (mixed-let ((x 0))
-         (define-syntax define-thunk
-           (syntax-rules ()
-             ((_ i v) (define (i) v))))
-         (display "the result is" port)
-         (display ": " port)
-         (define xx 42)
-         (define-thunk foo x)
-         (display (foo) port))))
-    #f))
+;; define-thunk's own definition -- the same shape as "unrelated name in a
+;; later group" above, just with a macro-produced (define (foo) x) instead
+;; of a literal one. Used to raise "undefined variable" here instead of
+;; computing the spec's answer: independent of SRFI 251 entirely,
+;; expandAndCompileMacroUse's post-expansion cleanup popped the compiler
+;; local a macro's expanded `define` had just added, on the mistaken
+;; assumption that everything added while compiling a macro use is
+;; transient chain bookkeeping (fixed by kaappi#1800).
+(test-equal "macro-produced definition across a nested scope"
+  "the result is: 0"
+  (captured
+   (lambda (port)
+     (mixed-let ((x 0))
+       (define-syntax define-thunk
+         (syntax-rules ()
+           ((_ i v) (define (i) v))))
+       (display "the result is" port)
+       (display ": " port)
+       (define xx 42)
+       (define-thunk foo x)
+       (display (foo) port)))))
 
 ;; Example: illegal forward reference. The spec says this must be a
 ;; compile-time error. This port does not enforce the visibility

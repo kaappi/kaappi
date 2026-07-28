@@ -168,10 +168,42 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     // argument slot while the call still reads the original window (found
     // by the Kaappi-vs-Chibi differential oracle, #1396).
     const saved_locals_len = self.locals.items.len;
+    // Set right before the final compileExpr(final_form, ...) call below
+    // (kaappi#1800). compileExpr(final_form) can itself append a REAL,
+    // sibling-visible local — a body-scope `define` reached through the
+    // macro's expansion relies on compileDefine's in_body_scope branch
+    // doing exactly that. Anything self.locals gains between
+    // saved_locals_len and pre_final_locals_len is still transient chain
+    // bookkeeping and must be discarded; anything gained AFTER
+    // pre_final_locals_len is final_form's own persistent state and must
+    // survive. The cleanup defer below removes only the former, shifting
+    // the latter down to close the gap (self.locals is compile-time
+    // bookkeeping with no bytecode encoding array position, only each
+    // Local's own .slot register — unlike registers, closing the gap here
+    // is safe).
+    var pre_final_locals_len = saved_locals_len;
     var injected_reg_count: u16 = 0;
     defer {
-        while (self.locals.items.len > saved_locals_len) {
-            _ = self.locals.pop();
+        const kept = self.locals.items.len -| pre_final_locals_len;
+        if (kept > 0) {
+            // final_form left real locals behind. Splice out just the
+            // transient block [saved_locals_len, pre_final_locals_len),
+            // keeping the kept tail's relative order and slots intact.
+            var i: usize = 0;
+            while (i < kept) : (i += 1) {
+                self.locals.items[saved_locals_len + i] = self.locals.items[pre_final_locals_len + i];
+            }
+            self.locals.shrinkRetainingCapacity(saved_locals_len + kept);
+            // The transient block's registers sit BELOW the kept locals'
+            // registers (allocated earlier); freeReg only reclaims from
+            // the top, so freeing them here would instead free the kept
+            // locals' registers out from under them. Leave them reserved
+            // — a bounded, rare register leak, not a correctness bug.
+            injected_reg_count = 0;
+        } else {
+            while (self.locals.items.len > saved_locals_len) {
+                _ = self.locals.pop();
+            }
         }
         while (injected_reg_count > 0) : (injected_reg_count -= 1) {
             self.freeReg();
@@ -423,6 +455,12 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         break;
     }
 
+    // Everything appended to self.locals up to this point (across every
+    // link processed above) is transient chain bookkeeping and must still
+    // be discarded by the defer above; mark the boundary right before
+    // compiling final_form so it can tell that apart from whatever
+    // final_form's own compilation appends.
+    pre_final_locals_len = self.locals.items.len;
     return self.compileExpr(final_form, dst, is_tail);
 }
 
