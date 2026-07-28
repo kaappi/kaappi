@@ -58,6 +58,7 @@ pub fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: b
                 .let_values => try forms.compileLetValues(self, sf.args, dst, tail),
                 .let_star_values => try forms.compileLetStarValues(self, sf.args, dst, tail),
                 .define_syntax => try macro.compileDefineSyntax(self, sf.args, dst),
+                .define_property => try macro.compileDefineProperty(self, sf.args, dst),
                 .named_let => try forms.compileNamedLet(self, sf.args, dst, tail),
                 .let_syntax => try macro.compileLetSyntax(self, sf.args, dst, tail),
                 .letrec_syntax => try macro.compileLetrecSyntax(self, sf.args, dst, tail),

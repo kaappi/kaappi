@@ -91,6 +91,13 @@ pub const Lib = enum {
     // `(srfi 160 <tag>)` per-type .sld builds its named surface on -- same
     // registry-shadows-a-.sld reason as srfi_237_primitives above.
     srfi_160_primitives,
+    // SRFI 211 (Scheme Macro Libraries): the er-macro-transformer /
+    // lisp-transformer constructors the portable `(srfi 211
+    // explicit-renaming)` / `(srfi 211 define-macro)` .slds re-export --
+    // same registry-shadows-a-.sld reason as srfi_237_primitives above
+    // (SRFI 211 is sub-library-only, so the sub-library names must stay
+    // file-resolvable).
+    srfi_211_primitives,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
     /// for this tag, so `addExportsForLib` never picks these specs up.
@@ -136,6 +143,7 @@ pub const Lib = enum {
             .srfi_248_primitives => "srfi.248.primitives",
             .srfi_237_primitives => "srfi.237.primitives",
             .srfi_160_primitives => "srfi.160.primitives",
+            .srfi_211_primitives => "srfi.211.primitives",
             .internal => "kaappi.internal",
         };
     }
@@ -263,6 +271,7 @@ pub const all_specs = core_specs ++
     @import("primitives_srfi254.zig").specs ++
     @import("primitives_srfi258.zig").specs ++
     @import("primitives_srfi260.zig").specs ++
+    @import("primitives_srfi211.zig").specs ++
     @import("primitives_srfi181.zig").specs ++
     @import("primitives_srfi237.zig").specs ++
     @import("primitives_srfi160.zig").specs ++

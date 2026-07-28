@@ -396,6 +396,8 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             const new_val = try gc.allocTransformer(tmp_lits, tmp_pats, tmp_tmpls);
             try visited.put(src_ptr, new_val);
             const new_tx = types.toObject(new_val).as(types.Transformer);
+            new_tx.kind = t.kind;
+            new_tx.proc = try deepCopyValue(gc, t.proc, visited);
             if (t.custom_ellipsis) |ce| {
                 new_tx.custom_ellipsis = gc.allocator.dupe(u8, ce) catch null;
             }

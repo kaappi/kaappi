@@ -170,6 +170,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
                 if (isYoungPointer(gc, tmpl)) return true;
             }
             if (isYoungPointer(gc, tx.def_env_val)) return true;
+            if (isYoungPointer(gc, tx.proc)) return true;
             for (tx.let_syntax_peer_vals) |pv| {
                 if (isYoungPointer(gc, pv)) return true;
             }
@@ -576,6 +577,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             for (tx.patterns) |pat| markValue(gc, pat);
             for (tx.templates) |tmpl| markValue(gc, tmpl);
             markValue(gc, tx.def_env_val);
+            markValue(gc, tx.proc);
             for (tx.let_syntax_peer_vals) |pv| markValue(gc, pv);
         },
         .error_object => {
@@ -853,6 +855,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
                 worklist.append(gc.allocator, tmpl) catch @panic("GC mark: worklist OOM");
             }
             worklist.append(gc.allocator, tx.def_env_val) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, tx.proc) catch @panic("GC mark: worklist OOM");
             for (tx.let_syntax_peer_vals) |pv| {
                 worklist.append(gc.allocator, pv) catch @panic("GC mark: worklist OOM");
             }

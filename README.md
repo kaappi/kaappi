@@ -27,7 +27,7 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
 — 641 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
-174 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
+177 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
 
@@ -216,7 +216,7 @@ symbols, and **multi-line input** with automatic paren balancing.
 
 ### Beyond the standard
 
-- **171 SRFIs** — 12 built-in, 156 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer and SRFI 226/160 as sub-libraries only (full list in [CONFORMANCE.md](CONFORMANCE.md))
+- **177 SRFIs** — 12 built-in, 161 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer and SRFI 226/160/211 as sub-libraries only (full list in [CONFORMANCE.md](CONFORMANCE.md))
 - **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops ([details](docs/dev/llvm-backend.md))
 - **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable
 - **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C

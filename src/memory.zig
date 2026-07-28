@@ -572,6 +572,29 @@ pub const GC = struct {
         return types.makePointer(&tx.header);
     }
 
+    /// SRFI 211: a procedural (explicit-renaming or Lisp-style) macro
+    /// transformer wrapping a Scheme procedure. No rules — the expander
+    /// calls `proc` instead of pattern-matching (expandProceduralMacro).
+    /// The empty rule slices are shared static empties; freeObject's
+    /// zero-length frees on them are no-ops.
+    pub fn allocProceduralTransformer(self: *GC, kind: types.TransformerKind, proc: Value) !Value {
+        self.rootArgs1(proc);
+        try self.maybeCollect();
+        self.clearArgRoots();
+        const tx = try self.allocator.create(Transformer);
+        tx.* = .{
+            .header = .{ .tag = .transformer },
+            .literals = &.{},
+            .patterns = &.{},
+            .templates = &.{},
+            .num_rules = 0,
+            .kind = kind,
+            .proc = proc,
+        };
+        self.finishAlloc(&tx.header, @sizeOf(Transformer));
+        return types.makePointer(&tx.header);
+    }
+
     pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
         // Copy before collecting: `name` may alias a symbol/string's bytes.
         const owned_name = try self.allocator.dupe(u8, name);

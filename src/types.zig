@@ -457,12 +457,24 @@ pub const CapturedLocal = struct {
     slot: u16,
 };
 
+/// Which expansion mechanism a Transformer uses (SRFI 211). `syntax_rules`
+/// is the R7RS pattern/template engine (literals/patterns/templates below);
+/// the other two are procedural — `proc` holds a Scheme procedure the
+/// expander invokes at macro-expansion time (expander.expandProceduralMacro):
+/// `er_macro` receives (form rename compare), `lisp_macro` receives the
+/// whole macro-use datum.
+pub const TransformerKind = enum(u8) { syntax_rules, er_macro, lisp_macro };
+
 pub const Transformer = struct {
     header: Object,
     literals: []Value,
     patterns: []Value,
     templates: []Value,
     num_rules: u16,
+    kind: TransformerKind = .syntax_rules,
+    /// Procedural transformer body (kind != .syntax_rules); NIL otherwise.
+    /// GC-traced in all gc_collect switches alongside def_env_val.
+    proc: Value = NIL,
     // Guards captureLocalsOnTransformer/computeBoundFreeRefs (compiler_macro.zig's
     // finalizeTransformer) against running twice on the same object: a
     // transformer resolved via a bare-keyword alias or begin-wrapped helper

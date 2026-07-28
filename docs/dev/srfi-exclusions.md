@@ -416,9 +416,19 @@ words, but their own reference implementations only work via
 macros). For SRFI 89 specifically, no mainstream Scheme has ported it using
 only hygienic `syntax-rules` either — Gauche, which is not a
 syntax-rules-only implementation, shipped SRFI 227 instead of SRFI 89 for
-this exact reason. Tracked macro/syntax-system extension work that touches
-the same expander surface is in issue #1699 (SRFI 72, 139, 147, 148, 149,
-211, 213).
+this exact reason. Issue #1699's macro/syntax-system extension work is now
+complete: SRFI 139, 147, 148, 149, 211 (as sub-libraries: procedural
+er-macro-transformer / lisp-transformer / define-macro plus the
+syntax-parameter re-export), and 213 all shipped, and SRFI 72 is excluded
+below. Note the SRFI 211 procedural transformers do NOT weaken the
+exclusions in this section: 89 still depends on SRFI 88's keyword objects
+(excluded reader syntax), 206 needs *the pattern matcher's own literal
+comparison* to consult binding identity (an expander-matcher property no
+transformer-level facility reaches — SRFI 213's transformer-visible
+properties don't either), and 212 needs binding transfer, which neither
+renaming nor properties provide. SRFI 150, previously excluded here
+because its stated prerequisites (SRFI 147 + 148) were unimplemented,
+moved back to tracked when both shipped — see issue #1810.
 
 | SRFI | Title | Reason |
 |------|-------|--------|
@@ -427,7 +437,7 @@ the same expander surface is in issue #1699 (SRFI 72, 139, 147, 148, 149,
 | 212 | Aliases | Transferring a binding so two identifiers share one location, for any binding type including syntax, needs identifier/location introspection a syntax-rules-only system can't provide. |
 | 99 | ERR5RS Records | Its `#t` constructor/predicate auto-naming shorthand and bare field-name shorthand both need identifiers synthesized from string concatenation (`make-<type>`, `<type>?`, `<type>-<field>`) at macro-expansion time — `syntax-rules` can only rearrange identifiers it receives as pattern variables, never fabricate new ones from string fragments. SRFI 131 (implemented, `lib/srfi/131.sld`) is specifically the reduced subset of 99 that drops these two shortcuts to become syntax-rules-expressible. |
 | 100 | define-lambda-object | Same identifier-synthesis requirement as SRFI 99 (auto-generating `make-<name>`, `make-<name>-by-name`, `<name>?` from a group name), plus its predicate implementation needs `procedure-name` or equivalent, which R7RS-small doesn't provide. |
-| 150 | Hygienic ERR5RS Record Syntax (reduced) | Needs SRFI 148 (eager macros with compile-time `em-bound-identifier=?`), which itself needs SRFI 147 (custom macro transformers) — SRFI 147's own text states this "cannot be achieved by a fully portable implementation using only the R7RS without redefining (scheme base)." |
+| 72 | Hygienic macros | A complete *replacement* macro system, not a library: it redefines `define-syntax`/`let-syntax`/`letrec-syntax` to take an arbitrary expression evaluated at expansion time yielding a syntax-object→syntax-object procedure, over a new syntax-object type with a novel hygiene rule and `begin-for-syntax` phasing — incompatible with R7RS-small's structural transformer-spec grammar and with this symbol-based expander. |
 
 ### SRFI 89 — Optional positional and named parameters
 
@@ -497,8 +507,11 @@ directly, with no import needed.
 
 **Scope of change:** Would need a `free-identifier=?`-consulted property
 table integrated into the expander's own literal-matching logic in
-`expander.zig` — the same identifier-property support SRFI 213 needs
-(issue #1699).
+`expander.zig`. Note this is a *stronger* requirement than the SRFI 213
+support that shipped with issue #1699: SRFI 213's properties are read by
+*procedural transformers* through the capture-lookup re-entry protocol,
+never consulted by the syntax-rules pattern matcher's literal comparison —
+which is exactly the piece SRFI 206 needs.
 
 ### SRFI 212 — Aliases
 
@@ -595,38 +608,58 @@ identifier synthesis, plus a new runtime introspection primitive
 (`procedure-name` or equivalent) this codebase's `Function`/`NativeFn`
 representation doesn't currently expose.
 
-### SRFI 150 — Hygienic ERR5RS Record Syntax (reduced)
+### SRFI 72 — Hygienic macros
 
-**Author:** Marc Nieper-Wißkirchen (2017)
+**Author:** André van Tonder (2005)
 
-A hygienic refinement of SRFI 131's design ("a competitor to SRFI 136 by
-the same author for inclusion in R7RS-large"): identical surface syntax to
-131, but field names in a constructor/field-spec are compared using
-hygienic (`bound-identifier=?`-style) identifier equality instead of
-`symbol=?`. This matters specifically when a macro generates a record-type
-definition: hygienic renaming makes two occurrences of "the same" field
-name into distinct identifiers that compare unequal as symbols but should
-still be recognized as referring to the same field.
+A complete procedural macro *system*: `define-syntax`, `let-syntax`, and
+`letrec-syntax` are redefined so their right-hand side is an arbitrary
+expression, expanded and evaluated at macro-expansion time in a phased
+top-level syntactic environment — per the spec, it "must evaluate to a
+procedure of type syntax-object -> syntax-object". Transformers operate on
+a dedicated syntax-object representation built by `syntax`/`quasisyntax`,
+with `datum->syntax-object`, `make-capturing-identifier`,
+`begin-for-syntax`/`around-syntax` phase control, and `syntax-case`/
+`syntax-rules` reconstructed as library forms on top. Its headline
+contribution is a *novel hygiene rule* — a binding can only capture a
+reference if both were present in the source or introduced during a
+*single evaluation* of a `syntax`/`quasisyntax` form — which fixes
+accidental-capture cases in recursive procedural helpers that conventional
+`syntax-case` systems get wrong.
 
-**Why excluded:** The reference implementation needs SRFI 148 (eager
-macros, with a compile-time `em-bound-identifier=?` comparison), which in
-turn needs SRFI 147 (custom macro transformers) — and SRFI 147's own
-specification text states plainly that its facility "cannot be achieved by
-a fully portable implementation using only the R7RS without redefining
-`(scheme base)`." A theoretical workaround exists in principle (the
-`let-syntax`-identity trick sometimes used to approximate
-`free-identifier=?` via nested `syntax-rules`, comparing one identifier
-against a literal), but reconstructing SRFI 150's full field-matching
-behavior this way across arbitrary inheritance chains would be exactly the
-kind of fragile, ad-hoc reimplementation of what SRFI 147/148 exist to
-provide properly — the dependency on a genuine expander feature is there
-because this problem doesn't reduce cleanly to plain `syntax-rules`, not
-because no one has tried hard enough.
+**Why excluded:** This is a whole-language fork of the macro layer, not a
+library on top of it:
 
-**Scope of change:** Would need SRFI 147's custom-macro-transformer
-support (letting a macro use appear where a transformer spec is expected)
-integrated into `expander.zig` — the same expander-level gap already
-tracked for SRFI 206/212 above and issue #1699's SRFI 147/148 items.
+* It **changes the semantics of every existing `define-syntax`**. R7RS-small
+  defines the transformer spec *structurally* (a literal `syntax-rules`
+  form), and Kaappi's extension direction — SRFI 147, already shipped —
+  stays structural (a macro use that expands to one, a bare keyword alias,
+  or a begin-wrapped definition sequence; SRFI 211's
+  `er-macro-transformer`/`lisp-transformer` specs are likewise recognized
+  structurally). SRFI 72 instead makes the right-hand side an evaluated
+  expression of a different type. The two contracts cannot coexist for the
+  same `define-syntax` keyword without breaking one of them.
+
+* Its hygiene model needs machinery Kaappi's expander fundamentally lacks:
+  a first-class syntax-object type (Kaappi's expander is symbol-based —
+  identifiers are interned symbols, hygiene is prefix renaming), per-
+  evaluation introduction tracking for the one-evaluation capture rule,
+  and a compile-time phase tower for `begin-for-syntax`. The reference
+  implementation is accordingly a *complete standalone expander* (portable
+  R5RS, run on Chez/CHICKEN/Gambit/MzScheme by replacing the host's macro
+  layer entirely).
+
+* The facility issue #1699's table actually wanted from this entry —
+  explicit-renaming procedural macros (the issue annotated SRFI 72
+  "Explicit renaming macros", a mislabel; SRFI 72 defines no ER API) — is
+  provided by SRFI 211's `(srfi 211 explicit-renaming)`, which is
+  implemented, alongside `(srfi 211 define-macro)` for the non-hygienic
+  procedural niche.
+
+**Scope of change:** A ground-up expander replacement (syntax objects,
+phased evaluation, new hygiene algorithm) plus a semantic break to R7RS
+`define-syntax` — strictly larger than SRFI 206/212's gaps above, and in
+direct conflict with the shipped SRFI 147/211 transformer-spec design.
 
 ---
 

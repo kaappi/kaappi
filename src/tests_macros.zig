@@ -1452,3 +1452,141 @@ test "SRFI 147: a bare symbol resolving to nothing is a compile error" {
     );
     try std.testing.expectError(error.CompileError, result);
 }
+
+// ---------------------------------------------------------------------------
+// SRFI 211 (procedural macro transformers) + SRFI 213 (identifier
+// properties) — the issue #1699 closing slice. The transformer expression
+// evaluates at macro-definition time (global env); the ER rename/compare
+// procedures ride expander.expandProceduralMacro's threadlocal context;
+// SRFI 213 lookups arrive through the procedure-result re-entry protocol.
+// End-to-end conformance lives in tests/scheme/srfi/srfi211.scm and
+// srfi213.scm; these cover the engine seams.
+// ---------------------------------------------------------------------------
+
+test "SRFI 211: er-macro-transformer expands with definition-env resolution" {
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax add1
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare) (list (rename '+) (car (cdr form)) 1))))
+        \\  (add1 41))
+    , 42);
+}
+
+test "SRFI 211: rename gensyms fresh names so introduced binders cannot capture" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax with-t
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'let) (list (list (rename 'er-t) 999))
+        \\             (car (cdr form))))))
+        \\  (define er-t 'user)
+        \\  (eq? (with-t er-t) 'user))
+    );
+}
+
+test "SRFI 211: rename is consistent within one expansion" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax same?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (eq? (rename 'zzq) (rename 'zzq))))))
+        \\  (same?))
+    );
+}
+
+test "SRFI 211: compare answers free-identifier equality for else" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax is-else?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
+        \\  (and (is-else? else) (not (is-else? other))))
+    );
+}
+
+test "SRFI 211: lisp-transformer receives the whole use datum, unhygienically" {
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax lt
+        \\    (lisp-transformer
+        \\     (lambda (form) (list '+ (length form) (car (cdr form))))))
+        \\  (lt 40))
+    , 42);
+}
+
+test "SRFI 211: transformer spec evaluating to a non-procedure is a compile error" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval("(define-syntax bad (er-macro-transformer 42))");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "SRFI 211: transformer raising at expansion time is a compile error" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define-syntax boom
+        \\  (er-macro-transformer (lambda (f r c) (error "expansion refused"))))
+    );
+    const result = ctx.vm.eval("(boom)");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "SRFI 211: a global transformer value works as a bare-symbol spec" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define tx-val (er-macro-transformer (lambda (f r c) (list (r 'quote) 'ok))))
+        \\  (define-syntax via tx-val)
+        \\  (eq? (via) 'ok))
+    );
+}
+
+test "SRFI 213: define-property evaluates now and lookup reads it back" {
+    try th.expectEval(
+        \\(begin
+        \\  (define pk 'the-key)
+        \\  (define pv 40)
+        \\  (define-property pv pk (+ 2 40))
+        \\  (define-syntax getp
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (lambda (lookup)
+        \\         (lookup (car (cdr form)) (car (cdr (cdr form))))))))
+        \\  (getp pv pk))
+    , 42);
+}
+
+test "SRFI 213: missing property is #f and the binding keeps its meaning" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define qk 'k2)
+        \\  (define qv 7)
+        \\  (define-property qv qk 'present)
+        \\  (define-syntax getp2
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (lambda (lookup)
+        \\         (list (rename 'quote) (lookup (car (cdr form)) (car (cdr (cdr form)))))))))
+        \\  (and (eq? (getp2 qv qk) 'present)
+        \\       (eq? (getp2 qv missing) #f)
+        \\       (= qv 7)))
+    );
+}
+
+test "SRFI 213: define-property in a body scope is rejected" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval(
+        \\(define (f)
+        \\  (define-property f f 1)
+        \\  1)
+    );
+    try std.testing.expectError(error.CompileError, result);
+}
