@@ -63,9 +63,12 @@ them — that walk tax is deliberately part of what is measured (§1).
 
 Every worker **task thunk** captures only fixnums/flonums/payload objects and
 calls only built-in primitives — never a top-level procedure defined in the
-harness. A closure that crosses a worker boundary and then calls a
-separately-defined procedure can hang (kaappi#1520). Serial baselines never
-cross a thread, so they are free to call shared kernels.
+harness. This is a protocol constraint of the frozen run, not a live engine
+limitation: at the time data collection ran, a closure that crossed a worker
+boundary and then called a separately-defined procedure could hang
+(kaappi#1520, fixed 2026-07-15), so self-contained thunks kept the frozen
+dataset free of that risk. Serial baselines never cross a thread, so they
+are free to call shared kernels.
 
 ## Metrics (protocol §3)
 
