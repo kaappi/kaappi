@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785233093024,
+  "lastUpdate": 1785240446742,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "d8c9ee8f872f7783be680bb4e4ff747a3ea3018c",
-          "message": "Release v0.19.0",
-          "timestamp": "2026-07-18T14:28:45+05:30",
-          "tree_id": "cd0c907acc7afea0a4f5237d1c3cf7b03bbc03ff",
-          "url": "https://github.com/kaappi/kaappi/commit/d8c9ee8f872f7783be680bb4e4ff747a3ea3018c"
-        },
-        "date": 1784367234748,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.433061,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.643342,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.914219,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.546618,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006349,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053684,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505684,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069884,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.460191,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.929084,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.596989,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.426346,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.845477,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.723538,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043895,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044327,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "adbb59a1f6656900e9f349d19a0f1ff5b82ef6a4",
+          "message": "Skip GC/VM teardown while a thread-start!ed child is still alive (#1792) (#1814)\n\nmain.zig unconditionally freed the parent's shared symbol table and\nglobals map at exit, racing a still-running (or still-finishing) child\nthread that aliases them through its own GC/VM. This corrupted the heap\nallocator's metadata (observed as glibc's \"corrupted size vs. prev_size\"\n+ SIGABRT). thread-join! is optional in SRFI-18, so this was reachable\nfrom ordinary code that fires off a background thread.\n\nlive_child_threads already tracked exactly what was needed — its\ndecrement is the outermost defer in threadEntryFn, so it only reaches\nzero once a child is done touching shared parent state. Expose it as\nprimitives_srfi18.hasLiveChildThreads() and skip vm.deinit()/gc.deinit()\nentirely while it's true, leaking harmlessly instead of racing (the\nprocess is exiting anyway).\n\nReproduced the exact reported corruption on native aarch64 Linux/glibc\n(19/30 and 3/30 aborts across the two shapes) and confirmed 0/200\nfailures with the fix, on the same box. Added a regression test looping\nboth shapes 50x each.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T11:27:19Z",
+          "tree_id": "d5be1b299240ae45b67fa2aaa045a1cc9e2522cb",
+          "url": "https://github.com/kaappi/kaappi/commit/adbb59a1f6656900e9f349d19a0f1ff5b82ef6a4"
+        },
+        "date": 1785240444891,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.004386,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.104548,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.934469,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.42704,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006633,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.052332,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50862,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068228,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.367804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.950065,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.522004,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.476932,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.722647,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.80271,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045284,
             "unit": "seconds"
           }
         ]
