@@ -165,6 +165,14 @@ pub const UseSiteBindingCheck = struct {
 threadlocal var active_def_local_refs: []const []const u8 = &.{};
 threadlocal var active_use_check: UseSiteBindingCheck = .{};
 
+// Per-expansion context for renameForHygiene (#1812): the transformer's own
+// definition environment (a library's lib_env) and its canonical name, so a
+// free reference bound there can be marked to resolve through that specific
+// library's environment at runtime instead of the use site's mutable
+// globals table. Both null for a top-level/REPL-defined transformer.
+threadlocal var active_def_env: ?*std.StringHashMap(Value) = null;
+threadlocal var active_def_lib_name: ?[]const u8 = null;
+
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
     // The rule-matching bindings buffer is ~1MB and only entries below
     // bind_count are ever read, so it must not be filled per call: Zig 0.16
@@ -201,6 +209,12 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
         const saved_def_local_refs = active_def_local_refs;
         active_def_local_refs = transformer.def_site_local_refs;
         defer active_def_local_refs = saved_def_local_refs;
+        const saved_def_env = active_def_env;
+        active_def_env = transformer.def_env;
+        defer active_def_env = saved_def_env;
+        const saved_def_lib_name = active_def_lib_name;
+        active_def_lib_name = transformer.def_lib_name;
+        defer active_def_lib_name = saved_def_lib_name;
         const saved_use_check = active_use_check;
         active_use_check = use_check;
         defer active_use_check = saved_use_check;
@@ -328,17 +342,23 @@ fn expandProceduralMacro(gc: *GC, expr: Value, transformer: *types.Transformer, 
     const saved_macros = er_macros;
     const saved_check = active_use_check;
     const saved_refs = active_def_local_refs;
+    const saved_def_env = active_def_env;
+    const saved_def_lib_name = active_def_lib_name;
     er_scope = freshScope();
     er_globals = globals;
     er_macros = macros;
     active_use_check = use_check;
     active_def_local_refs = &.{};
+    active_def_env = transformer.def_env;
+    active_def_lib_name = transformer.def_lib_name;
     defer {
         er_scope = saved_scope;
         er_globals = saved_globals;
         er_macros = saved_macros;
         active_use_check = saved_check;
         active_def_local_refs = saved_refs;
+        active_def_env = saved_def_env;
+        active_def_lib_name = saved_def_lib_name;
     }
     // The rename dedup cache entries belong to this invocation only (the
     // scope id is globally fresh); release them on return like expandMacro.
@@ -1655,7 +1675,21 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // argument). Re-renaming it splits the reference from the letrec binding.
     // Checked before the quote branch below too, so a quoted occurrence of an
     // already-renamed name is passed through rather than re-minted.
-    if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_"))
+    //
+    // The same holds for a def_env_binding_prefix-marked name (#1812): a
+    // macro template can itself contain ANOTHER macro's whole definition
+    // (e.g. SRFI 41's stream-match, a syntax-rules template whose body is a
+    // letrec-syntax defining smp/smt) — the outer expansion walks and
+    // hygiene-renames every free identifier in that nested spec too,
+    // including ones already marked with this prefix by THIS transformer's
+    // own active_def_env check below. If the nested macro (smp/smt) is
+    // itself top-level/REPL-scoped (its own def_env is null, as here — it's
+    // defined via letrec-syntax at the *use* site, not within any library),
+    // its own later expansion would otherwise see the prefixed name as a
+    // fresh, unrecognized identifier and re-wrap it with a __hyg_ gensym,
+    // severing it from anything vm_dispatch's prefix parser can resolve.
+    if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_") or
+        std.mem.startsWith(u8, name, types.def_env_binding_prefix))
         return gc.allocSymbol(name);
 
     // A usertext-marker splice being re-walked in substitute-only mode: this
@@ -1702,6 +1736,57 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // (e.g. an outer binding referenced from a nested syntax-rules template).
     const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK);
     const gmod = @import("globals.zig");
+
+    // #1812: a free reference bound in the macro's OWN definition-
+    // environment library (def_env — set only for a library-defined
+    // transformer, never a top-level/REPL one) must resolve through THAT
+    // library's own environment, not whatever the use site's mutable
+    // globals table currently holds for the same name — checked before the
+    // `globals` block below so it takes priority over a same-named entry
+    // that merely happens to also exist in the use site's table (e.g. one
+    // copyTransformerFreeRefs planted there at import time). Same
+    // shadowing guard as the isProcedure/VOID branches below: a template
+    // binding of the same name still wins.
+    //
+    // Guarded by `active_def_env != globals`: when they're the SAME map,
+    // this expansion is compiling within the macro's own defining library,
+    // which hasn't necessarily finished loading yet — lookupDefEnvBinding
+    // resolves by canonical name through vm.libraries, which only gains an
+    // entry once a library's declaration processing completes in full
+    // (handleDefineLibrary registers it last). A macro used by a LATER
+    // declaration in that same body would resolve fine (loading finished
+    // by then), but one used by an EARLIER/self-referential declaration
+    // would spuriously raise "undefined variable" (confirmed: this is
+    // exactly how SRFI 35's own make-condition-type reference broke while
+    // SRFI 35 itself is still loading). The existing get_global/call_global
+    // path already resolves this case correctly via func.env pointing
+    // straight at the same live lib_env, no registration required, so just
+    // fall through to it unchanged.
+    //
+    // ALSO guarded by "not a true (scheme base) binding" (lookupBaseBinding):
+    // a library merely re-exporting/importing a standard procedure like
+    // call-with-values, raise-continuable, with-exception-handler, call/cc,
+    // or dynamic-wind is not the "genuinely library-internal helper" case
+    // #1812 targets, and several compiler spots (compileCallWithValuesTail's
+    // is_tail dispatch in compiler.zig, similarly for apply/call/cc/eval)
+    // recognize these by exact bare name — confirmed by tracing SRFI 248's
+    // guard macro, whose tail-position (call-with-values (lambda () ...) k)
+    // silently lost its dedicated tail-call handling once call-with-values
+    // was renamed, breaking multiple-value passing to k. Universal, rarely-
+    // shadowed builtins aren't worth chasing every such exact-name spot for;
+    // leaving them exactly as renameForHygiene already treated them (the
+    // isProcedure branch below, unprefixed) sidesteps the whole class.
+    if (active_def_env) |denv| {
+        if (active_def_lib_name) |libname| {
+            if (denv != globals and !in_binding and !scopeTableContains(clean_scope, name) and
+                denv.contains(name) and gmod.lookupBaseBinding(name) == null)
+            {
+                var buf: [512]u8 = undefined;
+                return gc.allocSymbol(gmod.buildDefEnvBindingSymbolName(&buf, libname, name));
+            }
+        }
+    }
+
     if (globals) |g| {
         const glk = gmod.acquireGlobalsRead(g);
         defer gmod.releaseGlobalsRead(glk);

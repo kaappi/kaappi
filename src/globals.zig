@@ -201,3 +201,68 @@ pub fn stripBaseBindingPrefix(name: []const u8) ?[]const u8 {
     if (!std.mem.startsWith(u8, name, base_binding_prefix)) return null;
     return name[base_binding_prefix.len..];
 }
+
+/// Callback returning the canonical name of the library currently being
+/// compiled (vm.loading_library_name, set by handleDefineLibrary for the
+/// whole duration of that library's declaration processing, including any
+/// define-syntax within it) -- null outside library compilation. Registered
+/// by the VM so compiler_macro.compileDefineSyntax can stamp a transformer's
+/// def_lib_name without the compiler importing vm.zig (#1812).
+pub const CurrentLibNameFn = *const fn () ?[]const u8;
+pub var current_lib_name_lookup: ?CurrentLibNameFn = null;
+
+pub fn currentLibName() ?[]const u8 {
+    if (current_lib_name_lookup) |lookup| return lookup();
+    return null;
+}
+
+/// Callback resolving `origname` in the library named `libname`'s own
+/// lib_env -- the value bound there when that library finished loading,
+/// immune to whatever the use site's vm.globals does with the same name.
+/// Registered by the VM (mirrors base_binding_lookup, generalized from the
+/// one well-known `(scheme base)` library to any library a macro was
+/// defined in). Used by get_global/call_global/lookupGlobalLocked
+/// (vm_dispatch.zig) to resolve a def_env_binding_prefix-marked name (#1812).
+pub const DefEnvBindingFn = *const fn (libname: []const u8, origname: []const u8) ?Value;
+pub var def_env_binding_lookup: ?DefEnvBindingFn = null;
+
+pub fn lookupDefEnvBinding(libname: []const u8, origname: []const u8) ?Value {
+    if (def_env_binding_lookup) |lookup| return lookup(libname, origname);
+    return null;
+}
+
+/// Callback storing `val` into the library named `libname`'s own lib_env
+/// binding `origname`, for a template `(set! <def-env-free-ref> ...)` (a
+/// macro's expansion mutating a library-internal variable it references).
+/// Returns whether the binding existed to be set. Registered by the VM,
+/// mirroring lookupDefEnvBinding's shape. Used by set_global (vm_dispatch.zig)
+/// to resolve a def_env_binding_prefix-marked assignment target (#1812).
+pub const DefEnvBindingSetFn = *const fn (libname: []const u8, origname: []const u8, val: Value) bool;
+pub var def_env_binding_set: ?DefEnvBindingSetFn = null;
+
+pub fn setDefEnvBinding(libname: []const u8, origname: []const u8, val: Value) bool {
+    if (def_env_binding_set) |setter| return setter(libname, origname, val);
+    return false;
+}
+
+pub const def_env_binding_prefix = types.def_env_binding_prefix;
+pub const def_env_binding_sep = types.def_env_binding_sep;
+
+/// Build the `def_env_binding_prefix`-marked symbol name for `libname`'s
+/// binding `origname` (see `def_env_binding_prefix`). Writes into `buf` and
+/// returns the written slice; falls back to the bare `origname` if `buf` is
+/// too small (matching `baseBindingSymbolName`'s own overflow behavior) --
+/// silently skipping the protection for a pathologically long library/
+/// binding name is preferable to erroring out of compilation entirely.
+pub fn buildDefEnvBindingSymbolName(buf: []u8, libname: []const u8, origname: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "{s}{s}{s}{s}", .{ def_env_binding_prefix, libname, def_env_binding_sep, origname }) catch origname;
+}
+
+/// If `name` carries `def_env_binding_prefix`, split off the embedded
+/// library name and original binding name; otherwise return null.
+pub fn parseDefEnvBindingSymbolName(name: []const u8) ?struct { libname: []const u8, origname: []const u8 } {
+    if (!std.mem.startsWith(u8, name, def_env_binding_prefix)) return null;
+    const rest = name[def_env_binding_prefix.len..];
+    const sep = std.mem.indexOf(u8, rest, def_env_binding_sep) orelse return null;
+    return .{ .libname = rest[0..sep], .origname = rest[sep + def_env_binding_sep.len ..] };
+}

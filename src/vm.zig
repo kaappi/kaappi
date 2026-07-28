@@ -35,6 +35,9 @@ pub fn setVMInstance(vm: *VM) void {
     globals_mod.library_exists_checker = &checkLibraryExists;
     globals_mod.srfi_feature_checker = &checkSrfiFeature;
     globals_mod.base_binding_lookup = &lookupBaseBinding;
+    globals_mod.current_lib_name_lookup = &getCurrentLibName;
+    globals_mod.def_env_binding_lookup = &lookupDefEnvBinding;
+    globals_mod.def_env_binding_set = &setDefEnvBinding;
     globals_mod.eval_datum_for_macro = &evalDatumForMacro;
     globals_mod.call_proc_for_macro = &callProcForMacro;
     globals_mod.syntax_property_set = &syntaxPropertySet;
@@ -104,6 +107,45 @@ fn lookupBaseBinding(name: []const u8) ?Value {
     const vm = vm_instance orelse return null;
     const lib = vm.libraries.get("scheme.base") orelse return null;
     return lib.exports.get(name);
+}
+
+/// The canonical name of the library currently being compiled, live for the
+/// whole duration handleDefineLibrary spends processing its declarations
+/// (including any define-syntax within them) -- null outside library
+/// compilation, e.g. a top-level/REPL define-syntax (#1812).
+fn getCurrentLibName() ?[]const u8 {
+    const vm = vm_instance orelse return null;
+    return vm.loading_library_name;
+}
+
+/// Look up `origname` in the library named `libname`'s own lib_env -- the
+/// full internal environment (exported or not), unlike lookupBaseBinding's
+/// `exports`, since a macro's free reference is as likely to hit a private
+/// helper as an exported name. Unlocked, matching lookupBaseBinding's own
+/// unlocked `lib.exports.get` above: both rely on a library's environment
+/// being effectively read-only once the library has finished loading and
+/// been registered (#1812).
+fn lookupDefEnvBinding(libname: []const u8, origname: []const u8) ?Value {
+    const vm = vm_instance orelse return null;
+    const lib = vm.libraries.get(libname) orelse return null;
+    const env = lib.lib_env orelse return null;
+    return env.get(origname);
+}
+
+/// Store `val` into the library named `libname`'s own lib_env binding
+/// `origname` -- a macro's expansion assigning to a library-internal
+/// variable it references. Locked like set_global's own env.getPtr/store
+/// (vm_dispatch.zig): a library's lib_env is shared across SRFI-18 threads
+/// exactly like vm.globals is (#1812).
+fn setDefEnvBinding(libname: []const u8, origname: []const u8, val: Value) bool {
+    const vm = vm_instance orelse return false;
+    const lib = vm.libraries.get(libname) orelse return false;
+    const env = lib.lib_env orelse return false;
+    vm.lockGlobalsShared();
+    defer vm.unlockGlobalsShared();
+    const ptr = env.getPtr(origname) orelse return false;
+    ptr.* = val;
+    return true;
 }
 
 pub const GlobalsRwLock = globals_mod.GlobalsRwLock;

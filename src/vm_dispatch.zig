@@ -219,8 +219,17 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
+                // #1812: resolved once and reused below to also skip caching
+                // this reference — a def_env_binding_prefix name's resolution
+                // isn't invalidated by self.global_version (a library's own
+                // internal set! on its def_env doesn't bump it, since that
+                // mutation's func.env isn't null), so caching it under that
+                // version could go stale.
+                const def_env_parts = vm_mod.globals_mod.parseDefEnvBindingSymbolName(name);
                 const found: ?Value = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
                     resolveBaseBindingLocked(self, env, base_name)
+                else if (def_env_parts) |parts|
+                    vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname)
                 else blk: {
                     // Map reads under the child-thread shared lock; the error
                     // path runs after release (findSimilarName locks internally).
@@ -245,7 +254,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 };
                 const val = found orelse return raiseUndefinedVariable(self, name);
                 self.registers[dst_idx] = val;
-                if (func.env == null and (types.isClosure(val) or types.isNativeFn(val))) {
+                if (func.env == null and def_env_parts == null and (types.isClosure(val) or types.isNativeFn(val))) {
                     if (func.global_cache) |cache| {
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                     } else {
@@ -269,6 +278,22 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const name = types.symbolName(sym);
                 if (rejectImmutableEnv(self, func, name, "set!: cannot modify binding")) |e| return e;
                 const val = self.registers[src_idx];
+                // #1812: a template set! to a free reference bound in the
+                // macro's own definition-environment library compiles as
+                // set_global on a def_env_binding_prefix-marked name — write
+                // straight into that library's own lib_env (not env/
+                // self.globals, which never hold a key spelled this way) and
+                // skip the version bump/cache entirely below: that mutation
+                // never touched self.globals, so nothing it invalidates
+                // needs invalidating, and the read side (get_global/
+                // call_global) already never caches this prefix either.
+                if (vm_mod.globals_mod.parseDefEnvBindingSymbolName(name)) |parts| {
+                    if (!vm_mod.globals_mod.setDefEnvBinding(parts.libname, parts.origname, val)) {
+                        self.setErrorDetail("set!: unbound variable '{s}'", .{name});
+                        return VMError.UndefinedVariable;
+                    }
+                    continue;
+                }
                 // Mirror get_global's hygienic-prefix fallback: a template
                 // set! to a definition-site global compiles as set_global on
                 // the renamed name (__hyg_N_foo); writes must reach the same
@@ -922,7 +947,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const name = types.symbolName(sym);
                             const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                             self.registers[base] = val;
-                            if (types.isClosure(val) or types.isNativeFn(val)) {
+                            // #1812: don't cache a def_env_binding_prefix
+                            // resolution — see the get_global handler's own
+                            // comment on why self.global_version can't be
+                            // trusted to invalidate it.
+                            if ((types.isClosure(val) or types.isNativeFn(val)) and
+                                vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
+                            {
                                 if (sym_idx < cache.len) cache[sym_idx] = val;
                             }
                         }
@@ -932,7 +963,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const name = types.symbolName(sym);
                         const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                         self.registers[base] = val;
-                        if (types.isClosure(val) or types.isNativeFn(val)) {
+                        if ((types.isClosure(val) or types.isNativeFn(val)) and
+                            vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
+                        {
                             const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
                                 vm_calls.callValue(self, val, base, nargs) catch |err| {
                                     if (err == VMError.ContinuationInvoked) {
@@ -956,6 +989,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const name = types.symbolName(sym);
                     const found = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
                         resolveBaseBindingLocked(self, env, base_name)
+                    else if (vm_mod.globals_mod.parseDefEnvBindingSymbolName(name)) |parts|
+                        vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname)
                     else blk: {
                         self.lockGlobalsShared();
                         defer self.unlockGlobalsShared();
@@ -1032,7 +1067,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     callee = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
-                    if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {
+                    // #1812: don't cache a def_env_binding_prefix resolution
+                    // — see get_global's own comment on why self.global_version
+                    // can't be trusted to invalidate it.
+                    if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee)) and
+                        vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
+                    {
                         if (func.global_cache) |cache| {
                             if (func.cache_version != self.global_version) {
                                 @memset(cache, types.VOID);
@@ -1428,6 +1468,9 @@ noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
 inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []const u8) ?Value {
     if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name| {
         return resolveBaseBindingLocked(self, env, base_name);
+    }
+    if (vm_mod.globals_mod.parseDefEnvBindingSymbolName(name)) |parts| {
+        return vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname);
     }
     self.lockGlobalsShared();
     const found: ?Value = env.get(name) orelse blk: {
