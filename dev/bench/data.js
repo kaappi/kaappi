@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785263917466,
+  "lastUpdate": 1785269179102,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "84dd19d26ea8bd72cdfb6be26c47989049527b0d",
-          "message": "Fix two macro-hygiene bugs in let-syntax and named-let expansion (#1648)\n\nBoth surfaced while investigating SRFI 257's matcher (#1644), whose\nheavily macrological reference implementation exercises corners of\nsyntax-rules that most programs never reach. They are general expander\nbugs, independent of that SRFI.\n\n1. let-syntax sibling passed as an argument went undefined. R7RS 4.3.1\n   resolves a transformer's *template* free references at its definition\n   site, where sibling keywords aren't visible, so compileLetSyntax\n   suppressed every sibling during the expansion's compilation. But a\n   sibling handed to a helper macro as an *argument* is a use-site\n   identifier, not a template free reference, and must stay resolvable.\n   Now only siblings a transformer actually free-references in its\n   template are suppressed (collectTransformerFreeRefs).\n\n2. A named let's loop gensym was re-renamed by hygiene. Named let\n   desugars to a __nlet_N_loop gensym during compilation, interleaved\n   with macro expansion; when the recursive (loop ...) call rides\n   through another macro whose template re-emits it, renameForHygiene\n   renamed the already-gensym'd name (__hyg_M___nlet_N_loop), splitting\n   the call from its letrec binding. It now leaves __nlet_ names alone,\n   as it already does for __hyg_ ones (issue #919).\n\nEach fix has a regression test in tests_macros.zig that fails without it.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T22:15:33+05:30",
-          "tree_id": "6d557f7b7e74a4a448ac4872098c7c7972899ba3",
-          "url": "https://github.com/kaappi/kaappi/commit/84dd19d26ea8bd72cdfb6be26c47989049527b0d"
-        },
-        "date": 1784395001577,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.275911,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.650008,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.651755,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.160477,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005669,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041228,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.369334,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053374,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.805071,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.419348,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.266935,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.393306,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.453527,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.916538,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038436,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044184,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f84c3a36a2b43c60dc17900c4883e9c9c7392dc",
+          "message": "Route case-lambda's arity dispatch through an internal %length alias (#1821)\n\ncase-lambda's compiled dispatch code called the global `length` by name\nto count arguments, so a scope that legitimately shadows `length` (e.g.\na library providing its own for a non-standard list-like type, as SRFI\n101 needs) broke every case-lambda defined within it. Adds a %length\nprimitive using the same %-prefixed internal-primitive convention as\n%record-set! etc., immune to ordinary user shadowing, and dispatches\nthrough it instead.\n\nFixes #1714",
+          "timestamp": "2026-07-29T00:23:23+05:30",
+          "tree_id": "3959f81cf28a68c9836d1602cfecc92d962eeba7",
+          "url": "https://github.com/kaappi/kaappi/commit/4f84c3a36a2b43c60dc17900c4883e9c9c7392dc"
+        },
+        "date": 1785269177307,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355042,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.911722,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583961,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.175343,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006311,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047116,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.320254,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058278,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.50702,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.24154,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.595291,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431643,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.804936,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.604545,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042693,
             "unit": "seconds"
           }
         ]
