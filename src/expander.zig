@@ -800,10 +800,19 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]co
 // renameForHygiene must mask off every flag that doesn't change renaming
 // behavior so scope-table entries stay consistent across contexts.
 const ESCAPE_FLAG: u32 = 0x80000000; // inside (... <template>) ellipsis escape
-const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, don't rename
+const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, hygiene-rename (#1801)
 const BINDING_FLAG: u32 = 0x20000000; // identifier is in binding position
 const NESTED_SR_FLAG: u32 = 0x10000000; // inside a nested syntax-rules template
 const LET_PAIR_FLAG: u32 = 0x08000000; // template is a single let-binding (var init) pair
+// Re-walking a usertext-marker-protected splice (an enclosing expansion's
+// pattern-var value, spliced verbatim into a nested syntax-rules template) in
+// substitute-only mode. Reuses QUOTE_FLAG's "substitute, expand ellipses"
+// walk shape, but MUST suppress renameForHygiene's QUOTE_FLAG rename (#1801):
+// unlike a literal identifier written directly in a quote form, this
+// identifier is use-site DATA from an enclosing expansion, never a
+// template-introduced identifier of the CURRENT one, so it must always pass
+// through unrenamed -- exactly the pre-#1801 QUOTE_FLAG behavior.
+const VERBATIM_FLAG: u32 = 0x00800000;
 // Quasiquote nesting depth (0-7, saturating). Symbols under `quasiquote` are
 // DATA — they must not be hygiene-renamed — but a depth-matching `unquote`
 // re-enters expression territory where renaming resumes. Three bits cover any
@@ -921,6 +930,98 @@ fn stripUsertextWalk(gc: *GC, expr: Value, depth: u16) void {
     }
 }
 
+/// Strip hygienic rename prefixes (`__hyg_N_`) from every symbol reachable
+/// from a fully-expanded `quote`/quasiquote-literal datum, returning the
+/// (possibly different) top-level value. renameForHygiene now hygiene-renames
+/// a template-introduced identifier inside `(quote ...)` exactly like any
+/// other, so that two separate macro expansions producing "the same" quoted
+/// identifier stay distinguishable via bound-identifier=?/free-identifier=?
+/// while still pure, uncompiled syntax (#1801). This function is the other
+/// half of that fix: called from every site that compiles a quoted datum
+/// into a literal runtime Value (plain quote, quasiquote's literal atoms),
+/// it removes those renames so the actual VALUE is unaffected -- ordinary
+/// macros that quote a fixed tag symbol still need `(eq? (macro) (macro))`
+/// to hold once the code runs. Mirrors stripUsertextWalk's in-place mutation
+/// and cycle/depth guards.
+pub fn stripHygieneFromDatum(gc: *GC, expr: Value) !Value {
+    if (types.isSymbol(expr)) return stripSymbolRename(gc, expr);
+    if (types.isPair(expr) or types.isVector(expr)) {
+        var root = expr;
+        gc.pushRoot(&root);
+        defer gc.popRoot();
+        try stripHygieneWalk(gc, expr, 4096);
+    }
+    return expr;
+}
+
+/// Rename a single symbol back to its base name if it carries a hygienic
+/// prefix, else return it unchanged. Factored out so stripHygieneWalk (which
+/// must recurse into itself for nested pairs/vectors) doesn't call back into
+/// stripHygieneFromDatum -- two functions with inferred error sets calling
+/// each other is a dependency loop Zig 0.16 rejects outright.
+fn stripSymbolRename(gc: *GC, sym: Value) !Value {
+    const name = types.symbolName(sym);
+    const stripped = types.stripHygienicPrefix(name);
+    if (stripped.len == name.len) return sym;
+    return gc.allocSymbol(stripped);
+}
+
+fn stripHygieneWalk(gc: *GC, expr: Value, depth: u16) !void {
+    if (depth == 0) return;
+    if (types.isVector(expr)) {
+        const vec = types.toObject(expr).as(types.Vector);
+        for (vec.data, 0..) |elem, i| {
+            if (types.isSymbol(elem)) {
+                const stripped = try stripSymbolRename(gc, elem);
+                if (stripped != elem) {
+                    gc.writeBarrier(types.toObject(expr), stripped);
+                    vec.data[i] = stripped;
+                }
+            } else {
+                try stripHygieneWalk(gc, elem, depth - 1);
+            }
+        }
+        return;
+    }
+    if (!types.isPair(expr)) return;
+    var cur = expr;
+    var hare = expr;
+    while (true) {
+        const car_v = types.car(cur);
+        if (types.isSymbol(car_v)) {
+            const stripped = try stripSymbolRename(gc, car_v);
+            if (stripped != car_v) {
+                gc.writeBarrier(types.toObject(cur), stripped);
+                types.setCar(cur, stripped);
+            }
+        } else {
+            try stripHygieneWalk(gc, car_v, depth - 1);
+        }
+        const cdr_v = types.cdr(cur);
+        if (types.isSymbol(cdr_v)) {
+            const stripped = try stripSymbolRename(gc, cdr_v);
+            if (stripped != cdr_v) {
+                gc.writeBarrier(types.toObject(cur), stripped);
+                types.setCdr(cur, stripped);
+            }
+            return;
+        }
+        if (types.isVector(cdr_v)) {
+            try stripHygieneWalk(gc, cdr_v, depth - 1);
+            return;
+        }
+        if (!types.isPair(cdr_v)) return;
+        cur = cdr_v;
+        // Tortoise-hare on the cdr spine, same as stripUsertextWalk: this
+        // walk only rewrites symbols in place, never restructures pairs, so
+        // advancing the hare over the (possibly rewritten-in-place) spine
+        // stays safe.
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (types.isPair(hare)) hare = types.cdr(hare);
+        if (hare == cur) return;
+    }
+}
+
 /// Whether an ellipsis element template references any outer list binding —
 /// the condition under which instantiateEllipsis can find a repeat count.
 /// Inside a nested syntax-rules template, an ellipsis whose element
@@ -1013,7 +1114,32 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         const inner = unwrapUsertext(template);
         // A forged cyclic marker chain unwraps to itself: treat as opaque data.
         if (isUsertextPair(inner)) return inner;
-        const new_inner = try instantiateTemplate(gc, inner, bindings, (intro_scope | QUOTE_FLAG) & ~NESTED_SR_FLAG, literals, macro_keyword, globals, macros);
+        // A marker-protected chunk that is ITSELF, directly, a `(quote X)`
+        // form (e.g. em-gensym's own `'g` template text, captured wholesale
+        // as em-syntax-rules's own `template` pattern-var value and spliced,
+        // marker-protected, into the generated macro's stored transformer)
+        // is not opaque use-site data -- it's the ORIGINAL macro author's own
+        // literal template text, merely routed through em-syntax-rules's
+        // multi-step desugaring plumbing. Such an identifier must still get
+        // a fresh hygiene rename per invocation (#1801), so this case is
+        // excluded from VERBATIM_FLAG and falls through to the normal quote
+        // handling below. A chunk that merely CONTAINS a quote/quasiquote
+        // somewhere within a larger structure -- e.g. `(em `(let ((e ...))
+        // ...))`, where the let-bound `e` must stay verbatim to match a
+        // reference threaded through a completely separate expansion event
+        // (SRFI 148's own CK-machine, which compiles sub-pieces at different
+        // times) -- or a bare symbol (an ordinary pattern-var's actual
+        // use-site value, e.g. SRFI 257's accumulator rebinds) keeps the
+        // original, always-verbatim treatment: only the EXACT `(quote
+        // <datum>)` shape at the very top of the protected chunk counts,
+        // never one merely nested deeper inside.
+        const is_direct_quote = types.isPair(inner) and
+            types.isSymbol(types.car(inner)) and
+            std.mem.eql(u8, types.symbolName(types.car(inner)), "quote") and
+            types.isPair(types.cdr(inner)) and
+            types.cdr(types.cdr(inner)) == types.NIL;
+        const verbatim_bits: u32 = if (is_direct_quote) 0 else VERBATIM_FLAG;
+        const new_inner = try instantiateTemplate(gc, inner, bindings, (intro_scope | QUOTE_FLAG | verbatim_bits) & ~NESTED_SR_FLAG, literals, macro_keyword, globals, macros);
         if (isUsertextPair(new_inner)) return new_inner; // already protected
         if (!types.isSymbol(new_inner) and !types.isPair(new_inner)) return new_inner;
         var inner_root = new_inner;
@@ -1492,32 +1618,6 @@ fn scopeTableContains(scope: u32, name: []const u8) bool {
 }
 
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
-    if ((scope & QUOTE_FLAG) != 0) {
-        // Inside a nested syntax-rules template, a quoted identifier may be a
-        // reference to that inner macro's OWN pattern variable rather than
-        // inert literal data -- e.g. `((_ y) '(fixed y))`: the pattern's `y`
-        // is walked without QUOTE_FLAG and already claimed a hygienic rename
-        // in scope_table (case 5 below), but the template's `y` sits inside
-        // `quote` and used to always come back unrenamed, splitting the two
-        // occurrences (the inner macro's own matcher would then never bind
-        // its own template's `y` to anything, and the reference passed
-        // through literally). Reusing the SAME clean_scope lookup as the
-        // non-quoted path (QUOTE_FLAG stripped, so the two occurrences hash
-        // identically) restores that consistency when a same-scope rename
-        // already exists. Genuinely inert quoted data (no matching pattern-
-        // side rename, e.g. a literal symbol the inner template just quotes)
-        // keeps today's behavior: emitted verbatim, unrenamed.
-        if ((scope & NESTED_SR_FLAG) != 0) {
-            const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK | QUOTE_FLAG);
-            for (scope_table[0..scope_table_count]) |entry| {
-                if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
-                    return gc.allocSymbol(entry.renamed_to);
-                }
-            }
-        }
-        return gc.allocSymbol(name);
-    }
-
     // Already renamed by an enclosing expansion: macro-generating macros
     // bake __hyg_ names into the inner macro's stored template. Gensyms are
     // globally unique, so renaming again cannot prevent any capture — it
@@ -1528,8 +1628,49 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // can flow back through a macro whose template re-emits it (e.g. SRFI 257's
     // ~etc, where the recursive (loop ...) call rides inside a submatch
     // argument). Re-renaming it splits the reference from the letrec binding.
+    // Checked before the quote branch below too, so a quoted occurrence of an
+    // already-renamed name is passed through rather than re-minted.
     if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_"))
         return gc.allocSymbol(name);
+
+    // A usertext-marker splice being re-walked in substitute-only mode: this
+    // name is use-site data from an ENCLOSING expansion, not a template-
+    // introduced identifier of this one, so it must never be renamed --
+    // regardless of QUOTE_FLAG, which is also set here purely to get the
+    // rest of the quote-mode walk (substitute, expand ellipses). See
+    // VERBATIM_FLAG's own comment.
+    if ((scope & VERBATIM_FLAG) != 0) return gc.allocSymbol(name);
+
+    if ((scope & QUOTE_FLAG) != 0) {
+        // A template-introduced identifier inside `(quote ...)` is still an
+        // IDENTIFIER at the macro-expansion level, not yet inert data: two
+        // separate expansions of e.g. `(define-syntax gensym (syntax-rules ()
+        // ((gensym) 'g)))` must stay distinguishable via
+        // bound-identifier=?/free-identifier=?-style comparisons built out of
+        // further macro expansion (nested define-syntax/literal matching),
+        // even though `g` will eventually print/compare as the plain symbol
+        // `g` once actually compiled into a literal runtime value (#1801).
+        // So a quoted, template-introduced identifier is hygiene-renamed
+        // exactly like a non-quoted one -- deduped within THIS expansion via
+        // the same clean_scope lookup (needed so a nested syntax-rules
+        // template's quoted reference to its OWN pattern variable `y` in
+        // `((_ y) '(fixed y))` picks up the SAME rename the pattern side
+        // already claimed) -- and the compiler strips the `__hyg_` prefix
+        // back off wherever it compiles a REAL `(quote ...)` datum to a
+        // literal Value (stripHygieneFromDatum, called from quote and
+        // quasiquote compilation), so ordinary uses of `'sym` in a template
+        // still behave exactly as before once the code actually runs: two
+        // unrelated macro expansions that both quote the same literal tag
+        // still produce `eq?` symbols.
+        const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK | QUOTE_FLAG);
+        for (scope_table[0..scope_table_count]) |entry| {
+            if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
+                return gc.allocSymbol(entry.renamed_to);
+            }
+        }
+        return mintHygienicRename(gc, name, clean_scope);
+    }
+
     const in_binding = (scope & BINDING_FLAG) != 0;
     // Strip context flags that don't change renaming, so the same template
     // identifier gets the same gensym inside and outside those contexts
@@ -1596,7 +1737,15 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
         }
     }
 
-    // Generate a fresh hygienic name for truly new identifiers
+    return mintHygienicRename(gc, name, clean_scope);
+}
+
+/// Generate a fresh hygienic name for a truly new template-introduced
+/// identifier and record it in scope_table (keyed by clean_scope) so later
+/// references to the same original name within this expansion, quoted or
+/// not, resolve to the same rename. Callers have already checked
+/// scope_table for an existing entry.
+fn mintHygienicRename(gc: *GC, name: []const u8, clean_scope: u32) !Value {
     const gensym_id = freshGensymId();
     var buf: [128]u8 = undefined;
     const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_id, name }) catch

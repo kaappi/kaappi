@@ -1021,6 +1021,55 @@ test "forged cyclic usertext-marker datum does not hang unwrap" {
     , 42);
 }
 
+test "quoted template symbol is eq? across separate macro invocations (#1801)" {
+    // #1801: renameForHygiene used to strip hygiene from a template-
+    // introduced identifier the instant it saw QUOTE_FLAG, which happened
+    // to make two separate expansions of `'g` collapse to the exact same
+    // bare symbol -- correct here, but for the wrong reason (an accident of
+    // never distinguishing them at all, rather than the compiler stripping
+    // a per-expansion hygienic rename back off). Guards against a fix that
+    // over-corrects and makes ordinary quoted-symbol macros stop producing
+    // eq? results; see tests_pipeline.zig for the complementary pre-compile
+    // check that the two expansions DO differ before this point.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen (syntax-rules () ((gen) 'g)))
+        \\  (eq? (gen) (gen)))
+    );
+}
+
+test "quoted template symbol still prints as the plain symbol (#1801)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen (syntax-rules () ((gen) 'g)))
+        \\  (eq? 'g (gen)))
+    );
+}
+
+test "let-bound identifier and its quoted cross-macro reference stay consistent (#1801)" {
+    // A template-introduced identifier used both as a `let` binding (real
+    // code, inside quasiquote's literal structure) and, quoted, as an
+    // argument threaded to a SEPARATE macro (SRFI 148's simple-match /
+    // %compile-pattern shape, ported in tests/scheme/srfi/srfi148.scm) must
+    // resolve to the same base name once compiled. An earlier draft of the
+    // #1801 fix cleared VERBATIM_FLAG whenever entering ANY quote/quasiquote
+    // reached via a usertext-marker rewalk, which let the `let` binding's
+    // own hygienic rename diverge from a separately-compiled quoted
+    // reference to it -- desyncing the two.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax with-e-bound
+        \\    (syntax-rules ()
+        \\      ((_ helper)
+        \\       `(let ((e 42))
+        \\          ,(helper 'e)))))
+        \\  (define-syntax quote-arg
+        \\    (syntax-rules ()
+        \\      ((_ x) 'x)))
+        \\  (eq? 'e (eval (with-e-bound quote-arg) (interaction-environment))))
+    );
+}
+
 test "nested quasiquote template matches the directly written form" {
     // The template walk tracks quasiquote nesting (3 bits, 0-7, saturating);
     // a nested tower with depth-matching unquotes must expand to exactly what

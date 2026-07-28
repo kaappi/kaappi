@@ -46,7 +46,7 @@ fn fmt(self: *LLVMEmitter, comptime f: []const u8, a: anytype) EmitError![]const
 // in-scope form to its enclosing form's abandon path (a top-level form has no
 // partial state to unwind at this point — the leaf lowers before any branch).
 fn lower(self: *LLVMEmitter, expr: Value, tail: bool) EmitError!*ir.Node {
-    return ir.lowerSingleExprTail(self.allocator(), expr, tail) catch return error.UnsupportedNodeType;
+    return ir.lowerSingleExprTail(self.allocator(), self.gc, expr, tail) catch return error.UnsupportedNodeType;
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
 const timings = @import("timings.zig");
+const expander = @import("expander.zig");
 
 const Value = types.Value;
 const OpCode = types.OpCode;
@@ -302,6 +303,16 @@ pub const IR = struct {
     // primitive's value at compile time no longer reflects its value at the
     // call site. Populated conservatively (whole-form scan) by the compiler.
     set_targets: ?*const std.StringHashMap(void) = null,
+    // GC that owns the Values being lowered, needed by lowerQuote to strip
+    // hygiene renames from a quoted datum (#1801). `compiler.gc` already
+    // supplies this for ordinary compilation; standalone lowering paths with
+    // no Compiler (the LLVM native backend, IR unit tests) set this
+    // explicitly when they have one. Deliberately NOT defaulted to the
+    // memory.gc_instance threadlocal: some standalone callers (e.g.
+    // tests_native.zig) construct their own short-lived GC without ever
+    // pointing that threadlocal at it, so trusting it here risked rooting
+    // onto a stale or unrelated GC.
+    gc: ?*memory.GC = null,
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
@@ -695,12 +706,13 @@ pub fn lowerAndOptimize(
     return node;
 }
 
-pub fn lowerSingleExpr(allocator: std.mem.Allocator, expr: Value) CompileError!*Node {
-    return lowerSingleExprTail(allocator, expr, false);
+pub fn lowerSingleExpr(allocator: std.mem.Allocator, gc: ?*memory.GC, expr: Value) CompileError!*Node {
+    return lowerSingleExprTail(allocator, gc, expr, false);
 }
 
-pub fn lowerSingleExprTail(allocator: std.mem.Allocator, expr: Value, is_tail: bool) CompileError!*Node {
+pub fn lowerSingleExprTail(allocator: std.mem.Allocator, gc: ?*memory.GC, expr: Value, is_tail: bool) CompileError!*Node {
     var scratch = IR.init(allocator);
+    scratch.gc = gc;
     return lowerAndOptimize(&scratch, expr, null, is_tail);
 }
 
@@ -724,7 +736,14 @@ fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileErro
 
 fn lowerQuote(ir: *IR, args: Value) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;
-    return ir.makeConst(types.car(args));
+    const datum = types.car(args);
+    // A template-introduced identifier inside `(quote ...)` is hygiene-
+    // renamed like any other during expansion (#1801); strip it back to its
+    // base name now that this quote is being compiled into a real literal
+    // Value, so the rename never leaks into the running program.
+    const gc: ?*memory.GC = ir.gc orelse if (ir.compiler) |c| c.gc else null;
+    const stripped = if (gc) |g| expander.stripHygieneFromDatum(g, datum) catch return CompileError.OutOfMemory else datum;
+    return ir.makeConst(stripped);
 }
 
 fn lowerBegin(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {

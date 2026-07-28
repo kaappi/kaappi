@@ -21,42 +21,42 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi148.scm
 ;;
 ;; Deviations from the reference suite: none of the test logic itself was
-;; changed. 2 of the ~142 assertions are marked test-expect-fail below,
-;; citing a SEPARATE, general, pre-existing engine bug found while porting
-;; this suite -- not specific to SRFI 148 or to this library's own
-;; combinators, which are otherwise fully verified correct:
+;; changed. All ~142 assertions now pass -- the two general, pre-existing
+;; engine bugs found while porting this suite (neither specific to SRFI 148
+;; or to this library's own combinators) are both fixed:
+;;   - #1800: a macro that expands to a bare (define x v) in body position
+;;     didn't make x visible to later sibling forms in the same body.
+;;     Reproduced with a plain, non-eager syntax-rules macro -- nothing to
+;;     do with em-syntax-rules. Affected "Match quoted pattern with quoted
+;;     element", "Match quoted pattern with eager macro use", "Match
+;;     unquoted pattern with element", em-cons, em-list, em-append. Fixed:
+;;     expandAndCompileMacroUse's post-expansion cleanup popped every
+;;     compiler local added while compiling a macro's final expanded form
+;;     back off before returning, on the mistaken assumption that everything
+;;     added during a macro-use compile is transient chain bookkeeping
+;;     (hygienic aliases). A body-scope `define` reached through the
+;;     expansion adds a REAL, sibling-visible local, not an alias, and needs
+;;     to survive.
 ;;   - #1801: two separate expansions of a macro whose template introduces
-;;     "the same" literal symbol are wrongly bound-identifier=? to each
-;;     other. Breaks em-gensym/em-generate-temporaries, which deliberately
+;;     "the same" literal symbol were wrongly bound-identifier=? to each
+;;     other. Broke em-gensym/em-generate-temporaries, which deliberately
 ;;     rely on hygiene alone (not a counter) for uniqueness, per the
-;;     reference's own (em-gensym) => 'g definition.
-;;
-;; #1800 (a macro expanding to a bare (define x v) in body position didn't
-;; make x visible to later sibling forms -- affected "Match quoted pattern
-;; with quoted element", "Match quoted pattern with eager macro use",
-;; "Match unquoted pattern with element", em-cons, em-list, em-append) is
-;; FIXED: expandAndCompileMacroUse's post-expansion cleanup popped every
-;; compiler local added while compiling a macro's final expanded form back
-;; off before returning, on the mistaken assumption that everything added
-;; during a macro-use compile is transient chain bookkeeping (hygienic
-;; aliases). A body-scope `define` reached through the expansion adds a
-;; REAL, sibling-visible local, not an alias, and needs to survive.
+;;     reference's own (em-gensym) => 'g definition. Fixed:
+;;     renameForHygiene hygiene-renames a template-introduced identifier
+;;     inside `(quote ...)` exactly like any other during expansion, and the
+;;     compiler strips that rename back off wherever it compiles a quoted
+;;     datum to a literal Value (expander.stripHygieneFromDatum, called from
+;;     quote and quasiquote compilation) -- see src/expander.zig and the
+;;     regression tests in src/tests_macros.zig and
+;;     tests/scheme/hygiene/quote-identifier-1801.scm.
 ;; A third, more severe issue (#1802: importing this library alone costs
-;; ~80s, superlinearly in definition count, independent of test count) is
-;; NOT a per-assertion failure and has no test-expect-fail equivalent --
-;; see lib/srfi/148.sld's own header and issue #1802 for status; this file
-;; should not be wired into run-all.sh until that's resolved.
+;; ~80s, superlinearly in definition count, independent of test count) was
+;; ALSO fixed separately (see lib/srfi/148.sld's own header); with all three
+;; blockers resolved, this file is wired into run-all.sh.
 
 (import (scheme base) (scheme process-context) (srfi 2) (srfi 64) (srfi 148))
 
 (test-begin "SRFI 148")
-
-;; Each name needs its own test-expect-fail call: passing several
-;; specifiers to ONE call ANDs them together (test-match-all), so a
-;; single batched call here would require a test to simultaneously BE both
-;; names at once -- impossible, hence matching nothing.
-(test-expect-fail "em-gensym")
-(test-expect-fail "em-generate-temporaries")
 
 (test-equal "Match quoted pattern with quoted element"
   10
