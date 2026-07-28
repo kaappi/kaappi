@@ -21,7 +21,23 @@ set -uo pipefail
 . "$(dirname "$0")/../shell-common.sh"
 
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
-ITERATIONS="${UNJOINED_THREAD_ITERATIONS:-50}"
+
+# Debug builds are ~500x slower for allocation-heavy work (see root
+# CLAUDE.md) and every iteration here pays full process/VM startup, so a
+# Debug CI job (40-minute cap) can't afford the same iteration count or
+# sleep duration as an optimized one. Scale both down when running under
+# Debug; a handful of iterations there is still enough to catch a
+# Debug-specific issue (e.g. a stricter safety check tripping) without
+# threatening the time budget. Everywhere else, run the fuller count — this
+# is a race, so more iterations means more confidence.
+build_mode="$("$KAAPPI" features --json 2> /dev/null | grep -o '"build_mode":"[^"]*"' | cut -d'"' -f4)"
+if [[ "$build_mode" == "Debug" ]]; then
+    ITERATIONS="${UNJOINED_THREAD_ITERATIONS:-8}"
+    SLEEP_SECONDS="0.2"
+else
+    ITERATIONS="${UNJOINED_THREAD_ITERATIONS:-50}"
+    SLEEP_SECONDS="0.5"
+fi
 
 PASS=0
 FAIL=0
@@ -36,10 +52,12 @@ cat > "$TMPDIR_TESTS/unjoined-finished.scm" << 'EOF'
 EOF
 
 # Child is still sleeping (i.e. still alive) when main's own code has nothing
-# left to run and process teardown begins.
-cat > "$TMPDIR_TESTS/unjoined-running.scm" << 'EOF'
+# left to run and process teardown begins. The sleep only needs to outlast
+# one process's own startup + top-level eval (single-digit milliseconds even
+# under Debug), so it can stay short without weakening the test.
+cat > "$TMPDIR_TESTS/unjoined-running.scm" << EOF
 (import (scheme base) (srfi 18))
-(thread-start! (make-thread (lambda () (thread-sleep! 2) 1)))
+(thread-start! (make-thread (lambda () (thread-sleep! $SLEEP_SECONDS) 1)))
 EOF
 
 run_many() {

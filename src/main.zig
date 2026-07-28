@@ -219,11 +219,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // be concurrently reading/writing the parent's shared symbol table and
     // globals map (both aliased into the child's own GC/VM). Freeing them out
     // from under it is a data race that corrupts the allocator's heap
-    // metadata. Skip teardown entirely in that case — normal process exit
-    // (which follows once mainImpl returns) tears down every OS thread anyway,
-    // so this only turns a corrupting free into the same benign leak already
-    // documented for a completed-but-never-joined thread.
-    defer if (!primitives_srfi18.hasLiveChildThreads()) {
+    // metadata, so skip our own teardown entirely in that case.
+    //
+    // That alone isn't sufficient: since kaappi links libc, both a normal
+    // return from `main` and `std.process.exit` route through glibc's real
+    // `exit()`, which runs atexit handlers and dynamic-loader finalizers —
+    // process-wide teardown machinery that can itself race a thread that is
+    // still genuinely executing (observed as a rare SIGSEGV distinct from the
+    // heap-corruption abort this fix's first half addresses). `_exit` skips
+    // all of that and goes straight to the `exit_group` syscall, so no
+    // teardown logic ever runs concurrently with the live child at all.
+    defer if (primitives_srfi18.hasLiveChildThreads()) {
+        std.c._exit(if (script_had_error) 1 else 0);
+    } else {
         vm.deinit();
         allocator.destroy(vm);
         gc.deinit();
