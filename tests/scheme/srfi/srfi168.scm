@@ -108,6 +108,48 @@
 (test-equal 1 (length friends-of-carol-via-alice))
 (test-equal "bob" (hashmap-ref (car friends-of-carol-via-alice) 'whom))
 
+;;; --- regression test for kaappi#1717 ---
+;;; Two nstores sharing one engine/store whose prefixes are initial
+;;; subsequences of each other (e.g. (list 0) vs (list 0 0)) must not leak
+;;; tuples across stores when one nstore's prefix-range scan runs.
+
+(define overlap-engine (make-default-engine))
+(define overlap-db (okvs-open "test-nstore-prefix-overlap"))
+;; short-store's prefix (list 0) is a byte-level initial subsequence of
+;; long-store's prefix (list 0 0) once both are packed with engine-pack.
+(define short-store (nstore overlap-engine (list 0) '(x y)))
+(define long-store (nstore overlap-engine (list 0 0) '(z)))
+
+;; Only long-store gets a tuple. Before the fix, short-store's prefix scan
+;; (using the raw packed bytes of (list 0) as its scan prefix) also matched
+;; long-store's key, since packing (list 0 0) starts with the same bytes as
+;; packing (list 0). Dropping short-store's 1-item prefix length from the
+;; unpacked (0 0 "long-val") left (0 "long-val") -- 2 elements, matching
+;; short-store's own 2-field arity -- so it was misread as belonging to
+;; short-store, x=0 y="long-val", even though short-store never got it.
+(nstore-add! overlap-db long-store (list "long-val"))
+
+(test-equal 0
+  (length (generator->pairs
+            (nstore-select overlap-db short-store (list (nstore-var 'x) (nstore-var 'y))))))
+(test-equal '("long-val")
+  (map (lambda (hm) (hashmap-ref hm 'z))
+       (generator->pairs (nstore-select overlap-db long-store (list (nstore-var 'z))))))
+
+;; Adding a genuine short-store tuple must be visible only there, and must
+;; not disturb long-store's own (still-correct) view.
+(nstore-add! overlap-db short-store (list "sx" "sy"))
+
+(define short-results
+  (generator->pairs (nstore-select overlap-db short-store (list (nstore-var 'x) (nstore-var 'y)))))
+(test-equal 1 (length short-results))
+(test-equal "sx" (hashmap-ref (car short-results) 'x))
+(test-equal "sy" (hashmap-ref (car short-results) 'y))
+
+(test-equal '("long-val")
+  (map (lambda (hm) (hashmap-ref hm 'z))
+       (generator->pairs (nstore-select overlap-db long-store (list (nstore-var 'z))))))
+
 ;;; --- worked example from the SRFI 168 document: a blog triplestore ---
 
 (define blog-engine (make-default-engine))
