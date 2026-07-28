@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785217242658,
+  "lastUpdate": 1785219484163,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "38fe09e15f2eb250ceae60c7a9d1d16f99661564",
-          "message": "Release v0.17.0",
-          "timestamp": "2026-07-18T01:02:14+05:30",
-          "tree_id": "199781ad3996e66f5891c6bba669de908d181aea",
-          "url": "https://github.com/kaappi/kaappi/commit/38fe09e15f2eb250ceae60c7a9d1d16f99661564"
-        },
-        "date": 1784318562815,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.428066,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.98952,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.933456,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.528655,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006446,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054337,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.543686,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071014,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.349275,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.981115,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.577916,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.426943,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.849591,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713908,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043561,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044128,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff6cffd5f9fb375a04e2db435657c7d90b6051a0",
+          "message": "Add SRFI 148 (eager syntax-rules), completing issue #1699's portable set (#1806)\n\nlib/srfi/148.sld is a pure portable port of the reference implementation\n(Marc Nieper-Wisskirchen, 2016, MIT): the CK-machine core, the portable\nidentifier-comparison helpers, and ~110 em- combinators combined into one\n134-definition library body. em-syntax-rules and several combinators\nresolve through SRFI 147's begin-wrapped define-syntax mechanism - this\nSRFI is why 147 was implemented. No engine changes ship here; the six\nengine bugs 148 surfaced were fixed separately (#1776/#1779 template\nunwrap gaps, #1787/#1790 usertext-marker spine gaps, #1796/#1797 the\nhead-position chain depth wall, #1802/#1804 the compile-cost cliff that\nmade the bare import cost 87 seconds - it now costs ~0.07s).\n\nThe port fixes 4 real, confirmed bugs in the reference implementation\nitself, none covered by its own test suite (em-append-map's stray `map`\ntoken; em-set-intersection and em-set-difference dropping 'compare in\ntheir 3+-list recursions; em-set= vacuously #t for 3+ arguments) - all\ndocumented with evidence in the library header, alongside the\n:call/:prepare workaround for Kaappi's zero-clause syntax-rules\nrestriction.\n\ntests/scheme/srfi/srfi148.scm is the reference's own test.sld ported\nverbatim (134 expected passes, 0.9s), with 8 test-expect-fail entries\nciting the two remaining general engine bugs #1800 and #1801. The\nfeatures/cond-expand surface needs no listing anywhere: the build-time\nlib/srfi scan and the derived srfi-<n> probe pick the new file up on\nrebuild (verified: `kaappi features` reports portable (160) including\n148, and (cond-expand (srfi-148 ...)) selects it).\n\nRefs #1699 (72, 211, 213 remain tracked there).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T11:05:43+05:30",
+          "tree_id": "00c6c043f04ee729ea98c5eb6ed2bea84345141c",
+          "url": "https://github.com/kaappi/kaappi/commit/ff6cffd5f9fb375a04e2db435657c7d90b6051a0"
+        },
+        "date": 1785219482633,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.520862,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.531307,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.933436,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.574719,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006415,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053633,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508907,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07046,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.536592,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.960708,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.605763,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.440773,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.830052,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.680032,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044315,
             "unit": "seconds"
           }
         ]
