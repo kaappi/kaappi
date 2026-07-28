@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785269179102,
+  "lastUpdate": 1785269210794,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "38163b7705f7c5b68c5d3a7787bd9eac8a994307",
-          "message": "Implement SRFI 261 (Portable SRFI Library Reference) (#1650)\n\n(srfi srfi-<n>) and (srfi <mnemonic>-<n>) now resolve to (srfi <n>) as\nan import-resolver fallback — no library file, per the spec's nature as\na pure naming convention. The trailing digits are authoritative\n(mnemonics collide by design: vectors-43 vs vectors-133), literal names\nwin when they exist, and sub-library tails pass through. The SRFI 97\ncolon form is deliberately unsupported: its decorative trailing\nidentifiers collide with real R7RS sub-libraries like (srfi 146 hash).\n\nThe rewrite lives at every reference-side resolution surface: import\n(processImportSet, covering library bodies, environment, eval, check,\nLSP), both cond-expand (library ...) entry points, and — path-level —\ntest_selection's import graph, where a 261-form import would otherwise\nlook built-in and silently drop its dep edge from kaappi test --changed.\ndefine-library names stay literal.\n\nA miss on a rewritten name reports the spelling the user wrote plus the\nresolved number; found-but-broken literal files keep their load-error\ndetail (#1010).\n\nCloses #1645\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T16:49:22Z",
-          "tree_id": "a41bca9b1580ce663dd36ade9c134e3cf6e24bc3",
-          "url": "https://github.com/kaappi/kaappi/commit/38163b7705f7c5b68c5d3a7787bd9eac8a994307"
-        },
-        "date": 1784395258246,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.350415,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.882726,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.91643,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.413215,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006335,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053711,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50836,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070862,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.480518,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.940968,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.620845,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432515,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.837134,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.727794,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044929,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042693,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67b32bd109dc9d6aeca4a4ba9b58d8c486649d79",
+          "message": "Raise an error for a syntax-rules ellipsis with no driving pattern variable (#1822)\n\nA template subform followed by `...` whose element contains no pattern\nvariable bound under an ellipsis in the pattern previously expanded\nsilently to zero copies instead of erroring (R7RS 4.3.2). The common\ntrigger is a typo'd bare `...` where the literal-ellipsis escape\n`(... ...)` was meant -- exactly what happened in #1787, where the\nresulting malformed expansion failed far away with a misleading \"not a\nprocedure\" error instead of pointing at the real problem.\n\ninstantiateEllipsis now raises EllipsisNoPatternVariable instead of\nsilently falling through with repeat_count 0. This is safe against the\nlegitimate \"ellipsis belongs to a nested syntax-rules template's own\ngrammar\" case (the SRFI 147/148 macro-generating-macro pattern): both\ncall sites already gate on `NESTED_SR_FLAG and !ellipsisReferencesOuter`\nbefore calling here, and ellipsisReferencesOuter is exactly the same\npredicate, over the same elem_template/bindings, as the count_set\ncomputation -- so reaching `!count_set` here is only possible when that\ncarve-out does not apply.\n\nThis also closes an adjacent gap lib/srfi/149.sld had documented and\ndeliberately deferred: a single pattern variable asked for more ellipsis\nnesting in the template than its own matched depth, with no sibling\nvariable to drive the extra level, hits the same code path one recursion\nlevel down.\n\nVerified against the full test suite (all SRFI test files, R7RS suite,\nhygiene tests): 2007 pass, 0 fail -- no library anywhere in the ecosystem\ndepended on the old silent-swallow behavior.\n\nFixes #1791\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T00:53:22+05:30",
+          "tree_id": "d86f8009bf9e093d3986a1bba748b3039f0d7cc5",
+          "url": "https://github.com/kaappi/kaappi/commit/67b32bd109dc9d6aeca4a4ba9b58d8c486649d79"
+        },
+        "date": 1785269208827,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378576,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.287525,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.609055,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.190545,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006533,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047063,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.32476,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05891,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.542245,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237148,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.599384,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438228,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811546,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.737392,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044536,
             "unit": "seconds"
           }
         ]
