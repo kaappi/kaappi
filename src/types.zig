@@ -1,8 +1,5 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const platform = @import("platform.zig");
-const build_options = @import("build_options");
-const diagnostics = @import("diagnostics.zig");
 
 /// A Scheme value packed into a 64-bit word (NaN-boxing).
 ///
@@ -452,144 +449,17 @@ pub const Flonum = struct {
     value: f64,
 };
 
-pub const CapturedLocal = struct {
-    name: []const u8,
-    slot: u16,
-};
+const types_macro = @import("types_macro.zig");
+pub const CapturedLocal = types_macro.CapturedLocal;
+pub const TransformerKind = types_macro.TransformerKind;
+pub const Transformer = types_macro.Transformer;
 
-/// Which expansion mechanism a Transformer uses (SRFI 211). `syntax_rules`
-/// is the R7RS pattern/template engine (literals/patterns/templates below);
-/// the other two are procedural — `proc` holds a Scheme procedure the
-/// expander invokes at macro-expansion time (expander.expandProceduralMacro):
-/// `er_macro` receives (form rename compare), `lisp_macro` receives the
-/// whole macro-use datum.
-pub const TransformerKind = enum(u8) { syntax_rules, er_macro, lisp_macro };
+const types_error = @import("types_error.zig");
+pub const ErrorObject = types_error.ErrorObject;
 
-pub const Transformer = struct {
-    header: Object,
-    literals: []Value,
-    patterns: []Value,
-    templates: []Value,
-    num_rules: u16,
-    kind: TransformerKind = .syntax_rules,
-    /// Procedural transformer body (kind != .syntax_rules); NIL otherwise.
-    /// GC-traced in all gc_collect switches alongside def_env_val.
-    proc: Value = NIL,
-    // Guards captureLocalsOnTransformer/computeBoundFreeRefs (compiler_macro.zig's
-    // finalizeTransformer) against running twice on the same object: a
-    // transformer resolved via a bare-keyword alias or begin-wrapped helper
-    // reference (SRFI 147) can be the exact same Value returned to two or
-    // more different binding sites, and each of those functions allocates
-    // and unconditionally overwrites a slice field with no free of the old
-    // one -- a second call on top of the first leaks the first allocation.
-    finalized: bool = false,
-    // Guards compileLetSyntax's R7RS 4.3.1 sibling-suppression snapshot
-    // (let_syntax_peer_names/vals below) the same way `finalized` guards
-    // captured_locals/bound_free_refs, and for a stronger reason than just
-    // avoiding a leak: recomputing it a second time is not merely
-    // redundant, it's WRONG. A transformer's free references must resolve
-    // according to its own true point of origin (the one let-syntax/
-    // letrec-syntax/define-syntax that actually created it), not whatever
-    // OTHER, unrelated let-syntax form later happens to alias it by name
-    // or by begin-wrapped reference (SRFI 147) -- confirmed via direct
-    // reproduction: redefining an outer binding between two such forms
-    // changed a shared helper's already-resolved answer, proving a second
-    // computation silently overwrote the first with a different, wrong
-    // snapshot rather than just wasting an allocation.
-    peers_computed: bool = false,
-    captured_locals: []CapturedLocal = &.{},
-    def_env: ?*std.StringHashMap(Value) = null,
-    def_env_val: Value = NIL,
-    /// Canonical name (e.g. "demo.srmac") of the library def_env belongs to,
-    /// set alongside it in compileDefineSyntax. Null exactly when def_env is
-    /// null (a top-level/REPL-defined macro, never a library one). Lets
-    /// renameForHygiene build a def_env_binding_prefix-marked reference that
-    /// survives being imported anywhere (#1812).
-    def_lib_name: ?[]const u8 = null,
-    custom_ellipsis: ?[]const u8 = null,
-    literal_bound: []u32 = &.{},
-    let_syntax_peer_names: [][]const u8 = &.{},
-    let_syntax_peer_vals: []Value = &.{},
-    bound_free_refs: [][]const u8 = &.{},
-    // Template free references that were lexically bound (compiler locals,
-    // including enclosing frames) at macro definition time. renameForHygiene
-    // keeps these unrenamed when the use site cannot reach them via the
-    // captured-locals slot alias (i.e. the reference crosses a lambda frame),
-    // so they resolve through the normal local/upvalue path instead.
-    def_site_local_refs: [][]const u8 = &.{},
-};
-
-pub const ErrorObject = struct {
-    pub const ErrorType = enum(u8) {
-        general,
-        file,
-        read,
-        join_timeout,
-        abandoned_mutex,
-        terminated_thread,
-        uncaught_exception,
-        channel_timeout,
-        /// SRFI 181: raised by a transcoded port's decode loop under
-        /// `raise` error-handling mode. Continuable -- see
-        /// primitives_control.raiseContinuable.
-        io_decoding,
-        /// SRFI 181: raised by a transcoded port's encode loop under
-        /// `raise` error-handling mode. Unreachable in practice for v1's
-        /// UTF-8-only codec (every valid Kaappi character encodes
-        /// successfully), kept for spec-completeness of the predicate/
-        /// accessor pair. uncaught_reason carries the offending character
-        /// for i/o-encoding-error-char.
-        io_encoding,
-    };
-
-    header: Object,
-    message: Value, // string
-    irritants: Value, // list
-    error_type: ErrorType = .general,
-    uncaught_reason: Value = VOID,
-    /// Stable diagnostic code (KEP-0005, #1504). Defaults to `.uncategorized`
-    /// for user errors — `(error ...)` — and any raise site not yet migrated;
-    /// implementation raise sites stamp a specific code. Carried on the object
-    /// so it survives catch/re-raise and is the seed the Phase-4
-    /// `error-object-code` accessor reads.
-    code: diagnostics.Code = .uncategorized,
-};
-
-pub const RecordType = struct {
-    header: Object,
-    name: []const u8,
-    /// Total field count including inherited fields -- sizes
-    /// RecordInstance.fields. Equals own_field_count for an R7RS record
-    /// type (no parent).
-    num_fields: u8,
-    /// Length of own_field_names / own_field_mutable below. 0 for a plain
-    /// R7RS record type, which doesn't track individual field metadata.
-    own_field_count: u8 = 0,
-    /// SRFI 237 inheritance. The only Value-bearing/heap-pointer field on
-    /// this struct -- traced in gc_collect.zig's referencesYoung,
-    /// markObjectContents, and markValueInner's worklist switch. Every
-    /// other new field below is raw owned memory, same category as `name`
-    /// already is, needing only objectSize/freeObject/deep-copy updates.
-    parent: ?*RecordType = null,
-    /// This type's OWN (non-inherited) field names, parallel to
-    /// own_field_mutable. Owned strings, duped like `name`.
-    own_field_names: [][]const u8 = &.{},
-    own_field_mutable: []bool = &.{},
-    /// SRFI 237 nongenerative identity. Owned string; null means
-    /// generative (every evaluation of the defining form is a distinct
-    /// type). RecordType is fully immutable after construction -- this is
-    /// set once at allocation, never mutated -- so no write barrier is
-    /// ever needed for any field on this struct.
-    uid: ?[]const u8 = null,
-    sealed: bool = false,
-    is_opaque: bool = false,
-};
-
-pub const RecordInstance = struct {
-    header: Object,
-    record_type: *RecordType,
-    fields: []Value,
-};
+const types_record = @import("types_record.zig");
+pub const RecordType = types_record.RecordType;
+pub const RecordInstance = types_record.RecordInstance;
 
 pub const Vector = struct {
     header: Object,
@@ -610,48 +480,9 @@ pub const Bytevector = struct {
     shared: ?*anyopaque = null,
 };
 
-/// SRFI 160's homogeneous numeric vector element types, minus `u8` (which
-/// stays a plain R7RS bytevector -- SRFI 160 explicitly recommends
-/// u8vector/bytevector identity, and this codebase's pre-existing SRFI 4
-/// port already relies on it).
-pub const NumericElementKind = enum(u8) {
-    s8,
-    u16,
-    s16,
-    u32,
-    s32,
-    u64,
-    s64,
-    f32,
-    f64,
-    c64,
-    c128,
-
-    /// Byte width of one element. c64/c128 are 2 consecutive f32s/f64s
-    /// (real, imag) packed contiguously -- never boxed inside the buffer.
-    pub fn elementWidth(self: NumericElementKind) usize {
-        return switch (self) {
-            .s8 => 1,
-            .u16, .s16 => 2,
-            .u32, .s32, .f32 => 4,
-            .u64, .s64, .f64, .c64 => 8,
-            .c128 => 16,
-        };
-    }
-};
-
-/// A single new heap type covers all 11 kinds (rather than 11 parallel
-/// ObjectTags) -- see NumericElementKind. Every field is raw numeric
-/// bytes with zero nested `Value` pointers, so this is a GC-trivial leaf
-/// type exactly like Bytevector: all three mark-graph switches in
-/// gc_collect.zig get a no-op arm, only objectSize/freeObject/deep-copy
-/// need real logic. No `shared`-buffer lever (Bytevector's KEP-0002 Lever
-/// D) -- that's a channel-crossing optimization this type doesn't need.
-pub const NumericVector = struct {
-    header: Object,
-    kind: NumericElementKind,
-    data: []u8,
-};
+const types_numeric = @import("types_numeric.zig");
+pub const NumericElementKind = types_numeric.NumericElementKind;
+pub const NumericVector = types_numeric.NumericVector;
 
 pub const Promise = struct {
     header: Object,
@@ -660,308 +491,32 @@ pub const Promise = struct {
     value: Value,
 };
 
-pub const Port = struct {
-    header: Object,
-    fd: platform.fd_t,
-    is_input: bool,
-    is_output: bool,
-    is_open: bool,
-    name: []const u8,
-    owns_name: bool, // if true, name is heap-allocated and must be freed
-    peek_byte: ?u8, // lead byte lookahead for peek-char
-    peek_extra: [3]u8 = .{ 0, 0, 0 }, // UTF-8 continuation bytes from peek-char
-    peek_extra_len: u2 = 0,
-    // String port fields:
-    is_string_port: bool = false,
-    string_data: ?[]const u8 = null, // for input string ports (owned copy)
-    string_pos: usize = 0, // read position for input string ports
-    string_out_buf: ?[]u8 = null, // for output string ports (owned, growable)
-    string_out_len: usize = 0, // total extent ever written (get-output-string reads [0..this))
-    string_out_cap: usize = 0,
-    /// SRFI 192 write cursor for output string ports, independent of
-    /// string_out_len: a write happens at this position, overwriting
-    /// existing bytes in place up to string_out_len and only growing it
-    /// if the write extends past the current end (matching how a
-    /// seekable fd-backed output port already behaves via the OS's own
-    /// lseek+write). Stays equal to string_out_len except after
-    /// set-port-position! seeks it elsewhere.
-    string_out_pos: usize = 0,
-    is_binary: bool = false,
-    read_buf: ?[]u8 = null,
-    read_buf_len: usize = 0,
-    /// SRFI-271 random port: when non-null this input port yields bytes from
-    /// a random generator rather than an fd or string buffer (owned; freed
-    /// with the port). See RandomGen below.
-    random_gen: ?*RandomGen = null,
-    // Non-blocking port state (KEP-0001 Phase 3):
-    /// O_NONBLOCK has been set on `fd` (lazily, the first time a read/write
-    /// runs while a fiber scheduler exists). Never set for fd 0/1/2.
-    nonblocking: bool = false,
-    /// Pending output not yet written to `fd` (owned, growable). The live
-    /// span is [write_buf_start..write_buf_len) — `start` records drain
-    /// progress so a write that would block can suspend mid-buffer and a
-    /// retry resumes with the remaining slice.
-    write_buf: ?[]u8 = null,
-    write_buf_start: usize = 0,
-    write_buf_len: usize = 0,
-    /// Windows-only fd-kind state (#1608); always defaults elsewhere.
-    fd_state: packed struct(u8) {
-        /// maybeSetNonblocking's fd-kind probe already ran for this port,
-        /// whatever its outcome — the probe is a handful of syscalls and
-        /// must not repeat on every read of an ordinary file port.
-        probe_done: bool = false,
-        /// `fd` wraps a SOCKET (fdKind probe, #1608 stage 1), so
-        /// reads/writes must route through platform.sockRecv/sockSend —
-        /// CRT _read/_write cannot operate on (overlapped) SOCKET handles
-        /// at all, blocking or not.
-        is_socket: bool = false,
-        /// `fd` wraps a non-socket pipe end (#1608 stage 2). Under a
-        /// scheduler the port enters *emulated* non-blocking mode
-        /// (`nonblocking` set with no OS-level flip): reads/writes route
-        /// through platform.pipeRead/pipeWrite, whose peek/quota
-        /// pre-checks synthesize the EAGAIN that parks the fiber, and the
-        /// reactor re-runs the same checks on a poll cadence for the
-        /// wakeup.
-        is_pipe: bool = false,
-        _pad: u5 = 0,
-    } = .{},
-    /// SRFI 181: non-null when this port's I/O is backed by user-supplied
-    /// Scheme procedures rather than an fd/string/random buffer. Owned;
-    /// freed with the port (see freeObject's .port arm in gc_collect.zig) --
-    /// same shape as random_gen above, except its fields are Values, so it
-    /// also needs tracing (see markPortValues in gc_collect.zig). None of
-    /// these fields are ever mutated after construction (SRFI 181 defines
-    /// no setters), so no gc.writeBarrier call is ever needed for them.
-    custom_backend: ?*CustomBacking = null,
-    /// SRFI 181: non-null when this port is a transcoded (textual) view
-    /// over another (binary) port -- decodes/encodes bytes<->characters
-    /// via `codec`, translating line endings per `eol_style` and handling
-    /// invalid input per `error_mode`. The wrapped port is read/written
-    /// via direct Zig calls (readOneByte/portWriteBytes in
-    /// primitives_io.zig), never a Scheme callback, so none of
-    /// custom_backend's reentrant-call restrictions apply here. Owned;
-    /// freed with the port, same as custom_backend above -- and like it,
-    /// never mutated after construction, so no write barrier is needed.
-    transcode: ?*TranscodeState = null,
-};
+const types_port = @import("types_port.zig");
+pub const Port = types_port.Port;
+pub const Codec = types_port.Codec;
+pub const EolStyle = types_port.EolStyle;
+pub const ErrorMode = types_port.ErrorMode;
+pub const TranscodeState = types_port.TranscodeState;
+pub const CustomBacking = types_port.CustomBacking;
+pub const RandomKind = types_port.RandomKind;
+pub const RandomGen = types_port.RandomGen;
 
-/// SRFI 181: v1 supports UTF-8 only -- functionally the only variant this
-/// enum can hold today, but kept as an enum (not hardcoded) so a future
-/// latin-1/utf-16 codec is a matter of adding a variant, not restructuring
-/// this struct.
-pub const Codec = enum { utf8 };
-
-/// SRFI 181 eol-style: `none` performs no line-ending translation in
-/// either direction. On decode, `lf`/`crlf` both collapse any recognized
-/// line ending (bare CR, bare LF, or CRLF) to a single #\newline -- the
-/// distinction only matters on encode, where `lf` emits a bare #\newline
-/// and `crlf` emits the two-byte CRLF sequence.
-pub const EolStyle = enum { none, lf, crlf };
-
-/// SRFI 181 error-handling mode for decoding/encoding failures. `replace`
-/// substitutes U+FFFD (or '?' if unrepresentable) and continues; `raise`
-/// signals a continuable i/o-decoding-error?/i/o-encoding-error? condition
-/// (see primitives_control.raiseContinuable) and continues afterward.
-/// Encoding cannot actually fail under the only codec v1 ships (every
-/// valid Kaappi character has a UTF-8 encoding by construction), so
-/// error_mode is only ever consulted on the decode path in practice.
-pub const ErrorMode = enum { replace, raise };
-
-pub const TranscodeState = struct {
-    wrapped_port: Value, // the only Value field -- needs GC tracing
-    codec: Codec,
-    eol_style: EolStyle,
-    error_mode: ErrorMode,
-};
-
-/// Callback procedures backing a SRFI 181 custom port. Each is either a
-/// procedure or `types.FALSE` ("absent" -- e.g. an input-only port has no
-/// write_proc). port.is_binary (already on Port) distinguishes a custom
-/// binary port (bytevector read!/write! buffers) from a custom textual
-/// port (string buffers); nothing here duplicates that flag.
-pub const CustomBacking = struct {
-    read_proc: Value = FALSE,
-    write_proc: Value = FALSE,
-    get_position_proc: Value = FALSE,
-    set_position_proc: Value = FALSE,
-    close_proc: Value = FALSE,
-    flush_proc: Value = FALSE,
-};
-
-/// Which kind of source backs a SRFI-271 random binary input port.
-pub const RandomKind = enum(u8) { randomized, determinized };
-
-/// Generator state behind a SRFI-271 random port (owned by Port.random_gen).
-/// Holds no Scheme Values, so the GC never traces it — only frees it.
-///
-/// Determinized ports run a xoshiro256** PRNG. Its full observable state is
-/// the four state words `s` plus the current 8-byte output block `out` and
-/// `out_pos`, the number of bytes of that block already delivered; this is
-/// exactly what (random-port-state ...) captures, so two ports with equal
-/// state produce identical byte streams. `out` is a pure function of `s`
-/// (the advance step is a bijection), so equal `(s, out_pos)` always implies
-/// equal `out` — state equality via a byte-for-byte snapshot is canonical.
-///
-/// Randomized ports refill each block from OS entropy and expose no state.
-pub const RandomGen = struct {
-    kind: RandomKind,
-    s: [4]u64 = .{ 0, 0, 0, 0 },
-    out: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
-    /// 8 means "no pending block"; the next byte forces a refill. A fresh
-    /// determinized generator starts here so the seed words drive the first
-    /// output block.
-    out_pos: u8 = 8,
-
-    fn xoshiroNext(self: *RandomGen) u64 {
-        const s = &self.s;
-        const result = std.math.rotl(u64, s[1] *% 5, 7) *% 9;
-        const t = s[1] << 17;
-        s[2] ^= s[0];
-        s[3] ^= s[1];
-        s[1] ^= s[2];
-        s[0] ^= s[3];
-        s[2] ^= t;
-        s[3] = std.math.rotl(u64, s[3], 45);
-        return result;
-    }
-
-    /// Next pseudorandom byte, or null when a randomized port's OS entropy
-    /// source is unavailable (rather than emitting predictable bytes under a
-    /// cryptographic-quality contract). Determinized ports never fail and
-    /// never return null; a random port never reaches EOF. On a null the
-    /// output block is left un-advanced so a retry re-attempts the refill.
-    pub fn nextByte(self: *RandomGen) ?u8 {
-        if (self.out_pos >= 8) {
-            switch (self.kind) {
-                .randomized => if (!platform.osRandomBytes(&self.out)) return null,
-                .determinized => std.mem.writeInt(u64, &self.out, self.xoshiroNext(), .little),
-            }
-            self.out_pos = 0;
-        }
-        const b = self.out[self.out_pos];
-        self.out_pos += 1;
-        return b;
-    }
-};
-
-// ---------------------------------------------------------------------------
-// Continuation types (R7RS 6.10)
-// ---------------------------------------------------------------------------
-
-/// Saved call frame for continuation capture.
-pub const SavedFrame = struct {
-    closure: ?*Closure,
-    native: ?*NativeFn,
-    code: []const u8,
-    ip: usize,
-    base: u32,
-    dst: u16,
-    saved_wind_count: u16,
-    // Mirrors CallFrame.returns_to_native (see vm.zig): the frame's result
-    // belongs to a re-entrant native Zig caller, so returning it into a
-    // caller frame register after that native has died is an error.
-    returns_to_native: bool,
-    // Frame birth id (see CallFrame.seq in vm.zig). The u64 also forces
-    // 8-byte alignment on wasm32, keeping the struct size a multiple of
-    // @sizeOf(Value) without manual padding.
-    seq: u64,
-};
-
-/// Saved exception handler for continuation capture. Deliberately the *same*
-/// type as the live `ExceptionHandler` so `captureContinuation` can hand the
-/// live handler stack straight to `allocContinuation` — no per-capture
-/// conversion buffer on a path that runs once per call/cc.
-pub const SavedHandler = ExceptionHandler;
-
-/// Saved dynamic-wind record.
-pub const WindRecord = struct {
-    before: Value,
-    after: Value,
-};
-
-// --- Live execution frame types (used by VM, fiber, and GC) ---
-
-pub const INITIAL_FRAME_CAPACITY: usize = build_options.max_frames;
-pub const INITIAL_REGISTER_CAPACITY: usize = build_options.max_registers;
-pub const MAX_FRAME_LIMIT: usize = 32768;
-pub const MAX_REGISTER_LIMIT: usize = 65536;
-pub const MAX_HANDLERS = 64;
-pub const MAX_WINDS = 64;
-
-/// Per-fiber initial storage (KEP-0001 Phase 2, resolved question 5) —
-/// deliberately much smaller than the VM's own INITIAL_REGISTER_CAPACITY/
-/// INITIAL_FRAME_CAPACITY. Fibers grow their own arrays geometrically as
-/// needed (see FiberScheduler.saveCurrentFiber); most fibers never touch
-/// more than a handful of frames, so starting small keeps per-fiber
-/// preallocation cheap even with thousands of concurrently-live fibers.
-pub const INITIAL_FIBER_REGISTER_CAPACITY: usize = 256;
-pub const INITIAL_FIBER_FRAME_CAPACITY: usize = 32;
-
-pub const ExceptionHandler = struct {
-    handler: Value,
-    frame_count: usize,
-    // SRFI 248 (with-unwind-handler): when true, raise/raise-continuable
-    // invoke this handler in place *without* popping it, so a continuation
-    // captured during handling snapshots the handler and a later resume
-    // re-arms it. Ordinary (scheme base) handlers leave this false.
-    sticky: bool = false,
-};
-
-pub const CallFrame = struct {
-    closure: ?*Closure,
-    native: ?*NativeFn = null,
-    code: []const u8,
-    ip: usize,
-    base: u32,
-    dst: u16,
-    saved_wind_count: u16 = 0,
-    returns_to_native: bool = false,
-    seq: u64 = 0,
-
-    pub fn frameWindow(self: CallFrame) usize {
-        return if (self.closure) |cls| blk: {
-            const lc = cls.func.locals_count;
-            break :blk if (lc == 0) 256 else @as(usize, lc);
-        } else 256;
-    }
-};
-
-/// A captured continuation (R7RS call/cc).
-/// Contains a snapshot of the VM state at the point of capture.
-pub const Continuation = struct {
-    header: Object,
-    registers: []Value,
-    frames: []SavedFrame,
-    frame_count: usize,
-    handlers: []SavedHandler,
-    handler_count: usize,
-    wind_records: []WindRecord,
-    wind_count: usize,
-    dst_reg: u16, // register offset within frame where result goes
-    dst_base: u32, // base register of the return frame
-    // Single backing allocation holding registers, frames, handlers and winds
-    // contiguously. The four slices above are views into this buffer; it is
-    // freed as one block on sweep. Empty for escape continuations.
-    backing: []Value,
-    // --- Escape continuations (call/ec) ---
-    // An escape continuation captures no snapshot: it only records the stack
-    // depths to unwind *back* to (the call/ec point is still live on the stack).
-    // When is_escape is true the four slices above are empty and frame_count/
-    // handler_count/wind_count are 0 (so GC mark loops are no-ops); the unwind
-    // targets live in the target_* fields below. `valid` is cleared once the
-    // call/ec call returns, after which invoking the continuation is an error.
-    is_escape: bool = false,
-    valid: bool = true,
-    target_frame_count: usize = 0,
-    target_wind_count: usize = 0,
-    target_handler_count: usize = 0,
-};
-
-/// Multiple return values (R7RS values/call-with-values).
-pub const MultipleValues = struct {
-    header: Object,
-    values: []Value,
-};
+const types_continuation = @import("types_continuation.zig");
+pub const SavedFrame = types_continuation.SavedFrame;
+pub const SavedHandler = types_continuation.SavedHandler;
+pub const WindRecord = types_continuation.WindRecord;
+pub const INITIAL_FRAME_CAPACITY = types_continuation.INITIAL_FRAME_CAPACITY;
+pub const INITIAL_REGISTER_CAPACITY = types_continuation.INITIAL_REGISTER_CAPACITY;
+pub const MAX_FRAME_LIMIT = types_continuation.MAX_FRAME_LIMIT;
+pub const MAX_REGISTER_LIMIT = types_continuation.MAX_REGISTER_LIMIT;
+pub const MAX_HANDLERS = types_continuation.MAX_HANDLERS;
+pub const MAX_WINDS = types_continuation.MAX_WINDS;
+pub const INITIAL_FIBER_REGISTER_CAPACITY = types_continuation.INITIAL_FIBER_REGISTER_CAPACITY;
+pub const INITIAL_FIBER_FRAME_CAPACITY = types_continuation.INITIAL_FIBER_FRAME_CAPACITY;
+pub const ExceptionHandler = types_continuation.ExceptionHandler;
+pub const CallFrame = types_continuation.CallFrame;
+pub const Continuation = types_continuation.Continuation;
+pub const MultipleValues = types_continuation.MultipleValues;
 
 /// Complex number (R7RS 6.2.6).
 pub const Complex = struct {
@@ -979,123 +534,18 @@ pub const ParameterObject = struct {
     converter: Value, // NIL or a conversion procedure
 };
 
-// ---------------------------------------------------------------------------
-// FFI types (C Foreign Function Interface)
-// ---------------------------------------------------------------------------
+const types_ffi = @import("types_ffi.zig");
+pub const FfiType = types_ffi.FfiType;
+pub const FfiLibrary = types_ffi.FfiLibrary;
+pub const FfiFunction = types_ffi.FfiFunction;
+pub const FfiCallback = types_ffi.FfiCallback;
 
-pub const FfiType = enum(u8) {
-    int, // c_int (i32)
-    long, // c_long (i64)
-    double, // f64
-    float, // f32
-    string, // [*:0]const u8
-    pointer, // *anyopaque
-    void_type, // void
-    bool_type, // c_int (0/1)
-    uint8, // u8
-    int8, // i8
-    int16, // i16
-    int32, // i32
-    int64, // i64
-    uint16, // u16
-    uint32, // u32
-    uint64, // u64
-    size_type, // usize
-    char_type, // u8
-};
-
-pub const FfiLibrary = struct {
-    header: Object,
-    handle: ?*anyopaque,
-    name: []const u8,
-};
-
-pub const FfiFunction = struct {
-    header: Object,
-    symbol: *anyopaque,
-    library: Value,
-    name: []const u8,
-    param_types: []FfiType,
-    return_type: FfiType,
-    param_count: u8,
-};
-
-pub const FfiCallback = struct {
-    header: Object,
-    closure: Value,
-    slot_index: u8,
-    fn_ptr: *anyopaque,
-    active: bool,
-};
-
-pub const Channel = struct {
-    header: Object,
-    head: Value,
-    tail: Value,
-    /// Local queue length (KEP-0002 §6) -- O(1) capacity admission checks
-    /// instead of walking the head/tail pair list. Unused once `shared` is
-    /// set (the SharedChannel tracks its own queue_len).
-    queue_len: u32 = 0,
-    /// null = unbounded (today's semantics). 0 = rendezvous (KEP-0002 §6
-    /// as amended, kaappi#1601): send admission is bounded by `rv_demand`
-    /// instead of a static capacity. Local-representation only; carried
-    /// into the SharedChannel by promoteChannel on promotion.
-    capacity: ?u32 = null,
-    /// Rendezvous demand (capacity == 0 only): the number of receivers
-    /// currently committed to this channel — each parked receive holds one
-    /// demand token (Fiber.rv_demand_on), acquired at its park decision and
-    /// released on every terminal exit. The send-admission bound for a
-    /// rendezvous channel. Meaningless (always 0) for capacity != 0.
-    rv_demand: u32 = 0,
-    /// KEP-0002 §6: end-of-stream. Local-representation only; carried into
-    /// the SharedChannel by promoteChannel on promotion.
-    closed: bool = false,
-    /// Set exactly once, by the owning thread (KEP-0002 §2). Actually
-    /// `*shared_channel.SharedChannel` once promoted; kept opaque so
-    /// types.zig -- the dependency-free base layer -- doesn't import a
-    /// feature module, matching the FfiLibrary.handle / DirectoryObject.dir
-    /// precedent for external handles.
-    shared: ?*anyopaque = null,
-};
-
-// ---------------------------------------------------------------------------
-// SRFI-18 types (mutex, condition variable, time)
-// ---------------------------------------------------------------------------
-
-pub const Mutex = struct {
-    header: Object,
-    name: Value,
-    owner: Value,
-    locked: bool,
-    abandoned: bool,
-    specific: Value,
-};
-
-pub const ConditionVariable = struct {
-    header: Object,
-    name: Value,
-    specific: Value,
-    // Bumped (atomically) by condition-variable-signal!/-broadcast!. Each OS
-    // thread runs its own independent FiberScheduler, so a waiter parked by a
-    // *different* thread never observes that thread's local wakeOneCondVarWaiter/
-    // wakeAllCondVarWaiters bookkeeping; polling this counter is how a
-    // cross-thread waiter detects a signal happened.
-    signal_generation: u64 = 0,
-};
-
-pub const TimeType = enum(u8) {
-    utc,
-    tai,
-    monotonic,
-    duration,
-};
-
-pub const Srfi18Time = struct {
-    header: Object,
-    seconds: i64,
-    nanoseconds: i64,
-    time_type: TimeType,
-};
+const types_threading = @import("types_threading.zig");
+pub const Channel = types_threading.Channel;
+pub const Mutex = types_threading.Mutex;
+pub const ConditionVariable = types_threading.ConditionVariable;
+pub const TimeType = types_threading.TimeType;
+pub const Srfi18Time = types_threading.Srfi18Time;
 
 // ---------------------------------------------------------------------------
 // Hash table (SRFI-69)
@@ -1132,68 +582,14 @@ pub const HashTable = struct {
     hash_fn: Value, // Scheme hash procedure
 };
 
-// ---------------------------------------------------------------------------
-// Bignum (arbitrary-precision integer)
-// ---------------------------------------------------------------------------
+pub const Bignum = types_numeric.Bignum;
+pub const Rational = types_numeric.Rational;
 
-pub const Bignum = struct {
-    header: Object,
-    limbs: []u64, // little-endian limbs (magnitude)
-    len: usize, // active limbs count
-    positive: bool, // sign (true = positive/zero)
-};
-
-// ---------------------------------------------------------------------------
-// Rational (exact fraction p/q, always in lowest terms, q > 1)
-// ---------------------------------------------------------------------------
-
-pub const Rational = struct {
-    header: Object,
-    numerator: Value, // fixnum or bignum
-    denominator: Value, // fixnum or bignum (always positive, > 1)
-};
-
-pub const FileInfo = struct {
-    header: Object,
-    size: i64,
-    mtime: i64,
-    atime: i64,
-    ctime: i64,
-    dev: i64,
-    ino: i64,
-    nlinks: i64,
-    rdev: i64,
-    blksize: i64,
-    blocks: i64,
-    mode: u32,
-    uid: u32,
-    gid: u32,
-    file_type: FileType,
-
-    pub const FileType = enum(u8) { regular, directory, symlink, fifo, socket, char_device, block_device, other };
-};
-
-pub const UserInfo = struct {
-    header: Object,
-    name: []const u8,
-    uid: u32,
-    gid: u32,
-    home_dir: []const u8,
-    shell: []const u8,
-    full_name: []const u8,
-};
-
-pub const GroupInfo = struct {
-    header: Object,
-    name: []const u8,
-    gid: u32,
-};
-
-pub const DirectoryObject = struct {
-    header: Object,
-    dir: ?*anyopaque,
-    include_dotfiles: bool,
-};
+const types_filesystem = @import("types_filesystem.zig");
+pub const FileInfo = types_filesystem.FileInfo;
+pub const UserInfo = types_filesystem.UserInfo;
+pub const GroupInfo = types_filesystem.GroupInfo;
+pub const DirectoryObject = types_filesystem.DirectoryObject;
 
 pub const RandomSource = struct {
     header: Object,
@@ -1207,62 +603,11 @@ pub const SchemeEnvironment = struct {
     immutable: bool = false, // true for (environment ...) per R7RS 6.12
 };
 
-// ---------------------------------------------------------------------------
-// SRFI-254 (Ephemerons and Guardians)
-// ---------------------------------------------------------------------------
-
-/// An ephemeron holds `value` alive only while `key` is reachable through a
-/// path that does not pass through this ephemeron's value field. When the key
-/// becomes unreachable the garbage collector *breaks* the ephemeron: it sets
-/// `broken`, and clears `key` and `value` to FALSE (clearing the value keeps
-/// `ephemeron-value` memory-safe once the value it referenced is reclaimable —
-/// see gc_collect.processWeakRefs). The value field is retained (marked)
-/// during collection only when the key is reachable, which is what a plain
-/// weak-key pair cannot do: an ephemeron correctly breaks even when its value
-/// references its key.
-pub const Ephemeron = struct {
-    header: Object,
-    key: Value,
-    value: Value,
-    broken: bool = false,
-};
-
-/// One registration in a guardian: `watched` is the object observed for
-/// unreachability (held weakly), `payload` is the representative returned by a
-/// zero-argument guardian call once the element is resurrected. For the
-/// one-argument register form `payload == watched`.
-pub const GuardEntry = struct {
-    watched: Value,
-    payload: Value,
-};
-
-/// A guardian (SRFI-254). Invoked as a procedure: `(g obj [rep])` registers an
-/// element, `(g)` removes and returns a resurrected element's representative
-/// (or `#f`). `registered` elements are held weakly; when the collector proves
-/// a `watched` object unreachable it resurrects the element (marking both
-/// fields) and moves it to `ready`, where `(g)` can retrieve it.
-///
-/// A transport cell guardian (`is_transport`) is the degenerate case on
-/// Kaappi's non-moving collector: keys never move, so no cell is ever
-/// transported. Its `registered` cells are held *strongly* (marked by the GC),
-/// `ready` stays empty, and `(tg)` always returns `#f`.
-pub const Guardian = struct {
-    header: Object,
-    is_transport: bool,
-    registered: std.ArrayList(GuardEntry) = .empty,
-    ready: std.ArrayList(GuardEntry) = .empty,
-};
-
-/// A transport cell (SRFI-254). On a non-moving collector its `key` and
-/// `value` are ordinary strong fields and it never breaks (`broken` stays
-/// false); it exists so code written against transport cell guardians ports
-/// unchanged, using `current-hash` for stable eq?-hashing.
-pub const TransportCell = struct {
-    header: Object,
-    key: Value,
-    value: Value,
-    broken: bool = false,
-};
+const types_weakrefs = @import("types_weakrefs.zig");
+pub const Ephemeron = types_weakrefs.Ephemeron;
+pub const GuardEntry = types_weakrefs.GuardEntry;
+pub const Guardian = types_weakrefs.Guardian;
+pub const TransportCell = types_weakrefs.TransportCell;
 
 // ---------------------------------------------------------------------------
 // Type predicates on Value

@@ -42,7 +42,7 @@ Source code
 
 | File | ~Lines | Responsibility |
 |------|--------|---------------|
-| `types.zig` | 650 | Value type, heap object structs, ObjectTag enum, opcodes |
+| `types.zig` | 1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates; re-export hub for 11 `types_*.zig` heap-type domain files (`types_ffi.zig`, `types_port.zig`, `types_continuation.zig`, ... — see `CLAUDE.md`'s File organization table) |
 | `memory.zig` | 650 | GC allocator, alloc/mark/free for all heap types |
 | `reader.zig` | 700 | S-expression parser, Unicode lexing (core) |
 | `reader_tokens.zig` | 550 | Tokenizer / lexer (numbers, strings, identifiers) |

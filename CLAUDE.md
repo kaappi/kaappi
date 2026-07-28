@@ -242,13 +242,39 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 ### Core runtime
 | File | Lines | Responsibility |
 |------|-------|---------------|
-| `types.zig` | ~500 | Value type, heap object structs, ObjectTag enum, opcodes |
+| `types.zig` | ~1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
 | `memory.zig` | ~1200 | GC struct, heap type allocators, write barrier, rooting |
 | `gc_collect.zig` | — | GC mark/sweep/free (delegated from memory.zig) |
 | `gc_deep_copy.zig` | — | Cross-thread deep copy (delegated from memory.zig) |
 | `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
+
+### Heap-type domain files (split into 11 files, kaappi#1731)
+
+`types.zig` re-exports every name below (`pub const Foo = types_x.Foo;`), so
+existing `types.Foo` call sites across the codebase are unaffected by which
+file actually defines a given type. Fundamental types with no natural
+domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
+`Vector`, `Bytevector`, `Promise`, `Complex`, `ParameterObject`,
+`SchemeEnvironment`, `RandomSource`, ...) stay directly in `types.zig`.
+
+| File | Heap types |
+|------|-----------|
+| `types_macro.zig` | `Transformer`, `TransformerKind`, `CapturedLocal` |
+| `types_error.zig` | `ErrorObject` |
+| `types_record.zig` | `RecordType`, `RecordInstance` |
+| `types_numeric.zig` | `NumericVector`, `NumericElementKind` (SRFI 160), `Bignum`, `Rational` |
+| `types_port.zig` | `Port` and its satellites: `Codec`, `EolStyle`, `ErrorMode`, `TranscodeState` (SRFI 181), `CustomBacking` (SRFI 181), `RandomKind`, `RandomGen` (SRFI 271) |
+| `types_continuation.zig` | `Continuation`, `CallFrame`, `SavedFrame`, `SavedHandler`, `ExceptionHandler`, `WindRecord`, `MultipleValues`, frame/register capacity constants |
+| `types_ffi.zig` | `FfiLibrary`, `FfiFunction`, `FfiCallback`, `FfiType` |
+| `types_threading.zig` | `Channel`, `Mutex`, `ConditionVariable`, `Srfi18Time`, `TimeType` |
+| `types_hashtable.zig` | `HashTable`, `HashEntry`, `HashEntryState`, `CompareMode` (SRFI 69) |
+| `types_filesystem.zig` | `FileInfo`, `UserInfo`, `GroupInfo`, `DirectoryObject` (SRFI 170) |
+| `types_weakrefs.zig` | `Ephemeron`, `Guardian`, `GuardEntry`, `TransportCell` (SRFI 254) |
+
+`Fiber` (`fiber.zig`) predates this split and follows neither convention:
+its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 
 ### Compiler & IR (9 files)
 | File | Responsibility |
@@ -899,7 +925,12 @@ re-export, IR tests, and tail position handling.
    the `header` field: build them with `makePointer(&x.header)` — the
    `*Object` parameter type makes passing the struct pointer a compile
    error — and recover the struct with `Object.as()`/`@fieldParentPtr`,
-   never a direct cast.
+   never a direct cast. Define it in the matching `types_*.zig` domain
+   file (see the table above) if one fits, or directly in `types.zig` if
+   it's a core type or doesn't fit an existing domain; either way, add a
+   `pub const MyType = types_x.MyType;` re-export in `types.zig` if it
+   isn't defined there directly, and reference the new type's bare name
+   (not `types_x.MyType`) from `Object.expectedTag()`'s switch.
 3. Add `allocXxx` in `src/memory.zig`.
 4. Handle the new tag in the 5 exhaustive per-tag switches in
    `src/gc_collect.zig` (all real function names, not the stale
