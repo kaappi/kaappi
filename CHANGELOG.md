@@ -73,8 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Every nstore's prefix is now wrapped in a self-delimiting length header —
   the packed prefix's own byte length, itself packed via `engine-pack`,
   which is prefix-free across distinct non-negative integers — so one
-  nstore's scan can no longer pull in a different nstore's tuples
-  regardless of how their logical prefixes relate (#1717).
+  nstore's scan can no longer pull in a different nstore's tuples for any
+  two *distinct* prefixes, including one being an initial subsequence of
+  another. Two nstores given the exact same prefix remain
+  indistinguishable, which was never a supported way to tell them apart
+  (#1717).
 
 - **Library import silently let colliding export names resolve to
   whichever import came last** — `(import (srfi 28) (srfi 29))`, which both
