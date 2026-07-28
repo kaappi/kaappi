@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785270243369,
+  "lastUpdate": 1785270936545,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5564ae08c473c6929dddd2695dacd719968e48c8",
-          "message": "Add Windows x86_64 (x64) support (#1651)\n\n* Add Windows x86_64 (x64) support\n\nThe platform layer was already OS-gated, so both Windows architectures\nshare the same code; this wires x86_64-windows through CI, releases,\nand docs, verified end-to-end on the Windows 11 reference VM via the\nbuilt-in x64 emulation layer: unit suite 1166/0 (15 skips), thottam\nsuite, R7RS, all 436 .scm suite files, shell suites (34 pass / 15 skip,\nsame profile as aarch64), acceptance.sh 34/34, and the native-backend\ne2e 38/38 with the stock zig-x86_64-windows-0.16.0 as linker. The\naarch64-only toolchain bugs do not apply on x64: #1613 (native builds\naccess-violate) — kaappi builds natively from clean source on the box\n(verified, target x86_64-windows-gnu) — and #1607 (stripped kaappi.exe\ncrashes), so the release row ships stripped like every other platform.\n\nCI: windows-cross becomes an aarch64/x86_64 matrix (now also staging\nkaappi_rt.lib in the artifacts), and a windows-x64-test job executes\nthe same suites as windows-arm-test on windows-latest, then installs\nthe natively-working x64 Zig and runs tests/e2e/run-e2e.ps1 — the\nkaappi compile leg the arm job cannot have until the 0.17.0 bump.\nReleases gain the x86_64-windows row; post-release gains a real\nacceptance leg for it (acceptance.sh under Git Bash on windows-latest).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Gate post-release summary on the new Windows x64 acceptance leg\n\nsummary's needs list and results string enumerate the jobs explicitly;\nwithout test-windows-x64 in both, a failing Windows leg would not fail\nthe workflow.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fix silent truncation of CLI arguments past the 64th (#1652)\n\nOptions collected script args into a fixed [64][]const u8 and dropped\neverything past it with no diagnostic, so `kaappi fmt` over the\n573-file corpus only ever formatted/checked the first 64 files, a\nscript's (command-line) truncated at 64, and `kaappi test` ignored\nsuite paths past the cap. The fmt.sh corpus phases have therefore\nnever validated files 65+ — POSIX xargs fits all 573 paths in one\ninvocation. windows-arm-test on PR #1651 exposed it: GitHub's large\njob environment makes MSYS xargs split the list in two, `fmt` vs\n`fmt --check` argv lengths split at different boundaries, and the\nfiles in the gap were formatted by neither pass but flagged by the\nrecheck.\n\nScript args now grow in a c_allocator-backed slice — the same\nimmortal-argv convention platform.argsIterate uses — with a loud\nusage error on OOM. Regression tests: a 129-argument parse test in\ncli.zig, and a 70-file --check invocation in fmt.sh whose 70th file\nis the only unformatted one.\n\nRunning the corpus in full for the first time surfaced a second\nlatent bug: the fmt CST lexer did not know SRFI 267 raw strings, so\nthe round-trip guard refused srfi267.scm (\"formatting would change\nthe program\"). scanRawString now carves `#\"X\" content \"X\"` exactly\nlike reader_tokens.readRawString, as one verbatim atom; multiline\nraw strings never inline (computeMeasure already breaks on embedded\nnewlines). Covered by new tests_fmt.zig cases including an\nunterminated-raw-string diagnostic.\n\nThe --lib-path cap of 16 has the same silent-drop shape and is\ntracked separately (#1653).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: stale readiness docs, platform facade wording, strict summary gate\n\nThree CodeRabbit findings on PR #1651, all valid:\n\n- src/platform.zig's module header still described fd readiness as\n  socket-only with pipes degrading to blocking reads — stale since the\n  polled pipe backend landed (#1608 stage 2); it now describes the\n  socket/pipe/file split and names the platform_win*.zig helpers.\n- windows.md and CLAUDE.md claimed every syscall-level difference lives\n  in one file; platform.zig is the facade, with the Windows ABI and\n  socket/pipe helpers in platform_win{,_sock,_pipe}.zig.\n- post-release.yml's summary only rejected `failure`, so a cancelled or\n  skipped acceptance leg still reported success; every needed result\n  must now be exactly `success`.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T01:25:38+05:30",
-          "tree_id": "9284fe94a53f47b4381393c144ea99a642071492",
-          "url": "https://github.com/kaappi/kaappi/commit/5564ae08c473c6929dddd2695dacd719968e48c8"
-        },
-        "date": 1784406511620,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.062563,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.651638,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920618,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.415552,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00684,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052849,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508402,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067894,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.246658,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.983873,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.515634,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.479972,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.75469,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.909935,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046132,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043621,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8dbe0342812f417582aba85e9cbb9289eab62945",
+          "message": "Resolve a macro's def-env-bound free references through their own library (#1824)\n\n* Resolve a macro's def-env-bound free references through their own library, fixing issue #1812\n\nA macro's free reference to a name its own defining library binds (exported\nor not) previously resolved by bare name against the use site's mutable\nglobals table: a procedure reference was left completely unrenamed, and a\nnon-procedure reference was only protected against lexical (let/lambda)\nshadowing at the use site, not against a genuine top-level redefinition of\nthe same name — since that protection still read the importer's own\nvm.globals at the injected instruction's execution time. An unrelated\ntop-level `(define helper2 ...)` in the importing file could silently\ncorrupt an already-imported macro's expansion.\n\nGeneralizes #1715's `__kaappi_base__` mechanism (routing a compiler-\nsynthesized reference through a stable registry instead of vm.globals) to a\nnew, per-transformer `__kaappi_defenv__<libname>\\x1f<origname>` prefix that\nget_global/call_global/set_global resolve through that specific library's\nown environment at runtime — never touching the use site's globals table for\nthese names. Values stay unbaked (a plain symbol, not a `load_const`\nconstant): embedding a resolved Closure/NativeFn as a bytecode constant\nsilently downgrades to nil on a `.sbc` cache round-trip, the same mistake\n#1715's own first draft made and abandoned.\n\nExcludes true `(scheme base)` bindings merely re-exported by a library\n(call-with-values, raise-continuable, with-exception-handler, etc.) from the\nnew mechanism — several compiler spots (compileCallWithValuesTail's is_tail\ndispatch, chief among them) recognize these by exact bare name, and a real\nregression in SRFI 248's guard macro during development confirmed the\ntail-call dispatch silently breaks otherwise. Also teaches\ntypes.stripHygienicPrefix to recognize the new prefix alongside the existing\n__hyg_ one, fixing two more real regressions found the same way: SRFI 41's\nstream-match (a macro whose template defines another macro via\nletrec-syntax, which must not re-wrap an already-prefixed reference) and\nSRFI 211's define-macro (whose lisp-transformer/er-macro-transformer\nkeywords are SRFI 211 primitives, not scheme-base ones, so the scheme-base\nexclusion alone didn't cover them).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Also exclude tail_call_global from caching a def-env resolution (#1812 follow-up)\n\nget_global/call_global/set_global were each guarded against caching a\n__kaappi_defenv__-prefixed resolution (self.global_version doesn't catch a\nlibrary's own internal set! on its def_env), but tail_call_global — the\ntail-position counterpart of call_global, populating the same\nfunc.global_cache from the same lookupGlobalLocked — was missed. Found by\nre-auditing every func.global_cache populate site after rebasing onto\n#1817, which touches the same cache machinery in call_global/\ntail_call_global.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T19:40:43Z",
+          "tree_id": "36f1f193e53db828f51b426e2e197fb87baba200",
+          "url": "https://github.com/kaappi/kaappi/commit/8dbe0342812f417582aba85e9cbb9289eab62945"
+        },
+        "date": 1785270935355,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.351355,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.268028,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578822,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.008159,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006351,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046924,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315281,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057326,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.46505,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.251948,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.605648,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435969,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.79819,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.692177,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044675,
             "unit": "seconds"
           }
         ]
