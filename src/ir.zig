@@ -749,13 +749,87 @@ fn lowerQuote(ir: *IR, args: Value) CompileError!*Node {
 fn lowerBegin(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     var nodes: std.ArrayList(*Node) = .empty;
     defer nodes.deinit(ir.allocator);
+
+    // A literal `begin` lowers every child in one eager pass, all before any
+    // of them compile. A `define-syntax` sibling's real registration is a
+    // side effect of *compiling* its node (compiler_macro.compileDefineSyntax),
+    // not of lowering it, so without this, a later sibling lowered in this
+    // same pass never sees it via lookupMacro and its macro use lowers as a
+    // plain call instead of deferring to real expansion (kaappi#1772).
+    // Reserve each literal define-syntax sibling's name the moment it's
+    // reached, before lowering the next one — mirroring how
+    // compiler_lambda.scanBodyDefs resolves the identical problem for a
+    // body's own leading definitions. A name already visible via lookupMacro
+    // (a real transformer from this scope or an enclosing one) is left
+    // untouched, so this can never clobber a real value. The placeholder
+    // itself is never read as a transformer: begin's children compile in the
+    // same left-to-right order this loop lowers them in, so
+    // compileDefineSyntax overwrites it with the real transformer strictly
+    // before any later sibling compiles. If a later sibling fails to lower,
+    // roll back every reservation this call made, so the failure leaves the
+    // macro table exactly as it found it.
+    var reserved: std.ArrayList([]const u8) = .empty;
+    defer reserved.deinit(ir.allocator);
+    errdefer {
+        if (macros) |m| {
+            for (reserved.items) |rn| _ = m.remove(rn);
+        }
+    }
+
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
+        const form = types.car(current);
+        try reserveLiteralDefineSyntax(ir, form, macros, &reserved);
+        nodes.append(ir.allocator, try lowerWithMacros(ir, form, macros)) catch return CompileError.OutOfMemory;
         current = types.cdr(current);
     }
     return ir.makeBegin(nodes.items);
+}
+
+/// If `form` is a literal, unshadowed `(define-syntax <name> <spec>)` — the
+/// same test `lowerFormWithMacros` applies a moment later when it actually
+/// lowers `form` — reserve `<name>` in the macro table backing this lowering
+/// pass, so a sibling lowered right after this call sees it via lookupMacro.
+/// No-op when there's no mutable macro table to reserve into, when `form`
+/// isn't really this special form (shadowed by a lexical binding, or
+/// `define-syntax` itself is shadowed by an enclosing macro), or when
+/// `<name>` is already visible — nothing to fix in that last case, and
+/// overwriting it would risk losing a real transformer if this define-syntax
+/// node is never actually compiled (e.g. a later sibling fails to lower).
+fn reserveLiteralDefineSyntax(
+    ir: *IR,
+    form: Value,
+    macros: ?*std.StringHashMap(Value),
+    reserved: *std.ArrayList([]const u8),
+) CompileError!void {
+    const target = macros orelse return;
+    if (!types.isPair(form)) return;
+    const head = types.car(form);
+    if (!types.isSymbol(head)) return;
+    const name = types.symbolName(head);
+    const effective_name = types.stripHygienicPrefix(name);
+    if (!std.mem.eql(u8, effective_name, "define-syntax")) return;
+
+    const is_shadowed = std.mem.eql(u8, effective_name, name) and
+        if (ir.compiler) |c| c.isLexicallyBound(name) else false;
+    if (is_shadowed) return;
+
+    const shadowed_by_macro = if (ir.compiler) |c|
+        c.lookupMacro(name) != null
+    else
+        target.get(name) != null;
+    if (shadowed_by_macro) return;
+
+    const ds_args = types.cdr(form);
+    if (!types.isPair(ds_args)) return;
+    const keyword = types.car(ds_args);
+    if (!types.isSymbol(keyword)) return;
+    const kw_name = types.symbolName(keyword);
+
+    if (target.contains(kw_name)) return;
+    target.put(kw_name, types.VOID) catch return CompileError.OutOfMemory;
+    reserved.append(ir.allocator, kw_name) catch return CompileError.OutOfMemory;
 }
 
 fn lowerLet(ir: *IR, expr: Value) CompileError!*Node {

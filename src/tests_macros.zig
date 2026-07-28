@@ -495,6 +495,80 @@ test "top-level begin: define-syntax persists for later forms" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
 }
 
+test "kaappi#1772: begin as a non-first body form sees its own internal define-syntax" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A literal begin used as a non-first, non-whole-body form compiles via
+    // ir.lowerBegin (general IR lowering), not compiler_lambda's sequential
+    // compileBegin/scanBodyDefs. lowerBegin used to lower every child eagerly
+    // before any of them compiled, so a define-syntax sibling's registration
+    // — a side effect of *compiling* its node — wasn't visible yet when a
+    // later sibling in the same begin was lowered, and its use compiled as a
+    // plain call to an unbound global instead of expanding.
+    _ = try vm.eval(
+        \\(define (test-fn2)
+        \\  (+ 1 1)
+        \\  (begin
+        \\    (define-syntax inner-mid
+        \\      (syntax-rules ()
+        \\        ((_ y) (list 'fixed y))))
+        \\    (inner-mid 99)))
+    );
+    const result = try vm.eval("(test-fn2)");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expect(types.isSymbol(types.car(result)));
+    try std.testing.expectEqualStrings("fixed", types.symbolName(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "kaappi#1772: begin inside an if branch sees its own internal define-syntax" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Same bug, reached through a different lowerWithMacros caller (lowerIf
+    // instead of a lambda body's compileExprSequence) — confirms the fix
+    // lives in lowerBegin itself, not in body-sequencing code.
+    _ = try vm.eval(
+        \\(define (test-fn3 flag)
+        \\  (if flag
+        \\      (begin
+        \\        (define-syntax inner-if
+        \\          (syntax-rules ()
+        \\            ((_ y) (list 'from-if y))))
+        \\        (inner-if 42))
+        \\      'other))
+    );
+    const result = try vm.eval("(test-fn3 #t)");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqualStrings("from-if", types.symbolName(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "kaappi#1772: define-syntax use-before-def in a nested begin still errors, matching top level" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The reservation added for #1772 only reserves a define-syntax sibling's
+    // name once its OWN form is reached, so it must not hoist that name
+    // ahead of its textual position: a use compiled before its definition is
+    // still an unbound-global error, exactly like the same ordering would be
+    // at real top level (an earlier (m7 1), a later define-syntax m7).
+    _ = try vm.eval(
+        \\(define (test-fn7)
+        \\  (begin
+        \\    (begin (m7 1))
+        \\    (define-syntax m7 (syntax-rules () ((_ y) (list 'm7 y))))))
+    );
+    try std.testing.expectError(error.UndefinedVariable, vm.eval("(test-fn7)"));
+}
+
 test "syntax-rules nested ellipsis: depth-2 pattern variables" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
