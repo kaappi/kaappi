@@ -96,6 +96,35 @@ test "channel-receive deadlock error is catchable by guard" {
     try std.testing.expectEqualStrings("deadlock-reported", s);
 }
 
+test "kaappi#1742: channel-receive deadlock names the other thread when one is alive but never shared this channel" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // `t` never touches `ch` -- it exists purely to make
+    // crossThreadWaitPossible() true while main's channel-receive on its
+    // own, never-promoted `ch` finds nothing runnable and nothing to wait
+    // for. Before this fix the raised message was the bare "...and all
+    // fibers are blocked", which reads as if fiber scheduling were the
+    // whole story and erases the fact that another OS thread exists but
+    // was simply never handed this channel.
+    const result = try ctx.vm.eval(
+        \\(define t (thread-start! (make-thread (lambda () (thread-sleep! 0.05)))))
+        \\(define ch (make-channel))
+        \\(guard (e (#t (if (and (string-contains (error-object-message e) "all fibers are blocked")
+        \\                       (string-contains (error-object-message e) "never shared with it"))
+        \\                  'deadlock-explained
+        \\                  (error-object-message e))))
+        \\  (channel-receive ch))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("deadlock-explained", s);
+
+    _ = try ctx.vm.eval("(thread-join! t)");
+}
+
 test "fiber-join on a permanently blocked fiber raises deadlock error" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
