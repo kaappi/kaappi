@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785216076651,
+  "lastUpdate": 1785217242658,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6090935f92ca9d07083907200b9f9cd96bbc9ef3",
-          "message": "Make FreeBSD installable: install.sh + release skill (#1632)\n\nThe FreeBSD port (#1631) shipped release.yml artifacts but left the\nuser-facing install path macOS/Linux-only. Two gaps:\n\n- install.sh rejected `uname -s = FreeBSD` and never mapped FreeBSD's\n  `amd64` (what x86_64 reports via uname -m) to the `x86_64` artifact\n  name, so `curl | bash` failed on FreeBSD. Add the FreeBSD OS case and\n  the amd64→x86_64 arch mapping; verified `detect_platform` emits\n  `aarch64-freebsd` on the reference box.\n- The /github-release skill's platform list and per-platform smoke-test\n  step didn't mention FreeBSD. Add both FreeBSD targets to the build\n  list and a smoke-test leg on the `ssh freebsd` box (no hosted FreeBSD\n  runner, so it's checksum-covered but not CI-acceptance-tested — same\n  posture as Windows).\n\nThe end-user download page (kaappi.github.io) is a separate repo and\ngets its FreeBSD rows in a companion PR.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T00:50:13+05:30",
-          "tree_id": "25081a775fd65f4110d0049e9e774479c8fd3c7f",
-          "url": "https://github.com/kaappi/kaappi/commit/6090935f92ca9d07083907200b9f9cd96bbc9ef3"
-        },
-        "date": 1784317987036,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.4636,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.735933,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.985786,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.503714,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00641,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055297,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.534854,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071104,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.309814,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.967132,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.573909,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429731,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.853153,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.76006,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044021,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044358,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "82da81378c730bfd21d68861d6174d3b7ad27c07",
+          "message": "Lower apply natively in the LLVM backend (#1803) (#1805)\n\nOne apply anywhere in a body used to send the whole enclosing function to\nthe interpreter (the #1799 fix was correct but all-or-nothing): ~19x on\nthe issue's arithmetic-loop reproducer, hit precisely by idiomatic code\nlike (apply + xs). Only apply itself needs the runtime — the enclosing\nframe can keep its native compilation.\n\nA new C-ABI entry point, kaappi_apply, is primitives.applyFn minus the\nargument shuffling: same procedure validation, same tortoise-and-hare\nproper-list check (a circular list raises instead of hanging), same\ntypeError texts, then callWithArgs on the spliced arguments.\nemitPassthrough routes an (apply …) head inside a lexical scope to\nemitApplyForm, which mirrors the interpreter's dispatch case for case:\ntail + unshadowed + ≥2 operands is structural builtin apply (the\ntail_apply opcode ignores a top-level rebinding of apply, so the fast\npath deliberately does too — an earlier draft that honored the rebinding\neverywhere diverged from the interpreter); tail with too few operands\nabandons native compilation so the interpreter raises its compile-time\nInvalidSyntax; every other resolvable shape is an ordinary indirect call\nthrough whatever apply denotes in scope. Tail sites balance the frame's\nGC roots before the ret, as emitCallNode does.\n\nFlipping apply out of eval_fallback_form_names exposed a latent trap:\nthe free-variable analyses treated every .passthrough node as\ncapture-free, sound only while all passthrough keywords also declined\nthe enclosing scope. Both walks now descend into apply operands, so a\nclosure capturing a variable used inside one gets its upvalue instead\nof a silent global lookup — #1799's failure mode in a new spot.\n\nThe #1799 parity suite passes unchanged, as designed. The new 1803 suite\nadds rebinding/shadowing/error/GC-stress shapes plus the structural\nconvergence check (zero eval fallbacks in the reproducer's IR); the\nissue's heavy pair now times identically (0.12s vs 0.12s, was ~19x).\nThe 1376 callback test's case 8 gets a transparent (letrec ()) wrapper:\napply no longer forces the eval fallback it relied on to exercise\nbytecode tail_apply against a NativeClosure (do stopped forcing it back\nin #1496), so the wrapper restores the documented coverage.\n\nCloses #1803\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T10:25:56+05:30",
+          "tree_id": "b9c6be37e0c710d8e6a4b000ca9f22c23d9b5322",
+          "url": "https://github.com/kaappi/kaappi/commit/82da81378c730bfd21d68861d6174d3b7ad27c07"
+        },
+        "date": 1785217240742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.620529,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.602131,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.949782,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.665131,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006392,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.055096,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.547801,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071313,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.489774,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.067353,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.607374,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436683,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.806248,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.632656,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044128,
             "unit": "seconds"
           }
         ]
