@@ -1085,6 +1085,38 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     }
                     try collectSetTargets(self, expanded_root, out, depth + 1, budget);
                     return;
+                } else if (std.mem.eql(u8, hname, "define-syntax")) {
+                    // (define-syntax name <transformer-spec>): the spec is
+                    // compile-time data — it resolves to a transformer object
+                    // and never contributes a runtime `set!` to THIS form —
+                    // so walk it for literal `set!`s in templates but never
+                    // macro-expand inside it. Speculatively running a
+                    // SRFI 147 spec like SRFI 148's `(em-syntax-rules ...)`
+                    // drove the whole CK machine per definition, burning the
+                    // entire budget (and with it set_targets_all boxing) on
+                    // forms with no runtime code at all (kaappi#1802). A
+                    // `set!` that only materializes when the spec's own
+                    // macros run is caught at the macro's real use site —
+                    // its own form's pre-scan, or Part B — the same
+                    // correct-late path every divergent best-effort
+                    // expansion above already takes.
+                    const rest = types.cdr(cur);
+                    if (types.isPair(rest)) {
+                        // Skip the macro name; walk the spec without a budget.
+                        try collectSetTargets(self, types.cdr(rest), out, depth, null);
+                    }
+                    return;
+                } else if (std.mem.eql(u8, hname, "let-syntax") or
+                    std.mem.eql(u8, hname, "letrec-syntax"))
+                {
+                    // ((name <transformer-spec>) ...) bindings are compile-time
+                    // data like define-syntax specs; the body is real code and
+                    // keeps the budgeted scan.
+                    const rest = types.cdr(cur);
+                    if (!types.isPair(rest)) return;
+                    try collectSetTargets(self, types.car(rest), out, depth, null);
+                    cur = types.cdr(rest);
+                    continue;
                 }
             }
         }

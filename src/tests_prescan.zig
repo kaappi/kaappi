@@ -128,6 +128,77 @@ test "#1775: a fixed-point macro does not exhaust the pre-scan budget" {
     try std.testing.expectEqual(@as(u64, 0), truncations);
 }
 
+test "#1802: a macro use in transformer-spec position does not consume the pre-scan budget" {
+    // SRFI 147/148 shape: the transformer spec is itself a macro use that
+    // resolveTransformerSpec expands to a literal syntax-rules at real
+    // compile time. The pre-scan used to treat the spec as ordinary code and
+    // speculatively expand it too — for SRFI 148's `em-syntax-rules` that ran
+    // the whole CK machine once per *definition*, burning the entire budget
+    // (and, via truncation, boxing every local) on forms with no runtime
+    // code at all (kaappi#1802). A spec never contributes a runtime `set!`
+    // to its own form, so the scan must walk it without expanding.
+    //
+    // With the limit at 0, ANY spec expansion truncates, so this fails
+    // without the fix.
+    const saved = compiler.prescan_expansion_limit;
+    defer compiler.prescan_expansion_limit = saved;
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Defined at the default limit; its own spec is a literal syntax-rules.
+    _ = try ctx.vm.eval(
+        \\(define-syntax gen (syntax-rules () ((_) (syntax-rules () ((_ x) x)))))
+    );
+
+    compiler.prescan_expansion_limit = 0;
+    const before = compiler.prescan_truncations;
+    _ = try ctx.vm.eval("(define-syntax my-id (gen))");
+    try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
+    compiler.prescan_expansion_limit = saved;
+
+    // The real SRFI 147 resolution must be unaffected by the pre-scan skip.
+    const result = try ctx.vm.eval("(my-id 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "#1802: let-syntax specs are skipped but the body keeps the budgeted scan" {
+    // Three failure modes distinguished by one form, compiled with a budget
+    // of exactly 1:
+    //   - spec still consumes budget (no fix): `(gen)` eats the single
+    //     expansion, `rebind` then truncates the scan => truncations 1.
+    //   - body wrongly walked without the budget (over-broad fix): `rebind`
+    //     is never expanded, `+` never enters set_targets, `(+ 5 2)` folds
+    //     to 7 before the reassignment runs => result 7.
+    //   - correct: the one expansion goes to the body's `rebind`, `+` is a
+    //     known target, the fold is suppressed => result 3, truncations 0.
+    const saved = compiler.prescan_expansion_limit;
+    defer compiler.prescan_expansion_limit = saved;
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval(
+        \\(define-syntax gen (syntax-rules () ((_) (syntax-rules () ((_ x) x)))))
+    );
+    _ = try ctx.vm.eval(
+        \\(define-syntax rebind (syntax-rules () ((_ a b) (set! a b))))
+    );
+
+    compiler.prescan_expansion_limit = 1;
+    const before = compiler.prescan_truncations;
+    const result = try ctx.vm.eval(
+        \\(let-syntax ((local-id (gen)))
+        \\  (define (f) (+ 5 2))
+        \\  (rebind + -)
+        \\  (local-id (f)))
+    );
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
+}
+
 test "#1775: ordinary code does not trigger the pre-scan fallback" {
     // The default limit must leave normal programs alone: truncation costs
     // ~2x runtime (every local boxed, nothing folded), so it has to stay a
