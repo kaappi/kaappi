@@ -44,6 +44,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`thread-join!`'s default error report hid the child thread's real
+  failure, and a local channel's deadlock message blamed only "fibers"
+  even with another OS thread alive.** `thread-join!` has always wrapped an
+  errored child's exception in a generic `"uncaught exception in thread"`
+  object, with the actual cause reachable only via `(error-object-message
+  (uncaught-exception-reason e))` inside a `guard` — the default, uncaught
+  top-level report never looked past the wrapper text. It now unwraps
+  `uncaught-exception-reason` automatically, so e.g. a channel reached
+  through a shared global instead of a thread's own thunk (a top-level
+  `define` is a shared pointer, never a lexical capture, so it is correctly
+  rejected rather than promoted) now reports `uncaught exception in
+  thread: channel belongs to another thread; pass it through the thread
+  thunk to share it` instead of stopping at the uninformative wrapper.
+  Separately, `channel-receive`/`channel-send`'s deadlock message for a
+  channel that was never shared with another thread — `"...and all fibers
+  are blocked"` — now names that thread explicitly when one is alive,
+  instead of reading as though fiber scheduling were the whole story
+  (#1742).
+
 - **Library import silently let colliding export names resolve to
   whichever import came last** — `(import (srfi 28) (srfi 29))`, which both
   export `format`, picked whichever library was written last in the

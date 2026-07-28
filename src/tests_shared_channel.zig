@@ -1158,6 +1158,31 @@ test "KEP-0002 Phase 2: uncopyable thunk is detected synchronously in thread-sta
     try std.testing.expectEqual(types.TRUE, caught);
 }
 
+test "kaappi#1742: thread-join! surfaces the child's real failure reason in the default error detail" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // `ch` is a top-level define -- a shared global, not a lexical capture
+    // -- so the child's channel-send is correctly rejected by the
+    // foreign-owner check right above (primitives_fiber.zig's `ch_obj.owner
+    // != gc.id` check). Before this fix, thread-join!'s default (uncaught)
+    // report stopped at the generic "uncaught exception in thread" wrapper
+    // text and never showed this sentence -- reachable previously only via
+    // `(error-object-message (uncaught-exception-reason e))` inside a
+    // guard, as the test above does.
+    _ = try ctx.vm.eval(
+        \\(define ch (make-channel))
+        \\(define t (thread-start! (make-thread (lambda () (channel-send ch 42)))))
+    );
+    const result = ctx.vm.eval("(thread-join! t)");
+    try std.testing.expectError(th.VMError.ExceptionRaised, result);
+    try std.testing.expectEqualStrings(
+        "uncaught exception in thread: channel belongs to another thread; pass it through the thread thunk to share it",
+        ctx.vm.getErrorDetail(),
+    );
+}
+
 test "KEP-0002 Phase 2: thread churn -- repeated cross-thread channel round trips leave no refcount leak" {
     const baseline = shared_object.liveCount();
     {

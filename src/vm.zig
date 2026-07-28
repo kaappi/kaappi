@@ -706,6 +706,28 @@ pub const VM = struct {
         return self.last_error_detail[0..self.last_error_detail_len];
     }
 
+    /// Writes `eo`'s own `message` + `irritants` (display mode for the
+    /// message, write mode for each irritant, matching R7RS `error`'s
+    /// display convention) to `w`. Shared by `noteUncaughtException`'s
+    /// top-level object and its `uncaught_reason` unwrap loop below.
+    fn writeErrorObjectMessage(w: *std.Io.Writer, allocator: std.mem.Allocator, eo: *types.ErrorObject) void {
+        const printer = @import("printer.zig");
+        if (printer.valueToString(allocator, eo.message, .display)) |msg| {
+            defer allocator.free(msg);
+            w.writeAll(msg) catch {};
+        } else |_| {}
+        var it = eo.irritants;
+        while (types.isPair(it)) {
+            const pair = types.toObject(it).as(types.Pair);
+            if (printer.valueToString(allocator, pair.car, .write)) |s| {
+                defer allocator.free(s);
+                w.writeAll(" ") catch {};
+                w.writeAll(s) catch {};
+            } else |_| {}
+            it = pair.cdr;
+        }
+    }
+
     /// Called from execute()'s error path, before resetExecutionState()
     /// discards the pending exception. If the escaping error is an uncaught
     /// Scheme exception and no native error detail was recorded, format the
@@ -729,20 +751,37 @@ pub const VM = struct {
         const allocator = self.gc.allocator;
         var w: std.Io.Writer = .fixed(&self.last_error_detail);
         if (types.isErrorObject(exc)) {
-            const eo = types.toObject(exc).as(types.ErrorObject);
-            if (printer.valueToString(allocator, eo.message, .display)) |msg| {
-                defer allocator.free(msg);
-                w.writeAll(msg) catch {};
-            } else |_| {}
-            var it = eo.irritants;
-            while (types.isPair(it)) {
-                const pair = types.toObject(it).as(types.Pair);
-                if (printer.valueToString(allocator, pair.car, .write)) |s| {
-                    defer allocator.free(s);
-                    w.writeAll(" ") catch {};
-                    w.writeAll(s) catch {};
-                } else |_| {}
-                it = pair.cdr;
+            var eo = types.toObject(exc).as(types.ErrorObject);
+            writeErrorObjectMessage(&w, allocator, eo);
+            // kaappi#1742: thread-join! wraps a child thread's failure in a
+            // generic "uncaught exception in thread" ErrorObject and
+            // stashes the real cause in uncaught_reason (see
+            // primitives_srfi18.zig's threadJoinResult) -- a field the
+            // message+irritants walk above never reaches, so the default
+            // report used to stop at that uninformative wrapper text and
+            // hide the one sentence that actually explains the failure,
+            // otherwise reachable only via `(error-object-message
+            // (uncaught-exception-reason e))` inside a guard. Unwrap it
+            // here instead. Bounded: a chain of nested thread-join!s can
+            // wrap this arbitrarily deep. Gated on this exact error_type --
+            // the only production site that ever sets it is
+            // threadJoinResult, so this never fires for the io_decoding/
+            // io_encoding error types that reuse the same uncaught_reason
+            // field slot for unrelated data (see types.ErrorObject's doc
+            // comment).
+            var depth: u8 = 0;
+            while (eo.error_type == .uncaught_exception and eo.uncaught_reason != types.VOID and depth < 8) : (depth += 1) {
+                w.writeAll(": ") catch {};
+                if (types.isErrorObject(eo.uncaught_reason)) {
+                    eo = types.toObject(eo.uncaught_reason).as(types.ErrorObject);
+                    writeErrorObjectMessage(&w, allocator, eo);
+                } else {
+                    if (printer.valueToString(allocator, eo.uncaught_reason, .write)) |s| {
+                        defer allocator.free(s);
+                        w.writeAll(s) catch {};
+                    } else |_| {}
+                    break;
+                }
             }
         } else {
             w.writeAll("uncaught exception: ") catch {};

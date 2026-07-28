@@ -318,10 +318,11 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
     // via the reactor timer alone, so "no fibers exist" is only a genuine
     // deadlock when there is also no deadline to bound the wait.
     if (vm.scheduler == null and deadline_ns == null) {
-        return raiseFiberError(if (cap == 0)
+        var buf: [220]u8 = undefined;
+        return raiseFiberError(localChannelDeadlockMsg(&buf, if (cap == 0)
             "channel-send: deadlock — rendezvous channel has no receiver and no fibers are running"
         else
-            "channel-send: deadlock — channel is full and no fibers are running");
+            "channel-send: deadlock — channel is full and no fibers are running"));
     }
 
     const ctx = try fiber_mod.ensureScheduler(vm);
@@ -406,10 +407,11 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         try enqueueChannel(gc, ch, ch_val, payload);
         return types.VOID;
     }
-    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, if (cap == 0)
+    var buf: [220]u8 = undefined;
+    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, localChannelDeadlockMsg(&buf, if (cap == 0)
         "channel-send: deadlock — rendezvous channel has no receiver and all fibers are blocked"
     else
-        "channel-send: deadlock — channel is full and no fibers can receive");
+        "channel-send: deadlock — channel is full and no fibers can receive"));
 }
 
 const ChannelWait = struct {
@@ -1088,7 +1090,8 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     // lazily creates a scheduler+reactor and the wait resolves via the
     // timer alone, with or without any other fiber ever existing.
     if (vm.scheduler == null and deadline_ns == null) {
-        return raiseFiberError("channel-receive: deadlock — channel is empty and no fibers are running");
+        var buf: [220]u8 = undefined;
+        return raiseFiberError(localChannelDeadlockMsg(&buf, "channel-receive: deadlock — channel is empty and no fibers are running"));
     }
 
     // Capture before the recursive dispatch below: args is a slice into
@@ -1218,7 +1221,8 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     // exit: release the token first. (A dispatched non-rendezvous fiber
     // parking here holds no token, so the release is a no-op for it.)
     releaseRvToken(ch, ch_val, me);
-    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, "channel-receive: deadlock — channel is empty and all fibers are blocked");
+    var buf: [220]u8 = undefined;
+    return blockOrDeadlock(ctx.vm, me, my_idx, ch_val, localChannelDeadlockMsg(&buf, "channel-receive: deadlock — channel is empty and all fibers are blocked"));
 }
 
 /// Pops the head of a local (unpromoted) channel's queue. `ch.queue_len`
@@ -1239,6 +1243,29 @@ fn dequeueChannel(ch: *types.Channel, ch_val: Value) Value {
         }
     }
     return val;
+}
+
+/// kaappi#1742: a genuinely local (never-promoted, `ch.shared == null`)
+/// channel can only ever be satisfied by a fiber in this same OS thread's
+/// own scheduler -- promotion (via `Envelope.create` at `thread-start!`, or
+/// a message payload legitimately handed across) is the *only* way a
+/// channel crosses threads, so every call site below is only reachable when
+/// no other thread could EVER help this specific wait, no matter how long
+/// it lived. When another OS thread happens to be alive anyway
+/// (`crossThreadWaitPossible()`), the bare "no fibers"/"fibers are blocked"
+/// wording reads as if fibers were the only actor in the picture and erases
+/// that thread's existence entirely -- exactly the framing that turned
+/// kaappi#1742's repro (a channel reached through a shared global instead
+/// of the spawning thread's own thunk -- correctly rejected on the *other*
+/// end by the foreign-owner check) into a support question instead of a
+/// closed issue. Naming the other thread, and the one thing that would have
+/// shared this channel with it, turns the message itself into the fix.
+/// `buf` just needs to outlive the immediate `raiseFiberError`/
+/// `blockOrDeadlock` call the result is passed to -- that call copies the
+/// message into a fresh heap string before returning.
+fn localChannelDeadlockMsg(buf: []u8, base: []const u8) []const u8 {
+    if (!srfi18.crossThreadWaitPossible()) return base;
+    return std.fmt.bufPrint(buf, "{s} (another thread is running, but this channel was never shared with it — only a channel lexically captured by the thread's thunk crosses threads)", .{base}) catch base;
 }
 
 /// The scheduler ran out of runnable fibers while this fiber's blocking

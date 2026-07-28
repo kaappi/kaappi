@@ -402,6 +402,45 @@ assert_file_output_contains "runtime error column tracks the failing form" \
     "$COLDIR/rt-col2.scm" "rt-col2.scm:2:3: error"
 rm -rf "$COLDIR"
 
+# --- Thread exception diagnostics (kaappi#1742) ---
+# thread-join! used to wrap a child thread's failure in a generic "uncaught
+# exception in thread" message with no further detail, and a local (never-
+# shared) channel's deadlock message blamed "fibers" even when a live OS
+# thread was the actual, relevant context. Neither is a channel/thread bug —
+# see #1742's own investigation comment — but both hid the real cause.
+echo
+echo "-- Thread exception diagnostics (kaappi#1742) --"
+THREADDIR=$(mktemp -d)
+
+cat > "$THREADDIR/join-generic.scm" << 'SCHEME'
+(import (scheme base) (srfi 18))
+(define t (thread-start! (make-thread (lambda () (error "boom" 1)))))
+(thread-join! t)
+SCHEME
+assert_file_output_contains "thread-join! surfaces the child's (error ...) reason" \
+    "$THREADDIR/join-generic.scm" "uncaught exception in thread: boom 1"
+
+cat > "$THREADDIR/join-channel-repro.scm" << 'SCHEME'
+(import (scheme base) (srfi 18) (kaappi fibers))
+(define ch (make-channel))
+(define t (thread-start! (make-thread (lambda () (channel-send ch 42)))))
+(thread-join! t)
+SCHEME
+assert_file_output_contains "thread-join! surfaces a channel reached via a shared global (issue's own repro)" \
+    "$THREADDIR/join-channel-repro.scm" \
+    "uncaught exception in thread: channel belongs to another thread; pass it through the thread thunk to share it"
+
+cat > "$THREADDIR/receive-deadlock-other-thread.scm" << 'SCHEME'
+(import (scheme base) (srfi 18) (kaappi fibers))
+(define t (thread-start! (make-thread (lambda () (thread-sleep! 0.5)))))
+(define ch (make-channel))
+(channel-receive ch)
+SCHEME
+assert_file_output_contains "channel-receive deadlock names the other thread instead of blaming only fibers" \
+    "$THREADDIR/receive-deadlock-other-thread.scm" \
+    "never shared with it"
+rm -rf "$THREADDIR"
+
 # --- No leaked Zig error names on any path (KEP-0005, #1504) ---
 echo
 echo "-- No leaked Zig error names --"
