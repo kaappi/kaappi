@@ -25,15 +25,19 @@
 ;;; tests/scheme/srfi/srfi149.scm and the "SRFI 149" tests in
 ;;; src/tests_macros.zig.
 ;;;
-;;; One PRE-EXISTING, unrelated gap found and deliberately left alone: a
-;;; template ellipsis with NO driving variable at all (e.g. a single
-;;; variable asked for MORE ellipses than its own maximum depth, with no
-;;; sibling reaching the requested depth either) silently produces an
-;;; empty result instead of erroring. This predates SRFI 149 entirely --
-;;; it is not a new case this SRFI introduces or one it needs to support,
-;;; and fixing the underlying error-detection leniency is a separate,
+;;; One PRE-EXISTING, unrelated gap found at the time and deliberately left
+;;; alone: a template ellipsis with NO driving variable at all (e.g. a
+;;; single variable asked for MORE ellipses than its own maximum depth,
+;;; with no sibling reaching the requested depth either) silently produced
+;;; an empty result instead of erroring. This predated SRFI 149 entirely --
+;;; it was not a new case this SRFI introduced or one it needed to support,
+;;; and fixing the underlying error-detection leniency was a separate,
 ;;; broader-blast-radius correctness project of its own, not part of
-;;; adding this SRFI's features.
+;;; adding this SRFI's features. FIXED by kaappi#1791: instantiateEllipsis
+;;; now raises EllipsisNoPatternVariable instead of silently producing zero
+;;; copies, proven safe against this SRFI's own legitimate mixed-depth
+;;; sibling case (both call sites already gate on the identical
+;;; ellipsisReferencesOuter predicate before reaching the raise site).
 ;;;
 ;;; Like SRFI 46 (a sibling "these R7RS extensions are already native"
 ;;; library), this is a conformance statement, not new functionality: it

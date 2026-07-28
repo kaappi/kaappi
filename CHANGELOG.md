@@ -63,6 +63,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of reading as though fiber scheduling were the whole story
   (#1742).
 
+- **A `syntax-rules` template ellipsis with no driving pattern variable
+  silently expanded to zero copies instead of erroring.** A template
+  subform followed by `...` whose element contains no pattern variable
+  bound under an ellipsis in the pattern — most often a typo'd bare `...`
+  where the literal-ellipsis escape `(... ...)` was meant — used to vanish
+  from the expansion with no diagnostic, e.g. `(syntax-rules () ((_)
+  '(head tok ... tail)))` expanded `(head tok ... tail)` to `(head tail)`
+  rather than reporting an error, per R7RS 4.3.2. `instantiateEllipsis` now
+  raises an error in this case instead of silently producing nothing,
+  proven not to fire for the legitimate case where such an ellipsis
+  belongs to a nested `syntax-rules` template's own grammar (the SRFI
+  147/148 macro-generating-macro pattern) — both call sites already gate on
+  the exact predicate that distinguishes the two. This also closes a
+  related gap `lib/srfi/149.sld` had documented and deliberately deferred:
+  a single pattern variable asked for more ellipsis nesting in the template
+  than its own matched depth, with no sibling variable to drive the extra
+  level, hits the same code path one recursion level down (#1791).
+
 - **SRFI 168 nstore prefixes could leak tuples across stores when one
   prefix was an initial subsequence of another** — `nstore-select`/
   `nstore-where` prefix-scan the packed key bytes directly (via SRFI 167's

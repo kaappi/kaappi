@@ -97,6 +97,23 @@ assert_output_contains "caught syntax-error does not leak into next compile erro
     '(import (scheme base)) (guard (e (#t #t)) (eval (quote (syntax-error "STALE" 999)) (environment (quote (scheme base))))) (if)' \
     'compile error'
 
+# --- syntax-rules ellipsis with no driving pattern variable (#1791) ---
+# R7RS 4.3.2: a template subform followed by `...` whose element has no
+# pattern variable bound at that ellipsis depth is an error, not zero
+# copies. `tok` here is not a pattern variable at all — a stand-in for the
+# common typo'd bare `...` where the literal-ellipsis escape `(... ...)`
+# was meant (kaappi#1787's root cause).
+echo
+echo "-- syntax-rules ellipsis diagnostics (#1791) --"
+
+assert_output_contains "ellipsis with no pattern variable is a compile error" \
+    '(define-syntax demo (syntax-rules () ((_) (quote (head tok ... tail))))) (demo)' \
+    'compile error[KP2001]'
+
+assert_output_contains "ellipsis with no pattern variable has location" \
+    '(define-syntax demo (syntax-rules () ((_) (quote (head tok ... tail))))) (demo)' \
+    '<stdin>:1:'
+
 # --- Runtime errors include file:line ---
 echo
 echo "-- Runtime errors from files --"
@@ -456,6 +473,8 @@ assert_no_zig_leak "not a procedure"         '(5 6)'
 assert_no_zig_leak "stack overflow"          '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)'
 assert_no_zig_leak "uncaught user error"     '(error "boom" 1)'
 assert_no_zig_leak "raised non-error value"  '(raise 42)'
+assert_no_zig_leak "ellipsis with no pattern variable (#1791)" \
+    '(define-syntax demo (syntax-rules () ((_) (quote (head tok ... tail))))) (demo)'
 
 echo
 echo "=== Results ==="

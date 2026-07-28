@@ -346,7 +346,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.TransformerFailed => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable, error.TransformerFailed => CompileError.InvalidSyntax,
             };
         };
         // Root for the rest of the enclosing compile scope via extra_roots
@@ -1106,7 +1106,7 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.TransformerFailed => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable, error.TransformerFailed => CompileError.InvalidSyntax,
             };
         };
         self.gc.no_collect -= 1;

@@ -1134,6 +1134,83 @@ test "SRFI 149: consecutive-ellipsis flatten composes with a following fixed tai
     );
 }
 
+// Issue #1791: a syntax-rules template subform followed by `...` whose
+// element contains no pattern variable bound under an ellipsis in the
+// pattern previously expanded silently to zero copies (R7RS 4.3.2 makes
+// this an error). The common trigger is a typo'd bare `...` where the
+// literal-ellipsis escape `(... ...)` was meant (kaappi#1787's root cause).
+// Fixed in instantiateEllipsis (expander.zig): raises
+// error.EllipsisNoPatternVariable instead of silently producing nothing.
+// Proven safe against the nested-syntax-rules "belongs to the inner macro"
+// carve-out (both call sites already gate on the identical
+// ellipsisReferencesOuter predicate before reaching the raise site) — the
+// third test below exercises that carve-out directly.
+
+test "syntax-rules: ellipsis subform with no driving pattern variable is an error (#1791)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The issue's own example: `tok` is not a pattern variable at all.
+    _ = try vm.eval(
+        \\(define-syntax demo
+        \\  (syntax-rules ()
+        \\    ((_) '(head tok ... tail))))
+    );
+    const result = vm.eval("(demo)");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "syntax-rules: ordinary ellipsis broadcast still works (#1791 regression guard)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax my-list
+        \\    (syntax-rules () ((_ x ...) (list x ...))))
+        \\  (equal? (my-list 1 2 3) '(1 2 3)))
+    );
+}
+
+test "syntax-rules: macro-generating-macro's own ellipsis is preserved, not flagged (#1791 carve-out guard)" {
+    // define-listify's own pattern var is `name` (the generated macro's
+    // name); the NESTED syntax-rules template's `x ...` belongs entirely to
+    // the generated macro's own grammar and must be preserved literally
+    // during define-listify's expansion, not routed through
+    // instantiateEllipsis at all. It only becomes a real, correctly-driven
+    // ellipsis later, when the generated macro (my-list2) is itself used.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax define-listify
+        \\    (syntax-rules ()
+        \\      ((_ name)
+        \\       (define-syntax name
+        \\         (syntax-rules () ((_ x ...) (list x ...)))))))
+        \\  (define-listify my-list2)
+        \\  (equal? (my-list2 1 2 3) '(1 2 3)))
+    );
+}
+
+test "syntax-rules: excess ellipsis depth with no sibling now errors (#1791, closes SRFI 149-documented gap)" {
+    // lib/srfi/149.sld documented this exact case as a pre-existing,
+    // deliberately-deferred gap: `a` has pattern depth 1, but the template
+    // asks for 2 ellipses with no sibling variable to drive the extra
+    // level. Hits the same !count_set path one recursion level down (via
+    // the consecutive-ellipsis "extra_ellipsis" unwrap), so it's fixed as a
+    // side effect of the same change.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax over-deep
+        \\  (syntax-rules ()
+        \\    ((_ a ...) (list a ... ...))))
+    );
+    const result = vm.eval("(over-deep 1 2 3)");
+    try std.testing.expectError(error.CompileError, result);
+}
+
 // SRFI 147 (Custom Macro Transformers) regression coverage. Unlike SRFI
 // 139/149, this genuinely needed an engine change: compileDefineSyntax/
 // compileLetSyntax/compileLetrecSyntax (compiler_macro.zig) now resolve a
