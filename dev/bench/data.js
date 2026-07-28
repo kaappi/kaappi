@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785219484163,
+  "lastUpdate": 1785229484883,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9a9b3f6dac898cfbffa3eee41363b21d40120b62",
-          "message": "Port Kaappi to OpenBSD (x86_64, aarch64) (#1634)\n\n* Port Kaappi to OpenBSD (x86_64, aarch64)\n\nOpenBSD is the fifth completed OS port: a full-POSIX platform whose\nreadiness API is kqueue, so the existing macOS/FreeBSD reactor backend\ncarries it unchanged. Unlike FreeBSD, OpenBSD's security hardening forces\ntwo accommodations nothing else in the tree needs.\n\nBTCFI. OpenBSD on arm64 enforces Branch Target CFI: an indirect branch\nmust land on a `bti` instruction or the kernel raises SIGILL/ILL_BTCFI.\nZig 0.16 emits no landing pads (no -mbranch-protection, no bti CPU\nfeature), so a Zig-linked binary trapped on its first function-pointer\ncall, before main ran. OpenBSD's own opt-out is `-z nobtcfi`, which emits\na PT_OPENBSD_NOBTCFI program header. `kaappi compile` adds the flag to the\nbase-cc link directly (native_compiler.zig). Zig's CLI rejects the flag,\nso the Zig-linked binaries get the marker post-link: tools/openbsd_nobtcfi.zig\nrepurposes the PT_GNU_STACK header in place (OpenBSD ignores GNU_STACK, and\nthe phdr table has no room to grow before .interp), and build.zig's\ninstallExe runs that host tool on each installed executable for OpenBSD\ntargets — so `zig build -Dtarget=<arch>-openbsd` yields working binaries\ndirectly, with no separate patch step.\n\nResource limits. OpenBSD's default login class caps the main-thread stack\nat 4 MiB (it ignores the ELF stack hint and sizes the stack from\nRLIMIT_STACK) and the data segment at 1.5 GiB. The kaappi binary already\nruns on a 64 MiB worker thread, but kaappi-lsp compiles on the main thread,\nso both mains now call platform.raiseStackLimitBestEffort() (setrlimit\nsoft->hard, OpenBSD-only). The data limit only affects the unit-test\nbinary — std.testing's DebugAllocator never reuses freed address space —\nso CI and the reference recipe raise ulimit -d before running it; the\nshipped C-allocator binaries never accumulate.\n\nOther surfaces: self-exe lookup via sysctl KERN_PROC_ARGS/KERN_PROC_ARGV\nargv[0] resolution (OpenBSD has no KERN_PROC_PATHNAME); the reactor gains\n.openbsd on its four kqueue switches (OpenBSD's std.c bindings are\ncomplete, so no constant fallback); the OpenBSD LLVM triples; and three\nunit tests switch from Io.Dir.realPathFile (fd->path, OperationUnsupported\non OpenBSD) to a path-string realpath helper.\n\nThree shared FFI tests (narrow-range, int-range, type-validation) resolved\n`abs` through a libm handle. abs is a libc function; OpenBSD's dlsym does\nnot chain a dlopen'd libm handle into libc the way Linux/macOS/FreeBSD do,\nso the call returned #f. They now resolve abs from the process/libc handle\n(the null default handle on POSIX, ucrtbase on Windows), keeping genuine\nlibm functions like sqrt in libm.\n\nVerified on a real OpenBSD 7.9 aarch64 machine: 1141/1141 unit tests,\nthottam suite, R7RS 1395/0, the full run-all.sh battery (1869 pass, 0 fail,\n2 skip), all 14 FFI suites, and the native backend (kaappi compile) linking\nwith the base system cc — no Zig toolchain on the box. CI gains an\nopenbsd-test job (cross-compile gate on ubuntu, then execution in a KVM\nOpenBSD 7.9 VM via SHA-pinned vmactions); release.yml ships both arches.\nNew docs/dev/openbsd.md; all support matrices updated.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Link libc for the openbsd_nobtcfi host tool\n\nThe tool uses std.c.pread/pwrite/close, which are libc externs. macOS\nlinks libc implicitly, so `zig build -Dtarget=<arch>-openbsd` built the\nhost patcher fine locally — but the Linux CI host does not, and the\nopenbsd-test job failed at the cross-compile step with \"dependency on\nlibc must be explicitly specified in the build command\". Set\nlink_libc = true on the tool's module so it builds on every build host.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Pass -lc to the openbsd_nobtcfi zig-run sites\n\nCompanion to the build.zig link_libc fix: the CI job and the docs recipe\nalso invoke the tool via `zig run`, which compiles it standalone without\nbuild.zig's settings. `zig run` links libc implicitly on macOS but not on\nthe Linux CI host, so the \"Compile and mark unit tests\" step failed the\nsame way the build step did. Add -lc to both `zig run` invocations.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address PR review: native marker, install.sh on OpenBSD, PATH lookup\n\nFive CodeRabbit findings on the OpenBSD port:\n\n- build.zig: the `zig build native` step links via `zig cc` (which rejects\n  `-z nobtcfi`) and installed the binary unmarked, so an OpenBSD native\n  artifact could SIGILL under BTCFI. Run the nobtcfi host patcher on the\n  native output before install, mirroring installExe.\n- install.sh: detect_platform accepted OpenBSD but the installer hard-coded\n  curl and sha256sum/shasum, none in the OpenBSD/FreeBSD base. Add a\n  download() fallback (curl → wget → fetch → ftp) and OpenBSD/FreeBSD base\n  `sha256` checksum verification.\n- src/kaappi_paths.zig: the OpenBSD argv[0] PATH search accepted any entry\n  passing access(X_OK), which is also true for searchable directories —\n  require a regular file so a $PATH dir named like the program isn't picked.\n- CHANGELOG.md: blank line after the new heading (markdownlint MD022).\n- docs/dev/porting.md: fix the grammar in the OpenBSD exemplar sentence.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T02:27:04Z",
-          "tree_id": "0bc64641f8d6efceedca91385c5d221e301837ef",
-          "url": "https://github.com/kaappi/kaappi/commit/9a9b3f6dac898cfbffa3eee41363b21d40120b62"
-        },
-        "date": 1784343627100,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.053095,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.0851,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.94043,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.405322,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006753,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053037,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50952,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068399,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.281965,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.986023,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513781,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.470158,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.740558,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.834359,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044473,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044315,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1fdb18b46d253cfa4e6bfbad5fb5f0fff13b4202",
+          "message": "Add SRFI 211 and 213 on a procedural-macro mechanism, resolving issue #1699 (#1811)\n\n* Add SRFI 211 and 213 on a procedural-macro mechanism, resolving issue #1699\n\nIssue #1699's remaining trio (72, 211, 213) all needed one engine\ncapability the portable slices couldn't provide: macro transformers that\nare Scheme procedures run at expansion time. This adds that mechanism and\nuses it to ship SRFI 211 (as the three sub-libraries this engine can\nprovide whole: explicit-renaming, define-macro, syntax-parameter — the\nSRFI explicitly permits a subset of libraries, each complete) and SRFI 213\n(define-property with the capture-lookup re-entry protocol; capture-lookup\nis the identity, which the spec explicitly sanctions).\n\nSRFI 72 is excluded rather than implemented: the issue table's \"explicit\nrenaming macros\" note was a mislabel — 72 is van Tonder's *replacement*\nmacro system (arbitrary transformer expressions evaluated over a\nsyntax-object type with its own hygiene rule and phase tower), which would\nchange the semantics of every existing define-syntax and conflicts with\nthe structural transformer-spec direction SRFI 147 already established\nhere. The ER facility the issue actually wanted is exactly\n(srfi 211 explicit-renaming). SRFI 150 moves the other way: its exclusion\nrationale (needs SRFI 147+148) went stale when both shipped, so it is now\ntracked in #1810 instead — the excluded count stays 30, implemented goes\n175 -> 177.\n\nMechanism notes (details in CLAUDE.md's new paragraph and the .sld\nheaders): Transformer gains a kind tag + GC-traced proc; transformer-spec\nrecognition is structural with the argument evaluated at definition time\nin the global environment (phase separation); ER rename reuses\nrenameForHygiene under a fresh per-invocation scope, giving procedural\nmacros exactly the hygiene strength syntax-rules templates have (verified\nequivalent, including the shared use-site-redefinition limitation); and\nvm_library's import-time free-reference copying gains a whole-def-env mode\nfor procedural transformers, whose references are computed by running code\n— without it, (rename 'lib-helper) resolved at the definition site but\ndied \"undefined variable\" at the use site.\n\nCONFORMANCE.md's portable table was also reconciled while adding the new\nrows: it had silently drifted six SRFIs behind lib/srfi/ (139, 147, 148,\n149, 231 were missing — four of them this same issue's earlier slices).\n\nCloses #1699.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Record the procedural-transformer path in the understanding map\n\nThe expander-hygiene core-tier entry's theory now includes the SRFI\n211/213 mechanism PR #1811 adds — it is new mandatory model for anyone\njudging macro bugs there.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T13:52:57+05:30",
+          "tree_id": "3b9023cda62ff2bb56cad1c1e75c4e4f3240e72f",
+          "url": "https://github.com/kaappi/kaappi/commit/1fdb18b46d253cfa4e6bfbad5fb5f0fff13b4202"
+        },
+        "date": 1785229482993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.384986,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.68495,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.922153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.552233,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006357,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053839,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.519883,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068995,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.595461,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.005348,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.617643,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435055,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.832394,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.636874,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04296,
             "unit": "seconds"
           }
         ]
