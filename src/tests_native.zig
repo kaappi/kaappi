@@ -194,6 +194,7 @@ test "LLVM emit: preamble declares runtime functions" {
     try expectContains(ll, "declare void @kaappi_set_command_line_args(ptr, ptr)");
     try expectContains(ll, "declare i64 @kaappi_global_lookup(ptr, ptr, i64)");
     try expectContains(ll, "declare i64 @kaappi_call_scheme(ptr, i64, ptr, i64)");
+    try expectContains(ll, "declare i64 @kaappi_apply(ptr, i64, ptr, i64, i64)");
     try expectContains(ll, "declare i64 @kaappi_fixnum_add(i64, i64)");
     try expectContains(ll, "declare i64 @kaappi_cons(i64, i64)");
     try expectContains(ll, "declare i64 @kaappi_car(i64)");
@@ -739,7 +740,7 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 27), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 28), native_decls.decls.len);
 }
 
 // -- Compile-once eval-fallback cache (#1494) --
@@ -1222,21 +1223,22 @@ test "LLVM emit: a lambda capturing a param through a cond gets an upvalue (#149
     try std.testing.expect(std.mem.indexOf(u8, ll, "c\"base\"") == null);
 }
 
-test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#1496)" {
-    // apply is a passthrough form the native path can't lower in a lexical
-    // scope; the whole enclosing function must fall back to the interpreter,
-    // not emit a native cond that evaluates apply in the global environment.
+test "LLVM emit: a cond containing apply lowers natively (#1496 → #1803)" {
+    // apply used to be a rejected form head that sent the whole enclosing
+    // function to the interpreter; emitApplyForm now lowers it inside the
+    // native cond arm, resolving `lst` against the parameter slot.
     var res = try emitMultiResult("(define (f lst) (cond ((null? lst) 0) (else (apply + lst))))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectNotContains(ll, "cond_merge_");
-    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+    try expectContains(ll, "cond_merge_");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
 // -- Passthrough forms must not be evaluated inside a native scope (#1799) --
 //
-// `emitPassthrough` hands an `apply` / `call/cc` / `call-with-values` / `eval`
-// form to the interpreter as source text, and `kaappi_eval` runs in the GLOBAL
+// `emitPassthrough` hands a `call/cc` / `call-with-values` / `eval` form to
+// the interpreter as source text, and `kaappi_eval` runs in the GLOBAL
 // environment. The keywords producing such a form therefore have to be in
 // `ir.eval_fallback_form_names`, the set `freevars.sexprNeedsEvalFallback`
 // consults, so all four native-compilation gates (the two closure tiers,
@@ -1247,45 +1249,117 @@ test "LLVM emit: a cond containing apply falls back rather than mis-scoping (#14
 // rest), and nothing else contributed their keywords. So a body using `apply`
 // compiled natively — `apply` is an `isKnownGlobal`, so it passed free-variable
 // analysis too — and the eval fallback raised "undefined variable 'xs'" at run
-// time. The three shapes below are the ones the bug report characterized.
+// time.
+//
+// `apply` has since left the fallback set (kaappi#1803): the same shapes now
+// stay native, with the form lowered to @kaappi_apply by emitApplyForm, so
+// these tests assert the native lowering instead of the decline. The
+// behavior-parity suite (tests/scheme/compile/native-apply-lexical-scope-1799.sh)
+// is unchanged — compiled output must still agree with the interpreter.
 
-test "LLVM emit: apply over a parameter declines native compilation (#1799)" {
+test "LLVM emit: apply over a parameter lowers natively (#1799 → #1803)" {
     var res = try emitMultiResult("(define (s xs) (apply + xs))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectNoNativeDef(ll, "s");
-    // The whole define crosses to the interpreter, which owns the lexical frame.
-    try expectContains(ll, "(define (s xs) (apply + xs))");
-    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+    try expectNativeDef(ll, "s");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    // The whole program compiles natively: nothing crosses to the interpreter.
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
-test "LLVM emit: apply over a let-bound name declines native compilation (#1799)" {
+test "LLVM emit: apply over a let-bound name lowers natively (#1799 → #1803)" {
     var res = try emitMultiResult("(define (s) (let ((xs (list 1 2 3))) (apply + xs)))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectNoNativeDef(ll, "s");
-    try expectContains(ll, "(define (s) (let ((xs (list 1 2 3))) (apply + xs)))");
-    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+    try expectNativeDef(ll, "s");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
-test "LLVM emit: a bare let whose body applies falls back whole (#1799)" {
-    // emitLet's own #827 gate, with no enclosing define to decline first: the
-    // let must be evaluated as one form, not lowered to native allocas whose
-    // body then resolves `xs` in the global environment.
+test "LLVM emit: a bare let whose body applies lowers natively (#1799 → #1803)" {
+    // emitLet's #827 gate no longer rejects apply: the let lowers to native
+    // allocas and the body's apply resolves `xs` against them.
     var res = try emitMultiResult("(let ((xs (list 1 2 3))) (display (apply + xs)))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "(let ((xs (list 1 2 3))) (display (apply + xs)))");
-    try std.testing.expect(countEvalFallbacks(ll) >= 1);
+    try expectNotContains(ll, "(let ((xs (list 1 2 3))) (display (apply + xs)))");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
 }
 
-test "LLVM emit: apply with a computed operator declines native compilation (#1799)" {
-    // The operator position is as lexical as the argument list: `f` was named
-    // by the same "undefined variable" error before the fix.
+test "LLVM emit: apply with a computed operator lowers natively (#1799 → #1803)" {
+    // The operator position is as lexical as the argument list: `f` resolves
+    // to the parameter slot, not a global.
     var res = try emitMultiResult("(define (s f xs) (apply f xs))");
     defer res.deinit();
     const ll = res.toSlice();
+    try expectNativeDef(ll, "s");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: apply with fixed arguments packs an argv alloca (#1803)" {
+    var res = try emitMultiResult("(define (s a b xs) (apply + a b xs))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "s");
+    // Two fixed arguments between the callee and the spliced list.
+    try expectContains(ll, "i64 2, i64 %");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a closure captures a variable used inside apply (#1803)" {
+    // collectFreeVars must walk the apply passthrough's operands: `xs` is the
+    // enclosing frame's parameter, captured as an upvalue. Before the
+    // freevars fix the capture was invisible and `xs` would have been emitted
+    // as a global lookup — #1799's failure mode in a new spot.
+    var res = try emitMultiResult("(define (mk xs) (lambda () (apply + xs)))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "mk");
+    try expectContains(ll, "define i64 @closure_");
+    try expectContains(ll, "@kaappi_apply(ptr %vm");
+    try expectContains(ll, "getelementptr i64, ptr %upvalues");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a lexically shadowed apply is an ordinary call (#1803)" {
+    // `apply` here is the first parameter: the form must call IT (through
+    // kaappi_call_scheme), never the built-in @kaappi_apply.
+    var res = try emitMultiResult("(define (weird apply xs) (apply + xs))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "weird");
+    try expectNotContains(ll, "@kaappi_apply(ptr %vm");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: non-tail apply after a rebinding honors the rebinding (#1803)" {
+    // A top-level (define apply …) before the use: the interpreter's non-tail
+    // apply is an ordinary call through the current global binding, so the
+    // native code must look `apply` up instead of hardwiring the built-in.
+    // (In TAIL position the interpreter's tail_apply opcode ignores the
+    // rebinding, and emitApplyForm mirrors that too — see the parity suite.)
+    var res = try emitMultiResult(
+        "(define (myapply f lst) 99)" ++
+            "(define apply myapply)" ++
+            "(define (s xs) (+ 0 (apply + xs)))",
+    );
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNotContains(ll, "@kaappi_apply(ptr %vm");
+}
+
+test "LLVM emit: tail apply with too few operands declines the enclosing define (#1803)" {
+    // (apply f) in tail position is the interpreter's compile-time
+    // InvalidSyntax; the native path must rout the whole define to the
+    // interpreter so the program fails the same way, not emit a call.
+    var res = try emitMultiResult("(define (s f) (apply f))");
+    defer res.deinit();
+    const ll = res.toSlice();
     try expectNoNativeDef(ll, "s");
+    try expectNotContains(ll, "@kaappi_apply(ptr %vm");
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
@@ -1304,7 +1378,7 @@ test "eval-fallback name set covers the passthrough-evaluated special forms (#17
     // A direct check on the derived list, so a future edit to
     // `other_special_forms` that drops a payload fails here rather than as a
     // baffling run-time "undefined variable" in a compiled binary.
-    const must_have = [_][]const u8{ "apply", "call/cc", "call-with-current-continuation", "call-with-values", "eval" };
+    const must_have = [_][]const u8{ "call/cc", "call-with-current-continuation", "call-with-values", "eval" };
     for (must_have) |name| {
         var found = false;
         for (ir_mod.eval_fallback_form_names) |f| {
@@ -1317,8 +1391,11 @@ test "eval-fallback name set covers the passthrough-evaluated special forms (#17
     }
     // `else` and `=>` must stay OUT: sexprNeedsEvalFallback recurses blindly
     // into clause bodies, so listing them would reject every natively-lowered
-    // cond/case that has an else clause (#1496).
-    const must_not_have = [_][]const u8{ "else", "=>", "if", "lambda" };
+    // cond/case that has an else clause (#1496). `apply` must stay out too —
+    // emitApplyForm lowers it natively inside a lexical scope (kaappi#1803),
+    // and re-adding it would silently reinstate the whole-function fallback
+    // (a ~19x de-optimization for functions that merely contain one apply).
+    const must_not_have = [_][]const u8{ "else", "=>", "if", "lambda", "apply" };
     for (must_not_have) |name| {
         for (ir_mod.eval_fallback_form_names) |f| {
             if (std.mem.eql(u8, f, name)) {

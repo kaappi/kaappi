@@ -175,8 +175,11 @@ FFI-`dlopen` directory, so an archive placed there is invisible to
 **Features compiled natively:** arithmetic, comparisons, if/and/or/when/unless,
 let/let*, cond/case/do, lambda (with closures and variadic parameters),
 self-tail-call optimization (compiled as loops), tail calls to other native
-functions. Forms not yet compiled natively (letrec, named-let, guard,
-quasiquote, `apply`, `call/cc`, `call-with-values`, `eval`, …) run through
+functions, and `apply` (lowered to the argument-splicing `@kaappi_apply`
+runtime call, so an enclosing function keeps its native compilation —
+kaappi#1803; the dispatch mirrors the interpreter's tail/non-tail/shadowed
+cases exactly). Forms not yet compiled natively (letrec, named-let, guard,
+quasiquote, `call/cc`, `call-with-values`, `eval`, …) run through
 `kaappi_eval` at runtime — and because that eval resolves names in the *global*
 environment, any lexical scope containing one (the enclosing `define`/`lambda`
 frame or `let`) declines native compilation as a whole rather than splitting

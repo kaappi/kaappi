@@ -440,7 +440,7 @@ pub const LLVMEmitter = struct {
             .let_star => try let_emit.emitLet(self, node.data.let_star.args, true, node.ann.is_tail),
             .letrec => try self.emitLetEvalFallback(node.data.letrec.args, "letrec"),
             .letrec_star => try self.emitLetEvalFallback(node.data.letrec_star.args, "letrec*"),
-            .passthrough => try self.emitPassthrough(node.data.passthrough),
+            .passthrough => try self.emitPassthrough(node.data.passthrough, node.ann.is_tail),
             .sexpr_form => try self.emitSexprEval(node),
         };
     }
@@ -1103,9 +1103,20 @@ pub const LLVMEmitter = struct {
         return self.emitCachedEval(source_buf.items);
     }
 
-    fn emitPassthrough(self: *LLVMEmitter, expr: Value) EmitError![]const u8 {
+    fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![]const u8 {
         if (types.isPair(expr)) {
             const head = types.car(expr);
+            // (apply …) lowers natively inside a lexical scope (kaappi#1803):
+            // the pre-#1803 whole-form eval fallback runs in the GLOBAL
+            // environment and would lose the frame's bindings (#1799). At top
+            // level the eval fallback below stays the right choice — it is the
+            // global environment, and whole-form eval keeps macro uses in
+            // operand position expanding correctly.
+            if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply") and
+                self.inLexicalScope())
+            {
+                return self.emitApplyForm(expr, is_tail);
+            }
             if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "define")) {
                 const rest = types.cdr(expr);
                 if (rest != types.NIL and types.isPair(rest)) {
@@ -1139,6 +1150,144 @@ pub const LLVMEmitter = struct {
             }
         }
         return self.emitEvalExpr(expr);
+    }
+
+    // Native lowering of an `(apply f arg… lst)` passthrough inside a lexical
+    // scope (kaappi#1803), mirroring the interpreter's own dispatch
+    // (compiler.zig / compileApplyTail) case for case:
+    //
+    //   - tail + unshadowed + ≥2 operands → structural apply with built-in
+    //     semantics (the interpreter's tail_apply opcode ignores a top-level
+    //     rebinding of `apply`, so the fast path must too): @kaappi_apply
+    //     splices the final operand at run time.
+    //   - tail + unshadowed + <2 operands → the interpreter's compileApplyTail
+    //     raises InvalidSyntax at compile time; abandoning native compilation
+    //     routes the enclosing form to that exact error.
+    //   - everything else — lexically shadowed `apply` (any shape), or a
+    //     non-tail form that is rebound/natively redefined or has <2 operands
+    //     — is an ordinary indirect call through whatever `apply` resolves to
+    //     in scope (emitGlobalRef's lexical order), matching the interpreter's
+    //     plain call: a shadowed binding IS the callee, and the built-in's own
+    //     arity check raises the interpreter's exact runtime error for the
+    //     too-few-operands shapes.
+    //
+    // A malformed (improper) operand list abandons native compilation of the
+    // enclosing scope — the eval fallback would run in the global environment
+    // and lose the frame's bindings (#1799) — so the interpreter reports the
+    // syntax error for the whole enclosing form.
+    fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![]const u8 {
+        var operands: std.ArrayList(Value) = .empty;
+        defer operands.deinit(self.backing_alloc);
+        var cur = types.cdr(expr);
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+            operands.append(self.backing_alloc, types.car(cur)) catch return error.OutOfMemory;
+        }
+        if (cur != types.NIL) return error.UnsupportedNodeType;
+
+        const shadowed = self.isNameShadowed("apply");
+        const rebound = self.rebound_globals.contains("apply") or
+            self.native_fns.contains("apply");
+
+        if (!shadowed and is_tail and operands.items.len < 2)
+            return error.UnsupportedNodeType;
+
+        const is_builtin_apply = !shadowed and (is_tail or !rebound);
+
+        if (is_builtin_apply and operands.items.len >= 2) {
+            const n_fixed = operands.items.len - 2;
+            const callee = try self.emitScopedOperand(operands.items[0]);
+            // Root the callee and every fixed argument across the remaining
+            // operand emissions (each can allocate). The final list operand
+            // needs no root: nothing allocates between its value and the call
+            // (emitCallNode's discipline for its own last argument).
+            var root_count: usize = 1;
+            try self.emitRootPush(callee);
+            const fixed_tmps = self.allocator().alloc([]const u8, n_fixed) catch return error.OutOfMemory;
+            for (0..n_fixed) |i| {
+                fixed_tmps[i] = try self.emitScopedOperand(operands.items[1 + i]);
+                try self.emitRootPush(fixed_tmps[i]);
+                root_count += 1;
+            }
+            const list_tmp = try self.emitScopedOperand(operands.items[operands.items.len - 1]);
+            try self.emitPopRoots(root_count);
+
+            const result = try self.freshTemp();
+            if (n_fixed == 0) {
+                const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
+                try self.print("  {s} = {s} i64 @kaappi_apply(ptr %vm, i64 {s}, ptr null, i64 0, i64 {s})\n", .{ result, call_prefix, callee, list_tmp });
+            } else {
+                const args_alloca = try self.freshTemp();
+                try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, n_fixed });
+                for (0..n_fixed) |i| {
+                    const gep = try self.freshTemp();
+                    try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+                    try self.print("  store i64 {s}, ptr {s}\n", .{ fixed_tmps[i], gep });
+                }
+                try self.print("  {s} = call i64 @kaappi_apply(ptr %vm, i64 {s}, ptr {s}, i64 {d}, i64 {s})\n", .{ result, callee, args_alloca, n_fixed, list_tmp });
+            }
+
+            if (is_tail) {
+                // Balance the frame-entry GC roots and any live let-binding
+                // roots before returning through this tail call, exactly as
+                // emitCallNode does (#1498/#1585) — a deep apply-driven loop
+                // must not leak one root set per iteration.
+                try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
+                try self.print("  ret i64 {s}\n", .{result});
+                try self.emitOrphanAfterTail();
+            }
+            return result;
+        }
+
+        // Generic path: resolve `apply` like any variable reference (a
+        // parameter, local, upvalue, or the current global binding) and call
+        // it with the operands — emitCallNode's indirect-call tail, inlined.
+        const callee = try self.emitGlobalRef(types.car(expr));
+        const nargs = operands.items.len;
+        var root_count: usize = 0;
+        if (nargs > 0) {
+            try self.emitRootPush(callee);
+            root_count += 1;
+        }
+        const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
+        for (operands.items, 0..) |operand, i| {
+            arg_tmps[i] = try self.emitScopedOperand(operand);
+            if (i + 1 < nargs) {
+                try self.emitRootPush(arg_tmps[i]);
+                root_count += 1;
+            }
+        }
+        try self.emitPopRoots(root_count);
+
+        const result = try self.freshTemp();
+        if (nargs == 0) {
+            const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
+            try self.print("  {s} = {s} i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr null, i64 0)\n", .{ result, call_prefix, callee });
+        } else {
+            const args_alloca = try self.freshTemp();
+            try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, nargs });
+            for (0..nargs) |i| {
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+                try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
+            }
+            try self.print("  {s} = call i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr {s}, i64 {d})\n", .{ result, callee, args_alloca, nargs });
+        }
+        if (is_tail) {
+            try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
+            try self.print("  ret i64 {s}\n", .{result});
+            try self.emitOrphanAfterTail();
+        }
+        return result;
+    }
+
+    // Lower one raw apply operand to IR and emit it in the current lexical
+    // scope. Operands are never in tail position. A lowering failure (a
+    // resource limit or malformed leaf) abandons native compilation of the
+    // enclosing scope — emitScopedValue's emitEvalExpr fallback would run the
+    // operand in the global environment, the exact #1799 failure mode.
+    fn emitScopedOperand(self: *LLVMEmitter, operand: Value) EmitError![]const u8 {
+        const node = ir.lowerSingleExpr(self.allocator(), operand) catch return error.UnsupportedNodeType;
+        return self.emitNode(node);
     }
 
     // Build the runtime Value for a natively-compiled top-level function as a

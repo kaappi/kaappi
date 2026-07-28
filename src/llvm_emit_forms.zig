@@ -12,10 +12,12 @@
 // native/interpreted boundary).
 //
 // The gate deliberately rejects `lambda`, `=>` clauses, and every eval-fallback
-// / passthrough special form (letrec, guard, apply, call/cc, …) and any macro
-// use. Rejecting lambdas also sidesteps do's fresh-binding-per-iteration
-// semantics: with no closure able to capture a loop variable, mutable allocas
-// updated in place are observably equivalent.
+// / passthrough special form (letrec, guard, call/cc, …) and any macro use —
+// but not `apply`, which the backend lowers natively inside a lexical scope
+// (emitApplyForm → @kaappi_apply, kaappi#1803). Rejecting lambdas also
+// sidesteps do's fresh-binding-per-iteration semantics: with no closure able
+// to capture a loop variable, mutable allocas updated in place are observably
+// equivalent.
 
 const std = @import("std");
 const ir = @import("ir.zig");
@@ -379,17 +381,17 @@ fn isKeyword(v: Value, name: []const u8) bool {
 // the interpreter as a whole.
 fn isRejectedFormHead(name: []const u8) bool {
     const rejected = [_][]const u8{
-        "lambda",           "letrec",                         "letrec*",
-        "guard",            "quasiquote",                     "delay",
-        "delay-force",      "parameterize",                   "define-values",
-        "let-values",       "let*-values",                    "define-syntax",
-        "let-syntax",       "letrec-syntax",                  "cond-expand",
-        "case-lambda",      "define",                         "define-record-type",
-        "apply",            "call-with-current-continuation", "call/cc",
-        "call-with-values", "eval",                           "import",
-        "include",          "include-ci",                     "define-library",
-        "syntax-rules",     "syntax-error",                   "unquote",
-        "unquote-splicing", "else",                           "=>",
+        "lambda",                         "letrec",         "letrec*",
+        "guard",                          "quasiquote",     "delay",
+        "delay-force",                    "parameterize",   "define-values",
+        "let-values",                     "let*-values",    "define-syntax",
+        "let-syntax",                     "letrec-syntax",  "cond-expand",
+        "case-lambda",                    "define",         "define-record-type",
+        "call-with-current-continuation", "call/cc",        "call-with-values",
+        "eval",                           "import",         "include",
+        "include-ci",                     "define-library", "syntax-rules",
+        "syntax-error",                   "unquote",        "unquote-splicing",
+        "else",                           "=>",
     };
     for (rejected) |r| {
         if (std.mem.eql(u8, name, r)) return true;

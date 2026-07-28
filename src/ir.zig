@@ -496,9 +496,9 @@ pub const sexpr_form_map = std.StaticStringMap(FormKind).initComptime(.{
 // failed at run time with "undefined variable 'xs'"). `isSpecialForm`, which every other caller
 // uses, ignores the payload entirely.
 //
-// `false` covers the two kinds of keyword that never reach `emitPassthrough` as
-// an evaluated head, and whose presence in the name set would wrongly reject
-// natively-lowered code wholesale:
+// `false` covers the three kinds of keyword that must stay OUT of the name
+// set, because their presence would wrongly reject natively-lowered code
+// wholesale:
 //
 //   - the ones `lowerFormWithMacros` intercepts before the `isSpecialForm`
 //     check — `if`, `lambda`, `let`, `define`, … (`letrec`/`letrec*` still
@@ -506,7 +506,11 @@ pub const sexpr_form_map = std.StaticStringMap(FormKind).initComptime(.{
 //   - syntax-position keywords that only ever appear *inside* another form:
 //     `else`/`=>` inside `cond`/`case` (both natively lowered, kaappi#1496),
 //     `_`/`...` inside `syntax-rules` patterns, and `unquote`/`unquote-splicing`
-//     inside `quasiquote` (already a fallback form in its own right).
+//     inside `quasiquote` (already a fallback form in its own right);
+//   - `apply`, which DOES reach `emitPassthrough` as an evaluated head but is
+//     lowered natively there inside a lexical scope (emitApplyForm →
+//     @kaappi_apply, kaappi#1803), so the enclosing frame keeps its native
+//     compilation instead of paying the whole-function fallback.
 const other_special_forms = std.StaticStringMap(bool).initComptime(.{
     .{ "quote", false },
     .{ "if", false },
@@ -524,7 +528,7 @@ const other_special_forms = std.StaticStringMap(bool).initComptime(.{
     .{ "letrec*", false },
     .{ "syntax-error", true },
     .{ "syntax-rules", true },
-    .{ "apply", true },
+    .{ "apply", false },
     .{ "call-with-values", true },
     .{ "call-with-current-continuation", true },
     .{ "call/cc", true },

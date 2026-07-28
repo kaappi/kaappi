@@ -433,6 +433,56 @@ pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]con
     return result;
 }
 
+// Argument-splicing call for natively lowered `apply` (kaappi#1803): call
+// `callee` with fixed_args[0..n_fixed] followed by the elements of `list`.
+// The body is primitives.applyFn minus the argument shuffling, and must stay
+// semantically in lockstep with it: the same isProcedure/isNativeFn
+// validation, the same tortoise-and-hare cycle detection (a circular list
+// raises instead of hanging), and the same typeError texts, so a compiled
+// binary's diagnostics match the interpreter's verbatim.
+pub export fn kaappi_apply(vm: ?*vm_mod.VM, callee: u64, fixed_args: ?[*]const u64, n_fixed: u64, list: u64) callconv(.c) u64 {
+    const v = vm orelse {
+        _ = platform.write(2, "apply: null vm\n", 15);
+        std.process.exit(1);
+    };
+    return applySpliced(v, callee, fixed_args, n_fixed, list) catch |err|
+        fatalVMError(v, "runtime error in apply", err);
+}
+
+fn applySpliced(v: *vm_mod.VM, callee: u64, fixed_args: ?[*]const u64, n_fixed: u64, list: u64) !u64 {
+    if (!types.isProcedure(callee) and !types.isNativeFn(callee))
+        return primitives.typeError("apply", "procedure", callee);
+
+    // Plain (non-GC) heap storage, same as applyFn's call_args: appending
+    // never allocates a heap object, so nothing here can trigger a collection
+    // before callWithArgs takes over (which roots the arguments in registers).
+    var call_args: std.ArrayList(Value) = .empty;
+    defer call_args.deinit(v.gc.allocator);
+
+    const n: usize = @intCast(n_fixed);
+    if (n > 0 and fixed_args != null) {
+        call_args.appendSlice(v.gc.allocator, fixed_args.?[0..n]) catch
+            return error.OutOfMemory;
+    }
+
+    // Flatten the last argument (must be a proper list).
+    var rest = list;
+    var slow = rest;
+    var step: bool = false;
+    while (rest != types.NIL) {
+        if (!types.isPair(rest)) return primitives.typeError("apply", "proper list", rest);
+        call_args.append(v.gc.allocator, types.car(rest)) catch return error.OutOfMemory;
+        rest = types.cdr(rest);
+        if (step) {
+            slow = types.cdr(slow);
+            if (slow == rest) return primitives.typeError("apply", "proper list", rest);
+        }
+        step = !step;
+    }
+
+    return v.callWithArgs(callee, call_args.items);
+}
+
 // Shadow-stack GC rooting for natively compiled code.
 // The LLVM emitter stores intermediate Values in alloca slots and registers
 // them here so the GC can see them during collection.

@@ -394,14 +394,15 @@ past the fixed arity before branching, so variadic named functions loop too
 - contains an eval-fallback form (`letrec`, `guard`, named `let`, …), or a
   `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
 - contains a keyword-only special form that reaches the interpreter as a whole
-  `passthrough` — `apply`, `call/cc`,
-  `call-with-current-continuation`, `call-with-values`, `eval` (kaappi#1799);
+  `passthrough` — `call/cc`, `call-with-current-continuation`,
+  `call-with-values`, `eval` (kaappi#1799; `apply` left this set when it got
+  its own native lowering, kaappi#1803 — see below);
 - contains an internal `define` (the closure tier sets up no locals scope for
   it), or a rest parameter that is captured and mutated (no box model yet); or
 - captures an unmutated `let`-local, or a rest parameter, that has no copyable
   slot.
 
-### Why `apply` declines the whole enclosing scope (kaappi#1799)
+### Why `call/cc` & friends decline the whole enclosing scope (kaappi#1799)
 
 All four native-compilation gates — the two closure tiers,
 `tryCompileDefineFunction`, and `emitLet` — ask
@@ -414,16 +415,16 @@ compiles natively, its body's `passthrough` is serialized and run by
 `undefined variable 'xs'` — or, worse, silently read an unrelated global of the
 same name.
 
-The five keywords above were missing because the `passthrough` **node** is
-`.capability = .native` in `llvm_node_table`, which is right for the one shape
-`emitPassthrough` compiles (a `(define (f …) …)` shorthand) and wrong for every
-other. They are contributed instead by `ir.other_special_forms`, whose `bool`
-payload records exactly "an evaluated form headed by this keyword becomes a
-passthrough the interpreter runs". `else`, `=>`, `_`, `...`,
-`unquote`/`unquote-splicing` and the keywords `lowerFormWithMacros` intercepts
-earlier are deliberately `false`: `sexprNeedsEvalFallback` recurses blindly into
-sub-forms, so listing `else` would reject every natively lowered `cond`/`case`
-with an else clause.
+The five keywords (then including `apply`) were missing because the
+`passthrough` **node** is `.capability = .native` in `llvm_node_table`, which
+is right for the one shape `emitPassthrough` compiles (a `(define (f …) …)`
+shorthand) and wrong for every other. They are contributed instead by
+`ir.other_special_forms`, whose `bool` payload records exactly "an evaluated
+form headed by this keyword becomes a passthrough the interpreter runs".
+`else`, `=>`, `_`, `...`, `unquote`/`unquote-splicing` and the keywords
+`lowerFormWithMacros` intercepts earlier are deliberately `false`:
+`sexprNeedsEvalFallback` recurses blindly into sub-forms, so listing `else`
+would reject every natively lowered `cond`/`case` with an else clause.
 
 Publishing the frame's bindings as globals instead (`bindParamsAsGlobals`,
 the kaappi#1410 mechanism the `letrec`/`let` fallbacks use) is **not** an
@@ -431,9 +432,44 @@ alternative here: it aliases across activations, it cannot see `let`-locals at
 all, and it permanently clobbers a same-named global. Declining the frame is
 what keeps the interpreter's own lexical scope authoritative.
 
-The cost is that a function using `apply` is not natively compiled at all.
-`(apply + xs)` is idiomatic Scheme, so this is a real limitation of the current
-backend rather than a corner case.
+### Native `apply` (kaappi#1803)
+
+Declining is all-or-nothing for the enclosing function, and `(apply + xs)` is
+idiomatic Scheme: one `apply` that runs once de-optimized every other
+expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
+`apply` — alone among the passthrough keywords — is lowered natively.
+`emitPassthrough` routes an `(apply …)` head inside a lexical scope to
+`emitApplyForm` (`llvm_emit.zig`), which mirrors the interpreter's own dispatch
+(`compiler.zig`) case for case:
+
+- **tail + unshadowed + ≥2 operands** — structural apply with built-in
+  semantics: the callee and fixed arguments are emitted like `emitCallNode`'s,
+  and the final operand is passed as a Value to `@kaappi_apply`
+  (`runtime_exports.zig`), which splices it with `primitives.applyFn`'s exact
+  semantics — same `isProcedure` validation, same tortoise-and-hare
+  proper-list check (a circular list raises rather than hangs), same
+  `typeError` texts. The interpreter's `tail_apply` opcode ignores a top-level
+  rebinding of `apply`, so this path deliberately does too.
+- **tail + unshadowed + <2 operands** — the interpreter raises InvalidSyntax
+  at compile time; abandoning native compilation of the enclosing scope
+  (`error.UnsupportedNodeType`) routes the form to that exact error.
+- **everything else resolvable** — a lexically shadowed `apply`, or a non-tail
+  form that is rebound or has too few operands — is an ordinary indirect call
+  through whatever `apply` resolves to in scope, matching the interpreter's
+  plain `call_global`/local call.
+
+Two consequences worth knowing. First, the free-variable analyses
+(`nodeHasFreeVars`/`collectNodeFreeVars` in `llvm_emit_freevars.zig`) walk an
+apply `passthrough`'s raw operands — a capture inside one must become a closure
+upvalue, or it would be emitted as a global lookup (#1799's failure mode in a
+new spot). Second, a **tail `(apply f xs)` is not a real tail call across the
+runtime boundary**: `@kaappi_apply` re-enters the VM via `callWithArgs`, so a
+deep apply-driven self-recursion grows the native stack where the interpreter
+runs in constant space. This is the same pre-existing divergence class as any
+computed-operator tail call through `kaappi_call_scheme` (verified: both
+overflow around the same depth), not a new one — the emitter still balances
+the frame's GC roots before the `ret` so the shadow stack never leaks
+(#1498/#1585).
 
 The per-function analysis buffers (parameters, body nodes, captured free
 variables, bound names) grow on the emitter's arena, so the only size ceiling is
