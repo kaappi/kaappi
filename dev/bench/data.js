@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785203050721,
+  "lastUpdate": 1785216076651,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ccda40a1210dca6f201cb4761de8de6849cd30bb",
-          "message": "Port Kaappi to FreeBSD (x86_64, aarch64) (#1631)\n\n* Port Kaappi to FreeBSD (x86_64, aarch64)\n\nFreeBSD is the fourth completed OS port and the smallest: a full-POSIX\nplatform whose readiness API is kqueue, so the existing macOS backend\ncarries it unchanged. The port adds the .freebsd tag to reactor.zig's\nfour per-OS switches (plus a guarded EV_EOF constant this Zig's freebsd\nstd.c binding omits), a sysctl kern.proc.pathname self-exe lookup, and\nthe FreeBSD LLVM triples. Everything else — platform shim, thottam,\nREPL, SRFI-170, FFI — already worked through the POSIX paths.\n\nVerified on a real FreeBSD 15.1 aarch64 machine: 1141/1141 unit tests,\nthottam suite, R7RS 1395/0, and the full run-all.sh battery (1869 pass,\n0 fail), including the native backend linking with the base system cc —\nno Zig toolchain on the box.\n\nThe port surfaced one genuine runtime bug: the graceful out-of-memory\nerror relied on malloc refusing absurd requests, but FreeBSD's default\novercommit reserves a 100 TB make-bytevector and the zero-fill then\ncommits pages until the kernel's OOM killer ends the process. The GC\nnow caps single payload allocations at 1 TiB (GC.max_payload_bytes)\nand raises the same catchable error before asking the OS, on every\nkernel.\n\nThe shell suites' zig dependency becomes a capability gate rather than\nan OS gate: skip_without_zig skips the -Dbundle scripts, and\nensure_runtime_lib lets the kaappi-compile scripts run against a\nprebuilt libkaappi_rt.a on toolchain-less machines.\n\nCI gains a freebsd-test job (cross-compile gate on ubuntu-latest, then\nexecution in a KVM FreeBSD 14.3 VM via SHA-pinned vmactions);\nrelease.yml ships both FreeBSD arches. New docs/dev/freebsd.md; all\nsupport matrices updated.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Build libkaappi_rt.a for the FreeBSD CI VM\n\nThe freebsd-test VM run exposed a gap: six compile-suite scripts use\nkaappi compile without invoking zig themselves (so the new\nskip_without_zig/ensure_runtime_lib gates correctly leave them\nrunning), but the job never cross-compiled the runtime archive they\nlink against. On the aarch64 reference box they passed because the\narchive was shipped alongside the binaries. Add `zig build lib` to the\nhost cross-compile step so zig-out/lib/libkaappi_rt.a syncs into the\nVM, matching the reference-machine recipe in docs/dev/freebsd.md.\n\nEverything else in the VM's first flight was green: the 14.3 image\nbooted, unit suite, thottam suite, R7RS 1395/0, and all other .scm\nsuites passed; the six -Dbundle/zig-rebuilding scripts skipped as\ndesigned.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Bundle compiler-rt into libkaappi_rt.a\n\nThe FreeBSD CI VM (x86_64) exposed the next layer after the archive\nwent missing: every `kaappi compile` link failed under the VM's base\nclang because the Zig-built archive references __zig_probe_stack — an\nx86-only, Zig-internal stack-probe symbol no system toolchain provides.\nThe aarch64 reference box never hit it (no stack probing on that arch),\nwhich is why \"base cc suffices\" held there.\n\nSetting bundle_compiler_rt on the static library embeds Zig's\ncompiler-rt (weak symbols, so no duplicate-symbol conflicts with a\nhost runtime), making the archive linkable by whatever C compiler\n`kaappi compile` finds on any platform — the property the FreeBSD\nport's native-backend story depends on. Verified: x86_64-freebsd\narchive now weak-defines __zig_probe_stack; the aarch64 box links and\npasses the compile suite with the bundled archive; the macOS zig-cc\npath is unaffected.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T21:18:33+05:30",
-          "tree_id": "2e5497461e7a520553a1e09eded6612318be4ad8",
-          "url": "https://github.com/kaappi/kaappi/commit/ccda40a1210dca6f201cb4761de8de6849cd30bb"
-        },
-        "date": 1784305475646,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.044974,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.665438,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.921324,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407167,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006816,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052916,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509563,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06839,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.257779,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.984134,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.519148,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.474532,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.749032,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.786497,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044622,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035783,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ea71d9a5d04053bd2df83be7fd25b5fd8d5f1303",
+          "message": "Stop ReleaseSafe memsetting the expander's 1MB buffers on every expansion (#1802) (#1804)\n\n* Stop ReleaseSafe memsetting the expander's 1MB buffers on every expansion (#1802)\n\nCompiling SRFI 148's 134-definition library took 80 seconds before a\nsingle combinator ran. A sample profile put 96% of it in _memset: Zig\n0.16's ReleaseSafe fills every plain `= undefined` local with 0xAA, and\nthe expander declares three ~1MB [MAX_BINDINGS]Binding scratch buffers\nper call (expandMacro, matchEllipsis, instantiateEllipsis). The\n`b: { @setRuntimeSafety(false); break :b undefined; }` initializer those\nsites used to suppress the fill now does the opposite: it materializes a\nruntime undefined value whose store into the local gets the fill anyway.\nThe only shape that works is @setRuntimeSafety(false) at the scope of\nthe declaration, so each function now declares its buffers under a\nsafety-off function scope and runs its entire body in a\n@setRuntimeSafety(true) block, keeping index/overflow checks intact.\n\nThe remaining cost was the set! pre-scan (#1775) treating transformer\nspecs as runtime code: `(define-syntax em-cadr (em-syntax-rules ...))`\nspeculatively ran the whole CK machine per definition, burning the full\n4096-expansion budget - and with it the truncation fallback that boxes\nevery local - on forms that produce no runtime code at all. A spec only\never resolves to a transformer object, so collectSetTargets now walks\ndefine-syntax/let-syntax/letrec-syntax spec positions without expanding\nmacros (still catching literal set!s in templates); let-syntax bodies\nkeep the budgeted scan. A set! that only materializes when the spec's\nown macros run is caught at the macro's real use site - the same\ncorrect-late Part B path every divergent best-effort expansion already\ntakes.\n\nImport of the drafted (srfi 148): 86.6s -> 0.07s; its full upstream\nreference suite now runs in 0.85s (134 expected passes, 8 known\nxfails), far under run-all.sh's 60s per-file timeout that blocked it.\nBoth prescan regression tests fail without the collectSetTargets change\n(verified by mutation); the buffer-fill half is pinned by disassembly\n(no 0xAA memset in the three functions) and documented in\ndocs/dev/performance.md's new \"profile bottoms out in memset\" entry.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Walk let-syntax specs per binding so special-form names can't derail the scan\n\nCodeRabbit review follow-up on #1804: collectSetTargets' let-syntax\nbranch walked the whole bindings list, so a binding pair whose NAME is a\nspecial-form identifier was misread as a form - a binding literally\nnamed `quote` early-returned before its own transformer spec was\nscanned. Iterate the binding pairs and walk only each spec.\n\nVerified end-to-end before committing: the review's predicted\nmiscompilation does not actually reproduce today - its proposed\ntemplate `(set! a b)` holds only pattern variables (nothing literal to\nfind), and with a literal `(set! + -)` template the sibling\n`(+ 5 2)` still isn't folded because a let-syntax body compiles through\nthe passthrough path, while a late-discovered set! target is still\nboxed correctly via the box_local transition. So this is scan hygiene,\nnot a user-visible fix. The new hygiene suite file pins the late-boxing\nself-heal this relies on (it hangs, not fails, if that regresses) plus\nthe quote-named-macro rebinding shape.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T10:11:45+05:30",
+          "tree_id": "46f30bc26e89b778ba25e1564e4c21b81ce39d5e",
+          "url": "https://github.com/kaappi/kaappi/commit/ea71d9a5d04053bd2df83be7fd25b5fd8d5f1303"
+        },
+        "date": 1785216074884,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343984,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.460086,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.935018,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.496567,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006335,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.054797,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.521714,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071824,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.666616,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.018021,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.619229,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431582,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.814259,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661657,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044358,
             "unit": "seconds"
           }
         ]
