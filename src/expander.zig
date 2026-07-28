@@ -187,6 +187,11 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
         timings.begin(.expand);
         defer timings.end();
         const transformer = types.toObject(transformer_val).as(types.Transformer);
+        // SRFI 211: procedural transformers bypass the pattern/template
+        // engine entirely — the Scheme procedure computes the expansion.
+        if (transformer.kind != .syntax_rules) {
+            return expandProceduralMacro(gc, expr, transformer, globals, macros, use_check);
+        }
         const saved_ellipsis = active_custom_ellipsis;
         active_custom_ellipsis = transformer.custom_ellipsis;
         defer active_custom_ellipsis = saved_ellipsis;
@@ -266,8 +271,205 @@ pub const ExpandError = error{
     PatternTooComplex,
     EllipsisCountMismatch,
     EllipsisDepthMismatch,
+    /// SRFI 211: a procedural transformer raised, returned a non-datum, or
+    /// could not run (no VM registered). The VM's error state carries any
+    /// Scheme-level condition the transformer raised.
+    TransformerFailed,
     OutOfMemory,
 };
+
+// ---------------------------------------------------------------------------
+// SRFI 211: procedural macro transformers (explicit-renaming and Lisp-style)
+// ---------------------------------------------------------------------------
+//
+// A procedural transformer is a Scheme procedure stored on the Transformer
+// (kind != .syntax_rules) and invoked at expansion time through the
+// globals.zig call_proc_for_macro hook (the expander cannot import vm.zig).
+// The ER `rename`/`compare` arguments are freshly allocated NativeFn values
+// whose implementations read the threadlocal context below — the same
+// save/restore discipline as the active_* syntax-rules context, so nested
+// expansions (a transformer that itself calls `eval` on a macro use)
+// restore the outer invocation's context on return.
+//
+// `rename` reuses renameForHygiene with a fresh per-invocation scope: the
+// same name renames to the same gensym within one expansion (the ER
+// bound-identifier=? guarantee), definition-environment resolution comes
+// from the same globals/known-macro checks syntax-rules templates get, and
+// the compiler already resolves the resulting __hyg_N_x aliases. This gives
+// ER macros exactly the hygiene strength of this engine's own syntax-rules
+// — no more, no less; the .sld headers document the shared limitations.
+
+threadlocal var er_scope: u32 = 0;
+threadlocal var er_globals: ?*std.StringHashMap(Value) = null;
+threadlocal var er_macros: ?*const std.StringHashMap(Value) = null;
+
+fn expandProceduralMacro(gc: *GC, expr: Value, transformer: *types.Transformer, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
+    const gmod = @import("globals.zig");
+    const call = gmod.call_proc_for_macro orelse return ExpandError.TransformerFailed;
+
+    // SRFI 211 hands the transformer "the fully unwrapped input form":
+    // strip provenance markers a generating syntax-rules macro may have
+    // left, so the procedure sees plain data. In-place, matching the
+    // compile boundary's own stripUsertextMarkers use.
+    var input = expr;
+    if (isUsertextPair(input)) input = unwrapUsertext(input);
+    if (types.isPair(input) or types.isVector(input)) stripUsertextMarkers(gc, input);
+
+    // Fresh invocation scope + context, saved/restored for re-entrancy.
+    const saved_scope = er_scope;
+    const saved_globals = er_globals;
+    const saved_macros = er_macros;
+    const saved_check = active_use_check;
+    const saved_refs = active_def_local_refs;
+    er_scope = freshScope();
+    er_globals = globals;
+    er_macros = macros;
+    active_use_check = use_check;
+    active_def_local_refs = &.{};
+    defer {
+        er_scope = saved_scope;
+        er_globals = saved_globals;
+        er_macros = saved_macros;
+        active_use_check = saved_check;
+        active_def_local_refs = saved_refs;
+    }
+    // The rename dedup cache entries belong to this invocation only (the
+    // scope id is globally fresh); release them on return like expandMacro.
+    const saved_scope_count = scope_table_count;
+    defer scope_table_count = saved_scope_count;
+
+    // Roots: pushes are strictly nested (nothing here leaves the stack
+    // unbalanced before the deferred pops fire — the transformer call
+    // itself balances whatever it pushes).
+    var pushed: usize = 0;
+    defer for (0..pushed) |_| gc.popRoot();
+    var input_root = input;
+    gc.pushRoot(&input_root);
+    pushed += 1;
+
+    var result: Value = undefined;
+    if (transformer.kind == .er_macro) {
+        var rename_root = gc.allocNativeFn("rename", &erRenameFn, .{ .exact = 1 }) catch return ExpandError.OutOfMemory;
+        gc.pushRoot(&rename_root);
+        pushed += 1;
+        var compare_root = gc.allocNativeFn("compare", &erCompareFn, .{ .exact = 2 }) catch return ExpandError.OutOfMemory;
+        gc.pushRoot(&compare_root);
+        pushed += 1;
+        result = call(transformer.proc, &.{ input_root, rename_root, compare_root }) catch |err| return mapProcCallError(err);
+    } else {
+        result = call(transformer.proc, &.{input_root}) catch |err| return mapProcCallError(err);
+    }
+
+    // SRFI 213: a transformer returning a procedure asks to be re-entered
+    // with the property-lookup procedure (capture-lookup is the identity in
+    // this implementation, as its spec explicitly permits). Loop bounded:
+    // each hop's result may itself request another lookup capture.
+    var hops: u8 = 0;
+    while (types.isProcedure(result) and hops < 8) : (hops += 1) {
+        var res_root = result;
+        gc.pushRoot(&res_root);
+        var lookup_root = gc.allocNativeFn("lookup", &propertyLookupFn, .{ .exact = 2 }) catch {
+            gc.popRoot();
+            return ExpandError.OutOfMemory;
+        };
+        gc.pushRoot(&lookup_root);
+        result = call(res_root, &.{lookup_root}) catch |err| {
+            gc.popRoot();
+            gc.popRoot();
+            return mapProcCallError(err);
+        };
+        gc.popRoot();
+        gc.popRoot();
+    }
+    if (types.isProcedure(result)) return ExpandError.TransformerFailed;
+    return result;
+}
+
+fn mapProcCallError(err: anyerror) ExpandError {
+    return switch (err) {
+        error.OutOfMemory => ExpandError.OutOfMemory,
+        else => ExpandError.TransformerFailed,
+    };
+}
+
+/// The `rename` procedure handed to explicit-renaming transformers.
+/// Accepts any datum per SRFI 211 ("replacing the symbols at the leaves by
+/// their renamings"): symbols rename, pairs/vectors rebuild with renamed
+/// leaves, everything else passes through.
+fn erRenameFn(args: []const Value) anyerror!Value {
+    const gc = memory.gc_instance orelse return error.TypeError;
+    return erRenameDatum(gc, args[0]);
+}
+
+fn erRenameDatum(gc: *GC, v: Value) anyerror!Value {
+    if (types.isSymbol(v)) return erRenameSymbol(gc, types.symbolName(v));
+    if (types.isPair(v)) {
+        var car_new = try erRenameDatum(gc, types.car(v));
+        gc.pushRoot(&car_new);
+        const cdr_new = erRenameDatum(gc, types.cdr(v)) catch |err| {
+            gc.popRoot();
+            return err;
+        };
+        var cdr_root = cdr_new;
+        gc.pushRoot(&cdr_root);
+        const pair = gc.allocPair(car_new, cdr_root);
+        gc.popRoot();
+        gc.popRoot();
+        return pair;
+    }
+    if (types.isVector(v)) {
+        const vec = types.toObject(v).as(types.Vector);
+        var as_list = try vectorToList(gc, vec.data);
+        gc.pushRoot(&as_list);
+        const renamed = erRenameDatum(gc, as_list) catch |err| {
+            gc.popRoot();
+            return err;
+        };
+        var renamed_root = renamed;
+        gc.pushRoot(&renamed_root);
+        const out = listToVector(gc, renamed_root);
+        gc.popRoot();
+        gc.popRoot();
+        return out;
+    }
+    return v;
+}
+
+/// Mirror of instantiateTemplate's template-introduced-symbol path (minus
+/// pattern variables and literals, which procedural macros don't have):
+/// well-known forms and in-scope macro keywords keep their names,
+/// everything else goes through renameForHygiene under this invocation's
+/// scope — globals-bound names stay unrenamed (definition-environment
+/// resolution), fresh names gensym consistently.
+fn erRenameSymbol(gc: *GC, name: []const u8) anyerror!Value {
+    if (isWellKnown(name)) return gc.allocSymbol(name);
+    if (er_macros) |m| {
+        if (m.contains(name)) return gc.allocSymbol(name);
+    }
+    return renameForHygiene(gc, name, er_scope, er_globals);
+}
+
+/// The `compare` procedure handed to explicit-renaming transformers:
+/// free-identifier=? to the strength this symbol-based expander can answer
+/// — equal effective (hygiene-stripped) names. Non-symbols compare #f.
+fn erCompareFn(args: []const Value) anyerror!Value {
+    if (!types.isSymbol(args[0]) or !types.isSymbol(args[1])) return types.FALSE;
+    const a = types.stripHygienicPrefix(types.symbolName(args[0]));
+    const b = types.stripHygienicPrefix(types.symbolName(args[1]));
+    return if (std.mem.eql(u8, a, b)) types.TRUE else types.FALSE;
+}
+
+/// SRFI 213: the `lookup` procedure a capture-lookup re-entry receives.
+/// Resolves both identifiers to their effective names and consults the
+/// VM-owned property table; #f when absent, per the spec.
+fn propertyLookupFn(args: []const Value) anyerror!Value {
+    const gmod = @import("globals.zig");
+    if (!types.isSymbol(args[0]) or !types.isSymbol(args[1])) return types.FALSE;
+    const get = gmod.syntax_property_get orelse return types.FALSE;
+    const id = types.stripHygienicPrefix(types.symbolName(args[0]));
+    const key = types.stripHygienicPrefix(types.symbolName(args[1]));
+    return get(id, key) orelse types.FALSE;
+}
 
 // ---------------------------------------------------------------------------
 // Pattern matching

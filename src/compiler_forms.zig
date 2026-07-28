@@ -40,5 +40,6 @@ pub const compileParameterize = advanced.compileParameterize;
 
 // Macro forms
 pub const compileDefineSyntax = macro_forms.compileDefineSyntax;
+pub const compileDefineProperty = macro_forms.compileDefineProperty;
 pub const compileLetSyntax = macro_forms.compileLetSyntax;
 pub const compileLetrecSyntax = macro_forms.compileLetrecSyntax;

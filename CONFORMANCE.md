@@ -6,7 +6,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 
 ## SRFI conformance
 
-174 SRFIs supported. 12 built-in (native Zig), 159 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226 and SRFI 160 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)` file (so neither appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+177 SRFIs supported. 12 built-in (native Zig), 161 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -103,9 +103,9 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### Portable SRFIs (150 libraries, plus SRFI 226 as sub-libraries only)
+### Portable SRFIs (164 SRFIs: 161 importable as bare `(srfi N)`, plus SRFI 160, 211, and 226 as sub-libraries only)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 211 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
 | SRFI | Title |
 |------|-------|
@@ -184,18 +184,22 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 135 | Immutable texts |
 | 136 | Extensible record types |
 | 137 | Minimal Unique Types |
+| 139 | Syntax parameters |
 | 140 | Immutable strings |
 | 141 | Integer division |
 | 143 | Fixnums |
 | 144 | Flonums |
 | 145 | Assumptions |
 | 146 | Mappings |
+| 147 | Custom macro transformers |
+| 148 | Eager syntax-rules |
+| 149 | Basic syntax-rules template extensions |
 | 151 | Bitwise operations on exact integers |
 | 152 | String library (reduced) |
 | 153 | Ordered sets |
 | 156 | Syntactic combiners for binary predicates |
 | 158 | Generators and accumulators |
-| 160 | Homogeneous numeric vector libraries |
+| 160 | Homogeneous numeric vector libraries (sub-libraries only) |
 | 161 | Unifiable boxes |
 | 162 | Comparators sublibrary |
 | 164 | Enhanced multi-dimensional Arrays |
@@ -226,6 +230,8 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 207 | String-notated bytevectors (reduced scope) § |
 | 209 | Enums and enum sets |
 | 210 | Procedures and syntax for multiple values |
+| 211 | Scheme Macro Libraries (sub-libraries only) § |
+| 213 | Identifier properties (reduced scope) § |
 | 214 | Flexvectors |
 | 215 | Central Log Exchange |
 | 216 | SICP Prerequisites (Portable) |
@@ -240,6 +246,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 227 | Optional arguments |
 | 228 | Composing comparators |
 | 229 | Tagged procedures |
+| 231 | Intervals and Generalized Arrays |
 | 232 | Flexible curried procedures |
 | 233 | INI files |
 | 234 | Topological sorting |
@@ -314,7 +321,20 @@ conditions, times, threads, thread-locals, interrupts) implements only
 `(srfi 226 control prompts)`, `(srfi 226 control continuations)` (escape-only,
 via Kaappi's own call/cc — no composable/re-entrant continuations), and
 `(srfi 226 control times)` — see the header of `lib/srfi/226/control/prompts.sld`
-for what's out of scope and why. SRFI 242 (The CFG Language) implements only the
+for what's out of scope and why. SRFI 211 (Scheme Macro Libraries) provides
+three of its eleven libraries, each whole per the SRFI's own conformance
+rule: `(srfi 211 explicit-renaming)` (er-macro-transformer over the
+procedural-transformer engine, identifier? = symbol?), `(srfi 211
+define-macro)` (define-macro/lisp-transformer, non-hygienic by
+specification), and `(srfi 211 syntax-parameter)` (re-export of SRFI 139);
+the remaining eight (syntax-case, low-level, syntactic-closures,
+implicit-renaming, variable-transformer, identifier-syntax, with-ellipsis,
+presyntax) need syntax objects or identifier macros the symbol-based
+expander cannot honestly provide. SRFI 213 (Identifier Properties)
+supports define-property at program/library top level with nominal
+(effective-name) binding resolution, and lookup via procedural
+transformers' capture-lookup re-entry — see the header of
+`lib/srfi/213.sld` for the documented scope reductions. SRFI 242 (The CFG Language) implements only the
 static-label subset (`cfg`, `execute`, `halt`, `bind`, `label*`, `call`) — dynamic
 labels (`labels`), `finally`, `permute`, and the `define-cfg-syntax*` extension
 forms need either a dominance-based free-variable analysis or syntax-case-level

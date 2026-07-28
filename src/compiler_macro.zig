@@ -314,7 +314,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.TransformerFailed => CompileError.InvalidSyntax,
             };
         };
         // Root for the rest of the enclosing compile scope via extra_roots
@@ -476,6 +476,50 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
             env.put(name, transformer) catch return CompileError.OutOfMemory;
         }
     }
+
+    try self.emitOp(.load_void);
+    try self.emitU16(dst);
+}
+
+/// SRFI 213: `(define-property <identifier> <key> <expression>)`. The
+/// expression is evaluated NOW — at macro-expansion time, in the global
+/// environment — and the value is attached to the (effective-name-keyed)
+/// binding pair in the VM-owned property table, without disturbing either
+/// binding's meaning. Procedural transformers read it back through the
+/// `lookup` procedure the SRFI 213 capture-lookup re-entry provides
+/// (expander.propertyLookupFn).
+///
+/// v1 scope reduction, documented in lib/srfi/213.sld: only (program or
+/// library) top level — a definition context whose region extends to the
+/// end of the program, which a global table models faithfully. Body-level
+/// definitions would need scoped retraction and are rejected.
+pub fn compileDefineProperty(self: *Compiler, args: Value, dst: u16) CompileError!void {
+    if (self.in_body_scope) return CompileError.InvalidSyntax;
+    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
+    const id = types.car(args);
+    const rest1 = types.cdr(args);
+    if (!types.isPair(rest1)) return CompileError.InvalidSyntax;
+    const key = types.car(rest1);
+    const rest2 = types.cdr(rest1);
+    if (!types.isPair(rest2) or types.cdr(rest2) != types.NIL) return CompileError.InvalidSyntax;
+    const expr = types.car(rest2);
+    if (!types.isSymbol(id) or !types.isSymbol(key)) return CompileError.InvalidSyntax;
+
+    const eval_fn = globals_mod.eval_datum_for_macro orelse return CompileError.InvalidSyntax;
+    const set_fn = globals_mod.syntax_property_set orelse return CompileError.InvalidSyntax;
+    const val = eval_fn(expr) catch |err| return switch (err) {
+        error.OutOfMemory => CompileError.OutOfMemory,
+        else => CompileError.InvalidSyntax,
+    };
+    // No GC-triggering allocation between the eval's return and the table
+    // store (the table and its composite key use the raw allocator), so the
+    // unrooted `val` cannot be collected in between; once stored it is
+    // marked via markVMRoots.
+    set_fn(
+        types.stripHygienicPrefix(types.symbolName(id)),
+        types.stripHygienicPrefix(types.symbolName(key)),
+        val,
+    ) catch return CompileError.OutOfMemory;
 
     try self.emitOp(.load_void);
     try self.emitU16(dst);
@@ -883,13 +927,60 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
         // builtin special form, never stored there) correctly falls
         // through to InvalidSyntax: there is no Transformer to alias.
         if (types.isSymbol(spec)) {
-            return merged_macros.get(types.symbolName(spec)) orelse CompileError.InvalidSyntax;
+            const alias_name = types.symbolName(spec);
+            if (merged_macros.get(alias_name)) |t| return t;
+            // SRFI 211: a global variable holding a transformer object —
+            // `(define t (er-macro-transformer proc))` then
+            // `(define-syntax foo t)`. Only already-executed defines are
+            // visible (top-level and library bodies run form-by-form), which
+            // is the same left-to-right visibility every global has.
+            if (self.globals) |g| {
+                const glk = globals_mod.acquireGlobalsRead(g);
+                const gv = g.get(alias_name);
+                globals_mod.releaseGlobalsRead(glk);
+                if (gv) |v| {
+                    if (types.isTransformer(v)) return v;
+                }
+            }
+            return CompileError.InvalidSyntax;
         }
         if (!types.isPair(spec)) return CompileError.InvalidSyntax;
         const head = types.car(spec);
         if (!types.isSymbol(head)) return CompileError.InvalidSyntax;
         const head_name = types.symbolName(head);
         if (std.mem.eql(u8, head_name, "syntax-rules")) return parseSyntaxRules(self, spec, &.{});
+        // SRFI 211: procedural transformer specs. Compared through the
+        // hygiene strip like the compiler's other renamed-special-form
+        // recognition — a syntax-rules template that emits one of these
+        // forms may have renamed the head (it stays unrenamed only when
+        // the primitives are visible as globals).
+        const stripped_head = types.stripHygienicPrefix(head_name);
+        const is_er = std.mem.eql(u8, stripped_head, "er-macro-transformer");
+        if (is_er or std.mem.eql(u8, stripped_head, "lisp-transformer")) {
+            const rest_spec = types.cdr(spec);
+            if (!types.isPair(rest_spec) or types.cdr(rest_spec) != types.NIL)
+                return CompileError.InvalidSyntax;
+            const eval_fn = globals_mod.eval_datum_for_macro orelse return CompileError.InvalidSyntax;
+            // Evaluated NOW, at macro-definition time, in the global
+            // environment (phase separation: enclosing runtime locals have
+            // no values at expansion time and are deliberately invisible).
+            const proc = eval_fn(types.car(rest_spec)) catch |err| return switch (err) {
+                error.OutOfMemory => CompileError.OutOfMemory,
+                else => CompileError.InvalidSyntax,
+            };
+            if (!types.isProcedure(proc)) return CompileError.InvalidSyntax;
+            var proc_root = proc;
+            self.gc.pushRoot(&proc_root);
+            const tx_val = self.gc.allocProceduralTransformer(
+                if (is_er) .er_macro else .lisp_macro,
+                proc_root,
+            ) catch {
+                self.gc.popRoot();
+                return CompileError.OutOfMemory;
+            };
+            self.gc.popRoot();
+            return tx_val;
+        }
         if (std.mem.eql(u8, head_name, "begin")) {
             // spec = (begin def1 def2 ... final-spec). Each def must be a
             // literal (define-syntax NAME SPEC); SPEC may itself need
@@ -977,7 +1068,7 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.TransformerFailed => CompileError.InvalidSyntax,
             };
         };
         self.gc.no_collect -= 1;

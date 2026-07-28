@@ -80,6 +80,21 @@ fn copyTransformerFreeRefs(
 
     const env = tx.def_env orelse return;
 
+    // SRFI 211: a procedural transformer's free references are computed by
+    // running code — `(rename 'helper)` can name anything in its defining
+    // library — so there are no templates to scan. Copy the WHOLE definition
+    // environment under the same per-binding rules the template loop below
+    // applies: the honest static over-approximation of "what could the
+    // transformer reference", mirroring what template scanning approximates
+    // for syntax-rules macros.
+    if (tx.kind != .syntax_rules) {
+        var env_it = env.iterator();
+        while (env_it.next()) |entry| {
+            try copyOneDefEnvBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*, visited, depth);
+        }
+        return;
+    }
+
     var pv_names: [64][]const u8 = undefined;
     var pv_count: usize = 0;
     for (tx.patterns[0..tx.num_rules]) |pat| {
@@ -93,39 +108,7 @@ fn copyTransformerFreeRefs(
         _ = macro.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
         for (free_names[0..free_count]) |fname| {
             if (env.get(fname)) |fval| {
-                const is_tx = types.isTransformer(fval);
-                if (target == vm.globals) {
-                    // Non-exported transformer free refs go into vm.macros
-                    // only (below), not vm.globals — keeps non-exported
-                    // library macros from leaking as bindings (#1332).
-                    if (!is_tx) {
-                        vm.globals_lock.lock();
-                        const missing = !target.contains(fname);
-                        if (missing) {
-                            target.put(fname, fval) catch {
-                                vm.globals_lock.unlock();
-                                return error.OutOfMemory;
-                            };
-                        }
-                        vm.globals_lock.unlock();
-                        if (missing) vm.global_version +%= 1;
-                    }
-                } else if (!target.contains(fname)) {
-                    target.put(fname, fval) catch return error.OutOfMemory;
-                }
-                if (is_tx) {
-                    // An exported macro may expand into a library-internal
-                    // helper macro (e.g. SRFI 64 test-assert → %test-comp1body).
-                    // The helper lives in the source library's lib_env, not the
-                    // importer's; register it in the importer's macro namespace
-                    // so the compiler expands it at the use site. This is the
-                    // only leg that reaches vm.macros, keeping importBinding the
-                    // sole path into it (issue #877).
-                    if (target == vm.globals and !vm.macros.contains(fname)) {
-                        vm.macros.put(fname, fval) catch return error.OutOfMemory;
-                    }
-                    try copyTransformerFreeRefs(vm, target, types.toObject(fval).as(types.Transformer), visited, depth + 1);
-                }
+                try copyOneDefEnvBinding(vm, target, fname, fval, visited, depth);
             } else if (vm.macros.get(fname)) |mval| {
                 // Fallback: a helper already present in the global macro table
                 // (e.g. imported at the REPL top level). Recurse so its own free
@@ -135,6 +118,47 @@ fn copyTransformerFreeRefs(
                 }
             }
         }
+    }
+}
+
+/// One definition-environment binding a macro's expansion may reference,
+/// copied to the import target (factored from copyTransformerFreeRefs so
+/// the template-scan loop and the SRFI 211 whole-env procedural loop share
+/// the exact same rules): non-transformer values become importer bindings
+/// when missing — under the globals lock with a version bump when the
+/// target is vm.globals; transformer values go into the importer's macro
+/// namespace only, never vm.globals (#1332), and recurse for their own
+/// free references (#877).
+fn copyOneDefEnvBinding(
+    vm: *VM,
+    target: *std.StringHashMap(Value),
+    fname: []const u8,
+    fval: Value,
+    visited: *std.AutoHashMap(*types.Transformer, void),
+    depth: u32,
+) error{OutOfMemory}!void {
+    const is_tx = types.isTransformer(fval);
+    if (target == vm.globals) {
+        if (!is_tx) {
+            vm.globals_lock.lock();
+            const missing = !target.contains(fname);
+            if (missing) {
+                target.put(fname, fval) catch {
+                    vm.globals_lock.unlock();
+                    return error.OutOfMemory;
+                };
+            }
+            vm.globals_lock.unlock();
+            if (missing) vm.global_version +%= 1;
+        }
+    } else if (!target.contains(fname)) {
+        target.put(fname, fval) catch return error.OutOfMemory;
+    }
+    if (is_tx) {
+        if (target == vm.globals and !vm.macros.contains(fname)) {
+            vm.macros.put(fname, fval) catch return error.OutOfMemory;
+        }
+        try copyTransformerFreeRefs(vm, target, types.toObject(fval).as(types.Transformer), visited, depth + 1);
     }
 }
 

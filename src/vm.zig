@@ -35,6 +35,55 @@ pub fn setVMInstance(vm: *VM) void {
     globals_mod.library_exists_checker = &checkLibraryExists;
     globals_mod.srfi_feature_checker = &checkSrfiFeature;
     globals_mod.base_binding_lookup = &lookupBaseBinding;
+    globals_mod.eval_datum_for_macro = &evalDatumForMacro;
+    globals_mod.call_proc_for_macro = &callProcForMacro;
+    globals_mod.syntax_property_set = &syntaxPropertySet;
+    globals_mod.syntax_property_get = &syntaxPropertyGet;
+}
+
+/// SRFI 211: evaluate a datum at macro-expansion time in the global
+/// environment (the transformer-spec RHS of er-macro-transformer/
+/// lisp-transformer, or a define-property value expression). Same
+/// compile-and-run discipline as primitives_r7rs.evalFn's plain path.
+fn evalDatumForMacro(expr: Value) anyerror!Value {
+    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    const gc = vm.gc;
+    var expr_root = expr;
+    gc.pushRoot(&expr_root);
+    defer gc.popRoot();
+    const func = try compiler_mod.compileExpressionWithMacros(gc, expr_root, &vm.macros, vm.globals);
+    var closure_val = try gc.allocClosure(func);
+    compiler_mod.Compiler.unrootFunction(gc, func);
+    gc.pushRoot(&closure_val);
+    defer gc.popRoot();
+    return vm.callWithArgs(closure_val, &[_]Value{});
+}
+
+/// SRFI 211: invoke a procedural macro transformer (or a SRFI 213
+/// capture-lookup re-entry procedure) from inside the expander.
+fn callProcForMacro(proc: Value, args: []const Value) anyerror!Value {
+    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    return vm.callWithArgs(proc, args);
+}
+
+/// SRFI 213: store a property value under the composite key
+/// "<id>\x1f<key>". Overwriting an existing property replaces its value
+/// (the SRFI's post-finalization note on repeated definition).
+fn syntaxPropertySet(id: []const u8, key: []const u8, val: Value) anyerror!void {
+    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    const gpa = vm.gc.allocator;
+    const composite = try std.fmt.allocPrint(gpa, "{s}\x1f{s}", .{ id, key });
+    const gop = try vm.syntax_properties.getOrPut(composite);
+    if (gop.found_existing) gpa.free(composite);
+    gop.value_ptr.* = val;
+}
+
+fn syntaxPropertyGet(id: []const u8, key: []const u8) ?Value {
+    const vm = vm_instance orelse return null;
+    const gpa = vm.gc.allocator;
+    const composite = std.fmt.allocPrint(gpa, "{s}\x1f{s}", .{ id, key }) catch return null;
+    defer gpa.free(composite);
+    return vm.syntax_properties.get(composite);
 }
 
 fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
@@ -107,6 +156,8 @@ fn markVMRoots(gc: *memory.GC) void {
         while (mit.next()) |v| gc.markValue(v.*);
         var uit = vm.record_uid_registry.valueIterator();
         while (uit.next()) |v| gc.markValue(v.*);
+        var spit = vm.syntax_properties.valueIterator();
+        while (spit.next()) |v| gc.markValue(v.*);
     }
 
     var pit = vm.param_overrides.valueIterator();
@@ -202,6 +253,13 @@ pub const VM = struct {
     /// below) -- nongenerative identity is scoped to a single owning VM's
     /// lifetime, same rarer-staleness tradeoff already accepted for macros.
     record_uid_registry: std.StringHashMap(Value),
+    /// SRFI 213 identifier properties: "<id>\x1f<key>" (both effective,
+    /// hygiene-stripped names; owned strings) -> the property value,
+    /// evaluated at macro-expansion time by `define-property`. Shared
+    /// across threads the same way as `record_uid_registry` (struct-copy in
+    /// initForThread, owning-VM-only deinit/mark below), with the same
+    /// rarer-staleness tradeoff.
+    syntax_properties: std.StringHashMap(Value),
     output: std.ArrayList(u8),
     libraries: library_mod.LibraryRegistry,
     handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
@@ -400,6 +458,7 @@ pub const VM = struct {
             .globals_lock = globals_lock,
             .macros = std.StringHashMap(Value).init(gc.allocator),
             .record_uid_registry = std.StringHashMap(Value).init(gc.allocator),
+            .syntax_properties = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
@@ -435,6 +494,7 @@ pub const VM = struct {
             .globals_lock = parent.globals_lock,
             .macros = parent.macros,
             .record_uid_registry = parent.record_uid_registry,
+            .syntax_properties = parent.syntax_properties,
             .output = .empty,
             .libraries = parent.libraries,
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
@@ -498,6 +558,9 @@ pub const VM = struct {
             self.gc.allocator.destroy(self.globals_lock);
             self.macros.deinit();
             self.record_uid_registry.deinit();
+            var spk = self.syntax_properties.keyIterator();
+            while (spk.next()) |k| self.gc.allocator.free(k.*);
+            self.syntax_properties.deinit();
             self.libraries.deinit();
             if (self.script_path) |sp| self.gc.allocator.free(sp);
         }

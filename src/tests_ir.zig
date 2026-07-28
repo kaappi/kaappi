@@ -818,3 +818,31 @@ test "IR opt switch: disabling optimization changes emitted bytecode" {
     const noopt_func = try compiler_mod.compileExpression(&gc, try readExpr(&gc, "(if #t 1 2)"));
     try std.testing.expect(opt_len < noopt_func.code.items.len);
 }
+
+test "define-property lowers as a sexpr form and registers at compile time" {
+    // SRFI 213: the whole flow — FormKind dispatch, expansion-time
+    // evaluation of the value expression, table store, void result — runs
+    // during compilation; the compiled form itself only loads void. The
+    // read-back goes through a procedural transformer's re-entry lookup.
+    try th.expectEval(
+        \\(define ir-dp-key 'k)
+        \\(define ir-dp-id 'v)
+        \\(define-property ir-dp-id ir-dp-key (* 6 7))
+        \\(define-syntax ir-dp-get
+        \\  (er-macro-transformer
+        \\   (lambda (form rename compare)
+        \\     (lambda (lookup) (lookup (car (cdr form)) (car (cdr (cdr form))))))))
+        \\(ir-dp-get ir-dp-id ir-dp-key)
+    , 42);
+}
+
+test "define-property keyword participates in the LLVM eval-fallback name set" {
+    // A FormKind keyword missing from eval_fallback_form_names is a silent
+    // native miscompilation, not a missed optimization (kaappi#827/#1496/
+    // #1799) — pin the membership the FormKind route derives automatically.
+    var found = false;
+    for (ir_mod.eval_fallback_form_names) |n| {
+        if (std.mem.eql(u8, n, "define-property")) found = true;
+    }
+    try std.testing.expect(found);
+}

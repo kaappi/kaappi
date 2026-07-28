@@ -142,6 +142,32 @@ pub fn lookupBaseBinding(name: []const u8) ?Value {
     return null;
 }
 
+/// SRFI 211 (procedural macros): evaluate a datum in the VM's global
+/// environment at macro-expansion time — the RHS of an
+/// `(er-macro-transformer <expr>)` / `(lisp-transformer <expr>)`
+/// transformer spec, or a `define-property` value expression. Registered
+/// by vm.setVMInstance, mirroring library_exists_checker: the compiler and
+/// expander cannot import vm.zig. The global (not lexical) environment is
+/// deliberate phase separation: transformer code cannot see enclosing
+/// runtime locals, which have no values at expansion time.
+pub const EvalDatumFn = *const fn (expr: Value) anyerror!Value;
+pub var eval_datum_for_macro: ?EvalDatumFn = null;
+
+/// SRFI 211: invoke a Scheme procedure from inside the expander — the
+/// procedural transformer call itself, and the SRFI 213 capture-lookup
+/// re-entry. Registered by vm.setVMInstance alongside eval_datum_for_macro.
+pub const CallProcFn = *const fn (proc: Value, args: []const Value) anyerror!Value;
+pub var call_proc_for_macro: ?CallProcFn = null;
+
+/// SRFI 213 (identifier properties): set/get on the VM-owned property
+/// table, keyed by the effective (hygiene-stripped) names of the property's
+/// identifier and key. Registered by vm.setVMInstance; the table's Values
+/// are GC roots via markVMRoots.
+pub const SyntaxPropertySetFn = *const fn (id: []const u8, key: []const u8, val: Value) anyerror!void;
+pub var syntax_property_set: ?SyntaxPropertySetFn = null;
+pub const SyntaxPropertyGetFn = *const fn (id: []const u8, key: []const u8) ?Value;
+pub var syntax_property_get: ?SyntaxPropertyGetFn = null;
+
 /// Marks a compiler-synthesized global-variable reference as one that must
 /// resolve through `lookupBaseBinding` instead of vm.globals (#1715).
 /// get_global/call_global (vm_dispatch.zig) check for this prefix before
