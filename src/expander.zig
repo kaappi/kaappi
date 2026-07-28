@@ -271,6 +271,13 @@ pub const ExpandError = error{
     PatternTooComplex,
     EllipsisCountMismatch,
     EllipsisDepthMismatch,
+    /// R7RS 4.3.2 (kaappi#1791): a template subform followed by `...` whose
+    /// element contains no pattern variable bound under an ellipsis in the
+    /// pattern — e.g. a typo'd bare `...` where `(... ...)` (the ellipsis
+    /// escape) was meant. See instantiateEllipsis's raise site for the proof
+    /// that this can never fire for the legitimate nested-syntax-rules
+    /// "belongs to the inner macro" case.
+    EllipsisNoPatternVariable,
     /// SRFI 211: a procedural transformer raised, returned a non-datum, or
     /// could not run (no VM registered). The VM's error state carries any
     /// Scheme-level condition the transformer raised.
@@ -1476,6 +1483,24 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
                 }
             }
         }
+
+        // R7RS 4.3.2 (kaappi#1791): no pattern variable at this ellipsis
+        // depth drove the repeat count, so this is not "zero repetitions" —
+        // it's a template bug (most often a typo'd bare `...` where the
+        // literal-ellipsis escape `(... ...)` was meant, kaappi#1787).
+        // Silently producing zero copies here previously let the malformed
+        // expansion continue and fail far away with a misleading error.
+        //
+        // This can never fire for the legitimate "ellipsis belongs to a
+        // nested syntax-rules template's own grammar" case: both call sites
+        // of this function (instantiateTemplate and instantiateLetBindings)
+        // already special-case `NESTED_SR_FLAG and !ellipsisReferencesOuter`
+        // *before* calling here, and `ellipsisReferencesOuter` is exactly
+        // the same predicate — over the same elem_template/bindings — as
+        // the `count_set` computation above. So `!count_set` here implies
+        // `ellipsisReferencesOuter` was false, which means the caller could
+        // only have reached this call with NESTED_SR_FLAG unset.
+        if (!count_set) return ExpandError.EllipsisNoPatternVariable;
 
         // Consecutive ellipses (R7RS 4.3.2): (x ... ...) flattens depth-2
         // bindings into a single list.  Count and strip leading ellipsis

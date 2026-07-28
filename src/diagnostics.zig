@@ -313,6 +313,9 @@ pub const table = [_]Diagnostic{
         \\A special form was written incorrectly — for example an 'if' with no
         \\test, a 'define' with no body, or a 'lambda' whose parameter list is not
         \\a proper list of identifiers. Check the form against its expected shape.
+        \\It can also mean a 'syntax-rules' template used '...' on a subform with
+        \\no pattern variable bound at that ellipsis depth — often a typo for the
+        \\literal-ellipsis escape '(... ...)'.
         ,
         .example = "(if)",
     },
@@ -600,6 +603,7 @@ pub fn compileErrorCode(err: anyerror) Code {
         error.NoMatchingPattern,
         error.EllipsisCountMismatch,
         error.EllipsisDepthMismatch,
+        error.EllipsisNoPatternVariable,
         error.PatternTooComplex,
         error.ScopeTableFull,
         => .syntax_error,
