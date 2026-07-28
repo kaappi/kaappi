@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785188879120,
+  "lastUpdate": 1785203050721,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "b9bfd6acdb14c81d202732d36643a5a0f47ee56a",
-          "message": "Improve /github-release skill with five fixes from v0.16.0 release\n\n- Fix Step 5 grep pattern to match actual .name spec structs\n- Add workspace ../CLAUDE.md version bump to Step 4\n- Remove stale src/main.zig src/thottam.zig from Step 7 git add\n- Add concrete ssh win11 smoke test commands to Step 10\n- Replace sleep+lookup dance with direct gh run watch in Step 11\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-17T18:34:11+05:30",
-          "tree_id": "bce4f68ea0ee7fc08fd3c937d523e2137449884e",
-          "url": "https://github.com/kaappi/kaappi/commit/b9bfd6acdb14c81d202732d36643a5a0f47ee56a"
-        },
-        "date": 1784295032150,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.378259,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.542469,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.895145,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.403477,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006458,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053644,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.503809,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068385,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.304652,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.945909,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584182,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430903,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.820693,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.708728,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042833,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046137,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99dc2320e7707bf5a4f09b0dd7bebb5b68ceeeec",
+          "message": "Stop the native backend evaluating `apply` in the global environment (#1798)\n\n* Stop the native backend evaluating `apply` in the global environment\n\n`kaappi compile` miscompiled `apply` over any local binding — a procedure\nparameter or a `let`-bound name. The binary linked cleanly and then died at\nrun time:\n\n    (define (s xs) (apply + xs))   ; => undefined variable 'xs'\n\n`call/cc`, `call-with-current-continuation`, `call-with-values` and `eval`\ntook the same broken path.\n\nWhy: `apply` lowers to an ir `.passthrough` node, and `emitPassthrough`\nserializes those to source for `kaappi_eval_cached` — an interpreter eval that\nresolves names in the GLOBAL environment. All four native-compilation gates\n(both closure tiers, tryCompileDefineFunction, emitLet) exist to stop a lexical\nscope being split that way (#827); each asks\n`freevars.sexprNeedsEvalFallback`, which matches head keywords against the\ncomptime-derived `ir.eval_fallback_form_names`.\n\n`apply` was missing from that set. The set derives from `llvm_node_table`,\nwhere `.passthrough` carries `.capability = .native` — right for the one shape\nemitPassthrough compiles (a `(define (f ...) ...)` shorthand), wrong for every\nother, which it evals whole. And because `apply` is an `ir.isKnownGlobal`,\nfree-variable analysis passed it too, so the frame compiled natively and the\neval went looking for `xs` among the globals. A same-named global made it worse\nthan an error: `(define x 100) (define (s x) (apply + (list x)))` silently\nreturned 100.\n\n`isRejectedFormHead` (the #1496 cond/case/do gate) is a second copy of the same\nconcept and was already complete, which is why `(cond ... (else (apply + lst)))`\nworked while a plain body did not.\n\n`ir.other_special_forms` now carries a bool payload — \"an evaluated form headed\nby this keyword becomes a passthrough the interpreter runs\" — and\n`eval_fallback_form_names` appends the true entries, so one list feeds both\nviews. `else`, `=>`, `_`, `...` and `unquote` stay false on purpose:\nsexprNeedsEvalFallback recurses blindly into sub-forms, so listing `else` would\nreject every natively lowered cond/case with an else clause. `isSpecialForm`\nignores the payload, leaving vm_library.zig and compiler_macro.zig unchanged.\n\nRepublishing the frame as globals (bindParamsAsGlobals, the #1410 mechanism the\nletrec/let fallbacks use) is not an alternative: it cannot see let-locals,\naliases across activations, and clobbers same-named globals. Declining the frame\nkeeps the interpreter's lexical scope authoritative.\n\nThe cost is that a function using `apply` is no longer natively compiled at all.\nDeliberate, documented in docs/dev/llvm-backend.md, and closable later by\nlowering `apply` natively.\n\nTests: a compile-suite script running ten shapes — parameter, let-bound name,\nbare top-level let, computed operator, fixed-args-plus-list, rest parameter,\nrecursion, closure capture, global-not-clobbered, and a summary-statistics\nprogram — each comparing the compiled binary against the interpreter, so it\nstays valid if `apply` is later lowered natively. Plus six emit-level tests\nincluding a direct assertion on the derived name set and its exclusions.\nMutation-tested: 9/10 shell cases and all 6 unit tests fail without the fix.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Reference issue #1799 in the apply lexical-scope fix\n\nThe regression test, its emit-level counterparts, and the surrounding comments\ncarried no issue number: none was filed when the fix landed. Stamp #1799 in and\nrename the compile-suite script to match the repo's convention of naming a\nregression test after the bug it pins.\n\nNo behavior change.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: fail on a nonzero compile, drop future work from the guide\n\nThree findings from CodeRabbit on #1798, all in the new material:\n\n- The regression script ran `kaappi compile` under `|| true` and then judged\n  success by whether an executable existed. A compile that reported an error\n  but still left an executable behind would have passed as a green run, and a\n  genuine compiler rejection was reported as \"did not produce a binary\" with\n  its diagnostics discarded. Capture the status and the output, and fail on\n  either a nonzero exit or a missing binary, with the two spelled differently.\n\n- docs/dev/llvm-backend.md described how a future native `apply` lowering would\n  work. docs/dev/CLAUDE.md says roadmap and future work belong in issues, not\n  guides, because such sections rot. Cut it back to the limitation that exists\n  today; the design sketch lives in the PR discussion.\n\n- A line beginning `#1410` reads as an ATX heading (markdownlint MD018).\n  Reflowed, and spelled `kaappi#1410` to match the rest of the file.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T06:35:50+05:30",
+          "tree_id": "483d1ceccb31184c5662b7f86542618565d69f7f",
+          "url": "https://github.com/kaappi/kaappi/commit/99dc2320e7707bf5a4f09b0dd7bebb5b68ceeeec"
+        },
+        "date": 1785203048845,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.141848,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.54666,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.720374,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.410146,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005231,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.040702,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.394673,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053347,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.581524,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.517367,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.197731,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.37123,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.354078,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.500626,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035783,
             "unit": "seconds"
           }
         ]
