@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785261919872,
+  "lastUpdate": 1785263917466,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c11b06801bf465310f02b9b64abde91b8ad6dc63",
-          "message": "Implement SRFI 250 (Insertion-ordered Hash Tables) (#1647)\n\nAdd the portable (srfi 250) library: hash tables that preserve\nfirst-insertion order across iteration, folding, and conversion, with the\nfull API — constructors, the bidirectional cursor interface, ordered\nfold-left/fold-right, and destructive set operations.\n\nDesign: a doubly-linked list of nodes gives O(1) ordered insert, delete,\nand pop, while a built-in (SRFI 69) hash table keyed through the SRFI 128\ncomparator maps each key to its node for O(1) lookup. The comparator flows\nstraight into the built-in table, which already extracts a comparator's\nequality and hash, so key comparison honours it.\n\nNodes are 4-slot vectors and the table record stores the head/tail *keys*\nrather than node references. This keeps `write` finite: Kaappi's record\nprinter recurses into fields without cycle detection, so a node reference in\na record field would loop on the prev/next cycle. Holding leaf keys instead\nkeeps the cyclic nodes solely inside the index, which prints opaquely.\n\nIncludes a SRFI-64 conformance suite covering the ordering guarantees,\ncursors, mutability rules, and set operations, and bumps the SRFI count\n(76 -> 77) in README, CONFORMANCE, and CLAUDE.\n\nCloses #1646.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T21:01:48+05:30",
-          "tree_id": "80a8310dca5330bb6950a82dcff53ac7dd13563e",
-          "url": "https://github.com/kaappi/kaappi/commit/c11b06801bf465310f02b9b64abde91b8ad6dc63"
-        },
-        "date": 1784390675844,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.093648,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.460874,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.919287,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.414812,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00672,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052432,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.51034,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068351,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.259569,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.978911,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.51645,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.469862,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.740256,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.817428,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045184,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035513,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a4fd71032b33cd7be4dfb7cf71c08e2941683055",
+          "message": "Make nstore prefixes byte-prefix-free, fixing tuple leaks across stores (#1717) (#1818)\n\n* Make nstore prefixes byte-prefix-free, fixing tuple leaks across stores (#1717)\n\nSRFI 168's %all-tuples prefix-scanned the packed key bytes directly, and\nengine-pack concatenates items with no \"prefix ends here\" marker. Two\nnstores sharing an engine/store whose prefixes were initial subsequences\nof each other (e.g. (list 0) vs (list 0 0)) would have the shorter\nprefix's scan also match the longer prefix's tuples.\n\nEvery nstore's packed prefix is now wrapped in a length header (the\npacked prefix's own byte length, itself packed via engine-pack) before\nuse as a key prefix or scan key. engine-pack's integer encoding is\nprefix-free across distinct non-negative integers, so this guarantees\none nstore's tag can never be a byte-prefix of a different nstore's tag.\nConfined to 168.sld; 167.sld's engine-pack/unpack are unchanged.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Qualify the CHANGELOG isolation claim for identical nstore prefixes\n\nPer CodeRabbit review on #1818: the prior wording (\"regardless of how\ntheir logical prefixes relate\") overclaimed — two nstores given the\nexact same logical prefix are still indistinguishable by design, as the\n168.sld header comment already notes. Narrow the claim to distinct\nprefixes and state that limitation explicitly.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T23:14:11+05:30",
+          "tree_id": "059e5969e6e89571734523987eb7576262c426ea",
+          "url": "https://github.com/kaappi/kaappi/commit/a4fd71032b33cd7be4dfb7cf71c08e2941683055"
+        },
+        "date": 1785263915861,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.364288,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.056709,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.592597,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.18654,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006371,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047801,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.325845,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058991,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.570497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.239449,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.579008,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.43841,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.81338,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.670125,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044184,
             "unit": "seconds"
           }
         ]
