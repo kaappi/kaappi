@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785249097426,
+  "lastUpdate": 1785258707870,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c9e3fba2752896b0bf8b2b92f9f5de8897120239",
-          "message": "Implement SRFI 254 (Ephemerons and Guardians) (#1643)\n\n* Implement SRFI 254 (Ephemerons and Guardians)\n\nSRFI 254 exposes three garbage-collector-dependent primitives that cannot be\nwritten portably in standard Scheme: ephemerons (a key/value pair whose value\nis retained only while the key is reachable other than through the value),\nguardians (post-mortem resurrection, the substrate for finalization), and\ntransport cell guardians plus current-hash (a stable identity hash).\n\nEphemerons and object guardians need real GC integration. A new\ngc_collect.processWeakRefs pass runs after strong marking and before sweeping,\nreaching a fixpoint that retains an ephemeron's value once its key is proven\nreachable, breaks the ephemerons whose keys never are (so a value that\nreferences its key still breaks — the case a plain weak-key pair gets wrong),\nand resurrects unreachable guarded objects onto each guardian's ready queue.\nEphemerons are processed before guardians each round so the two structures\ninteract correctly. Only ephemerons and guardians reached during marking are\nprocessed, so unreachable ones are swept normally.\n\nBecause Kaappi's collector is non-moving, current-hash is the stable boxed\nvalue word and transport cell guardians are the degenerate case: a key is\nnever transported, so cells are held strongly and a zero-argument\ntransport-cell-guardian call always returns #f.\n\nA guardian is itself a procedure; invocation is handled by\nvm_calls.invokeGuardian and wired into every call-dispatch site (callValue,\ncallWithArgs, and the inline tail_call/tail_apply paths), mirroring how\nparameter objects are invoked.\n\nBuilt in as (srfi 254) plus the component libraries (srfi 254 ephemerons),\n(srfi 254 guardians), (srfi 254 transport-cell-guardians), and the\n(srfi 254 ephemerons-and-guardians) alias. Adds deterministic GC unit tests\n(tests_srfi254.zig, green under -Dgc-stress) and an end-to-end Scheme\nconformance suite. Closes #1637.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Fix Debug-build test timeout; address review feedback\n\nThe srfi-254.scm conformance test forced collections by allocating ~200k\npairs several times, which blew the 60s per-file timeout under the Debug\nbuild (every allocation is traced). Collapse it to a single ~20k-pair churn\nthat still crosses the 8192-object GC threshold, so every unreachable-key\nephemeron breaks and every unreachable guarded object resurrects in one\ncycle. Runs in ~6s in Debug (was >60s).\n\nAlso from PR review:\n- Correct the stale \"72 SRFIs / 8 built-in\" summary at the top of\n  CONFORMANCE.md to 73 / 9.\n- Add a cross-generational guardian test proving an old guardian's young\n  registered object is resurrected without a write barrier — a minor\n  collection re-traces every reachable guardian, so the old->young edge is\n  seen with an empty remembered set. This documents why guardian\n  registration needs no write barrier.\n- Document, at the guardian keep-case, that a representative is retained\n  strongly on purpose (memory safety on a non-refcounted collector); the\n  bounded cost is an unspecified-order resurrection delay.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T16:59:08+05:30",
-          "tree_id": "67cd9044b18e05b03c13464cc443fe59891ae901",
-          "url": "https://github.com/kaappi/kaappi/commit/c9e3fba2752896b0bf8b2b92f9f5de8897120239"
-        },
-        "date": 1784376129803,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.37581,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.190751,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.988613,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.982443,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006375,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05532,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.519086,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069858,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.347848,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.103967,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.586142,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434262,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.802991,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702368,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043726,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045028,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "218429300be8c949d615a43f067abccb535dda63",
+          "message": "Gate native let/lambda lowering on macro use, fixing miscompiled expansion (#1807) (#1819)\n\nemitLet and the lambda closure tiers (tryCompileNativeClosure,\ntryCompilePureLambdaAsNativeClosure, tryCompileDefineFunction) re-lower\ntheir raw bindings/body via a scratch IR instance with no macro table,\nso a macro use anywhere inside compiled as a call to a same-named\nglobal instead of expanding. A let body's macro use was unconditionally\nbroken; a lambda/function body's macro use was usually saved by\naccident (free-variable analysis rejects an unrecognized name) unless\nthe macro shadowed an existing global (e.g. `(define-syntax car ...)`),\nin which case it silently called the real primitive.\n\nAdds sexprHasMacroUse, mirroring sexprNeedsEvalFallback's raw-sexpr\ntraversal but checking self.isMacroName (the same gate #1496 added for\ncond/case/do), and wires it into all four gates so any macro use\nanywhere in the scope declines native compilation of the whole\nenclosing form rather than splitting it across the native/interpreted\nboundary. #1803's apply-operand emission inherits the same protection\nwith no separate fix, since it only runs after a gate has already\naccepted the enclosing scope.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T22:06:58+05:30",
+          "tree_id": "50b22991844675db65436279200a5c703abcdf7a",
+          "url": "https://github.com/kaappi/kaappi/commit/218429300be8c949d615a43f067abccb535dda63"
+        },
+        "date": 1785258706108,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.973363,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.347983,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566838,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.846169,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00669,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04508,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.299733,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055987,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.353912,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.160461,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.524225,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.477227,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.709742,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.749391,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044175,
             "unit": "seconds"
           }
         ]
