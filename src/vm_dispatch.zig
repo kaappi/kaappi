@@ -913,6 +913,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         {
                             self.registers[base] = cache[sym_idx];
                         } else {
+                            if (the_func.cache_version != self.global_version) {
+                                @memset(cache, types.VOID);
+                                the_func.cache_version = self.global_version;
+                            }
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
@@ -943,6 +947,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             @memset(cache, types.VOID);
                             cache[sym_idx] = val;
                             the_func.global_cache = cache;
+                            the_func.cache_version = self.global_version;
                         }
                     }
                 } else {
@@ -1029,6 +1034,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     callee = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                     if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {
                         if (func.global_cache) |cache| {
+                            if (func.cache_version != self.global_version) {
+                                @memset(cache, types.VOID);
+                                func.cache_version = self.global_version;
+                            }
                             if (sym_idx < cache.len) cache[sym_idx] = callee;
                         } else {
                             const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch {
@@ -1037,6 +1046,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             @memset(cache, types.VOID);
                             cache[sym_idx] = callee;
                             func.global_cache = cache;
+                            func.cache_version = self.global_version;
                         }
                     }
                 }
