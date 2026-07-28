@@ -178,7 +178,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
                 return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             }
 
-            const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
+            const node = ir.lowerSingleExpr(self.allocator(), self.gc, init_expr) catch {
                 return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             const alloca = try self.freshTemp();
@@ -230,7 +230,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
                 return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             }
 
-            const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
+            const node = ir.lowerSingleExpr(self.allocator(), self.gc, init_expr) catch {
                 return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
             };
             const val = self.emitNode(node) catch {
@@ -276,7 +276,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         const rest = types.cdr(body_expr);
         const expr_is_tail = body_tail and (rest == types.NIL or !types.isPair(rest));
-        const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
+        const node = ir.lowerSingleExprTail(self.allocator(), self.gc, types.car(body_expr), expr_is_tail) catch {
             return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
         };
         // #827: if emitNode fails (e.g. a lambda that cannot be eval'd in

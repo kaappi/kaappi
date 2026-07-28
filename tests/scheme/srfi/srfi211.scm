@@ -59,12 +59,24 @@
            (eq? (rename 'fresh-name-xyz) (rename 'fresh-name-xyz))))))
 (test-equal #t (rename-same? ))
 
+;; Freshness is checked via symbol->string, not a bare quoted rename: #1801
+;; fixed renameForHygiene to hygiene-rename a template-introduced identifier
+;; inside `(quote ...)` like any other during expansion, then strip that
+;; rename back off wherever the compiler turns a quoted datum into a literal
+;; Value -- correct per R7RS quote semantics (quote always yields the plain
+;; datum, so `(rename-capture)` returning the SAME bare `fresh-name-uvw` both
+;; times, not a distinct gensym, is now the right answer for `(list (rename
+;; 'quote) (rename 'fresh-name-uvw))`). This test's original form relied on
+;; the pre-fix bug (quote never stripped hygiene at all) to observe
+;; distinctness; symbol->string sidesteps stripping (it only ever touches
+;; symbols) so the test can still verify that `rename` itself produces a
+;; genuinely fresh identifier per invocation.
 (define-syntax rename-capture
   (er-macro-transformer
    (lambda (form rename compare)
-     (list (rename 'quote) (rename 'fresh-name-uvw)))))
+     (list (rename 'quote) (symbol->string (rename 'fresh-name-uvw))))))
 (test-assert "two invocations rename to distinct gensyms"
-             (not (eq? (rename-capture) (rename-capture))))
+             (not (string=? (rename-capture) (rename-capture))))
 
 ;;; --- rename accepts a whole datum: leaves renamed, structure rebuilt ---
 (define-syntax tree-rename

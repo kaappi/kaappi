@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const conditionals = @import("compiler_conditionals.zig");
+const expander = @import("expander.zig");
 const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
@@ -312,8 +313,11 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
     }
 
     if (!types.isPair(tmpl)) {
-        // Atom: treat as quoted constant
-        const idx = try self.addConstant(tmpl);
+        // Atom: treat as quoted constant. Strip hygiene renames first, same
+        // as plain quote (#1801) -- a quasiquote template's literal atoms
+        // are quoted data exactly like `quote`'s.
+        const stripped = expander.stripHygieneFromDatum(self.gc, tmpl) catch return CompileError.OutOfMemory;
+        const idx = try self.addConstant(stripped);
         try self.emitOp(.load_const);
         try self.emitU16(dst);
         try self.emitU16(idx);

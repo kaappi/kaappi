@@ -1,6 +1,7 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 const types = @import("types.zig");
+const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const native_decls = @import("native_decls.zig");
 // #1499 forward-reference reservation + finalization stubs (mutual tail calls).
@@ -156,6 +157,12 @@ pub const LLVMEmitter = struct {
     // VM (unit tests) — then no name is treated as a macro, which is correct
     // because those tests never exercise macros inside these forms.
     macros: ?*const std.StringHashMap(Value) = null,
+    // GC backing the Values being emitted, threaded into every scratch IR
+    // this emitter lowers (lowerSingleExpr/lowerSingleExprTail, and the
+    // per-lambda body_ir in llvm_emit_lambda.zig) so lowerQuote can strip
+    // hygiene renames from a macro-produced quoted datum (#1801). Null when
+    // driven without a VM (unit tests that never exercise such macros).
+    gc: ?*memory.GC = null,
     params: ?std.StringHashMap(u8),
     upvalues: ?std.StringHashMap(u8),
     tmp_counter: u32,
@@ -1010,7 +1017,7 @@ pub const LLVMEmitter = struct {
         // calls correctly; the standalone IR lowering below runs without a
         // macro table and would mis-lower a top-level (set! x (some-macro ...)).
         if (!self.inLexicalScope()) return self.emitEvalExpr(value);
-        const node = ir.lowerSingleExpr(self.allocator(), value) catch return self.emitEvalExpr(value);
+        const node = ir.lowerSingleExpr(self.allocator(), self.gc, value) catch return self.emitEvalExpr(value);
         return self.emitNode(node);
     }
 
@@ -1303,7 +1310,7 @@ pub const LLVMEmitter = struct {
     // enclosing scope — emitScopedValue's emitEvalExpr fallback would run the
     // operand in the global environment, the exact #1799 failure mode.
     fn emitScopedOperand(self: *LLVMEmitter, operand: Value) EmitError![]const u8 {
-        const node = ir.lowerSingleExpr(self.allocator(), operand) catch return error.UnsupportedNodeType;
+        const node = ir.lowerSingleExpr(self.allocator(), self.gc, operand) catch return error.UnsupportedNodeType;
         return self.emitNode(node);
     }
 

@@ -526,6 +526,10 @@ fn lowerAndPrint(vm: *VM, expr: Value, exit: *u8) void {
 
     var ir = ir_mod.IR.init(vm.gc.allocator);
     ir.globals = vm.globals;
+    // So the dumped tree matches what real compilation would build: lowerQuote
+    // strips hygiene renames from a quoted datum's template-introduced
+    // identifiers (#1801), which needs the owning GC.
+    ir.gc = vm.gc;
     defer ir.deinit();
 
     const node = ir_mod.lowerAndOptimize(&ir, expr, &vm.macros, false) catch |err| {
@@ -747,6 +751,7 @@ pub fn lowerFormToStringForTest(vm: *VM, a: std.mem.Allocator, expr: Value, no_o
 
     var ir = ir_mod.IR.init(a);
     ir.globals = vm.globals;
+    ir.gc = vm.gc;
     defer ir.deinit();
     const node = try ir_mod.lowerAndOptimize(&ir, expr, &vm.macros, false);
 

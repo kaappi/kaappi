@@ -2,13 +2,17 @@ const std = @import("std");
 const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
+const expander = @import("expander.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
 
 pub fn compileQuote(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
-    const datum = types.car(args);
+    // See ir.zig's lowerQuote: strip hygiene renames from a quoted datum's
+    // template-introduced identifiers now that it's becoming a real literal
+    // Value (#1801).
+    const datum = expander.stripHygieneFromDatum(self.gc, types.car(args)) catch return CompileError.OutOfMemory;
     const idx = try self.addConstant(datum);
     try self.emitOp(.load_const);
     try self.emitU16(dst);

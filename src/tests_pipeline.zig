@@ -189,6 +189,32 @@ test "expand: recursive macro expands fully" {
     try testing.expect(contains(got, "if"));
 }
 
+test "expand: two separate expansions of a quoted template symbol get distinct hygienic renames (#1801)" {
+    // #1801: a template-introduced identifier written directly inside
+    // `(quote ...)` (e.g. `'g`) used to come back bare, unrenamed, from
+    // EVERY expansion -- so two separate uses of `(gen)` were structurally
+    // indistinguishable even before compilation, breaking any macro-level
+    // identity check built out of further syntax-rules expansion (SRFI
+    // 148's em-gensym/bound-identifier=?). Fixed by hygiene-renaming inside
+    // quote exactly like anywhere else during expansion; the compiler
+    // strips that rename back off once it turns the quoted datum into a
+    // literal runtime Value (see tests_macros.zig's "quoted template symbol
+    // is eq?" test for that complementary, post-compile behavior).
+    var h: Harness = .{};
+    try h.init();
+    defer h.deinit();
+    try h.setup("(define-syntax gen (syntax-rules () ((gen) 'g)))");
+
+    const first = try h.expand("(gen)");
+    defer testing.allocator.free(first);
+    const second = try h.expand("(gen)");
+    defer testing.allocator.free(second);
+
+    try testing.expect(contains(first, "__hyg_"));
+    try testing.expect(contains(second, "__hyg_"));
+    try testing.expect(!std.mem.eql(u8, first, second));
+}
+
 // ── ir: structure ────────────────────────────────────────────────────────────
 
 test "ir: if over a primitive comparison" {

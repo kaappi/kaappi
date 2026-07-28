@@ -67,6 +67,7 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     if (boxed.rest_conflict) return null;
 
     var body_ir = ir.IR.init(self.allocator());
+    body_ir.gc = self.gc;
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them
     // using the built-in's semantics (issue #790).
@@ -139,6 +140,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     const own_boxed = freevars.analyzeBoxedParams(self, body_list, param_names.items, null) orelse return null;
 
     var body_ir = ir.IR.init(self.allocator());
+    body_ir.gc = self.gc;
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them
     // using the built-in's semantics (issue #790).
@@ -485,6 +487,7 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
     if (boxed.rest_conflict) return null;
 
     var body_ir = ir.IR.init(self.allocator());
+    body_ir.gc = self.gc;
     defer body_ir.deinit();
     // Parameters (including a rest parameter) shadow primitives of the same
     // name; don't fold calls to them using the built-in's semantics (#790).

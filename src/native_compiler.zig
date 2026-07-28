@@ -159,6 +159,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     var ir_instance = ir_mod.IR.init(allocator);
     defer ir_instance.deinit();
+    // Lowered forms are already macro-expanded and may contain hygiene-
+    // renamed identifiers inside quoted data; lowerQuote needs the owning GC
+    // to strip those back to their base names (#1801).
+    ir_instance.gc = vm.gc;
 
     // Track names that are targets of define or set! in previous top-level
     // forms so constant folding does not inline primitive semantics for a
@@ -250,6 +254,9 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     // sent to the interpreter (which expands it) instead of being mis-compiled
     // as a call to a same-named global (#1496).
     emitter.macros = &vm.macros;
+    // Threaded into every scratch IR the emitter lowers, so lowerQuote can
+    // strip hygiene renames from a macro-produced quoted datum (#1801).
+    emitter.gc = vm.gc;
     timings.begin(.llvm_emit); // kaappi#1515: IR → LLVM IR text codegen
     emitter.emitProgram(ir_nodes.items) catch |err| {
         timings.end();
