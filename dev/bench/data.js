@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785247248983,
+  "lastUpdate": 1785249097426,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ec09cc40c6d50fa3f607b7c54398dfd50032bae6",
-          "message": "Implement SRFI 267: Raw String Syntax (#1642)\n\n* Implement SRFI 267: Raw String Syntax\n\nRaw strings (#\"X\"...\"X\") are string literals that interpret no escape\nsequences, with a per-literal delimiter X (any run of bytes without \").\nThey spare the escaping of content full of \\ and \" — regexes, Windows\npaths, embedded source.\n\nThe lexical syntax is built into the reader: readHash gains a `\"` arm that\nscans the delimiter and copies content verbatim up to the leftmost `\"X\"`\nterminator. #\" was previously a read error, so nothing conflicts, and\nraw-string literals work anywhere a string can appear. The (srfi 267)\nlibrary adds the port procedures — read-raw-string,\nread-raw-string-after-prefix, can-delimit?, generate-delimiter,\nwrite-raw-string, and the two error predicates — in pure (scheme base);\ngenerate-delimiter is linear-time to avoid the blow-up the SRFI warns of.\n\nCloses #1639.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* SRFI 267: linear generate-delimiter, reject surplus port args\n\nAddress CodeRabbit review on #1642:\n\n- generate-delimiter walked the string with indexed string-ref, which in\n  Kaappi rescans UTF-8 from the front on every access (O(n^2)), contradicting\n  the linear-time claim. Rewrite it as a single pass over (string->list ...),\n  computing empty-delimiter validity and the longest `=` run together; drop the\n  now-unused longest-run helper.\n\n- read-raw-string, read-raw-string-after-prefix, and write-raw-string accepted\n  any number of trailing arguments and silently used only the first port. Add\n  opt-port, which rejects two-or-more arguments with an arity error, matching\n  the SRFI's fixed [port] signatures.\n\nTests extended: generate-delimiter edge cases (adjacent quotes, UTF-8 content)\nand surplus-port rejection for all three procedures.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-18T16:19:23+05:30",
-          "tree_id": "8899a21331e3e3893933e16aa013602c50d9763f",
-          "url": "https://github.com/kaappi/kaappi/commit/ec09cc40c6d50fa3f607b7c54398dfd50032bae6"
-        },
-        "date": 1784373571257,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.36979,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.221184,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.918922,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.491422,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006384,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0537,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506796,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069855,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.440061,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.937023,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.589431,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.439115,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.823892,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.595093,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044484,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045505,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "15f40ed07e674a2dc692334f629b3839b9e10e25",
+          "message": "Hygiene-rename identifiers inside quote, fixing SRFI 148's em-gensym (#1801) (#1816)\n\n* Hygiene-rename identifiers inside quote, fixing SRFI 148's em-gensym (#1801)\n\nrenameForHygiene stripped hygiene from a template-introduced identifier the\ninstant it saw QUOTE_FLAG, before any per-expansion distinguishing info\ncould be recorded -- so two separate expansions of e.g. `'g` were\nstructurally identical as syntax, not just as data. This broke any\nbound-identifier=?/free-identifier=?-style macro trick built out of further\nexpansion, including SRFI 148's em-gensym, which relies on hygiene alone\n(no counter) for uniqueness per its own `(em-gensym) => 'g` definition.\n\nFixed by hygiene-renaming a quoted, template-introduced identifier exactly\nlike a non-quoted one, then stripping that rename back off wherever the\ncompiler turns a quoted datum into a literal Value\n(expander.stripHygieneFromDatum, called from quote and quasiquote\ncompilation) -- so ordinary macros that quote a fixed tag symbol still\nproduce eq? results once the code runs.\n\nA pre-existing, unrelated reuse of QUOTE_FLAG (re-walking a usertext-marker\nsplice from a macro-generating-macro in substitute-only mode, e.g. SRFI\n257's accumulator rebinds) needed a new VERBATIM_FLAG to keep its\nnever-rename behavior, since it used to be indistinguishable from the\nem-gensym case now that QUOTE_FLAG itself renames.\n\nlowerQuote needs a GC to strip hygiene; threading it through the LLVM\nnative backend's standalone IR lowering surfaced that memory.gc_instance\nis unsafe there (tests_native.zig builds its own short-lived GC without\npointing the threadlocal at it), so IR/LLVMEmitter gained an explicit gc\nfield instead.\n\nRemoves the now-stale em-gensym/em-generate-temporaries test-expect-fail\nentries in tests/scheme/srfi/srfi148.scm and adds regression coverage in\ntests_macros.zig, tests_pipeline.zig, and\ntests/scheme/hygiene/quote-identifier-1801.scm.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix SRFI 211 test that accidentally depended on the #1801 quote-hygiene bug\n\ntests/scheme/srfi/srfi211.scm's \"two invocations rename to distinct\ngensyms\" test built `(list (rename 'quote) (rename 'fresh-name-uvw))` and\ncompared two invocations with eq?. Before #1801's fix, quote never\nstripped hygiene renames at all, so this happened to observe two distinct\n__hyg_N_ symbols and pass -- but for the wrong reason. With #1801 fixed,\nquote correctly strips the rename back to the plain `fresh-name-uvw`\nsymbol both times (matching real quote semantics: quote always yields the\nplain datum), so the two invocations are now eq? as intended, and the\nold assertion fails.\n\nFixed the test itself rather than the engine: convert with symbol->string\nbefore returning from the transformer, since stripHygieneFromDatum only\never touches symbols. This still correctly verifies that `rename` produces\na genuinely fresh identifier per invocation, without depending on quote\npreserving that difference into a runtime symbol value -- which no real\nScheme's quote does.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T13:47:44Z",
+          "tree_id": "44fb3954e054affd64148d60dde4543ea6eaad19",
+          "url": "https://github.com/kaappi/kaappi/commit/15f40ed07e674a2dc692334f629b3839b9e10e25"
+        },
+        "date": 1785249096124,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.09171,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.631459,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568834,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.923238,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006631,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044682,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297676,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05584,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.339485,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.16363,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.522106,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.477189,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.711516,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.825922,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045028,
             "unit": "seconds"
           }
         ]
