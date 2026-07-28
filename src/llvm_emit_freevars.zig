@@ -351,9 +351,27 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
             .cond, .case_form, .do_form => return sexprFormHasFreeVars(self, node.data.sexpr_form.form, node.data.sexpr_form.args, params),
             else => return false,
         },
-        .passthrough => return false,
+        // A natively lowered `(apply …)` keeps its operands as a raw
+        // S-expression (kaappi#1803); walk them like any other expression
+        // tree, or a capture inside one is invisible and the closure tiers
+        // emit the name as a global lookup — #1799's exact failure mode.
+        // Every other passthrough shape still declines the enclosing scope
+        // upstream (sexprNeedsEvalFallback), so it never reaches a native
+        // body and reports none.
+        .passthrough => {
+            if (isApplyForm(node.data.passthrough))
+                return sexprHasFreeVars(self, node.data.passthrough, params);
+            return false;
+        },
         .letrec, .letrec_star => return false,
     }
+}
+
+// True for a pair whose head is the symbol `apply` — the one passthrough
+// shape the backend lowers natively inside a lexical scope (kaappi#1803).
+fn isApplyForm(expr: Value) bool {
+    return types.isPair(expr) and types.isSymbol(types.car(expr)) and
+        std.mem.eql(u8, types.symbolName(types.car(expr)), "apply");
 }
 
 // Walk a raw S-expression (a set! target or value) with binder scoping,
@@ -446,7 +464,14 @@ fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const
             .cond, .case_form, .do_form => return collectSexprFormFreeVars(self, node.data.sexpr_form.form, node.data.sexpr_form.args, params, list),
             else => return true,
         },
-        .constant, .define, .passthrough => return true,
+        // Collect captures inside a natively lowered `(apply …)` form's
+        // operands (kaappi#1803) — see the nodeHasFreeVars arm above.
+        .passthrough => {
+            if (isApplyForm(node.data.passthrough))
+                return collectSexprFreeVars(self, node.data.passthrough, params, list);
+            return true;
+        },
+        .constant, .define => return true,
         .letrec, .letrec_star => return true,
     }
 }

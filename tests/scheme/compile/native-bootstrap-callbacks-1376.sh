@@ -118,18 +118,24 @@ SCHEME
 check_native "$DIR/upvalue.scm" "(11 12 13)" "upvalue"
 
 # --- Case 8: bytecode tail positions calling a native callback ---
-# A do-loop forces the defined procedure onto the interpreter (eval
-# fallback), so (f i) / (apply f ...) / (g 14) execute as bytecode
-# tail_call / tail_apply / tail_call_global with a NativeClosure callee.
+# Each body is wrapped in a semantically transparent (letrec () ...) — an
+# eval-fallback form — to force the defined procedure onto the interpreter,
+# so (f i) / (apply f ...) / (g 14) execute as bytecode tail_call /
+# tail_apply / tail_call_global with a NativeClosure callee. The do-loop
+# alone stopped forcing this once `do` lowered natively (kaappi#1496), and
+# `apply` stopped forcing it too once it did (kaappi#1803) — without the
+# wrapper these run as native code and the bytecode opcodes go unexercised.
 cat > "$DIR/tail-calls.scm" << 'SCHEME'
 (define (tail-call-it f)
-  (do ((i 0 (+ i 1)))
-      ((= i 3) (f i))))
+  (letrec ()
+    (do ((i 0 (+ i 1)))
+        ((= i 3) (f i)))))
 (display (tail-call-it (lambda (x) (* x 100))))
 (newline)
 (define (tail-apply-it f)
-  (do ((i 0 (+ i 1)))
-      ((= i 1) (apply f (list 7 8)))))
+  (letrec ()
+    (do ((i 0 (+ i 1)))
+        ((= i 1) (apply f (list 7 8))))))
 (display (tail-apply-it (lambda (a b) (+ a b))))
 (newline)
 (define g #f)
@@ -137,8 +143,9 @@ cat > "$DIR/tail-calls.scm" << 'SCHEME'
   (set! g (lambda (x) (* x 3))))
 (setup!)
 (define (call-g)
-  (do ((i 0 (+ i 1)))
-      ((= i 1) (g 14))))
+  (letrec ()
+    (do ((i 0 (+ i 1)))
+        ((= i 1) (g 14)))))
 (display (call-g))
 (newline)
 SCHEME
