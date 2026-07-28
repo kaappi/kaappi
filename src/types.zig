@@ -500,6 +500,12 @@ pub const Transformer = struct {
     captured_locals: []CapturedLocal = &.{},
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
+    /// Canonical name (e.g. "demo.srmac") of the library def_env belongs to,
+    /// set alongside it in compileDefineSyntax. Null exactly when def_env is
+    /// null (a top-level/REPL-defined macro, never a library one). Lets
+    /// renameForHygiene build a def_env_binding_prefix-marked reference that
+    /// survives being imported anywhere (#1812).
+    def_lib_name: ?[]const u8 = null,
     custom_ellipsis: ?[]const u8 = null,
     literal_bound: []u32 = &.{},
     let_syntax_peer_names: [][]const u8 = &.{},
@@ -1607,12 +1613,43 @@ pub fn symbolName(v: Value) []const u8 {
     return toObject(v).as(Symbol).name;
 }
 
+/// Recover a hygiene-renamed identifier's underlying name, for callers that
+/// need to recognize a name STRUCTURALLY (a special form, a builtin's exact
+/// spelling, an SRFI 213 property key, a KP4xxx lint's "is this direct user
+/// text") despite whatever rename scheme wrapped it. Handles both `__hyg_N_`
+/// (compiler-minted gensyms) and `def_env_binding_prefix`-marked names
+/// (#1812: `libname` + `def_env_binding_sep` + the original name) — a
+/// def_env-marked reference is exactly as much "a renamed version of
+/// origname" as a `__hyg_` one is, so every existing caller of this function
+/// needs it recognized the same way (confirmed necessary by a real
+/// regression: `(srfi 211 define-macro)`'s own `lisp-transformer`/
+/// `er-macro-transformer` are SRFI 211 primitives, not `(scheme base)`
+/// bindings, so they got this library's def-env prefix; compiler_macro.zig's
+/// resolveTransformerSpecRec recognizes a transformer-spec head by exact
+/// name via this same function, and silently rejected the renamed spelling
+/// as invalid syntax). The two schemes never nest (renameForHygiene treats
+/// a def_env-prefixed name as already-renamed too, so it's never wrapped in
+/// a further __hyg_ gensym, and vice versa), but the loop tries both each
+/// pass for robustness rather than assuming that invariant here as well.
 pub fn stripHygienicPrefix(name: []const u8) []const u8 {
     var n = name;
-    while (std.mem.startsWith(u8, n, "__hyg_")) {
-        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
-            n = n[6 + sep + 1 ..];
-        } else break;
+    while (true) {
+        if (std.mem.startsWith(u8, n, "__hyg_")) {
+            if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
+                n = n[6 + sep + 1 ..];
+                continue;
+            }
+            break;
+        }
+        if (std.mem.startsWith(u8, n, def_env_binding_prefix)) {
+            const rest = n[def_env_binding_prefix.len..];
+            if (std.mem.indexOf(u8, rest, def_env_binding_sep)) |sep| {
+                n = rest[sep + def_env_binding_sep.len ..];
+                continue;
+            }
+            break;
+        }
+        break;
     }
     return n;
 }
@@ -1625,6 +1662,23 @@ pub fn stripHygienicPrefix(name: []const u8) []const u8 {
 /// globals.zig (which itself depends on types.zig).
 pub const base_binding_prefix = "__kaappi_base__";
 
+/// Prefix marking a compiler-synthesized reference to a name bound in a
+/// SPECIFIC macro's own definition-environment library (#1812; see
+/// globals.zig's lookupDefEnvBinding for the resolution side). Encoding is
+/// `def_env_binding_prefix ++ libname ++ def_env_binding_sep ++ origname`
+/// -- unlike base_binding_prefix (which always means the one well-known
+/// `(scheme base)` library), this one is parameterized per-transformer, so
+/// the library name has to travel with it. Defined here for the same
+/// one-way-dependency reason as base_binding_prefix above.
+pub const def_env_binding_prefix = "__kaappi_defenv__";
+
+/// Separator between the embedded library name and the original binding
+/// name in a def_env_binding_prefix-marked symbol. An ASCII unit separator:
+/// library names are dot-joined symbol/digit text (library.zig's
+/// libraryNameToString) and R7RS identifiers can't contain control
+/// characters, so this byte can never collide with either half.
+pub const def_env_binding_sep = "\x1f";
+
 pub fn isContinuationBarrier(name: []const u8) bool {
     // A prefixed reference (e.g. "__kaappi_base__call-with-values",
     // synthesized by let-values/let*-values's desugaring, #1715) must be
@@ -1632,9 +1686,16 @@ pub fn isContinuationBarrier(name: []const u8) bool {
     // uction" fast path skips the standard frame setup call-with-values
     // needs for correct continuation capture (see the commit that
     // introduced this exclusion, fa6ecf47), and that requirement doesn't
-    // change just because the reference is spelled differently.
+    // change just because the reference is spelled differently. Same
+    // reasoning applies to a def_env_binding_prefix-marked name (#1812): the
+    // original name is whatever follows the def_env_binding_sep.
     const n = if (std.mem.startsWith(u8, name, base_binding_prefix))
         name[base_binding_prefix.len..]
+    else if (std.mem.startsWith(u8, name, def_env_binding_prefix))
+        (if (std.mem.indexOf(u8, name, def_env_binding_sep)) |sep|
+            name[sep + def_env_binding_sep.len ..]
+        else
+            name)
     else
         name;
     return std.mem.eql(u8, n, "call-with-current-continuation") or

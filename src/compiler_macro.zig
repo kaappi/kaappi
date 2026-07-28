@@ -306,6 +306,20 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             // name with a later user define must still be renamed (#1208).
             if (globals_mod.globals_ctx) |gctx| {
                 for (tx.bound_free_refs) |cname| {
+                    // #1812: a name resolvable through the transformer's own
+                    // definition-environment library is protected by
+                    // renameForHygiene's active_def_env check instead (a
+                    // def_env_binding_prefix-marked reference, immune to
+                    // whatever this self.globals/vm.globals currently holds
+                    // for the same name) — skip the self.globals-based dance
+                    // for it entirely so the two mechanisms never both fire
+                    // for the same name. Mirrors renameForHygiene's own
+                    // exclusion of true (scheme base) bindings (e.g.
+                    // call-with-values): those stay on the OLD path here too,
+                    // matching whichever mechanism actually protects them.
+                    if (tx.def_env) |denv| {
+                        if (denv.contains(cname) and globals_mod.lookupBaseBinding(cname) == null) continue;
+                    }
                     const in_g = g.get(cname);
                     // glk != null means g IS the shared globals map
                     // and we already hold its exclusive lock; else
@@ -499,6 +513,11 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.lib_env) |env| {
         tx.def_env = env;
         tx.def_env_val = self.lib_env_val;
+        // #1812: pairs with def_env so renameForHygiene can build a
+        // def_env_binding_prefix-marked reference that survives being
+        // imported anywhere, instead of resolving by bare name against
+        // whatever vm.globals the use site happens to have.
+        tx.def_lib_name = globals_mod.currentLibName();
     }
 
     try finalizeTransformer(self, transformer);
