@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785270936545,
+  "lastUpdate": 1785274551481,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3da3bfa0b606ff1ad6ffbfc494cff88460767ead",
-          "message": "Fix --lib-path entries past the 16th being silently dropped (#1653) (#1655)\n\nTwo fixed [16] buffers capped the library search path with no diagnostic,\nthe same silent-data-loss shape as the CLI-argument cap fixed in #1652:\n\n- cli.zig's Options.lib_path_buf ([16][]const u8, guarded by\n  `if (count < 16)`) stored the explicit --lib-path entries.\n- main.zig's search-path assembly copied those plus the auto-discovered\n  dirs (script directory, ~/.kaappi/lib, exe-relative lib) into a second\n  fixed [16] local with the same guards.\n\nSo a 17th --lib-path — or the auto-discovered dirs once 16 explicit ones\nexisted — vanished silently (exit 0, no error).\n\nBoth now grow: cli.zig accumulates into a c_allocator-backed ArrayList and\ntoOwnedSlice (the same immortal argv-lifetime convention as script_args),\nand main.zig sizes its assembly buffer to opts.libPaths().len + 3 (the\nthree possible auto-discovered dirs) and drops the four `< 16` guards. The\nassembly buffer is deliberately never freed: vm.lib_paths points into it\nand is read as late as the deferred coverage report, and it aliases the\nalready-immortal klp/elp path strings — so it must live for the whole run.\n\nRegression tests fail without the fix and pass with it: a cli.parse unit\ntest (20 --lib-path entries all survive) and an end-to-end shell test\n(tests/scheme/smoke/lib-path-many-1653.sh) covering both failure shapes —\na library in the 20th explicit path, and the auto-discovered script dir\nsurviving 16 explicit paths — with a no-library negative control.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T02:41:37+05:30",
-          "tree_id": "ad6104916e04975afccb37e2c9b3ddb578821c86",
-          "url": "https://github.com/kaappi/kaappi/commit/3da3bfa0b606ff1ad6ffbfc494cff88460767ead"
-        },
-        "date": 1784411101582,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.026158,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.676407,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843269,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.971282,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006456,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.050574,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.449372,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.064598,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.416316,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.661431,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.471442,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.403689,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.661294,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.932909,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039981,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044675,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d9dae15ac0bbac2e74ceae16cfc0fe3ebfdd754",
+          "message": "Drop stale cross-thread concurrency limitation docs, fixing #1793 (#1825)\n\nREADME.md, lib/kaappi/parallel.sld, and benchmarks/gate/ still described\n#1487, #1489, and #1520 as open -- all three were fixed 2026-07-13/14/15\nand have regression tests. This understated a working feature (README\ntold readers not to use cross-thread channels in production) and left\nthe gate harness's self-containment rationale reading like a live engine\nbug report instead of a completed benchmark's historical protocol note.\n\nReplaced the stale caveats with the constraint that's actually still\ntrue: a channel (or a pool containing one) must reach the other thread\nthrough lexical capture in the thunk, not a shared top-level define\n(#1742).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T20:42:48Z",
+          "tree_id": "a683312c38023a86fa062019aafd848220761197",
+          "url": "https://github.com/kaappi/kaappi/commit/3d9dae15ac0bbac2e74ceae16cfc0fe3ebfdd754"
+        },
+        "date": 1785274549326,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.034926,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.42476,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.572354,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.880802,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006715,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045598,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302395,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055591,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.373733,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.190613,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.559658,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.47289,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.730701,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.704533,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045445,
             "unit": "seconds"
           }
         ]
