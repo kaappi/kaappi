@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785229484883,
+  "lastUpdate": 1785232881672,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "1f73a11d977d3cdb0942a0e3407553c944a61cbb",
-          "message": "Release v0.18.0",
-          "timestamp": "2026-07-18T08:02:50+05:30",
-          "tree_id": "7ed215ec18bc88c7eb4c0f6f86f7135a5d5a2453",
-          "url": "https://github.com/kaappi/kaappi/commit/1f73a11d977d3cdb0942a0e3407553c944a61cbb"
-        },
-        "date": 1784344164092,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.044157,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.578969,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912988,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.403837,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006718,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052851,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509341,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068508,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.265153,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.984063,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.508215,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471041,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.727958,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.84518,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044203,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04296,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e03b6100c3a0bb0b9a9f119e6fc57c4a94299bd",
+          "message": "Keep a macro-expanded body-position define's local alive (#1800) (#1815)\n\nA macro use whose expansion is a bare (define x v) in body position\nraised \"undefined variable\" for later references to x. Root cause:\nexpandAndCompileMacroUse's post-expansion cleanup unconditionally\npopped every compiler local added while compiling the macro's final\nexpanded form, on the assumption that everything added during a\nmacro-use compile is transient chain bookkeeping (hygienic aliases).\ncompileDefine's in_body_scope branch adds a real, sibling-visible\nlocal when the expansion is a definition, and that local needs to\nsurvive the call returning; only the aliases injected earlier in the\nchain (for R7RS 4.3.1 referential transparency) are truly transient.\n\nFixes 6 SRFI 148 assertions previously quarantined behind\ntest-expect-fail and one SRFI 251 \"known gap\" test that turned out to\nbe the same underlying bug reached via a nested lambda scope.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T14:52:18+05:30",
+          "tree_id": "12b6abd2a056d8136f593b49fa5543d851eb45d0",
+          "url": "https://github.com/kaappi/kaappi/commit/4e03b6100c3a0bb0b9a9f119e6fc57c4a94299bd"
+        },
+        "date": 1785232879334,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.357095,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.318527,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.898703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.431105,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006332,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.053826,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505236,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069682,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.562518,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.924202,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.612222,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434651,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.822359,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.66723,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044568,
             "unit": "seconds"
           }
         ]
