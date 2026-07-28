@@ -194,8 +194,7 @@ Slots 35-63 are available.
 
 ### 2. Define the struct
 
-In `src/types.zig`, define the struct with an `Object` header, declared
-first by convention:
+Define the struct with an `Object` header, declared first by convention:
 
 ```zig
 pub const MyType = struct {
@@ -204,6 +203,16 @@ pub const MyType = struct {
     name: []const u8,
 };
 ```
+
+`src/types.zig` re-exports every heap type from a set of `types_*.zig`
+domain files (kaappi#1731 — see its own File organization table in
+`CLAUDE.md`) so existing `types.Foo` call sites work regardless of which
+file defines `Foo`. Put the new struct in the matching domain file (e.g.
+an FFI type goes in `types_ffi.zig`) if one fits, or directly in
+`src/types.zig` if it's a core type or doesn't fit an existing domain. If
+defined outside `types.zig`, add `pub const MyType = types_x.MyType;`
+there, and reference the bare name `MyType` (not `types_x.MyType`) from
+`Object.expectedTag()`'s switch.
 
 Layout is otherwise free — Zig's auto layout may place `header` at a
 nonzero byte offset, and that's fine. Heap Values always carry the address

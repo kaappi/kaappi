@@ -58,7 +58,9 @@ the leakiness measurement.
 
 ### 1. Value representation & heap-object layout
 
-- **Where:** `src/types.zig`
+- **Where:** `src/types.zig` (`Value`, `Object`/`ObjectTag`, type
+  predicates); individual heap-type structs are split across 11
+  `types_*.zig` domain files (kaappi#1731), re-exported from `types.zig`
 - **Theory:** the NaN-boxing scheme (which payloads are immediate and why
   any non-NaN f64 is a flonum), fixnum range and bignum promotion, and the
   heap-Value convention: a heap Value carries the address of the `header`
