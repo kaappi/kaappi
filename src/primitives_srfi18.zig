@@ -212,6 +212,16 @@ pub fn crossThreadWaitPossible() bool {
     return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
 }
 
+/// `pub` for main.zig (kaappi#1792): true while at least one `thread-start!`-
+/// spawned OS thread has not yet finished `threadEntryFn` — including its
+/// child-heap teardown, since the decrement is the outermost `defer` there
+/// and so fires only after every access to shared parent state (the symbol
+/// table, the globals map) is done. main.zig must not free either while this
+/// is true; see the call site for why.
+pub fn hasLiveChildThreads() bool {
+    return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
+}
+
 /// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
 /// channel-send/channel-receive timeouts reuse this exact SRFI-18-shaped
 /// number-or-time-object-or-#f parsing rather than duplicating it.

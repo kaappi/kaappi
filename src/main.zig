@@ -31,6 +31,7 @@ pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
 pub const primitives_hashtable = @import("primitives_hashtable.zig");
 pub const primitives_random = @import("primitives_random.zig");
+pub const primitives_srfi18 = @import("primitives_srfi18.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
 pub const ffi_callback = @import("ffi_callback.zig");
 pub const embedded_bytecode = @import("embedded_bytecode");
@@ -211,14 +212,30 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     }
 
     var gc = memory.GC.init(allocator);
-    defer gc.deinit();
 
     const vm = try allocator.create(vm_mod.VM);
     vm.* = try vm_mod.VM.init(&gc);
-    defer {
+    // kaappi#1792: a thread-start!ed OS thread still alive at process exit may
+    // be concurrently reading/writing the parent's shared symbol table and
+    // globals map (both aliased into the child's own GC/VM). Freeing them out
+    // from under it is a data race that corrupts the allocator's heap
+    // metadata, so skip our own teardown entirely in that case.
+    //
+    // That alone isn't sufficient: since kaappi links libc, both a normal
+    // return from `main` and `std.process.exit` route through glibc's real
+    // `exit()`, which runs atexit handlers and dynamic-loader finalizers —
+    // process-wide teardown machinery that can itself race a thread that is
+    // still genuinely executing (observed as a rare SIGSEGV distinct from the
+    // heap-corruption abort this fix's first half addresses). `_exit` skips
+    // all of that and goes straight to the `exit_group` syscall, so no
+    // teardown logic ever runs concurrently with the live child at all.
+    defer if (primitives_srfi18.hasLiveChildThreads()) {
+        std.c._exit(if (script_had_error) 1 else 0);
+    } else {
         vm.deinit();
         allocator.destroy(vm);
-    }
+        gc.deinit();
+    };
     vm_mod.setVMInstance(vm);
 
     // WASM: simplified entry — just run the file specified as argv[1]
