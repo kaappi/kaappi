@@ -250,6 +250,35 @@ test "case-lambda does not capture user variables named n or args" {
     try std.testing.expectEqual(@as(i64, 143), types.toFixnum(r3));
 }
 
+test "case-lambda dispatch is unaffected by a shadowed global length" {
+    // Regression (#1714): the desugaring called the global `length` directly
+    // to count arguments, so a scope that legitimately shadows `length` (e.g.
+    // a library providing its own for a non-standard list-like type) broke
+    // every case-lambda defined within it. Fixed by dispatching through an
+    // internal %length alias instead.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define f
+        \\  (let ()
+        \\    (define (length x) 'shadowed)
+        \\    (case-lambda
+        \\      ((a) (list 'one a))
+        \\      ((a b) (list 'two a b)))))
+    );
+
+    const r1 = try vm.eval("(f 1)");
+    try std.testing.expect(types.isPair(r1));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(types.cdr(r1))));
+
+    const r2 = try vm.eval("(f 1 2)");
+    try std.testing.expect(types.isPair(r2));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(types.cdr(r2)))));
+}
+
 test "case-lambda dispatches to clauses beyond the 32nd" {
     // Regression: a fixed 32-entry buffer silently dropped later clauses, so
     // calls matching them fell through to the wrong-number-of-arguments error.

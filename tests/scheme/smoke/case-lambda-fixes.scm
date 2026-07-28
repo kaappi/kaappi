@@ -1,6 +1,7 @@
 ;; Regression tests for case-lambda and case fixes:
 ;; #854: case rejects empty datum list (() body)
 ;; #836: case-lambda desugaring captured user variables named n or args
+;; #1714: case-lambda's arity dispatch called global `length` non-hygienically
 ;;
 ;; Checks are manual (not SRFI-64) and every risky expression runs inside
 ;; guard: an uncaught top-level error does not fail the process exit code,
@@ -42,3 +43,19 @@
 (define h (case-lambda ((x . rest) (+ x n args))))
 (check "case-lambda rest clause sees outer n and args" 143
   (lambda () (h 1 2 3)))
+
+;; #1714: a scope that shadows `length` (e.g. a library providing its own
+;; for a non-standard list-like type) must not break arity dispatch for a
+;; case-lambda defined within it.
+(define shadowed-length-case-lambda
+  (let ()
+    (define (length x) 'shadowed)
+    (case-lambda
+      ((a) (list 'one a))
+      ((a b) (list 'two a b)))))
+(check "case-lambda dispatch ignores a shadowed global length (1 arg)"
+       '(one 1)
+  (lambda () (shadowed-length-case-lambda 1)))
+(check "case-lambda dispatch ignores a shadowed global length (2 args)"
+       '(two 1 2)
+  (lambda () (shadowed-length-case-lambda 1 2)))
