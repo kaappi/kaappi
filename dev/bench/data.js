@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785269210794,
+  "lastUpdate": 1785270243369,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aae508f8588c6b730fc370525bc514bc16df9d5f",
-          "message": "Bump softprops/action-gh-release in the github-actions group (#1633)\n\nBumps the github-actions group with 1 update: [softprops/action-gh-release](https://github.com/softprops/action-gh-release).\n\n\nUpdates `softprops/action-gh-release` from 3.0.1 to 3.0.2\n- [Release notes](https://github.com/softprops/action-gh-release/releases)\n- [Changelog](https://github.com/softprops/action-gh-release/blob/master/CHANGELOG.md)\n- [Commits](https://github.com/softprops/action-gh-release/compare/718ea10b132b3b2eba29c1007bb80653f286566b...3d0d9888cb7fd7b750713d6e236d1fcb99157228)\n\n---\nupdated-dependencies:\n- dependency-name: softprops/action-gh-release\n  dependency-version: 3.0.2\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-07-18T22:27:37+05:30",
-          "tree_id": "e98b5ed284eb1ffdda4e1c140aa6d7928ec957d7",
-          "url": "https://github.com/kaappi/kaappi/commit/aae508f8588c6b730fc370525bc514bc16df9d5f"
-        },
-        "date": 1784396030514,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.065739,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.500577,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934779,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.408284,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006673,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05257,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509716,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067994,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.227055,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.996,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.509265,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477189,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.746759,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.884294,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045216,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044536,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34774bf4d0fcc48e24962a275b66bd16ba1fadc1",
+          "message": "Reserve begin-internal define-syntax names during lowering, fixing #1772 (#1823)\n\nA literal begin used outside real top level or a macro-expansion result\n(e.g. a non-first body form, or an if branch) lowered every child eagerly\nvia ir.lowerBegin before any of them compiled. A define-syntax sibling's\nregistration into the macro table is a side effect of *compiling* its\nnode, not of lowering it, so a later sibling lowered in the same pass\nnever saw it via lookupMacro — its macro use compiled as a plain call to\nan unbound global instead of deferring to real expansion.\n\nlowerBegin now reserves a literal define-syntax sibling's name the\nmoment its form is reached, before lowering the next sibling, mirroring\nhow compiler_lambda.scanBodyDefs already resolves the identical problem\nfor a body's own leading definitions. The reservation never overwrites a\nname already visible (a real transformer from this scope or an\nenclosing one), and rolls itself back if a later sibling fails to lower.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T19:40:56Z",
+          "tree_id": "6528211d11615f606389a4c3312c373bc4937acf",
+          "url": "https://github.com/kaappi/kaappi/commit/34774bf4d0fcc48e24962a275b66bd16ba1fadc1"
+        },
+        "date": 1785270241401,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.350526,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.173684,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.601917,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.039383,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006335,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047234,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316345,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057487,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.574898,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.247229,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.612498,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.443902,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811295,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65011,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043621,
             "unit": "seconds"
           }
         ]
