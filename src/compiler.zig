@@ -1085,6 +1085,56 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     }
                     try collectSetTargets(self, expanded_root, out, depth + 1, budget);
                     return;
+                } else if (std.mem.eql(u8, hname, "define-syntax")) {
+                    // (define-syntax name <transformer-spec>): the spec is
+                    // compile-time data — it resolves to a transformer object
+                    // and never contributes a runtime `set!` to THIS form —
+                    // so walk it for literal `set!`s in templates but never
+                    // macro-expand inside it. Speculatively running a
+                    // SRFI 147 spec like SRFI 148's `(em-syntax-rules ...)`
+                    // drove the whole CK machine per definition, burning the
+                    // entire budget (and with it set_targets_all boxing) on
+                    // forms with no runtime code at all (kaappi#1802). A
+                    // `set!` that only materializes when the spec's own
+                    // macros run is caught at the macro's real use site —
+                    // its own form's pre-scan, or Part B — the same
+                    // correct-late path every divergent best-effort
+                    // expansion above already takes.
+                    const rest = types.cdr(cur);
+                    if (types.isPair(rest)) {
+                        // Skip the macro name; walk the spec without a budget.
+                        try collectSetTargets(self, types.cdr(rest), out, depth, null);
+                    }
+                    return;
+                } else if (std.mem.eql(u8, hname, "let-syntax") or
+                    std.mem.eql(u8, hname, "letrec-syntax"))
+                {
+                    // ((name <transformer-spec>) ...) bindings are compile-time
+                    // data like define-syntax specs; the body is real code and
+                    // keeps the budgeted scan. Walk each spec individually,
+                    // skipping the binding NAME, so a binding pair is never
+                    // misread as a form: a macro bound under a special-form
+                    // name (R7RS lets a binding shadow `quote`, `set!`, ...)
+                    // would otherwise derail the walk — a binding literally
+                    // named `quote` early-returns before its own spec is
+                    // scanned. Verified unobservable end-to-end today (the
+                    // let-syntax body compiles via passthrough, where the
+                    // folder doesn't engage, and a late-discovered target is
+                    // still boxed via the box_local transition — pinned by
+                    // tests/scheme/hygiene/quote-shadow-boxing.scm), so this
+                    // is scan hygiene, not a bug fix.
+                    const rest = types.cdr(cur);
+                    if (!types.isPair(rest)) return;
+                    var bindings_cur = types.car(rest);
+                    while (types.isPair(bindings_cur)) {
+                        const binding = types.car(bindings_cur);
+                        if (types.isPair(binding)) {
+                            try collectSetTargets(self, types.cdr(binding), out, depth, null);
+                        }
+                        bindings_cur = types.cdr(bindings_cur);
+                    }
+                    cur = types.cdr(rest);
+                    continue;
                 }
             }
         }

@@ -75,6 +75,24 @@ Cheap ways to get a real number before committing to a hypothesis:
   a defensible limit in #1775 (p99.99 = 1649, and the pathological tier
   starting at 6299).
 
+### When the profile bottoms out in `memset`
+
+A `sample` whose hottest leaf is `_memset` filling `0xAA` is Zig's
+safety-checked-`undefined` fill: ReleaseSafe initializes every plain
+`var x: T = undefined;` local by memsetting it. For a large scratch buffer
+declared per call this can *be* the workload — in #1802 the expander's
+~1MB rule-matching buffers made three fills per macro expansion 96% of an
+80-second library compile. The only shape that suppresses the fill is
+`@setRuntimeSafety(false)` at the scope of the *declaration* (in practice:
+function scope, with the body wrapped in a `@setRuntimeSafety(true)` block
+so real checks stay on — see `expander.expandMacro`). Wrapping just the
+initializer — `b: { @setRuntimeSafety(false); break :b undefined; }` —
+does not work and is worse than nothing: it materializes a runtime
+undefined value whose store into the local gets the fill anyway.
+`objdump -d` on the suspect function, looking for `bl _memset` with a
+`#0xaa` fill byte, settles in seconds whether a given declaration is
+being filled.
+
 ## 3. A/B two binaries without fooling yourself
 
 This is where measurement most often goes wrong, because two hazards
