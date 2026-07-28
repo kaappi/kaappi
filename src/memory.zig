@@ -231,7 +231,10 @@ pub const GC = struct {
         }
         // Free symbols that child threads interned into our shared table but
         // could not track themselves (see `foreign_symbols`). No other thread
-        // runs at deinit — every child has joined — so this needs no lock.
+        // is running at deinit — main.zig's only caller checks
+        // primitives_srfi18.hasLiveChildThreads() and skips this call
+        // entirely while any thread-start!ed child is still alive (kaappi#1792)
+        // — so this needs no lock.
         for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
         // The freeObject calls above append to the quarantine in gc-stress
         // builds; give every slot back before the allocator is torn down.

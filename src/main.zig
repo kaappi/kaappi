@@ -31,6 +31,7 @@ pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
 pub const primitives_hashtable = @import("primitives_hashtable.zig");
 pub const primitives_random = @import("primitives_random.zig");
+pub const primitives_srfi18 = @import("primitives_srfi18.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
 pub const ffi_callback = @import("ffi_callback.zig");
 pub const embedded_bytecode = @import("embedded_bytecode");
@@ -211,14 +212,22 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     }
 
     var gc = memory.GC.init(allocator);
-    defer gc.deinit();
 
     const vm = try allocator.create(vm_mod.VM);
     vm.* = try vm_mod.VM.init(&gc);
-    defer {
+    // kaappi#1792: a thread-start!ed OS thread still alive at process exit may
+    // be concurrently reading/writing the parent's shared symbol table and
+    // globals map (both aliased into the child's own GC/VM). Freeing them out
+    // from under it is a data race that corrupts the allocator's heap
+    // metadata. Skip teardown entirely in that case — normal process exit
+    // (which follows once mainImpl returns) tears down every OS thread anyway,
+    // so this only turns a corrupting free into the same benign leak already
+    // documented for a completed-but-never-joined thread.
+    defer if (!primitives_srfi18.hasLiveChildThreads()) {
         vm.deinit();
         allocator.destroy(vm);
-    }
+        gc.deinit();
+    };
     vm_mod.setVMInstance(vm);
 
     // WASM: simplified entry — just run the file specified as argv[1]
