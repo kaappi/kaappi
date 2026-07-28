@@ -39,14 +39,21 @@
 ;;;    internally, no laziness is actually lost.
 ;;;  - Hooks reuse SRFI 167's minimal hook object directly (`make-okvs-hook`
 ;;;    et al.) instead of defining a second one.
-;;;  - Prefixes must be pairwise non-prefixing across nstores sharing an
-;;;    engine/store: `%all-tuples` prefix-scans the packed bytes directly,
-;;;    so an nstore whose prefix is an initial subsequence of another's
-;;;    (e.g. `(list 0)` vs `(list 0 0)`) would have its scan pull in the
-;;;    other nstore's tuples too. Not an issue for the spec's own worked
-;;;    example (a single nstore), but real if multiple nstores are meant to
-;;;    coexist — give each a prefix no other nstore's prefix extends,
-;;;    e.g. by starting every nstore's prefix with its own unique tag.
+;;;  - Every nstore's packed prefix is wrapped in a self-delimiting length
+;;;    header before it is used as a key prefix or a prefix-range scan key
+;;;    (`%prefix-tag`, used by both `%tuple-key` and `%all-tuples`): the
+;;;    header is the packed prefix's own byte length, itself packed via
+;;;    `engine-pack`, which is prefix-free across distinct non-negative
+;;;    integers (differing magnitude-byte-lengths diverge at the length
+;;;    byte itself; equal magnitude-byte-lengths produce equal-length
+;;;    encodings, which can only be a "prefix" of one another by being
+;;;    identical — see `%pack-integer` in lib/srfi/167.sld). This means one
+;;;    nstore's prefix-range scan can never pull in a different nstore's
+;;;    tuples sharing the same engine/store, even when one nstore's
+;;;    logical prefix is an initial subsequence of another's (e.g.
+;;;    `(list 0)` vs `(list 0 0)`) — fixed as kaappi#1717. Two nstores
+;;;    given the exact same prefix are still indistinguishable, which was
+;;;    never a supported way to tell them apart.
 ;;;
 ;;; Bindings are represented as SRFI 146 hash-mappings (`(srfi 146 hash)`,
 ;;; i.e. `hashmap`), matching the spec's text ("a mapping of bindings")
@@ -109,8 +116,17 @@
           (error (string-append who ": wrong number of items for this nstore")
                  items (%nstore-items ns))))
 
+    ;; See the header comment (kaappi#1717) for why this length header is
+    ;; needed: it makes each nstore's prefix tag prefix-free with respect to
+    ;; every other nstore's, even when one's logical prefix is an initial
+    ;; subsequence of another's.
+    (define (%prefix-tag ns)
+      (let* ((eng (%nstore-engine ns))
+             (packed (apply engine-pack eng (%nstore-prefix ns))))
+        (bytevector-append (engine-pack eng (bytevector-length packed)) packed)))
+
     (define (%tuple-key ns items)
-      (apply engine-pack (%nstore-engine ns) (append (%nstore-prefix ns) items)))
+      (bytevector-append (%prefix-tag ns) (apply engine-pack (%nstore-engine ns) items)))
 
     ;;; --- mutation ---
 
@@ -132,14 +148,12 @@
 
     ;;; --- pattern matching ---
 
-    (define (%drop lst n) (if (<= n 0) lst (%drop (cdr lst) (- n 1))))
-
     (define (%all-tuples transaction ns)
       (let* ((eng (%nstore-engine ns))
-             (prefix-key (apply engine-pack eng (%nstore-prefix ns)))
-             (gen (engine-prefix-range eng transaction prefix-key))
-             (plen (length (%nstore-prefix ns))))
-        (map (lambda (pair) (%drop (engine-unpack eng (car pair)) plen))
+             (tag (%prefix-tag ns))
+             (tag-len (bytevector-length tag))
+             (gen (engine-prefix-range eng transaction tag)))
+        (map (lambda (pair) (engine-unpack eng (bytevector-copy (car pair) tag-len)))
              (generator->list gen))))
 
     ;; Matches a pattern (a list where each position is a literal or an

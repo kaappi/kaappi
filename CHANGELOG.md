@@ -63,6 +63,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of reading as though fiber scheduling were the whole story
   (#1742).
 
+- **SRFI 168 nstore prefixes could leak tuples across stores when one
+  prefix was an initial subsequence of another** — `nstore-select`/
+  `nstore-where` prefix-scan the packed key bytes directly (via SRFI 167's
+  `engine-prefix-range`), and `engine-pack` concatenates each item's
+  encoding with no marker for "prefix ends here." Two nstores sharing an
+  engine/store, e.g. one keyed by `(list 0)` and another by `(list 0 0)`,
+  had the shorter prefix's scan also match the longer prefix's tuples.
+  Every nstore's prefix is now wrapped in a self-delimiting length header —
+  the packed prefix's own byte length, itself packed via `engine-pack`,
+  which is prefix-free across distinct non-negative integers — so one
+  nstore's scan can no longer pull in a different nstore's tuples for any
+  two *distinct* prefixes, including one being an initial subsequence of
+  another. Two nstores given the exact same prefix remain
+  indistinguishable, which was never a supported way to tell them apart
+  (#1717).
+
 - **Library import silently let colliding export names resolve to
   whichever import came last** — `(import (srfi 28) (srfi 29))`, which both
   export `format`, picked whichever library was written last in the
