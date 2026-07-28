@@ -1111,10 +1111,28 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                 {
                     // ((name <transformer-spec>) ...) bindings are compile-time
                     // data like define-syntax specs; the body is real code and
-                    // keeps the budgeted scan.
+                    // keeps the budgeted scan. Walk each spec individually,
+                    // skipping the binding NAME, so a binding pair is never
+                    // misread as a form: a macro bound under a special-form
+                    // name (R7RS lets a binding shadow `quote`, `set!`, ...)
+                    // would otherwise derail the walk — a binding literally
+                    // named `quote` early-returns before its own spec is
+                    // scanned. Verified unobservable end-to-end today (the
+                    // let-syntax body compiles via passthrough, where the
+                    // folder doesn't engage, and a late-discovered target is
+                    // still boxed via the box_local transition — pinned by
+                    // tests/scheme/hygiene/quote-shadow-boxing.scm), so this
+                    // is scan hygiene, not a bug fix.
                     const rest = types.cdr(cur);
                     if (!types.isPair(rest)) return;
-                    try collectSetTargets(self, types.car(rest), out, depth, null);
+                    var bindings_cur = types.car(rest);
+                    while (types.isPair(bindings_cur)) {
+                        const binding = types.car(bindings_cur);
+                        if (types.isPair(binding)) {
+                            try collectSetTargets(self, types.cdr(binding), out, depth, null);
+                        }
+                        bindings_cur = types.cdr(bindings_cur);
+                    }
                     cur = types.cdr(rest);
                     continue;
                 }
