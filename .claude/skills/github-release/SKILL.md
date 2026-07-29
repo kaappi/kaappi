@@ -73,6 +73,7 @@ The file uses Keep a Changelog format. After editing, it should look like:
 One file — `build.zig.zon` is the single source of truth (no `v` prefix):
 
 **`build.zig.zon` line 3:**
+
 ```zig
 .version = "X.Y.Z",
 ```
@@ -220,6 +221,7 @@ ssh freebsd "/tmp/kaappi-$TAG features"
 ```
 
 Verify: version matches, script prints `3`, and `features` shows `posix`
+
 + `kaappi-threads` with target `aarch64-freebsd-none`. See
 `docs/dev/freebsd.md`.
 
@@ -256,6 +258,7 @@ ssh netbsd "echo '(import (scheme base)(scheme write)(srfi 144)) (write (> fl-le
 ```
 
 Verify: version matches, the script prints `3`, `features` shows `posix`
+
 + `kaappi-threads` with target `aarch64-netbsd-none`, and the SRFI-144
 probe prints `#t` (denormal arithmetic — guards the startup FPCR
 flush-to-zero fix on NetBSD/aarch64). See `docs/dev/netbsd.md`.

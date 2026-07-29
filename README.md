@@ -139,7 +139,7 @@ which can't consume LLVM IR. See [`docs/dev/netbsd.md`](docs/dev/netbsd.md).
 
 ## A taste of Kaappi
 
-```
+```console
 $ kaappi
 kaappi> (define (fib n)
   ...     (if (< n 2) n
@@ -327,7 +327,7 @@ true parallel I/O (e.g., thread-per-connection servers):
 
 ## Architecture
 
-```
+```text
 Source → Reader → Expander → IR → Bytecode emission → VM
          (UTF-8    (syntax-   (analysis +   (register-    (generational GC,
           lexer)    rules)     optimization   based)        stack-copied
@@ -346,7 +346,7 @@ Source → Reader → Expander → IR → Bytecode emission → VM
 Values are **NaN-boxed 64-bit words** — flonums, fixnums, booleans, characters,
 and nil all fit in a single u64 with zero heap allocation:
 
-```
+```text
 Flonum:    any f64 that is not a NaN     ← stored directly
 Pointer:   0xFFFC | 48-bit pointer       ← heap object
 Fixnum:    0xFFFD | 48-bit signed int    ← up to ±2^47, auto-promotes to bignum

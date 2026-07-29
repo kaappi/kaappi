@@ -7,6 +7,7 @@ description: R7RS lexical syntax reference for implementing/modifying the Kaappi
 Reader implementation: `src/reader.zig`
 
 ## Token types (currently implemented)
+
 - `(` `)` — list delimiters
 - `.` — dotted pair separator
 - `'` — quote abbreviation → `(quote datum)`
@@ -21,23 +22,28 @@ Reader implementation: `src/reader.zig`
 - identifiers — standard R7RS rules
 
 ## Identifier rules
+
 - **Initial**: letter or `! $ % & * / : < = > ? @ ^ _ ~`
 - **Subsequent**: initial or digit or `+ - . @`
 - **Peculiar**: `+`, `-`, `...`, or identifiers starting with `+`/`-` followed by sign subsequent
 - **Quoted**: `|...|` with `\|` and `\\` escapes
 
 ## String escape sequences
+
 `\"` `\\` `\n` `\r` `\t` `\a` `\b` `\|` `\x<hex>;`
 
 ## Character names
+
 `alarm` `backspace` `delete` `escape` `newline` `null` `return` `space` `tab`
 
 ## Comment forms
+
 - `;` line comment
 - `#;` datum comment (skips next datum)
 - `#| ... |#` nested block comment
 
 ## Not yet implemented
+
 - Floating point numbers
 - Number prefixes: `#b` `#o` `#d` `#x` `#e` `#i`
 - Complex numbers

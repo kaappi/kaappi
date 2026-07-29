@@ -11,6 +11,7 @@ droplet. The droplet self-destructs after **3 hours** and is **always**
 destroyed when done.
 
 Key differences from `/do-linux-test`:
+
 - The stress suite is CPU-bound for **1.5–3 hours** (every test VM bootstrap
   performs tens of thousands of collections; ~40 min on an M-series Mac).
 - It runs detached (`nohup`) on the droplet and is **polled**, never awaited
@@ -45,6 +46,7 @@ ssh-keygen -l -E md5 -f ~/.ssh/id_rsa.pub | awk '{print $2}' | sed 's/MD5://'
 ## Create the droplet
 
 Use `mcp__digitalocean-droplets__droplet-create`:
+
 - **Name**: `kaappi-stress-<branch>` (replace `/` with `-`, truncate to 60 chars)
 - **Size**: `c5-4vcpu-8gb` (CPU-optimized gen 5 — the suite is single-core-bound,
   so dedicated per-core speed matters; fall back to `c2-4vcpu-8gb`, then `c-4`,
@@ -64,6 +66,7 @@ Record the **droplet ID** immediately — it is needed for cleanup.
 
 2. Scan the host key and pin it (TOFU — trust on first contact, then verify
    all subsequent connections against this pinned key):
+
    ```bash
    IP=<droplet-ip>
    for i in $(seq 1 24); do
@@ -74,6 +77,7 @@ Record the **droplet ID** immediately — it is needed for cleanup.
    ```
 
 3. Verify SSH is ready using the pinned host key:
+
    ```bash
    ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
      -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \

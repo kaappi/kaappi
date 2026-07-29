@@ -14,11 +14,12 @@ frames, 65536 registers).
 
 A hard Zig panic instead of a catchable Scheme error:
 
-```
+```text
 thread … panic: index out of bounds: index 1201, len 1024
 ```
 
 Reproducers:
+
 ```bash
 zig build run -- tests/scheme/r7rs/combined-tests.scm
 zig build run -- tests/scheme/r7rs/r7rs-tests.scm

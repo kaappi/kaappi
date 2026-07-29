@@ -1,0 +1,31 @@
+// Markdown linting for this repo, enforced by the `format` job in
+// .github/workflows/ci.yml. Run `npx markdownlint-cli2` locally to get the
+// same answer CI gets; `npx markdownlint-cli2 --fix` fixes most of it.
+//
+// Globs and ignores live here rather than in the workflow so the bare local
+// command and the CI action lint exactly the same set of files.
+{
+  "globs": ["**/*.md"],
+
+  // AGENTS.md is a symlink to CLAUDE.md — linting both double-reports every
+  // violation and would show every fix twice in a diff.
+  "ignores": ["vendor/**", ".zig-cache/**", "zig-out/**", "AGENTS.md"],
+
+  // Only cosmetic rules are disabled. Everything structural stays on: MD018
+  // (line-initial `#NNNN`, the #1836 bug), MD022/MD031/MD032/MD058 (blank
+  // lines around headings, fences, lists, tables), MD040 (fence language),
+  // MD025/MD026/MD001 (heading sanity), MD009, MD037, MD038.
+  "config": {
+    "MD013": false, // line-length: prose is hand-wrapped ~76-80, not uniformly
+    "MD060": false, // table-column-style: cosmetic pipe padding
+    "MD024": false, // no-duplicate-heading: Keep a Changelog repeats "### Added"
+    "MD033": false, // no-inline-html: README's centered banner block
+    "MD041": false, // first-line-heading: README banner, issue templates
+    "MD004": false, // ul-style: porting.md uses `*` for prose, `-` for task lists
+    "MD036": false, // no-emphasis-as-heading
+    "MD014": false, // commands-show-output
+    "MD029": false, // ol-prefix
+    "MD034": false, // no-bare-urls
+    "MD049": false  // emphasis-style
+  }
+}

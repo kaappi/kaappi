@@ -39,6 +39,7 @@ covered by the case tables (upcase/downcase work) but is a historical script
 and not explicitly listed in the reader's fast path.
 
 String operations also handle multi-codepoint expansions:
+
 - `string-upcase`: ß→SS, ǰ→J+caron, ΐ/ΰ→decomposed, ff/fi/fl ligatures
 - `string-downcase`: İ→i+dot, Σ→ς (final sigma context)
 - `string-foldcase`: ß→ss, İ→i+dot, ſ→s, ǰ→j+caron

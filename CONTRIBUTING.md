@@ -55,7 +55,7 @@ zig build run
 
 The codebase is organized into clear subsystems:
 
-```
+```text
 src/
   types.zig              Value type, heap objects, opcodes
   memory.zig             Mark-and-sweep GC
@@ -150,6 +150,33 @@ To catch formatting issues locally before commit, enable the pre-commit hook:
 git config core.hooksPath .githooks
 ```
 
+### Markdown
+
+Markdown is linted too — CI runs markdownlint over every `.md` file in the
+repo. The rule set, globs, and ignores all live in `.markdownlint-cli2.jsonc`,
+so a bare local run lints exactly what CI lints:
+
+```bash
+npx markdownlint-cli2
+```
+
+Most findings are blank lines around headings, lists, and fences, which
+`npx markdownlint-cli2 --fix` inserts for you. Only cosmetic rules are
+disabled (line length, table padding, and similar) — the structural ones are
+on, including **MD018**, which catches the silent failure that motivated the
+check: prose wrapping that puts `#1573),` at the start of a line, where
+Markdown reads it as a malformed heading.
+
+Two rules must **never** be autofixed blindly, which is why the repo is kept
+at zero findings rather than relying on `--fix` after the fact:
+
+- **MD018** "fixes" a line-initial `#1699` by inserting a space — turning
+  prose into a real `# 1699` heading. Rewrap the line instead so the issue
+  reference isn't line-initial.
+- **MD038** strips the space from `` `#\ ` `` — corrupting a Scheme character
+  literal. `docs/dev/fmt.md` disables it around the one paragraph that
+  documents that literal.
+
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR.
@@ -157,7 +184,7 @@ All jobs must pass before merging.
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| **format** | ubuntu-latest | `zig fmt --check src/`, bare TypeError regression check |
+| **format** | ubuntu-latest | `zig fmt --check src/`, bare TypeError regression check, markdownlint over every `.md` |
 | **test** (matrix) | ubuntu-latest (x86_64), ubuntu-24.04-arm (aarch64), macos-latest (aarch64) | Build, unit tests, Scheme suites, sandbox/robustness tests, thottam integration. Runs in Debug, ReleaseSafe, and ReleaseFast optimize modes on x86_64; ReleaseSafe only on ARM and macOS. |
 | **riscv64-test** | ubuntu-latest + QEMU | Cross-compiles with `-Dtarget=riscv64-linux` and runs unit tests + R7RS suite under QEMU emulation. Separate from the matrix because it needs QEMU setup. |
 | **coverage** | ubuntu-22.04 | Unit test + R7RS suite coverage via kcov (push only). Pinned to 22.04 because kcov is not in Ubuntu 24.04 apt repos. |

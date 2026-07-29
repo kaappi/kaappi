@@ -76,7 +76,7 @@ a version mismatch reads back as a miss.
 
 Entries live in a single directory:
 
-```
+```text
 $KAAPPI_HOME/cache        # if KAAPPI_HOME is set
 ~/.kaappi/cache           # otherwise
 ```
@@ -106,7 +106,7 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
 
 ## Inspect, clear, bypass
 
-```
+```bash
 kaappi cache status    # location, entry count, total size, and per entry:
                        #   size, producing build id, current/stale, source path
 kaappi cache clear     # remove every entry (the supported way to wipe it)

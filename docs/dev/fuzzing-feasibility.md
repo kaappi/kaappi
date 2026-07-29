@@ -90,7 +90,7 @@ fast persistent harness — already exist here:
   `vm_mod`, [`vm.zig`](../../src/vm.zig) imports `vm_tests.zig`, which imports
   `tests_fuzz.zig`. Run them with:
 
-  ```
+  ```bash
   zig build test --fuzz
   ```
 
@@ -116,7 +116,7 @@ inputs. The current four targets each make exactly one
 `smith.sliceWithHash(&buf, 0)` call. Consequently, a seed for a Scheme source
 `s` must be encoded as:
 
-```
+```text
 <4-byte little-endian length of s><bytes of s>
 ```
 

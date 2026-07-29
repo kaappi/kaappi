@@ -92,11 +92,14 @@ gc.popRoot();                // pops `a`'s root right away, strictly nested
   reference (#1401).
 
 Dangerous pattern:
+
 ```zig
 const a = try gc.allocPair(x, y);
 const b = try gc.allocPair(a, z);  // GC may invalidate a
 ```
+
 Safe:
+
 ```zig
 var a = try gc.allocPair(x, y);
 gc.pushRoot(&a);

@@ -64,8 +64,8 @@ wall-clock time stops tracking how much work a program does, by a
 speed-independent instruction-count budget instead. Three modes take the
 instruction-count bound (`speed_independent` in `src/tests_fuzz.zig`):
 `-Dgc-stress=true` (a full collection on every allocation, #1447), a
-cross-compiled target running under an emulator (riscv64 under QEMU in CI,
-#1573), and `-Doptimize=Debug` (the whole pipeline unoptimized, #1835).
+cross-compiled target running under an emulator (riscv64 under QEMU in
+CI, #1573), and `-Doptimize=Debug` (the whole pipeline unoptimized, #1835).
 
 The Debug case is worth understanding before touching the 100 ms number,
 because the deadline is only *checked* inside `runUntil`: time spent

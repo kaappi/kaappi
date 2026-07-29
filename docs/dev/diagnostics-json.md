@@ -5,14 +5,14 @@ By default Kaappi prints diagnostics as human-oriented text
 output to **JSON Lines** so an agent, CI gate, or editor can consume errors
 structurally instead of scraping prose:
 
-```
+```bash
 kaappi --diagnostics=json file.scm
 ```
 
 Each diagnostic is emitted as **one JSON object per line on stderr**. Program
 output on stdout is unaffected, so redirect the two apart:
 
-```
+```bash
 kaappi --diagnostics=json file.scm 2>diagnostics.jsonl
 ```
 

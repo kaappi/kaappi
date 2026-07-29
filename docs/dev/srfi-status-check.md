@@ -7,7 +7,7 @@ or `withdrawn` — catching an accidental `lib/srfi/<n>.sld` for a not-yet-final
 
 ## Running it
 
-```
+```bash
 zig build                              # produce zig-out/bin/kaappi
 bash tools/check-srfi-status.sh        # checks zig-out/bin/kaappi by default
 bash tools/check-srfi-status.sh path/to/kaappi   # or a specific binary

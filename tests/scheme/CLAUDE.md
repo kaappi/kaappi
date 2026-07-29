@@ -23,6 +23,7 @@
 
 1. Pick the right directory (smoke/ for bug regressions, compliance/ for spec conformance).
 2. Use SRFI-64 for assertions:
+
    ```scheme
    (import (scheme base) (scheme write) (scheme process-context) (srfi 64))
 
@@ -35,6 +36,7 @@
      (test-end "descriptive-name")
      (when (> (test-runner-fail-count runner) 0) (exit 1)))
    ```
+
 3. The `(exit 1)` on failure is required — `run-all.sh` uses exit codes.
    Grab the runner **before** `(test-end ...)`: the outermost `test-end`
    resets the current runner, so `(test-runner-current)` afterwards no
@@ -42,9 +44,11 @@
    error.
 4. No registration needed — `run-all.sh` picks up `*.scm` files automatically.
 5. For bug regressions, name the file after the bug and add a comment:
+
    ```scheme
    ;; Regression test for #123: describe the bug
    ```
+
 6. Fixture files (`.sld` libraries, included sources, data) must go in a
    subdirectory (e.g. `fixtures/`, `lib868/`), never as loose `.scm` files
    next to the tests — `run-all.sh` executes every top-level `.scm` file

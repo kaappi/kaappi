@@ -18,7 +18,7 @@ x86_64 publish-half open (see [Status](#status--what-remains)).
 
 ## Running it
 
-```
+```bash
 zig build bench-channel                        # ReleaseSafe: the shipped default
 zig build bench-channel -Doptimize=ReleaseFast # faster build, for contrast
 zig build bench-channel -Dchannel-arena=true   # section 3 exercises the lever-B arena prototype

@@ -49,6 +49,7 @@ The compiler has two code paths for function calls:
 
 **Critical:** The compiler at line 845 of `compiler.zig` explicitly
 **excludes tail calls** from the `call_global` path:
+
 ```zig
 if (!is_tail and types.isSymbol(operator) and ...)
     return self.compileCallGlobal(expr, operator, dst, is_tail);
@@ -72,7 +73,7 @@ for the tail position, not in the VM handler.
 
 The `tail_call_global` handler works as follows:
 
-```
+```text
 ; Before:  frame.base = 0, args computed at abs_base = frame.base + base_reg
 ; abs_base might be at offset 3 (base_reg = 3)
 ;
@@ -119,6 +120,7 @@ In `tak`:
 
 The outer `(tak ...)` is a tail call to the same function. For a
 self-tail-call, we can skip:
+
 1. Global cache lookup (the callee is the current closure)
 2. Type check (`isClosure`)
 3. Arity check (same function, same arity)
@@ -148,7 +150,8 @@ if (is_tail and types.isSymbol(head) and self.func.name != null and
 ```
 
 `compileSelfTailCall` emits:
-```
+
+```text
 self_tail_call nargs
 ; args are at consecutive registers starting at some base
 ```
@@ -184,6 +187,7 @@ tail calls.
 **Change in `compiler.zig`:**
 
 Remove the `!is_tail` guard at line 845:
+
 ```zig
 if (types.isSymbol(operator) and self.resolveLocal(...) == null) {
     // ... same exclusion list ...
@@ -226,12 +230,14 @@ speed improvement).
 ### Expected impact
 
 **`self_tail_call`** eliminates per-tail-call overhead:
+
 - Current: cache lookup (3 comparisons + potential hash) + `isClosure`
   (2 checks) + arity check (1 comparison) + argument copy + closure/code/ip
   assignment = ~15 operations
 - After: argument copy + IP reset = ~5 operations
 
 For `tak(33,22,11)` with ~880M calls (1/4 are tail calls = ~220M tail calls):
+
 - Saving ~10 operations × 220M = ~2.2 billion operations
 - At ~1ns per operation: ~2.2s savings → ~40s → ~38s (estimated ~12% gain)
 
@@ -268,25 +274,31 @@ call — estimated ~3% additional gain.
 ## Disassembly comparison
 
 ### Current `tak` bytecode (outer tail call)
-```
+
+```text
   0026  get_global      r3, tak      ; 4 bytes, hash lookup
   ...
   0099  tail_call       r3, 3        ; 3 bytes, full dispatch
 ```
+
 Two instructions, two bytecode dispatches.
 
 ### With `self_tail_call`
-```
+
+```text
   ...
   0076  self_tail_call  r3, 3        ; 3 bytes, arg copy + ip=0
 ```
+
 One instruction, one dispatch, no global lookup or type check.
 
 ### With `tail_call_global` enabled
-```
+
+```text
   ...
   0076  tail_call_global r3, tak, 3  ; 5 bytes, cache + inline tail
 ```
+
 One instruction, one dispatch, cache lookup + inline tail-call logic.
 
 ## Recommendation

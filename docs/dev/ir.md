@@ -14,7 +14,7 @@ provides a clean lowering target for a future native backend.
 
 The `compile()` function in `compiler.zig` orchestrates the full pipeline:
 
-```
+```text
 S-expression (post-expansion)
     |
     v  lowerWithMacros()
@@ -163,6 +163,7 @@ position sets `ann.is_tail = true`, which `compileFromNode()` uses to emit
 `tail_call` instead of `call`.
 
 Propagation rules:
+
 - `if`: test is non-tail; consequent and alternate inherit parent's tail status
 - `begin`, `and`, `or`: last expression inherits; all others are non-tail
 - `when`, `unless`: test is non-tail; last body expression inherits
@@ -181,6 +182,7 @@ Recognized primitives include: `+`, `-`, `*`, `/`, `=`, `<`, `>`, `cons`,
 ### markConstants(node)
 
 Identifies compile-time constant expressions:
+
 - `constant` nodes are always constant
 - `call` nodes are constant if the operator is a primitive and all arguments
   are constant
@@ -197,6 +199,7 @@ this order:
 ### 1. foldConstants
 
 Evaluates constant primitive calls at compile time. Handles:
+
 - Unary: `not`, `zero?`, `-` (negation)
 - Binary: `+`, `-`, `*`, `<`, `>`, `<=`, `>=`, `=`
 
@@ -206,6 +209,7 @@ skipped and the call is left for runtime.
 ### 2. eliminateDeadBranches
 
 Removes unreachable branches from `if` when the test is a constant:
+
 - `(if #t A B)` → `A`
 - `(if #f A B)` → `B`
 - `(if #f A)` → `#void`
@@ -213,12 +217,14 @@ Removes unreachable branches from `if` when the test is a constant:
 ### 3. simplifyBooleans
 
 Pattern-based boolean rewrites:
+
 - `(not (not X))` → `X`
 - `(if (not X) A B)` → `(if X B A)`
 
 ### 4. eliminateIdentity
 
 Removes algebraic identity operations:
+
 - `(+ x 0)` or `(+ 0 x)` → `x`
 - `(* x 1)` or `(* 1 x)` → `x`
 - `(* x 0)` or `(* 0 x)` → `0`
@@ -227,6 +233,7 @@ Removes algebraic identity operations:
 ### 5. simplifyBegin
 
 Structural cleanup:
+
 - `(begin X)` → `X` (single-expression begin)
 - Recursively simplifies nested begins
 

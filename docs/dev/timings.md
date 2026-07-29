@@ -16,7 +16,7 @@ cache-transparency work in [#1516](https://github.com/kaappi/kaappi/issues/1516)
 
 ## Usage
 
-```
+```bash
 kaappi --timings file.scm            # text summary on stderr
 kaappi --timings=json file.scm       # one JSON object on stderr
 kaappi --timings=text file.scm       # explicit text (the default)
@@ -28,7 +28,7 @@ kaappi --timings compile file.scm    # the native (LLVM) compile path
 The output always goes to **stderr**, like `--diagnostics=json` — so the
 program's own stdout stays clean for piping:
 
-```
+```console
 $ kaappi --timings prog.scm 2>/dev/null   # program output only
 $ kaappi --timings prog.scm 1>/dev/null   # timing report only
 ```
@@ -39,7 +39,7 @@ $ kaappi --timings prog.scm 1>/dev/null   # timing report only
 
 A cache **MISS** compiled from source, so every stage ran:
 
-```
+```text
 timings: read 1.2ms | expand 0.8ms | lower 0.4ms | optimize 0.3ms | emit 0.5ms | execute 12.1ms
 cache: MISS (wrote /Users/you/.kaappi/cache/1f8b6bdfcf8b707e.sbc)
 ```
@@ -47,14 +47,14 @@ cache: MISS (wrote /Users/you/.kaappi/cache/1f8b6bdfcf8b707e.sbc)
 A cache **HIT** skipped the whole read→compile pipeline, so only `execute`
 ran — the compile stages are omitted rather than printed as `0.0ms` noise:
 
-```
+```text
 timings: execute 11.9ms
 cache: HIT (/Users/you/.kaappi/cache/1f8b6bdfcf8b707e.sbc)
 ```
 
 The cache line is never blank. When caching was not even attempted it says why:
 
-```
+```text
 cache: off (--no-ir-opt)     # or (sandbox), or (no home dir)
 cache: MISS (not cached: imports)   # imported programs are never cached (#1516)
 ```

@@ -38,6 +38,7 @@ Save this fingerprint for the droplet creation step.
 ## Create the droplet
 
 Use `mcp__digitalocean-droplets__droplet-create`:
+
 - **Name**: `kaappi-test-<branch>` (replace `/` with `-` in branch name, truncate to 60 chars)
 - **Size**: `s-2vcpu-4gb`
 - **Region**: `nyc3`
@@ -55,6 +56,7 @@ Record the **droplet ID** immediately — it is needed for cleanup.
 
 2. Scan the host key and pin it (TOFU — trust on first contact, then verify
    all subsequent connections against this pinned key):
+
    ```bash
    IP=<droplet-ip>
    for i in $(seq 1 24); do
@@ -65,6 +67,7 @@ Record the **droplet ID** immediately — it is needed for cleanup.
    ```
 
 3. Verify SSH is ready using the pinned host key:
+
    ```bash
    ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
      -o UserKnownHostsFile=/tmp/kaappi-test-hostkeys \
@@ -193,6 +196,7 @@ droplet — reconnect and fetch it.
 ## Report results
 
 Parse the test output and summarize:
+
 - **Build**: OK / FAIL
 - **Unit tests**: pass/fail counts
 - **Scheme tests**: per-suite results from `run-all.sh` output (look for

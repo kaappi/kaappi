@@ -15,6 +15,7 @@ Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org
 Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper-list?`, `dotted-list?`, `circular-list?`, `not-pair?`, `null-list?`, `list=`, `first`–`tenth`, `car+cdr`, `take`, `drop`, `take-right`, `drop-right`, `take-while`, `drop-while`, `split-at`, `last`, `last-pair`, `zip`, `unzip1`, `unzip2`, `count`, `fold`, `fold-right`, `pair-fold`, `pair-fold-right`, `reduce`, `reduce-right`, `unfold`, `unfold-right`, `map-in-order`, `append-map`, `filter-map`, `pair-for-each`, `filter`, `partition`, `remove`, `find`, `find-tail`, `any`, `every`, `list-index`, `span`, `break`, `delete`, `delete-duplicates`, `alist-cons`, `alist-copy`, `alist-delete`, `lset=`, `lset-adjoin`, `lset-union`, `lset-intersection`, `lset-difference`, `lset-xor`, `append-reverse`, `length+`, `concatenate`.
 
 **Not implemented:**
+
 - `unzip3`–`unzip5` — rarely used
 - Linear-update (`!`) variants — SRFI 1 permits non-mutating implementations
 - `lset-diff+intersection` — composite operation; use `lset-difference` + `lset-intersection`
@@ -32,6 +33,7 @@ Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim
 All predicate-accepting procedures accept SRFI-14 char-set objects directly in addition to predicate procedures. Optional `start`/`end` index parameters are supported on all searching, filtering, and transformation functions.
 
 **Not implemented:**
+
 - `string-xcopy!` — mutation variant
 
 ### SRFI 27 — Random Numbers
@@ -47,6 +49,7 @@ All predicate-accepting procedures accept SRFI-14 char-set objects directly in a
 **Coverage: 91%** (21 of 23 spec procedures). `hash-table-ref` correctly calls default thunk. `hash-table-merge!` overwrites existing keys. `string-ci-hash` uses Unicode case folding.
 
 **Not implemented:**
+
 - `hash-table-equivalence-function`, `hash-table-hash-function` — `make-hash-table` accepts but ignores custom comparator/hash arguments
 
 ### SRFI 133 — Vector Library
@@ -56,6 +59,7 @@ All predicate-accepting procedures accept SRFI-14 char-set objects directly in a
 Implemented: All SRFI-133 procedures including `vector-unfold`, `vector-unfold-right`, `vector-binary-search`, `vector-concatenate`, `vector-cumulate`, `vector-partition`, `vector-swap!`, `vector-reverse!`, `vector-reverse-copy`, `vector-skip`, `vector-skip-right`.
 
 **Not implemented:**
+
 - `vector-append-subvectors` — composite append with subranges
 
 ### SRFI 170 — POSIX API
@@ -65,6 +69,7 @@ Implemented: All SRFI-133 procedures including `vector-unfold`, `vector-unfold-r
 Implemented: File info (`file-info`, `file-info?`, `file-info-type`, all `file-info:*` accessors, type predicates), file operations (`create-directory`, `delete-directory`, `rename-file`, `create-symlink`, `read-symlink`, `create-hard-link`, `real-path`, `set-file-mode`, `truncate-file`, `create-fifo`, `set-file-owner`, `set-file-times`), process state (`pid`, `umask`, `set-umask!`, `current-directory`, `set-current-directory!`, `user-uid`, `user-gid`, `user-effective-uid`, `user-effective-gid`, `user-supplementary-gids`, `nice`), environment (`set-environment-variable!`, `delete-environment-variable!`), terminal (`terminal?`), user/group database, directory traversal (`open-directory`, `read-directory`, `close-directory`, `directory-files`), time (`posix-time`, `monotonic-time`), temp files (`temp-file-prefix`, `create-temp-file`).
 
 **Not implemented (by design):**
+
 - Process management (`fork`, `exec*`, `waitpid`, `_exit`) — unsafe in GC'd bytecode VM
 - Signal handling — requires async-safe VM interrupt mechanism
 - Pipes, I/O multiplexing — not exposed

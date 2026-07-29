@@ -6,7 +6,7 @@ format-on-save invariance — the same job `zig fmt` does for the compiler's own
 Zig. It is the final item of the machine-legibility epic (kaappi#1518, part of
 kaappi#1503).
 
-```
+```text
 kaappi fmt [--check] files...     # format each file in place
 kaappi fmt [--check]              # format stdin to stdout
 ```
@@ -50,10 +50,14 @@ drive a formatter. `fmt` has its own *concrete* syntax reader (`src/fmt.zig`):
    comments — keeping every lexeme's text verbatim.
 3. The **printer** (`src/fmt_print.zig`) walks the CST and lays it out.
 
+<!-- The space inside `#\ ` is the space character literal being documented,
+     not stray padding — MD038's autofix would delete it. -->
+<!-- markdownlint-disable MD038 -->
 The lexer mirrors the real reader's delimiter rules, and handles the awkward
 cases that make a naive tokenizer wrong: `#\(` / `#\;` / `#\ ` (a delimiter *is*
 the character), `#0#` and `#e#xFF` (interior `#`), strings and `|piped symbols|`
 that contain parens or semicolons, and nested `#| … |#`.
+<!-- markdownlint-enable MD038 -->
 
 ## Layout rules
 

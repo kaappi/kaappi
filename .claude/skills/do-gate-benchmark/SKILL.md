@@ -87,6 +87,7 @@ safe, and each one wastes a debugging cycle if you don't recognize it fast:
 
 Mirror `/do-stress-test`'s provisioning (Zig 0.16, `git make gcc
 libc6-dev`, unprivileged `tester` user, `git fetch --depth 1 <exact-commit>`
+
 + checkout) — plus `python3-numpy`, which `run-gate.py` imports:
 
 ```bash
