@@ -30,6 +30,13 @@ TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
 trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
 
 TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
+# Shell-suite tests do real work (native compiles, sometimes a `zig build`) so
+# they legitimately run longer than a single .scm file — a few minutes, not
+# seconds — but with no bound at all a genuine hang silently burns the whole
+# job's timeout with no indication of which file was stuck (kaappi#1748: a
+# 3M-iteration test took 7+ minutes under a Debug build and ate the rest of a
+# 40-minute CI job before anyone could tell which file was responsible).
+SHELL_TIMEOUT="${KAAPPI_SHELL_TEST_TIMEOUT:-300}"
 PASS=0
 FAIL=0
 TIMEDOUT=0
@@ -123,7 +130,7 @@ run_suite() {
 
 run_shell_suite() {
     local title="$1" dir="$2"
-    local matched=0
+    local matched=0 pid status
     echo "=== $title ==="
     for test_script in "$dir"/*.sh; do
         [[ -e "$test_script" ]] || continue
@@ -133,16 +140,25 @@ run_shell_suite() {
             continue
         fi
         matched=1
-        set +e
-        KAAPPI="$KAAPPI" bash "$test_script" "$KAAPPI" > "$TMPOUT" 2>&1
-        status=$?
-        set -e
+        KAAPPI="$KAAPPI" bash "$test_script" "$KAAPPI" > "$TMPOUT" 2>&1 &
+        pid=$!
+        if wait_with_timeout "$pid" "$SHELL_TIMEOUT"; then
+            status=0
+            wait "$pid" || status=$?
+        else
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "  TIMEOUT  $test_script  (killed after ${SHELL_TIMEOUT}s)"
+            cat "$TMPOUT"
+            TIMEDOUT=$((TIMEDOUT + 1))
+            continue
+        fi
         if [[ $status -eq 0 ]]; then
             echo "  PASS  $test_script"
             PASS=$((PASS + 1))
         elif [[ $status -eq 77 ]]; then
-            # Exit 77 = SKIP (shell-common.sh skip_on_windows): the script's
-            # premise cannot hold on this platform.
+            # Exit 77 = SKIP (shell-common.sh skip_on_windows/skip_without_zig/
+            # skip_on_debug_build): the script's premise cannot hold here.
             echo "  SKIP  $test_script"
             SKIPPED=$((SKIPPED + 1))
         else

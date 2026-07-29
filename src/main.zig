@@ -413,11 +413,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // ~/.kaappi/lib, and the exe-relative fallback lib. Sized to hold them all;
     // the old fixed [16] silently dropped a 17th path (or an auto-discovered dir
     // once 16 explicit ones existed), same silent-drop shape as #1652 (#1653).
-    // Never freed: vm.lib_paths points in here and is read as late as the
-    // deferred coverage report, so it must live for the whole run — like the
-    // auto-discovered dir strings (klp/elp below) it aliases.
+    // These allocations (lib_paths itself, and the auto-discovered dir strings
+    // klp/elp below) must live for the whole run — vm.lib_paths is read as
+    // late as the deferred coverage report — so they come from a dedicated
+    // arena freed by one defer here, rather than the general allocator: a
+    // Debug build's leak-tracking allocator would otherwise report these
+    // intentionally-never-individually-freed strings as leaked on every exit
+    // (kaappi#1748).
+    var lib_paths_arena = std.heap.ArenaAllocator.init(allocator);
+    defer lib_paths_arena.deinit();
+    const lib_paths_alloc = lib_paths_arena.allocator();
+
     const auto_discovered_max = 3;
-    const lib_paths = try allocator.alloc([]const u8, opts.libPaths().len + auto_discovered_max);
+    const lib_paths = try lib_paths_alloc.alloc([]const u8, opts.libPaths().len + auto_discovered_max);
     var lib_path_count: usize = 0;
     for (opts.libPaths()) |lp| {
         lib_paths[lib_path_count] = lp;
@@ -438,7 +446,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             var home_buf: [512]u8 = undefined;
             const home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
             const lib_suffix = "/lib";
-            const path = allocator.alloc(u8, home.len + lib_suffix.len) catch break :blk null;
+            const path = lib_paths_alloc.alloc(u8, home.len + lib_suffix.len) catch break :blk null;
             @memcpy(path[0..home.len], home);
             @memcpy(path[home.len..][0..lib_suffix.len], lib_suffix);
             break :blk path;
@@ -457,7 +465,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 const existing = platform.getenv(env_name);
                 if (existing) |ex| {
                     const ex_len = std.mem.len(ex);
-                    const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
+                    const new = lib_paths_alloc.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
                     if (new) |n| {
                         @memcpy(n[0..klp.len], klp);
                         n[klp.len] = ':';
@@ -466,7 +474,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                         _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
                     }
                 } else {
-                    const z = allocator.dupeZ(u8, klp) catch null;
+                    const z = lib_paths_alloc.dupeZ(u8, klp) catch null;
                     if (z) |zz| _ = setenv(env_name, zz, 1);
                 }
             }
@@ -480,7 +488,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         const exe_lib_path = blk: {
             var exe_lib_buf: [1024]u8 = undefined;
             const elp = kaappi_paths.getExeRelativeLibDir(&exe_lib_buf) orelse break :blk null;
-            break :blk allocator.dupe(u8, elp) catch null;
+            break :blk lib_paths_alloc.dupe(u8, elp) catch null;
         };
         if (exe_lib_path) |elp| {
             lib_paths[lib_path_count] = elp;

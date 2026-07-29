@@ -54,6 +54,24 @@ skip_without_zig() {
     fi
 }
 
+# skip_on_debug_build <kaappi-binary> <reason>: exit 77 (SKIP) when the given
+# binary reports build_mode "Debug" in `kaappi features --json`. For tests
+# whose regression coverage needs a large iteration/allocation count to be
+# meaningful (e.g. a native-compile stack-growth stress loop): a Debug
+# build's un-optimized, leak-tracking allocator makes that scale of work
+# impractically slow (10-20x, kaappi#1748) without adding any coverage a
+# ReleaseSafe/ReleaseFast/other-platform CI leg doesn't already provide at
+# full rigor, so skip rather than shrink (which risks silently dropping
+# below the iteration count actually needed to reproduce the regression) or
+# race a timeout.
+skip_on_debug_build() {
+    local kaappi="$1" reason="$2"
+    if "$kaappi" features --json 2>/dev/null | grep -q '"build_mode":"Debug"'; then
+        echo "SKIP: $reason"
+        exit 77
+    fi
+}
+
 # ensure_runtime_lib <repo-dir>: freshen the native runtime archive via
 # `zig build lib` when a toolchain is present. Without one, accept an
 # already-built archive (cross-compiled and copied to the box) so the
