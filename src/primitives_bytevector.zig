@@ -58,8 +58,8 @@ fn makeBytevector(args: []const Value) PrimitiveError!Value {
 
 fn bytevectorFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = gc.allocator.alloc(u8, args.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(data);
+    const data = memory.allocSliceNoFill(gc.allocator, u8, args.len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, data);
     for (args, 0..) |a, i| {
         if (!types.isFixnum(a)) return primitives.typeError("bytevector", "exact integer 0-255", a);
         const n = types.toFixnum(a);
@@ -161,8 +161,8 @@ fn bytevectorAppend(args: []const Value) PrimitiveError!Value {
         if (!types.isBytevector(a)) return primitives.typeError("bytevector-append", "bytevector", a);
         total_len += types.toBytevector(a).data.len;
     }
-    const result = gc.allocator.alloc(u8, total_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(result);
+    const result = memory.allocSliceNoFill(gc.allocator, u8, total_len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, result);
     var pos: usize = 0;
     for (args) |a| {
         const bv = types.toBytevector(a);
@@ -290,8 +290,8 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
 
     if (count == 0) return gc.allocBytevector(&.{}) catch return PrimitiveError.OutOfMemory;
 
-    const buf = gc.allocator.alloc(u8, count) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, count) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
 
     var read_count: usize = 0;
     while (read_count < count) {

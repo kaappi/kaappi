@@ -106,8 +106,8 @@ fn stringFn(args: []const Value) PrimitiveError!Value {
         const cp = types.toChar(a);
         total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("string", "valid character", a);
     }
-    const buf = gc.allocator.alloc(u8, total) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     var pos: usize = 0;
     for (args) |a| {
         const cp = types.toChar(a);
@@ -138,8 +138,8 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
     const fill_len = std.unicode.utf8Encode(fill_cp, &fill_buf) catch return primitives.typeError("make-string", "valid character", args[1]);
     const total_bytes = count * fill_len;
     if (total_bytes > memory.GC.max_payload_bytes) return PrimitiveError.OutOfMemory;
-    const buf = gc.allocator.alloc(u8, total_bytes) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, total_bytes) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     for (0..count) |i| {
         @memcpy(buf[i * fill_len .. (i + 1) * fill_len], fill_buf[0..fill_len]);
     }
@@ -192,11 +192,11 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     } else {
         // Different byte width: rebuild the string buffer
         const new_total = data.len - old_cp_len + new_cp_len;
-        const new_data = gc.allocator.alloc(u8, new_total) catch return PrimitiveError.OutOfMemory;
+        const new_data = memory.allocSliceNoFill(gc.allocator, u8, new_total) catch return PrimitiveError.OutOfMemory;
         @memcpy(new_data[0..byte_start], data[0..byte_start]);
         @memcpy(new_data[byte_start .. byte_start + new_cp_len], new_cp_buf[0..new_cp_len]);
         @memcpy(new_data[byte_start + new_cp_len .. new_total], data[byte_start + old_cp_len .. data.len]);
-        gc.allocator.free(str.data);
+        memory.freeSliceNoFill(gc.allocator, u8, str.data);
         str.data = new_data;
         str.len = new_total;
     }
@@ -287,11 +287,11 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     } else {
         // Different byte lengths: rebuild target string
         const new_total = to_data.len - dst_old_len + src_bytes.len;
-        const new_data = gc.allocator.alloc(u8, new_total) catch return PrimitiveError.OutOfMemory;
+        const new_data = memory.allocSliceNoFill(gc.allocator, u8, new_total) catch return PrimitiveError.OutOfMemory;
         @memcpy(new_data[0..to_byte_start], to_data[0..to_byte_start]);
         @memcpy(new_data[to_byte_start .. to_byte_start + src_bytes.len], src_bytes);
         @memcpy(new_data[to_byte_start + src_bytes.len .. new_total], to_data[to_byte_end..to_data.len]);
-        gc.allocator.free(to_str.data);
+        memory.freeSliceNoFill(gc.allocator, u8, to_str.data);
         to_str.data = new_data;
         to_str.len = new_total;
     }
@@ -331,9 +331,8 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
         byte_idx += cp_len;
         cp_idx += 1;
     }
-    const new_data = gc.allocator.alloc(u8, result.items.len) catch return PrimitiveError.OutOfMemory;
-    @memcpy(new_data, result.items);
-    gc.allocator.free(str.data);
+    const new_data = memory.dupeSliceNoFill(gc.allocator, u8, result.items) catch return PrimitiveError.OutOfMemory;
+    memory.freeSliceNoFill(gc.allocator, u8, str.data);
     str.data = new_data;
     str.len = new_data.len;
     return types.VOID;
@@ -355,8 +354,8 @@ fn stringToListFn(args: []const Value) PrimitiveError!Value {
     const range_count = end_cp - start_cp;
     // Build list from back to front; first collect codepoints
     var cps_buf: [4096]u21 = undefined;
-    var cps = if (range_count <= 4096) cps_buf[0..range_count] else (gc.allocator.alloc(u21, range_count) catch return PrimitiveError.OutOfMemory);
-    defer if (range_count > 4096) gc.allocator.free(cps);
+    var cps = if (range_count <= 4096) cps_buf[0..range_count] else (memory.allocSliceNoFill(gc.allocator, u21, range_count) catch return PrimitiveError.OutOfMemory);
+    defer if (range_count > 4096) memory.freeSliceNoFill(gc.allocator, u21, cps);
     var byte_i = byte_start;
     for (0..range_count) |idx| {
         cps[idx] = utf8DecodeAt(data, byte_i) orelse return primitives.typeError("string->list", "valid UTF-8 string", args[0]);
@@ -391,8 +390,8 @@ fn listToStringFn(args: []const Value) PrimitiveError!Value {
         total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("list->string", "valid character", elem);
         current = types.cdr(current);
     }
-    const buf = gc.allocator.alloc(u8, total) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     var pos: usize = 0;
     current = args[0];
     while (current != types.NIL) {
@@ -421,8 +420,8 @@ fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
     const end_cp = range.end;
     const range_count = end_cp - start_cp;
     const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string->vector", "valid index", args[1]);
-    const vec_data = gc.allocator.alloc(Value, range_count) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(vec_data);
+    const vec_data = memory.allocSliceNoFill(gc.allocator, Value, range_count) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, vec_data);
     var byte_i = byte_start;
     for (0..range_count) |idx| {
         const cp = utf8DecodeAt(data, byte_i) orelse return primitives.typeError("string->vector", "valid UTF-8 string", args[0]);
