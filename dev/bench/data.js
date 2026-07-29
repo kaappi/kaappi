@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785327981095,
+  "lastUpdate": 1785328452365,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f6bfe1b051a64ff6f1040dd0e118f8159df972a",
-          "message": "Implement SRFI 264 (String Syntax for Scheme Regular Expressions) (#1672)\n\nSSRE is a compact, PCRE-inspired string syntax for regular expressions that\ntranslates to the SRE S-expressions of SRFI 115. Add it as the portable\nlibrary (srfi 264): lib/srfi/264.sld is a faithful port of Sergei Egorov's\nMIT-licensed reference implementation, wrapped in an R7RS define-library over\n(srfi 115). The parser and unparser are pure Scheme; the only runtime\ndependency is `regexp` from SRFI 115 (used by ssre->regexp).\n\nExports ssre->sre, ssre->regexp, sre->ssre, ssre-definitions, ssre-bind, and\nssre-unbind. The derived (srfi srfi-264) alias and the `cond-expand srfi-264`\nfeature id work with no extra code, and `kaappi features` picks 264 up from\nthe build-time lib/srfi scan.\n\nOne deviation from the reference: ssre-syntax-error? checked (string? (cadr x))\nfor the source field, but `fail` raises it as a char list, so the guard was\ndead and a raw list escaped instead of a formatted error object. Check list?\nso ssre-fancy-error runs and syntax errors surface as proper error objects.\n\nTests:\n- tests/scheme/srfi/srfi264.scm runs the upstream conformance corpus (2751\n  parser/unparser cases) verbatim, with an exit-on-failure epilogue so\n  run-all.sh and CI catch regressions.\n- tests/scheme/srfi/srfi264-behavior.scm (SRFI-64) covers ssre->regexp\n  matching through SRFI 115, the ssre-bind/ssre-unbind lifecycle, and the\n  error-object regression above.\n\nBump the SRFI count 78 -> 79 (69 portable) in README, CONFORMANCE, CLAUDE.md,\nthe understanding map, and CHANGELOG.\n\nCloses #1666.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T21:41:01+05:30",
-          "tree_id": "12992f7a55381f98a73fc76c64810d3ddb4f5e45",
-          "url": "https://github.com/kaappi/kaappi/commit/9f6bfe1b051a64ff6f1040dd0e118f8159df972a"
-        },
-        "date": 1784479778735,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.320551,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.211575,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.898406,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407293,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006345,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053468,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.5025,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071109,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.405298,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.953459,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.625655,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438714,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.836249,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.704866,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043361,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044097,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "425c5d8f348b203cf2458401e22b31f68a7466a1",
+          "message": "Cover macro-generated top-level define read-back, fixing #1829 (#1842)\n\nAn em-syntax-rules macro whose expansion defined a fresh top-level\nbinding and read it back in the same generated `begin` got a previous\nexpansion's same-spelled binding instead of its own. The issue was filed\nbefore #1839 landed and is already fixed by it -- A/B confirmed against\n07adabaf (fails) and 70450499 (passes) -- but nothing in the suite\ncovered the shape, so a future change to the free-global alias mechanism\ncould silently reintroduce it.\n\nThe issue's own hypothesis (a global inline cache keyed more coarsely\nthan binding identity) was not the cause. Because the CK machine builds\nits output as plain data, a macro-generated top-level define lands under\nits BARE name -- unlike a syntax-rules template, whose introduced define\nis hygienically renamed. That makes the bare name a real global, so the\nnext expansion's own reference to it is a free reference to an\nalready-bound non-procedure global, which the pre-#1839 code left\nunrenamed so an injected alias could pierce use-site shadowing (R7RS\n4.3.1). The bare reference was then indistinguishable from the parent's\nown symbol threaded back in by the `=>` query: the collision of #1832,\nreached through a generated define rather than a pattern variable.\n\nThe test asserts both the reported four-use sequence and a tighter case\nfound while isolating it -- pre-binding the storage name makes the\npre-fix build fail on the very FIRST parent-having use rather than the\nfourth. Read-backs are recorded through a procedure, which the alias\nmechanism excludes, so the recorder cannot perturb what it measures.\nBoth assertions were verified to fail pre-fix and pass post-fix.\n\nCLAUDE.md and lib/srfi/150.sld both described #1829 as a live bug;\nthey now record it as fixed with the real mechanism. #1828, re-checked\nand still reproducing, is untouched by that fix and on its own still\nrules out the query-macro approach SRFI 150 rejected, so no design note\nbelow it changes.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:29:30+05:30",
+          "tree_id": "fb8c8b038244ccdcb15a3f20b1e533267105aaef",
+          "url": "https://github.com/kaappi/kaappi/commit/425c5d8f348b203cf2458401e22b31f68a7466a1"
+        },
+        "date": 1785328451325,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.004731,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.456413,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566613,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.834439,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004893,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04518,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302746,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054359,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.371465,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.182313,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.51821,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302276,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.717729,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.739912,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044865,
             "unit": "seconds"
           }
         ]
