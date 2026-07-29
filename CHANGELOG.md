@@ -44,6 +44,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A `syntax-rules` template's own free reference to a pre-existing global
+  could collapse into an unrelated, same-spelled argument at the use site.**
+  R7RS 4.3.1 referential transparency for a template's free reference to a
+  global that already existed when the macro was defined — e.g. `count` in
+  `(define-syntax inc! (syntax-rules () ((inc!) (set! count (+ count
+  1)))))` — was implemented by leaving the reference unrenamed and injecting
+  a register alias under that bare name, so it could pierce a same-named
+  local at the use site. But a bare, unrenamed reference is indistinguishable
+  from any other identifier of the same spelling introduced elsewhere in the
+  same expansion, including a pattern-variable argument the caller happened
+  to supply with that exact spelling. Calling such a macro with an argument
+  of the same name as its own free reference collapsed the two at that one
+  use site: `(let ((a 5)) (def a))`, where `def`'s own template referenced a
+  pre-existing global `a` while also taking `a` as an argument, resolved
+  both occurrences to the injected alias instead of the argument correctly
+  reading the `let`-bound local — silently producing a wrong value, or, for
+  a `set!`-based macro, overwriting the very use-site local the alias was
+  supposed to leave untouched. Such a reference is now hygiene-renamed like
+  any other template-introduced identifier, and its referential-transparency
+  alias is injected under that renamed name instead of the bare one (#1832).
+
 - **`thread-join!`'s default error report hid the child thread's real
   failure, and a local channel's deadlock message blamed only "fibers"
   even with another OS thread alive.** `thread-join!` has always wrapped an

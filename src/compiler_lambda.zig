@@ -991,12 +991,16 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
 
     const name = types.symbolName(target);
     if (self.resolveLocal(name)) |slot| {
-        if (self.isLocalGlobalAlias(name)) {
+        if (self.globalAliasTargetName(name)) |gname| {
             // The target is a register alias injected for a macro template's
             // free reference to a global: the variable itself lives in the
             // globals map, so write through to it, then refresh the alias
             // register for subsequent reads within the same expansion.
-            const sym_idx = try self.addConstant(target);
+            // `target` itself is the reference's hygienic rename, not the
+            // bare global name (kaappi#1832), so the write-through must use
+            // `gname` instead.
+            const target_sym = try self.gc.allocSymbol(gname);
+            const sym_idx = try self.addConstant(target_sym);
             try self.emitOp(.set_global);
             try self.emitU16(sym_idx);
             try self.emitU16(dst);
