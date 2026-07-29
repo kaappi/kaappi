@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785320366836,
+  "lastUpdate": 1785320960893,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9da7b393aa7895c63ab0b601e9002d495b8886b6",
-          "message": "Harden fiber timed-mutex regression test against QEMU flake (#1665)\n\nThe netbsd-test CI job (a cross-compiled x86_64-netbsd binary in a\nresource-constrained QEMU VM) intermittently failed this KEP-0001 Phase 2\n(#1440) regression test on its `(< wait-elapsed 0.3)` assertion. That bound\nis an absolute wall-clock magnitude on a single sample: when the host\nbriefly deschedules the whole VM near the 0.05s timer expiry, the\nhost-backed clock advances and the sample balloons past 0.3s even though the\nfix is present.\n\nWidening the bound is not an option — the broken build resolves at ~0.7s, so\nany bound loose enough to never flake would also let a genuinely broken build\npass, destroying the regression signal. Instead, assert the ordering the\nregression is actually about: the busy sibling now timestamps its own\ncompletion, and the test checks the timed lock resolved before that\n(wait-elapsed < busy-elapsed). Both samples come from one clock, so a\nslow/loaded VM stretches them together and cannot invert their order — a\npause that inflates wait-elapsed necessarily happened before the sibling\nfinished and inflates busy-elapsed by the same amount. A premise check keeps\nthe sibling comfortably outlasting the timeout, and both timing checks now\nprint the measured values on failure instead of a bare boolean.\n\nVerified the regression is still caught by temporarily neutering the per-tick\ntimer pop in runReactorTick: the test then fails with wait-elapsed just after\nbusy-elapsed, exactly the pre-#1440 behavior.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T17:16:58+05:30",
-          "tree_id": "48d125a4c01012651e9b22421b51a0e5923d9891",
-          "url": "https://github.com/kaappi/kaappi/commit/9da7b393aa7895c63ab0b601e9002d495b8886b6"
-        },
-        "date": 1784463651126,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.074539,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.708097,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92222,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.558178,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006707,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05287,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.513398,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070295,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.202077,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.993752,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514624,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.478858,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.734423,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.886521,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045596,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047117,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70450499b7bc80cee6656bcea021f8a265fe1120",
+          "message": "Add Markdown linting to CI, fixing #1837 (#1840)\n\n* Add Markdown linting to CI\n\nThe repo had 82 Markdown files and no linter, while .zig was enforced three\nways. The gap was not theoretical: CodeRabbit -- not CI -- caught an MD018\nviolation in docs/dev/fuzzing.md (#1836), where prose wrapping left an issue\nreference at the start of a line, which Markdown reads as a malformed heading.\nThat failure mode is silent -- the doc renders wrong on GitHub and nothing\nerrors anywhere.\n\nMeasuring the fallout first changed the approach. The default rules give 2792\nviolations, but MD013 (line-length, 1032) and MD060 (table pipe padding, 997)\nalone are 73% of that noise. With those and nine other cosmetic rules off, 507\nremain -- few enough to clear entirely rather than start from a deliberately\nnarrow rule set and widen it over time. Every structural rule is therefore on,\nand the repo is left at zero findings.\n\nTwo of those rules must never be autofixed blindly, which is why the five\naffected sites were corrected by hand before running --fix:\n\n  - MD018 \"fixes\" a line-initial issue reference by inserting a space,\n    promoting prose to a real top-level heading -- making the very bug that\n    motivated this check worse. Doing so newly surfaced three MD025, one\n    MD026, and one MD001 as the phantom headings took effect.\n  - MD038 strips the space from the space-character literal in\n    docs/dev/fmt.md, corrupting the Scheme literal that paragraph exists to\n    document.\n\nBoth hazards are recorded in CONTRIBUTING.md so a later --fix cannot quietly\nreintroduce them.\n\nGlobs, ignores, and the rule set live together in .markdownlint-cli2.jsonc so\na bare `npx markdownlint-cli2` lints exactly what CI lints. AGENTS.md is\nignored because it is a symlink to CLAUDE.md and would double-report every\nfinding.\n\nFixes #1837\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix the MD018 violation the new check caught on main\n\nThe first CI run of the markdownlint step failed -- on a real violation,\nin the exact file and of the exact class that motivated this work.\n\ndocs/dev/fuzzing.md carried `#1573),` at the start of a line, which\nMarkdown reads as a malformed ATX heading. CodeRabbit flagged it during\nreview of #1836 and issue #1837 was filed about it, but the line merged\nto main unfixed. CI lints the pull-request merge commit, so the check\nsaw it even though this branch's own base predates that merge.\n\nFixed by rewrapping, never by MD018's autofix, which would have inserted\na space and promoted the prose to a real heading. The first rewrap\nattempt merely moved the problem to the following line (`#1835).`),\nwhich the check also caught -- the wrap point has to be chosen so that no\nline begins with the reference. The paragraph's word sequence is\nbyte-identical to main's.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T15:03:03+05:30",
+          "tree_id": "ea76b813c4281128cc8379ea27f23f5fb25dac6c",
+          "url": "https://github.com/kaappi/kaappi/commit/70450499b7bc80cee6656bcea021f8a265fe1120"
+        },
+        "date": 1785320959688,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.006945,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.368754,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573906,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.843908,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004933,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045208,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302195,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054352,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.367794,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.18058,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519851,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302982,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.723025,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.699176,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045383,
             "unit": "seconds"
           }
         ]
