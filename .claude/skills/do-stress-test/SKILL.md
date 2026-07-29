@@ -272,8 +272,8 @@ they can destroy it manually via the DigitalOcean console.
 
 ## Notes
 
-- **Cost**: `c5-4vcpu-8gb` is ~$0.185/hr → a full 3-hour window costs
-  ~$0.56. Faster per-core speed typically cuts the run to ~1–1.5h, so
+- **Cost**: `c5-4vcpu-8gb` is ~USD 0.185/hr → a full 3-hour window costs
+  ~USD 0.56. Faster per-core speed typically cuts the run to ~1–1.5h, so
   actual cost is comparable to the cheaper shared-CPU droplets.
 - **Why hours**: with a collection attempted on every allocation, each test's
   VM bootstrap alone performs tens of thousands of full collections. ~40 min

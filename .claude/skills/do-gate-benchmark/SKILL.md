@@ -239,7 +239,7 @@ solely on the self-destruct timer.
 
 ## Notes
 
-- **Cost**: `s-8vcpu-16gb-intel` is ~$0.167/hr — even a generously
+- **Cost**: `s-8vcpu-16gb-intel` is ~USD 0.167/hr — even a generously
   over-budgeted 12–15 hour run is only a few dollars.
 - **Sequential execution**: `run-gate.py`'s invocation loop is strictly
   sequential (one subprocess at a time, each internally using up to `w`

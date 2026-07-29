@@ -221,7 +221,7 @@ so they can destroy it manually via the DigitalOcean console.
 
 ## Notes
 
-- **Cost**: `s-2vcpu-4gb` is ~$0.03/hr. A full test run takes 10–15 minutes
+- **Cost**: `s-2vcpu-4gb` is ~USD 0.03/hr. A full test run takes 10–15 minutes
   (the compile tests rebuild the full binary, which is slow on 2 vCPUs).
 - **SSH key**: uses `~/.ssh/id_rsa`. The matching public key must be on the
   DigitalOcean account (upload via web console → Settings → Security).
