@@ -430,18 +430,24 @@ hygienically). SRFI 131 (ERR5RS Record Syntax, reduced) layers on the same
 substrate with by-*name* (not positional) constructor field resolution,
 including a subtype field shadowing an ancestor's same-named field per its
 own spec text. Two portability gotchas surfaced repeatedly while building
-these three: (1) calling a `%`-prefixed primitive from `(srfi 237
-primitives)` with no explicit import is *not* reliably ambiently visible
-the way some other primitives are elsewhere in this codebase — declare the
-import explicitly rather than assume it; (2) a genuine, unrooted-out
-compiler quirk was found (not fixed): calling one `%`-prefixed
+these three, and both turned out to be one engine bug, fixed in
+kaappi#1831: (1) calling a `%`-prefixed primitive from `(srfi 237
+primitives)` with no explicit import looked *unreliably* ambient — it
+worked in some positions and not others; (2) calling one `%`-prefixed
 forward-referenced global as a direct, non-tail-position argument
 expression to another (e.g. inside `if`/`list`, or as an argument nested
 one level deep) inside a closure passed to `map` raised a spurious
-"undefined variable" for the *inner* call, reliably fixed by routing
-through an extra wrapper function (any name) called in tail position —
-ordinary (non-`%`) names in the identical shape were unaffected; worth a
-dedicated investigation later.
+"undefined variable" for the *inner* call, reliably worked around at the
+time by routing through an extra wrapper function (any name) called in
+tail position. Both were the same thing: a library body's reference to a
+global that lives in vm.globals but not in its own lib_env resolved in
+tail position only, because `get_global` carried the vm.globals fallback
+and the `call_global` superinstruction the compiler emits for every
+non-tail call did not. Ordinary (non-`%`) names looked unaffected only
+because `(scheme base)` puts them in lib_env; all three global-reference
+opcodes now resolve through one helper in `vm_dispatch.zig`. Declaring
+the import explicitly is still the better style, but it is no longer
+load-bearing.
 SRFI 57 (Records, with inheritance via "schemes" -- a named, reusable field-
 label list a type or another scheme can extend, with multiple schemes
 mergeable at once via left-to-right append + delete-duplicates) is portable
@@ -544,16 +550,23 @@ engine represents every identifier as a plain, hygiene-renamed symbol,
 plain `equal?` on that raw symbol already implements both
 bound-identifier=? and free-identifier=? for SRFI 213's stored names —
 specific to this engine's rename-by-spelling hygiene representation, not
-a portable assumption. This design surfaced one more primitives quirk
-(kaappi#1831): `cadar` specifically — not `caar`/`cadr`/`cddr`/`cdddr`,
-and not its own semantically-identical unrolled spelling
-`(cadr (car x))` — fails silently when called from a helper function
-invoked during an `er-macro-transformer`'s expansion, worked around by
-spelling the one affected lookup as `(cadr (car alist))` in
-`lib/srfi/150.sld`. SRFI 150 ships with one documented, unfixed gap
-rather than blocking on an engine fix: 21 of 25 tests ported from the
-reference suite pass; the other 4 (two "Hygiene 1" assertions, one
-"Hygiene 2" assertion, and Alex Shinn's explicit-construction tuple
+a portable assumption. This design surfaced the library global-resolution
+bug fixed in kaappi#1831, which first presented as `cadar` specifically —
+not `caar`/`cadr`/`cddr`, and not its own unrolled spelling
+`(cadr (car x))` — failing when called from a helper function invoked
+during an `er-macro-transformer`'s expansion. The `cadar` framing was a
+red herring on two counts: `cadar` is a `(scheme cxr)` name
+`lib/srfi/150.sld` never imports while its apparent siblings there are
+`(scheme base)` names already in lib_env, and the file's one other
+cxr-only name (`cdddr`) sits inside the transformer's own lambda, which
+is evaluated at macro-definition time in the global environment and so
+never consults lib_env at all. The real rule was tail vs. non-tail
+position (see the SRFI 237 paragraph above); the idiomatic `cadar`
+spelling is back in `field-alist-ref`. SRFI 150 ships with one
+documented, unfixed gap rather than blocking on an engine fix: 21 of 25
+tests ported from the reference suite pass; the other 4 (two "Hygiene 1"
+assertions, one "Hygiene 2" assertion, and Alex Shinn's
+explicit-construction tuple
 example, marked `test-expect-fail`/annotated in
 `tests/scheme/srfi/srfi150.scm`) hit a precise, minimal, record-free
 reproduction (kaappi#1832) of the already-documented "a use-site

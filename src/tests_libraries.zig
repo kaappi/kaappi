@@ -1006,3 +1006,56 @@ test "top-level cond-expand malformed-form parity with the compiler (#1661)" {
     // silently splicing the proper prefix and dropping the tail.
     try std.testing.expectError(error.CompileError, vm.eval("(cond-expand (else 1 . junk))"));
 }
+
+// Regression for #1831: a library body referencing a global that is registered
+// in vm.globals but absent from its own lib_env resolved in tail position only.
+// The compiler picks a global-reference opcode purely by syntactic position —
+// get_global plus a plain tail_call for a tail call's operator, the call_global
+// superinstruction everywhere else — and only get_global carried the vm.globals
+// fallback library code needs (455f5cc2). So `(cadar x)` worked as a body's last
+// form and raised "undefined variable 'cadar'" one position over, which surfaced
+// as a bare `invalid syntax` when the caller ran at macro-expansion time.
+test "library resolves a non-imported global in every syntactic position (#1831)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `cadar` belongs to (scheme cxr); this library imports only (scheme base),
+    // so the name lives in vm.globals and not in the library's own env.
+    _ = try vm.eval(
+        \\(define-library (test cxr-position)
+        \\  (import (scheme base))
+        \\  (export in-tail in-operand in-test in-nested)
+        \\  (begin
+        \\    (define (in-tail x) (cadar x))
+        \\    (define (in-operand x) (car (cadar x)))
+        \\    (define (in-test x) (if (cadar x) 1 0))
+        \\    (define (in-nested x) (begin (cadar x) 5))))
+    );
+    _ = try vm.eval("(import (test cxr-position))");
+
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try vm.eval("(car (in-tail '((1 (7)))))")));
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try vm.eval("(in-operand '((1 (7))))")));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(in-test '((1 (7))))")));
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(try vm.eval("(in-nested '((1 (7))))")));
+}
+
+// Companion to the above: the vm.globals fallback call_global gained must stay
+// gated by restricted_globals, so a restricted (environment ...) is no leakier
+// for a non-tail call than the tail call #1253 already covers.
+test "restricted environment does not leak globals to a non-tail call (#1831)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `car` is excluded from the environment; the call sits in operand position
+    // (inside `list`), so it compiles to call_global rather than a tail call.
+    const result = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (eval '(list (car '(1))) (environment '(only (scheme base) list))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("caught", types.symbolName(result));
+}

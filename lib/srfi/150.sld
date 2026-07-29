@@ -89,24 +89,19 @@
 ;;;     implementation on a syntax-object-based Scheme could not assume
 ;;;     this and would need real bound-identifier=?/free-identifier=?.
 ;;;
-;;; `field-alist-ref` below deliberately spells its second-element lookup
-;;; as `(cadr (car alist))`, not the equivalent, more idiomatic `cadar`.
-;;; This works around a genuine, cleanly-isolated engine bug found during
-;;; this SRFI's own implementation: calling the composed accessor `cadar`
-;;; from inside a helper function that is itself invoked from a procedural
-;;; (er-macro-transformer) macro's expansion-time code silently fails --
-;;; the call never completes and the whole expansion is later reported as
-;;; a generic "invalid syntax" compile error with no other diagnostic.
-;;; Isolated to exactly `cadar` specifically (not cxr compositions
-;;; generally: `caar`, `cadr`, `cddr`, `cdddr` are all used elsewhere in
-;;; this very file with no issue) and exactly this call shape: `cadar`
-;;; called directly inline in a transformer body works fine; the same
-;;; `cadar` call moved one level down, into a separately-defined function
-;;; the transformer calls, fails; and both `(car (cdr (car x)))` and
-;;; `(cadr (car x))` -- semantically identical to `(cadar x)` -- work
-;;; correctly in that same nested position. Worth its own investigation
-;;; and engine issue later; sidestepped here since the unrolled spelling
-;;; is a one-line change with no semantic difference.
+;;; `field-alist-ref` below spelled its second-element lookup as the
+;;; unrolled `(cadr (car alist))` until kaappi#1831 was fixed. `cadar`
+;;; is a `(scheme cxr)` name this library does not import, and a library
+;;; body's reference to a global outside its own lib_env used to resolve
+;;; in tail position only (get_global carried the vm.globals fallback,
+;;; call_global did not), so the same call failed as a non-tail operand
+;;; and surfaced as a bare "invalid syntax" from the expansion. Two
+;;; near-misses made it look `cadar`-specific: `caar`/`cadr`/`cddr` here
+;;; are `(scheme base)` names, so they were in lib_env either way, and
+;;; the one other cxr-only name, `cdddr` on line 177, sits inside the
+;;; transformer's own lambda -- evaluated at macro-definition time in
+;;; the global environment, which never consults lib_env at all. The
+;;; idiomatic spelling is back.
 (define-library (srfi 150)
   (import (scheme base) (srfi 211 explicit-renaming) (srfi 213)
           (srfi 237) (srfi 237 primitives))
@@ -164,7 +159,7 @@
       (cond
         ((null? alist) #f)
         ((equal? field (caar alist)) (caar alist))
-        ((equal? field (cadr (car alist))) (caar alist))
+        ((equal? field (cadar alist)) (caar alist))
         (else (field-alist-ref field (cdr alist)))))
 
     (define (resolve-field-name field own-alist parent-alist)
