@@ -208,3 +208,96 @@ test "hygiene: an ellipsis followed by a spliced dotted tail reserves the right 
         \\  (equal? (use-tail 1 2 99) '(ok 1 2)))
     );
 }
+
+test "hygiene: a self-recursive generated macro quoting its own pattern variable" {
+    // #1716: the outer macro's template generates an inner macro that is
+    // SELF-RECURSIVE and quotes one of its own pattern variables (`nm`)
+    // directly. Before #1773, renameForHygiene skipped the hygienic rename
+    // for any quoted identifier, so the template-side `'nm` kept the bare
+    // spelling while the pattern-side `nm` (walked without QUOTE_FLAG)
+    // claimed a rename -- the inner matcher then had nothing to bind to
+    // the template's `nm`, and every element of the result came out as the
+    // literal symbol `nm` instead of the argument actually passed:
+    // `(ctor a b c)` yielded `(nm nm nm)` rather than `(a b c)`.
+    //
+    // The non-recursive shape is covered by the first test in this file;
+    // this one pins the recursive shape specifically, because that is what
+    // SRFI 209's `define-enumeration` constructor needs and what made the
+    // failure silent (a wrong symbol, never an error).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-ctor
+        \\    (syntax-rules ()
+        \\      ((_ ctor-name)
+        \\       (define-syntax ctor-name
+        \\         (syntax-rules ()
+        \\           ((_) '())
+        \\           ((_ nm rest (... ...))
+        \\            (cons 'nm (ctor-name rest (... ...)))))))))
+        \\  (gen-ctor collect)
+        \\  (and (equal? (collect) '())
+        \\       (equal? (collect a) '(a))
+        \\       (equal? (collect a b c) '(a b c))))
+    );
+}
+
+test "hygiene: mutually recursive generated macros quoting their own pattern variables" {
+    // Same #1716 defect reached through a pair of generated macros that
+    // recurse through EACH OTHER rather than through themselves, so the
+    // recursive reference is resolved via the sibling-macro lookup
+    // (instantiateTemplate's `macros` table) instead of the macro's own
+    // keyword. Each still quotes its own pattern variable, so each still
+    // needs the pattern-side rename and the quoted template-side rename to
+    // agree. Pre-#1773 this produced `((e a) (o a) (e a) (o a))` -- the
+    // right number of entries, each naming the inner macros' own pattern
+    // variable `a` instead of the argument at that position.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-pair
+        \\    (syntax-rules ()
+        \\      ((_ evn odd)
+        \\       (begin
+        \\         (define-syntax evn
+        \\           (syntax-rules ()
+        \\             ((_) '())
+        \\             ((_ a b (... ...)) (cons (list 'e 'a) (odd b (... ...))))))
+        \\         (define-syntax odd
+        \\           (syntax-rules ()
+        \\             ((_) '())
+        \\             ((_ a b (... ...)) (cons (list 'o 'a) (evn b (... ...))))))))))
+        \\  (gen-pair step-e step-o)
+        \\  (equal? (step-e p q r s) '((e p) (o q) (e r) (o s))))
+    );
+}
+
+test "hygiene: a recursive generated macro's quoted pattern variable inside a larger quoted datum" {
+    // The quoted occurrence need not BE the pattern variable alone: #1716
+    // also broke when the pattern variable sat inside a bigger quoted datum
+    // alongside genuinely inert template text, and when the quoted datum was
+    // a vector rather than a list. The inert neighbours (`tag`/`end`) must
+    // still come through unrenamed -- the fix renames a quoted identifier
+    // only when a same-scope pattern-side rename already exists to match.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax gen-wrap
+        \\    (syntax-rules ()
+        \\      ((_ ctor-name)
+        \\       (define-syntax ctor-name
+        \\         (syntax-rules ()
+        \\           ((_) '())
+        \\           ((_ nm rest (... ...))
+        \\            (cons '(tag nm end) (ctor-name rest (... ...)))))))))
+        \\  (gen-wrap wrap-each)
+        \\  (define-syntax gen-vec
+        \\    (syntax-rules ()
+        \\      ((_ ctor-name)
+        \\       (define-syntax ctor-name
+        \\         (syntax-rules ()
+        \\           ((_) '())
+        \\           ((_ nm rest (... ...))
+        \\            (cons '#(nm) (ctor-name rest (... ...)))))))))
+        \\  (gen-vec vec-each)
+        \\  (and (equal? (wrap-each a b) '((tag a end) (tag b end)))
+        \\       (equal? (vec-each a b) '(#(a) #(b)))))
+    );
+}
