@@ -10,6 +10,8 @@ const std = @import("std");
 const diagnostics = @import("diagnostics.zig");
 const types = @import("types.zig");
 const th = @import("testing_helpers.zig");
+const memory = @import("memory.zig");
+const reader_mod = @import("reader.zig");
 const Code = diagnostics.Code;
 
 test "code renders as KPnnnn" {
@@ -74,6 +76,29 @@ test "reader errors map to read-stage codes with no leak fallback" {
     // An unrecognized reader error still resolves to a real read-stage code
     // rather than leaking the Zig error name.
     try std.testing.expectEqual(Code.unexpected_char, diagnostics.readErrorCode(error.SomeFutureReaderError));
+}
+
+test "digit-led glued identifier reclassifies from KP1002 to KP1004 (kaappi#1723)" {
+    // `3-state` looks like an identifier but R7RS forbids one starting with a
+    // digit, so the reader commits to a number on the leading digit and finds
+    // constituent characters glued onto it. This used to surface as the
+    // generic, miscoded `UnexpectedChar` (KP1002, "unexpected character" --
+    // whose explanation talks about stray '#'-syntax, irrelevant here); it
+    // must now resolve to `InvalidNumber` (KP1004, "invalid number literal").
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var reader = reader_mod.Reader.init(&gc, "3-state");
+    defer reader.deinit();
+    _ = reader.readDatum() catch |err| {
+        try std.testing.expectEqual(reader_mod.ReadError.InvalidNumber, err);
+        const code = diagnostics.readErrorCode(err);
+        try std.testing.expectEqual(Code.invalid_number, code);
+        try std.testing.expect(code != Code.unexpected_char);
+        var buf: [Code.render_width]u8 = undefined;
+        try std.testing.expectEqualStrings("KP1004", code.render(&buf));
+        return;
+    };
+    return error.TestExpectedError; // readDatum should have errored above
 }
 
 test "compile errors map to compile-stage codes" {

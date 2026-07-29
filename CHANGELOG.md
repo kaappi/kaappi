@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A digit-led token that wasn't a valid number was misreported as a bare
+  "unexpected character."** `3-state`, `5foo`, `1.2.3`, and similar tokens
+  are correctly rejected — R7RS identifiers can never begin with a digit, so
+  the reader commits to parsing a number on the leading digit — but the
+  generic `KP1002` ("unexpected character", whose explanation talks about
+  stray `#`-syntax) named the wrong category and gave no hint why, with the
+  caret pointing one character past the token's actual start. Such a token
+  now reports `KP1004` ("invalid number literal"), the accurate code since
+  the reader already committed to a number; the message echoes the
+  offending token and states the rule, and the caret points at the token's
+  start rather than wherever the number scan stopped:
+  `invalid number literal '3-state': identifiers cannot begin with a digit;
+  use |3-state| for a literal symbol`. Surfaced in the CLI's text output,
+  `kaappi check`, `kaappi compile`, and `--diagnostics=json` alike (#1723).
+
 - **A procedural macro transformer's own raised condition was discarded and
   reported as a bare `"invalid syntax"`.** A Scheme-level error inside a
   SRFI 211 `er-macro-transformer`/`lisp-transformer` — the transformer's own

@@ -135,13 +135,13 @@ fn analyze(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, source: 
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        addReadError(ctx, err, lc.line, lc.col);
+        addReadError(ctx, arena, err, lc.line, lc.col);
         return;
     }) {
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
-            addReadError(ctx, err, lc.line, lc.col);
+            addReadError(ctx, arena, err, lc.line, lc.col);
             return;
         };
         vm.gc.pushRoot(&expr);
@@ -300,9 +300,16 @@ fn addName(set: *std.StringHashMap(void), arena: std.mem.Allocator, name: []cons
 
 // ── Error findings from read / compile / env-setup ─────────────────────────
 
-fn addReadError(ctx: *check_lint.Context, err: anyerror, line: u32, col: u32) void {
+fn addReadError(ctx: *check_lint.Context, arena: std.mem.Allocator, err: anyerror, line: u32, col: u32) void {
     const code = diagnostics.readErrorCode(err);
-    ctx.addFinding(code, .{ .line = line, .col = col }, code.message());
+    // A malformed-token error (e.g. a digit-led identifier, kaappi#1723) may
+    // carry a detail string; mirror addCompileError's detail-consumption
+    // pattern below, duping into the arena since the threadlocal buffer can
+    // be overwritten by a later read.
+    const detail = reader.getReadErrorDetail();
+    const msg: []const u8 = if (detail.len > 0) (arena.dupe(u8, detail) catch code.message()) else code.message();
+    ctx.addFinding(code, .{ .line = line, .col = col }, msg);
+    reader.resetReadErrorDetail();
 }
 
 fn addCompileError(ctx: *check_lint.Context, arena: std.mem.Allocator, err: anyerror, line: u32, col: u32) void {

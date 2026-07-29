@@ -18,6 +18,41 @@ pub const ReadError = error{
     TokenTooLong,
 };
 
+/// Detail message for a read error that needs more than the diagnostics
+/// registry's bare template -- e.g. echoing the offending token. Mirrors the
+/// compiler's `syntax_error_detail` (compiler.zig, KEP-0005/#1504); threadlocal
+/// for the same reason (reading can happen on any thread). `Reader.nextToken`
+/// resets this at the start of every call -- the reader's single token-dispatch
+/// entry point, including the nested calls `skipWhitespaceAndCommentsChecked`
+/// makes for `#;`-datum comments -- so a stale detail from an earlier,
+/// unrelated token can never be misattributed to a later error (kaappi#1723).
+pub threadlocal var read_error_detail: [256]u8 = [_]u8{0} ** 256;
+pub threadlocal var read_error_detail_len: usize = 0;
+
+pub fn getReadErrorDetail() []const u8 {
+    return read_error_detail[0..read_error_detail_len];
+}
+
+/// Clear the channel. Called by a reporter after consuming a detail, mirroring
+/// `compiler.resetCompileErrorSpan` -- defensive belt-and-suspenders alongside
+/// the per-token reset in `nextToken`.
+pub fn resetReadErrorDetail() void {
+    read_error_detail_len = 0;
+}
+
+/// A token longer than the buffer overflows this on a pathologically long
+/// malformed identifier (the format string embeds it twice); rather than
+/// trusting `bufPrint`'s failure case to mean "the whole buffer holds valid
+/// output" (it doesn't specify how much of a partial write landed), build the
+/// writer directly and read back exactly how much it actually wrote -- same
+/// pattern as `compiler.formatSyntaxError`. The result is a cleanly truncated
+/// prefix of the intended message, never a partially-overwritten buffer.
+fn setReadErrorDetail(comptime fmt: []const u8, args: anytype) void {
+    var w: std.Io.Writer = .fixed(&read_error_detail);
+    w.print(fmt, args) catch {};
+    read_error_detail_len = w.buffered().len;
+}
+
 pub const Token = union(enum) {
     lparen,
     rparen,
@@ -241,6 +276,7 @@ pub const Reader = struct {
     }
 
     pub fn nextToken(self: *Reader) ReadError!Token {
+        read_error_detail_len = 0;
         try self.skipWhitespaceAndCommentsChecked();
         if (self.pos >= self.source.len) return .eof;
 
@@ -328,10 +364,61 @@ pub const Reader = struct {
     const reader_datum = @import("reader_datum.zig");
 
     fn readNumber(self: *Reader) ReadError!Token {
+        const start = self.pos;
         const tok = try reader_tokens.readNumber(self);
-        if (self.pos < self.source.len and !isDelimiter(self.source[self.pos]))
-            return ReadError.UnexpectedChar;
+        if (self.pos < self.source.len and !isDelimiter(self.source[self.pos])) {
+            // Only reclassify when the character actually glued onto the number
+            // could continue an identifier (`<subsequent>`, ASCII or Unicode) --
+            // `3-state`, `5foo`, `1.2.3` are malformed number literals, since
+            // R7RS identifiers can never begin with a digit (kaappi#1723). A
+            // character that ISN'T a valid identifier continuation either --
+            // e.g. the backtick in `3\``, or a stray comma -- is unrelated to
+            // that rule and stays the original, accurate UnexpectedChar: an
+            // "identifiers cannot begin with a digit" hint would be nonsensical
+            // for it, and consumeGluedIdentifierChars would consume nothing
+            // anyway, leaving the message describing the number alone as if
+            // that were the problem.
+            const glued_start = self.pos;
+            consumeGluedIdentifierChars(self);
+            if (self.pos == glued_start) return ReadError.UnexpectedChar;
+            // Consume the rest of the token so the message can echo it in full,
+            // then rewind to the token's start so the reported position is the
+            // start of the bad token, not wherever the number scan stopped.
+            setReadErrorDetail(
+                "invalid number literal '{s}': identifiers cannot begin with a digit; use |{s}| for a literal symbol",
+                .{ self.source[start..self.pos], self.source[start..self.pos] },
+            );
+            self.pos = start;
+            return ReadError.InvalidNumber;
+        }
         return tok;
+    }
+
+    /// Consume the R7RS `<subsequent>` characters (ASCII or Unicode, matching
+    /// `readSymbol`'s identifier scan) glued onto an already-parsed number
+    /// token. Only called right before raising `InvalidNumber` for such a
+    /// token, purely so its full text can be echoed in the diagnostic
+    /// (kaappi#1723).
+    fn consumeGluedIdentifierChars(self: *Reader) void {
+        while (self.pos < self.source.len) {
+            const c = self.source[self.pos];
+            if (c < 0x80) {
+                if (isSubsequent(c)) {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                const seq_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+                if (self.pos + seq_len > self.source.len) break;
+                const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch break;
+                if (isUnicodeSubsequent(cp)) {
+                    self.pos += seq_len;
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token {

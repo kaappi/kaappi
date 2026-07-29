@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const compiler_mod = @import("compiler.zig");
+const reader_mod = @import("reader.zig");
 const reporting = @import("reporting.zig");
 const diagnostics = @import("diagnostics.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
@@ -65,21 +66,31 @@ fn lspSeverity(code: diagnostics.Code) lsp_diagnostic.Severity {
 
 pub fn reportReadError(source_name: []const u8, line: u32, col: u32, err: anyerror) void {
     const code = diagnostics.readErrorCode(err);
+    // A malformed-token error (e.g. a digit-led identifier, kaappi#1723) may
+    // carry a detail string that echoes the token and explains the rule; a
+    // plain reader failure has none. Prefer it over the bare registry
+    // template when present, same pattern as reportCompileError's `detail`.
+    const detail = reader_mod.getReadErrorDetail();
+    const msg = if (detail.len > 0) detail else code.message();
     var cbuf: [diagnostics.Code.render_width]u8 = undefined;
     if (diagnostic_format == .json) {
         emitJsonLine(.{
             .range = lsp_diagnostic.pointRange(line, col),
             .severity = lspSeverity(code),
             .code = code.render(&cbuf),
-            .message = code.message(),
+            .message = msg,
         });
+        reader_mod.resetReadErrorDetail();
         return;
     }
     var buf: [256]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{s}:{d}:{d}: read error[{s}]: {s}\n", .{
-        source_name, line, col, code.render(&cbuf), code.message(),
-    }) catch "read error\n";
-    writeStderr(s);
+    const prefix = std.fmt.bufPrint(&buf, "{s}:{d}:{d}: read error[{s}]: ", .{
+        source_name, line, col, code.render(&cbuf),
+    }) catch "read error: ";
+    writeStderr(prefix);
+    writeStderr(msg);
+    writeStderr("\n");
+    reader_mod.resetReadErrorDetail();
 }
 
 pub fn reportCompileError(source_name: []const u8, line: u32, col: u32, err: anyerror) void {
