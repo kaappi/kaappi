@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785328452365,
+  "lastUpdate": 1785329280306,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "64901a5f3e04c491e4b8da6cb60f45d34d125d8e",
-          "message": "Add /vm-test skill for on-hardware UTM VM testing (#1676)\n\n* Add /vm-test skill for on-hardware UTM VM testing\n\nThe BSD/Linux-arch/Windows ports are validated on a fleet of local UTM\nVMs, but the power-on step and the per-platform build-anywhere/execute-on-\ntarget recipe (cross-compile on the Mac, ship the tree + zig-out + the two\ntest binaries, run on the box) lived scattered across docs/dev/*.md and\nsession memory. This skill consolidates that into one runnable procedure\nand automates the mechanical, error-prone parts.\n\nvm-up.sh maps an ssh alias to its utmctl VM name, launches UTM if needed,\nstarts the VM, and blocks until SSH answers. SKILL.md carries the per-VM\ntable (target triple, admin tool, file signature, deps) and the ship/run\nsteps, encoding the traps these ports have hit: Alpine must be -musl\n(static; no glibc loader), test binaries are selected by file signature\nnot mtime (stale-binary footgun), sync is tar-over-ssh with\nCOPYFILE_DISABLE (rsync is absent on OpenBSD; AppleDouble files fail the\nfmt suite), plus OpenBSD's nobtcfi patch, NetBSD's swap/full-paths, and\nWindows' distinct PowerShell/Git-Bash flow.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Harden /vm-test recipe against masked failures (review)\n\nAddress the CodeRabbit review on #1676. All six were real correctness bugs\nin commands the skill tells you to run:\n\n- Test-binary selection now fails closed: clear stale staged copies first,\n  then skip the cp entirely when no target-arch binary is found, so a\n  missing build can't ship an old binary.\n- Group the ulimit-carrying $RUNPREFIX in a { …; } before chaining the unit\n  and thottam suites — the semicolons in RUNPREFIX otherwise break the &&\n  chain and let a failed unit suite be masked by the last command's status.\n- Propagate run-all.sh's real exit status instead of the trailing echo's,\n  so an automated caller sees a failed VM run.\n- Invoke bash by full path on NetBSD (new $BASH var; /usr/pkg/bin/bash) —\n  the non-login PATH lacks /usr/pkg/bin, so bare bash fails there. Also\n  apply $RUNPREFIX to run-all.sh (CI raises the same limits for it).\n- Windows: select the test .exe by PE machine type, not mtime (x64 and\n  aarch64 outputs coexist in the cache), and create C:\\tmp\\kaappi-vm before\n  extracting into it (tar -C won't make the dir).\n\nGrouping/exit-status semantics verified with stubbed suites.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T16:55:37Z",
-          "tree_id": "98030aef571978f0d060e13a8a7e85d40b65dc34",
-          "url": "https://github.com/kaappi/kaappi/commit/64901a5f3e04c491e4b8da6cb60f45d34d125d8e"
-        },
-        "date": 1784485061892,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.506789,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.313928,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.689149,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.43308,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006479,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046159,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.390529,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058133,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.095815,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.517289,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.366927,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.425337,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.52515,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.892488,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03769,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044865,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a251304138e761f239a50b1a28eb78bc1253d28e",
+          "message": "Resolve library globals identically in all three global-ref opcodes (#1843)\n\nA library body's reference to a global that lives in vm.globals but not\nin its own lib_env resolved in tail position only. The compiler picks a\nglobal-reference opcode purely by syntactic position -- get_global plus\na plain tail_call for a tail call's operator, the call_global\nsuperinstruction for every other call -- but only get_global carried the\nvm.globals fallback library code has needed since 455f5cc2. So a library\nimporting just (scheme base) could call `(cadar x)` as its body's last\nform and got \"undefined variable 'cadar'\" for the identical call one\nsyntactic position over, which surfaced as a bare \"invalid syntax\" when\nthe caller ran at macro-expansion time.\n\nRoute get_global, call_global, and tail_call_global through one\nlookupGlobalLocked helper that takes the Function rather than a\npre-picked env, so all three see the same chain: the function's own\nenvironment, then vm.globals when it runs in a library (or eval)\nenvironment and is not restricted, then both again with any hygienic\nrename prefix stripped. The restricted_globals gate keeps a restricted\n(environment ...) as tight for a non-tail call as #1253 already made it\nfor a tail call.\n\nThis is also the \"unrooted-out compiler quirk\" documented for the SRFI\n237 primitives: a %-prefixed internal primitive is a vm.globals-only\nname, so it looked ambient in some positions and not others. Restore the\nidiomatic `cadar` in lib/srfi/150.sld's field-alist-ref and correct both\nCLAUDE.md notes -- `cadar` was never special, it was just the one\n(scheme cxr) name that file calls from a library-body helper.\n\nFixes #1831\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:30:55+05:30",
+          "tree_id": "49f81e6a27feda3e726b94051192461098ae1e07",
+          "url": "https://github.com/kaappi/kaappi/commit/a251304138e761f239a50b1a28eb78bc1253d28e"
+        },
+        "date": 1785329278888,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.207275,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.784655,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.444489,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.290458,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004574,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035444,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.234637,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.046186,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.202524,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.927404,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.178374,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.25413,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.37079,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.771885,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035485,
             "unit": "seconds"
           }
         ]
