@@ -11,13 +11,24 @@
 ;;; NOT a port of the reference implementation, and not this codebase's
 ;;; second implementation attempt either -- see issue #1810's own
 ;;; investigation notes for the two prior attempts and the general kaappi
-;;; engine bugs they surfaced (kaappi#1828, kaappi#1829): every design
-;;; built on a macro that answers a hygienic-metadata QUERY from a later,
-;;; separate define-record-type expansion (the reference's own SRFI 137
-;;; `make-subtype` closures; this codebase's first rewrite, a `:secret`
-;;; descriptor macro over SRFI 237) breaks once more than one such query
-;;; relationship exists side by side in the same program -- confirmed with
-;;; a minimal, record-free `em-syntax-rules` repro in kaappi#1829.
+;;; engine bugs they surfaced (kaappi#1828, still open; kaappi#1829, since
+;;; fixed): every design built on a macro that answers a hygienic-metadata
+;;; QUERY from a later, separate define-record-type expansion (the
+;;; reference's own SRFI 137 `make-subtype` closures; this codebase's first
+;;; rewrite, a `:secret` descriptor macro over SRFI 237) breaks once more
+;;; than one such query relationship exists side by side in the same
+;;; program.
+;;;
+;;; kaappi#1829's own minimal, record-free `em-syntax-rules` repro no
+;;; longer fails: it was not an expander bug at all but the referential-
+;;; transparency collision of kaappi#1832, reached because the CK machine
+;;; emits its output as plain data, so a macro-generated top-level define
+;;; lands under its BARE name and the next expansion's reference to it is
+;;; a free reference to an already-bound global. kaappi#1839's hygiene
+;;; rename closed it (see tests/scheme/hygiene/
+;;; macro-fresh-global-readback-1829.scm). kaappi#1828 is untouched by
+;;; that fix and on its own still rules the query-macro approach out, so
+;;; nothing below changes.
 ;;;
 ;;; This THIRD implementation avoids the whole pattern: it never threads
 ;;; anything across separate define-record-type expansions via a macro
@@ -43,11 +54,11 @@
 ;;;     parent's via `lookup`. SRFI 213's property table is a plain,
 ;;;     direct VM-level key-value store (`vm.syntax_properties`), entirely
 ;;;     bypassing the expander's own macro-to-macro call/argument-
-;;;     threading machinery that kaappi#1828/kaappi#1829 are bugs in --
-;;;     confirmed safe for repeated, independent inheritance chains during
-;;;     this SRFI's own investigation (a record-free prototype using this
-;;;     exact mechanism, mirroring kaappi#1829's own failing shape,
-;;;     produces correct results).
+;;;     threading machinery that kaappi#1828 is a bug in -- confirmed safe
+;;;     for repeated, independent inheritance chains during this SRFI's own
+;;;     investigation (a record-free prototype using this exact mechanism,
+;;;     mirroring kaappi#1829's own failing shape, produces correct
+;;;     results).
 ;;;
 ;;;   - `lookup` is only reachable from a procedural transformer (SRFI
 ;;;     211's `capture-lookup` convention; `em-syntax-rules`/plain

@@ -518,9 +518,18 @@ SRFI 237 — both used the same general shape (a child type's expansion
 queries a parent macro's own protocol for its record-type-descriptor via
 a nested macro call) and both broke once more than one such query
 relationship existed side by side in the same program, isolated to two
-distinct `em-syntax-rules` engine bugs along the way (kaappi#1828,
-kaappi#1829). The third, shipped design avoids the whole pattern: the
-type name is bound directly to an ordinary runtime record-type-
+distinct `em-syntax-rules` engine bugs along the way (kaappi#1828, still
+open; kaappi#1829, since fixed). kaappi#1829 turned out not to be an
+expander bug of its own at all: because the CK machine builds its output
+as plain data, a macro-generated top-level `define` lands under its BARE
+name, so the next expansion's own reference to it was a free reference to
+an already-bound non-procedure global — exactly the referential-
+transparency collision of kaappi#1832, which kaappi#1839's hygiene rename
+closed for both;
+`tests/scheme/hygiene/macro-fresh-global-readback-1829.scm` guards that
+shape directly. The third, shipped design avoids the whole pattern
+regardless (kaappi#1828 alone still rules the query-macro approach out):
+the type name is bound directly to an ordinary runtime record-type-
 descriptor exactly as in SRFI 131 (inheritance and field/accessor/
 mutator resolution, including multi-level shadowing, handled entirely at
 run time by SRFI 237's own by-name introspection), and the one piece
