@@ -60,6 +60,29 @@
 ;;         #t regardless of actual set equality. The reference's own
 ;;         test.sld has zero test cases for em-set=, unlike every sibling
 ;;         set operation -- presumably why this was never caught.
+;;
+;; A gotcha worth documenting explicitly (issue #1828, closed as not-a-bug):
+;; a rule's FINAL (non-`=>`) template, if left unquoted, is not free-form
+;; output -- the spec is explicit that "If the top-level template is an
+;; unquoted template <template>, the macro use is expanded as if it was a
+;; syntax-rules macro. It is an error if the expanded output is not an
+;; eager macro use (or a self-quoting syntax element)." Writing an unquoted
+;; final template that calls an ordinary procedure (e.g. `(display
+;; (list a b c))`, calling `display`, which is not an eager macro) is
+;; exactly that documented error case: `em-syntax-rules-aux2`'s generated
+;; `ck` dispatch (below) unconditionally treats an unquoted template's head
+;; as an eager-macro operator needing the `:prepare`/`:call` protocol, so a
+;; non-eager operator surfaces as a confusing `undefined variable
+;; ':prepare'` instead of a clear diagnostic -- easy to misread as a bug in
+;; chained `=>` step handling (issue #1828's own framing: "a variable bound
+;; by one => step can't be used as the operator of a later chained =>
+;; step"), especially since the failure looks identical whether or not any
+;; `=>` chaining is involved at all. Quoting the final template (or
+;; ensuring an unquoted one reduces to another eager macro use or a bare
+;; self-quoting atom) is the fix -- verified working, including a bound
+;; variable used as the OPERATOR of a later chained step, at both 2 and 3
+;; levels of nesting: see
+;; tests/scheme/hygiene/em-syntax-rules-operator-chain-1828.scm.
 (define-library (srfi 148)
   (export em-syntax-rules
 

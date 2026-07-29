@@ -10,14 +10,14 @@
 ;;;
 ;;; NOT a port of the reference implementation, and not this codebase's
 ;;; second implementation attempt either -- see issue #1810's own
-;;; investigation notes for the two prior attempts and the general kaappi
-;;; engine bugs they surfaced (kaappi#1828, still open; kaappi#1829, since
-;;; fixed): every design built on a macro that answers a hygienic-metadata
-;;; QUERY from a later, separate define-record-type expansion (the
-;;; reference's own SRFI 137 `make-subtype` closures; this codebase's first
-;;; rewrite, a `:secret` descriptor macro over SRFI 237) breaks once more
-;;; than one such query relationship exists side by side in the same
-;;; program.
+;;; investigation notes for the two prior attempts and two apparent kaappi
+;;; engine bugs they surfaced along the way (kaappi#1828 and kaappi#1829 --
+;;; both since determined NOT to be engine bugs, see below): every design
+;;; built on a macro that answers a hygienic-metadata QUERY from a later,
+;;; separate define-record-type expansion (the reference's own SRFI 137
+;;; `make-subtype` closures; this codebase's first rewrite, a `:secret`
+;;; descriptor macro over SRFI 237) broke once more than one such query
+;;; relationship existed side by side in the same program.
 ;;;
 ;;; kaappi#1829's own minimal, record-free `em-syntax-rules` repro no
 ;;; longer fails: it was not an expander bug at all but the referential-
@@ -26,9 +26,19 @@
 ;;; lands under its BARE name and the next expansion's reference to it is
 ;;; a free reference to an already-bound global. kaappi#1839's hygiene
 ;;; rename closed it (see tests/scheme/hygiene/
-;;; macro-fresh-global-readback-1829.scm). kaappi#1828 is untouched by
-;;; that fix and on its own still rules the query-macro approach out, so
-;;; nothing below changes.
+;;; macro-fresh-global-readback-1829.scm).
+;;;
+;;; kaappi#1828 also turned out not to be an engine bug: its own repro's
+;;; final (non-`=>`) template was unquoted and called an ordinary
+;;; procedure, which SRFI 148's own spec documents as an error case
+;;; (unrelated to the reported "bound variable as a later step's operator"
+;;; framing -- see lib/srfi/148.sld's header and
+;;; tests/scheme/hygiene/em-syntax-rules-operator-chain-1828.scm, which
+;;; confirms the operator-position mechanism itself works correctly,
+;;; including at 3 levels of chaining). Whether the two rejected
+;;; implementation attempts above would have succeeded had they not tripped
+;;; over this same misunderstanding is not re-tested here -- this file's
+;;; own (third) design is unaffected either way, so nothing below changes.
 ;;;
 ;;; This THIRD implementation avoids the whole pattern: it never threads
 ;;; anything across separate define-record-type expansions via a macro
@@ -54,8 +64,9 @@
 ;;;     parent's via `lookup`. SRFI 213's property table is a plain,
 ;;;     direct VM-level key-value store (`vm.syntax_properties`), entirely
 ;;;     bypassing the expander's own macro-to-macro call/argument-
-;;;     threading machinery that kaappi#1828 is a bug in -- confirmed safe
-;;;     for repeated, independent inheritance chains during this SRFI's own
+;;;     threading machinery that kaappi#1828 was originally suspected of
+;;;     being a bug in (see above) -- confirmed safe for repeated,
+;;;     independent inheritance chains during this SRFI's own
 ;;;     investigation (a record-free prototype using this exact mechanism,
 ;;;     mirroring kaappi#1829's own failing shape, produces correct
 ;;;     results).
