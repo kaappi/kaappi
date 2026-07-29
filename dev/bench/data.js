@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785329280306,
+  "lastUpdate": 1785332438839,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "03322f2da8a8728aad75717c940253d83fb10478",
-          "message": "Implement SRFI 259 and SRFI 229 (tagged procedures) (#1673)\n\nSRFI 259 (Tagged procedures with type safety) is built on SRFI 229\n(Tagged Procedures); neither was implemented. Both land as portable\n.sld libraries loaded on demand.\n\n- (srfi 229): the portable R7RS reference implementation (Marc\n  Nieper-Wisskirchen), reproduced verbatim under its MIT terms.\n  Documented caveat of that portable design: every tagged procedure is\n  retained in a global list for identity tracking, so tagged procedures\n  are never garbage-collected. A native, leak-free implementation (a tag\n  slot on the closure object) is a possible follow-up.\n- (srfi 259): a portable layer over (srfi 229). The single SRFI 229 tag\n  carried by a procedure is an opaque, unexported <tag-set> record\n  mapping each protocol's private, unforgeable key to its tag value, so\n  no code can forge a tag or read another protocol's tag -- the \"type\n  safety\" of the title. define-procedure-tag binds a\n  constructor/predicate/accessor triple; re-tagging preserves other\n  protocols' tags and replaces the same protocol's tag. The <tag-set>\n  also records the original underlying procedure so re-tagging re-wraps\n  it directly instead of nesting wrappers.\n\nThe SRFI 259 repository ships only a Chez-specific sample using native\nmake-wrapper-procedure; this provides the equivalent behavior on the\nportable SRFI 229 primitives instead.\n\nThe srfi-229 / srfi-259 cond-expand feature ids and (library (srfi N))\nprobes derive automatically (#1649); (features) stays platform-only\n(#1517). The build-time lib/srfi scan now reports 70 portable SRFIs.\n\nAdds a 39-assertion SRFI-64 suite (tests/scheme/srfi/srfi259.scm)\ncovering both SRFIs: tag round-trip, closure capture, case-lambda/tag,\npredicate isolation across protocols, accessor error paths, tag\npreservation and replacement, and call-through. Updates SRFI\ncounts/lists in CLAUDE.md, README.md, CONFORMANCE.md, and the\nunderstanding map (78->80 total, 68->70 portable).\n\nCloses #1667.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T23:09:31+05:30",
-          "tree_id": "a4db7499998e0fcedbf37fe81ab08ba3b00be71c",
-          "url": "https://github.com/kaappi/kaappi/commit/03322f2da8a8728aad75717c940253d83fb10478"
-        },
-        "date": 1784486121158,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329313,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.827663,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.899027,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.60188,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006322,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053037,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.498403,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06852,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.417081,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.953701,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.565182,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435892,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.829161,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.733164,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045311,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035485,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f0e04165903f96704c1ea8a9ede4085d4dfb2a3",
+          "message": "Use list? instead of pair? for user-supplementary-gids audit test (#1845)\n\nSRFI 170 only promises user-supplementary-gids returns a list, not a\nnon-empty one. pair? fails for any process with no supplementary\ngroups, such as root in a minimal container image. The two other\ntests of this primitive (src/tests_filesystem.zig, coverage/\nfilesystem-coverage.scm) already use list?; this brings the audit\ntest in line with them.\n\nFixes #1844\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T12:52:04Z",
+          "tree_id": "44ceb0e5a1e83dd91dd133b93297aa0b7c810e5a",
+          "url": "https://github.com/kaappi/kaappi/commit/4f0e04165903f96704c1ea8a9ede4085d4dfb2a3"
+        },
+        "date": 1785332436286,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.262318,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.344864,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.585604,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.017051,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004642,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045906,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313121,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057236,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.731045,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224679,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.575115,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282595,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.778713,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.714679,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046558,
             "unit": "seconds"
           }
         ]
