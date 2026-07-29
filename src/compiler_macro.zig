@@ -12,6 +12,29 @@ const Value = types.Value;
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
+/// #1846: a procedural macro transformer (SRFI 211 er-macro-transformer /
+/// lisp-transformer) raised, returned a non-datum, or could not run.
+/// globals_mod.error_detail_for_macro carries the real Scheme-level condition
+/// when there is one (populated by vm.callProcForMacro for a raised exception,
+/// or directly by a failing primitive's own type-error call) -- copy it into
+/// the same syntax_error_detail channel `syntax-error` already reports
+/// through, so the top-level reporter and `kaappi check` show the real
+/// message instead of a bare "invalid syntax". Left empty (InvalidSyntax's
+/// generic message applies, exactly as before) when there is no VM-side
+/// detail -- e.g. no VM registered, or a transformer that returned a bare
+/// procedure with nothing left to SRFI 213 capture-lookup.
+fn recordTransformerFailure() CompileError {
+    if (globals_mod.error_detail_for_macro) |getter| {
+        const detail = getter();
+        if (detail.len > 0) {
+            const n = @min(detail.len, compiler_mod.syntax_error_detail.len);
+            @memcpy(compiler_mod.syntax_error_detail[0..n], detail[0..n]);
+            compiler_mod.syntax_error_detail_len = n;
+        }
+    }
+    return CompileError.InvalidSyntax;
+}
+
 /// 128 levels is safe because the expander shares pattern-variable subtrees
 /// (a == b short-circuits at the shared node), so only the short template
 /// spine is actually traversed.
@@ -370,7 +393,8 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable, error.TransformerFailed => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable => CompileError.InvalidSyntax,
+                error.TransformerFailed => recordTransformerFailure(),
             };
         };
         // Root for the rest of the enclosing compile scope via extra_roots
@@ -1113,7 +1137,8 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             return switch (err) {
                 error.OutOfMemory => CompileError.OutOfMemory,
                 error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable, error.TransformerFailed => CompileError.InvalidSyntax,
+                error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch, error.EllipsisNoPatternVariable => CompileError.InvalidSyntax,
+                error.TransformerFailed => recordTransformerFailure(),
             };
         };
         self.gc.no_collect -= 1;

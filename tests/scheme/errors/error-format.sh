@@ -97,6 +97,32 @@ assert_output_contains "caught syntax-error does not leak into next compile erro
     '(import (scheme base)) (guard (e (#t #t)) (eval (quote (syntax-error "STALE" 999)) (environment (quote (scheme base))))) (if)' \
     'compile error'
 
+# --- Procedural macro transformer failures (SRFI 211, #1846) ---
+# A condition an er-macro-transformer/lisp-transformer raises used to be
+# computed, stored on the VM, and discarded -- the user only ever saw a bare
+# "invalid syntax". #1831 was a one-line resolution bug whose real message
+# was "undefined variable 'cadar'"; none of that reached the user, so it was
+# filed and chased as a cadar-specific bug for days. This must now match
+# syntax-error's own KP2002 path exactly.
+echo
+echo "-- Procedural macro transformer diagnostics (#1846) --"
+
+assert_output_contains "er-macro-transformer's raised condition reaches the user" \
+    '(import (srfi 211 explicit-renaming)) (define-syntax boom (er-macro-transformer (lambda (f r c) (error "field not found" (quote alpha) 42)))) (boom)' \
+    'syntax-error[KP2002]: field not found alpha 42'
+
+assert_output_contains "lisp-transformer's raised condition reaches the user" \
+    '(import (srfi 211 define-macro)) (define-syntax boom (lisp-transformer (lambda (f) (error "lisp boom" 7)))) (boom)' \
+    'syntax-error[KP2002]: lisp boom 7'
+
+assert_output_contains "a failing primitive inside a transformer names itself, not just 'invalid syntax'" \
+    '(import (srfi 211 explicit-renaming)) (define-syntax boom2 (er-macro-transformer (lambda (f r c) (car 7)))) (boom2)' \
+    "syntax-error[KP2002]: type error in 'car': expected pair, got 7"
+
+assert_output_contains "ordinary syntax-rules rejection keeps the generic message (scope note)" \
+    '(define-syntax only-one-arg (syntax-rules () ((_ x) x))) (only-one-arg 1 2 3)' \
+    'compile error[KP2001]: invalid syntax'
+
 # --- syntax-rules ellipsis with no driving pattern variable (#1791) ---
 # R7RS 4.3.2: a template subform followed by `...` whose element has no
 # pattern variable bound at that ellipsis depth is an error, not zero
