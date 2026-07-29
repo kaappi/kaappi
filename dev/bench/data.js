@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785336097536,
+  "lastUpdate": 1785347568322,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2e6a9f78575611414bf84139c6cb425ef5d1f2e",
-          "message": "Implement SRFI 258 (uninterned symbols) (#1675)\n\nAdd string->uninterned-symbol, symbol-interned?, and\ngenerate-uninterned-symbol as the built-in (srfi 258) library. An\nuninterned symbol is a symbol never eqv? to any other, even one built\nfrom the same name — useful for macro programming and guaranteed-unique\nidentifiers.\n\nSymbols already compare by object identity, so equality needed no new\ncode: two uninterned symbols from equal strings, and an uninterned\nsymbol versus its like-named interned twin, are all distinct for free.\nThe only new state is a Symbol.interned flag. allocUninternedSymbol\nbypasses the interning table, so an uninterned symbol is an ordinary\ncollectable object (swept once unreachable) rather than a permanent\nroot; deep copy preserves uninterned-ness across SRFI-18 thread\nboundaries. Per the SRFI, an uninterned symbol has no readable external\nrepresentation: write emits an unreadable #<uninterned-symbol name> form\nand read rejects it, deliberately breaking write/read invariance.\n\nThe gensym counter for generate-uninterned-symbol is a 32-bit atomic\n(wasm32 has no 64-bit atomics); wrap-around is harmless since identity\nis guaranteed by allocation, not the name.\n\nThe library registers through the Lib enum, so kaappi features, the\nsrfi-258 cond-expand id, and (import (srfi 258)) plus the SRFI 261\nfallbacks all derive automatically. Now 83 SRFIs (11 built-in).\n\nCloses #1670.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T02:48:16+05:30",
-          "tree_id": "71755bde84bfa0201258ac8960cac901d14db33c",
-          "url": "https://github.com/kaappi/kaappi/commit/b2e6a9f78575611414bf84139c6cb425ef5d1f2e"
-        },
-        "date": 1784498112064,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.067213,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.298857,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.039554,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.965326,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006717,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054774,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.563387,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07116,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.205429,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.163666,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.499286,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.476004,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.760517,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.912516,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045491,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046612,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85eb70ad47e31c833af1c2bccb200ccfd2fa2f3b",
+          "message": "Close #1828 as not-a-bug: unquoted em-syntax-rules template, not chaining (#1849)\n\nThe reported \"variable bound by one => step can't be used as the operator\nof a later chained step\" symptom is fully explained by the repro's own\nfinal template being unquoted while calling an ordinary procedure\n(display) -- SRFI 148's spec documents that as an error case (\"It is an\nerror if the expanded output is not an eager macro use or a self-quoting\nsyntax element\"). The issue's exact repro, with only the final template\nquoted, already works correctly. Adds a regression test locking in the\ncorrect (already-working) operator-position chaining at 2 and 3 levels,\nand corrects the three places that cited #1828 as a confirmed, still-open\nengine bug.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:15:08Z",
+          "tree_id": "da74a46e2f02dc2360d76d6397309619c17bf50a",
+          "url": "https://github.com/kaappi/kaappi/commit/85eb70ad47e31c833af1c2bccb200ccfd2fa2f3b"
+        },
+        "date": 1785347566928,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.046965,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.626059,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566426,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.835356,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004886,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044353,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297311,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054829,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.336662,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.173455,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.515401,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304926,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.701495,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.771019,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044671,
             "unit": "seconds"
           }
         ]
