@@ -1,12 +1,12 @@
 # R7RS Conformance
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 641 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,391 pass, 0 fail.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 690 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,395 pass, 0 fail.
 
 ---
 
 ## SRFI conformance
 
-177 SRFIs supported. 12 built-in (native Zig), 161 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+178 SRFIs supported. 12 built-in (native Zig), 162 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -108,7 +108,7 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position for free (the existing read cursor and write length). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### Portable SRFIs (164 SRFIs: 161 importable as bare `(srfi N)`, plus SRFI 160, 211, and 226 as sub-libraries only)
+### Portable SRFIs (165 SRFIs: 162 importable as bare `(srfi N)`, plus SRFI 160, 211, and 226 as sub-libraries only)
 
 Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 211 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
 
@@ -199,6 +199,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 147 | Custom macro transformers |
 | 148 | Eager syntax-rules |
 | 149 | Basic syntax-rules template extensions |
+| 150 | Hygienic ERR5RS record syntax (reduced) |
 | 151 | Bitwise operations on exact integers |
 | 152 | String library (reduced) |
 | 153 | Ordered sets |

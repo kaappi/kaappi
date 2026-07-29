@@ -121,7 +121,7 @@ Scheme tests live in `tests/scheme/`, organized by purpose:
 
 ```text
 tests/scheme/
-  r7rs/             R7RS test suite (1,391 tests via chibi test)
+  r7rs/             R7RS test suite (1,395 tests via chibi test)
     r7rs-tests.scm  Canonical suite — imports (chibi test)
   smoke/            Quick sanity checks
     basic.scm       Arithmetic, if, define, lambda, pairs
@@ -146,7 +146,7 @@ tests/scheme/
 ### Running
 
 ```bash
-# Run the full R7RS suite (1,391 tests)
+# Run the full R7RS suite (1,395 tests)
 zig build run -- tests/scheme/r7rs/r7rs-tests.scm
 
 # Run a specific test file

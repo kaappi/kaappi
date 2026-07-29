@@ -7,7 +7,208 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-30
+
 ### Added
+
+#### SRFI coverage: 85 → 178
+
+This release adds 93 SRFIs — 12 built-in and 162 portable `.sld` libraries,
+plus SRFI 261 as an import-resolver convention and SRFI 160, 211, and 226 as
+sub-libraries only. It closes four tracking issues outright: #1694 (numeric
+vectors and arrays), #1695 (records), #1699 (macro and syntax extensions),
+and #1703, along with #1702 and #1810. A new `docs/dev/srfi-exclusions.md`
+documents the other side of that work: all 30 SRFIs examined and deliberately
+excluded, each with a written rationale — reader-syntax SRFIs that would
+reinterpret already-valid syntax, macro-system SRFIs whose own spec text says
+a portable `syntax-rules` implementation isn't possible, and two superseded
+outright by their successors. Every supported SRFI is also a `cond-expand`
+feature identifier `srfi-<n>`.
+
+##### Macros and syntax extensions (issue #1699, closed)
+
+- **SRFI 147 (Custom macro transformers)** — extends R7RS's `<transformer
+  spec>` grammar so `define-syntax`/`let-syntax`/`letrec-syntax` accept a
+  macro use that itself expands to a `syntax-rules` form, a bare keyword
+  aliasing an existing one, or a `(begin <definition>... <transformer-spec>)`
+  wrapper. Lets a library define its own transformer-generating transformer.
+- **SRFI 148 (Eager syntax-rules)** — `em-syntax-rules` and ~110 `em-`
+  combinators over a CK-machine core, giving `syntax-rules` macros eager
+  evaluation of compile-time expressions. Ported from the reference
+  implementation with four confirmed upstream bugs fixed (documented with
+  evidence in `lib/srfi/148.sld`'s header); 134 of the reference suite's
+  assertions pass.
+- **SRFI 211 (Scheme macro libraries)** — the first *procedural* macro
+  transformers in Kaappi. `(srfi 211 explicit-renaming)`,
+  `(srfi 211 define-macro)`, and `(srfi 211 syntax-parameter)` ship as
+  sub-libraries; an `er-macro-transformer`'s `rename` reuses the same
+  hygiene machinery `syntax-rules` templates get. The remaining eight
+  sub-libraries need syntax objects or output-provenance tracking a
+  symbol-based expander cannot honestly provide, and are not exported.
+- **SRFI 213 (Identifier properties)** — `define-property` and `lookup`,
+  attaching compile-time properties to an identifier. Reachable only from a
+  procedural transformer, per the spec.
+- **SRFI 139 (Syntax parameters)** — `define-syntax-parameter` and
+  `syntax-parameterize`, letting a macro's referentially-transparent
+  identifier be rebound for a bounded extent (the `abort`/`return` pattern).
+- **SRFI 149 (Basic `syntax-rules` template extensions)** — consecutive
+  ellipses after one template element (`a ... ...`), and a pattern variable
+  followed by more ellipses in the template than its matched depth.
+- **SRFI 46 (Basic `syntax-rules` extensions)** — a custom ellipsis
+  identifier and a tail pattern after an ellipsis.
+- **SRFI 188 (Splicing binding constructs for syntactic keywords)** —
+  `splicing-let-syntax` and friends, whose bindings splice into the
+  surrounding body rather than opening a new scope.
+- **SRFI 241 (Match)** — R6RS-style `match` with catamorphisms.
+- **SRFI 247 (Syntactic monads)** — `define-syntactic-monad`, threading a
+  fixed set of formals through a group of procedures.
+
+##### Records (issue #1695, closed)
+
+- **SRFI 237 (R6RS records, refined for R7RS)** — the one record SRFI needing
+  real engine work: `RecordType` gained `parent`, per-level field metadata,
+  `uid`, `sealed`, and `is_opaque`, and `define-record-type` gained a parallel
+  R6RS-clause-syntax path alongside the R7RS one, dispatching on shape.
+  Inheritance and `protocol` composition work at any depth.
+- **SRFI 240 (Reconciled records)**, **SRFI 136 (Extensible record types)**,
+  **SRFI 137 (Minimal unique types)**, **SRFI 131 (ERR5RS record syntax,
+  reduced)**, and **SRFI 150 (Hygienic ERR5RS record syntax)** — all layer on
+  SRFI 237's substrate. SRFI 150 uses SRFI 213 identifier properties for
+  hygienic field-name matching and is therefore a SRFI 211
+  `er-macro-transformer`; 21 of 25 ported reference tests pass, with the
+  remaining 4 marked `test-expect-fail` against #1832's minimal repro.
+- **SRFI 57 (Records with inheritance via "schemes")** — deliberately does
+  *not* port its reference implementation's expansion-time identifier
+  comparison; field labels are ordinary quoted symbols resolved at run time.
+  Scheme conformance is nominal, not structural.
+
+##### Homogeneous numeric vectors and arrays (issue #1694, closed)
+
+- **SRFI 160 (Homogeneous numeric vector libraries)** — one new heap type,
+  `NumericVector`, discriminated by an 11-way element-kind enum (s8/u16/s16/
+  u32/s32/u64/s64/f32/f64/c64/c128); u8 stays a plain bytevector per the
+  SRFI's own recommendation. Six generic primitives are the entire native
+  surface; every named procedure across `(srfi 160 base)` and the 12
+  per-type libraries is portable Scheme. Complex elements are stored as two
+  consecutive floats and decoded only at the ref/set! boundary.
+- **SRFI 66 (Octet vectors)** and **SRFI 74 (Octet-addressed binary
+  blocks)** — u8vector/bytevector aliases. `(endianness native)` needed one
+  new primitive, `%host-big-endian?`, since a portable implementation has no
+  other way to learn real hardware byte order — which matters on Kaappi's own
+  s390x and ppc64le targets.
+- **SRFI 25 (Multi-dimensional array primitives)** — pure portable Scheme;
+  arrays are spec-defined as heterogeneous, so a record wrapping a vector is
+  sufficient. `share-array`'s affine views delegate recursively into the base
+  array's own ref/set!, so nested views compose for both reads and writes.
+- **SRFI 164 (Enhanced multi-dimensional arrays)** — a compatible extension
+  of SRFI 25 adding a third "virtual" mode (a getter/setter pair with no
+  backing storage) behind `build-array`, `index-array`, and APL-style
+  generalized indexing.
+- **SRFI 63 (Homogeneous and heterogeneous arrays)** — confirmed incompatible
+  with 25/164 by both specs' own Issues sections (`array-set!`'s value
+  argument is second here, not last; `make-array` takes a prototype, not a
+  shape). 12 of its 20 prototype kinds reuse the shipped `(srfi 160 <tag>)`
+  procedure sets as backing store, inheriting every conversion error for
+  free. Supersedes SRFI 47, which is excluded on that basis.
+- **SRFI 231 (Intervals and generalized arrays)** — the largest single SRFI
+  in this codebase by an order of magnitude: 118 bindings shipped across six
+  phases, merged into a public `lib/srfi/231.sld` re-export hub. A genuinely
+  three-tier model (`array?` ⊃ `mutable-array?` ⊃ `specialized-array?`) with
+  17 storage classes and no textual relationship to 25/164/63. Supersedes
+  SRFI 179, which is excluded as a breaking revision rather than a superset.
+
+##### Ports, I/O, and data interchange
+
+- **SRFI 181 (Custom ports, including transcoded ports)** — five
+  `make-custom-*-port` constructors plus `make-transcoder`,
+  `native-transcoder`, codecs, eol-styles, and the `raise` error-handling
+  mode. A custom port's callbacks are the first Value-bearing fields `Port`
+  has ever had. Callbacks must be effectively synchronous: one that tries to
+  block is rejected with a catchable error rather than risking a native stack
+  overflow. v1 supports the UTF-8 codec only.
+- **SRFI 192 (Port positioning)** — built-in. `port-position`,
+  `set-port-position!`, and the two capability predicates, using plain exact
+  integer byte offsets for every port kind, with the OS offset corrected for
+  whatever the port's own software buffers have read ahead or not yet
+  flushed. Needed a new `platform.seek` (POSIX `lseek`, Windows `_lseeki64`,
+  WASI `fd_seek`).
+- **SRFI 180 (JSON)**, **SRFI 207 (String-notated bytevectors)**, and
+  **SRFI 238 (Codesets)**.
+
+##### Collections and data structures
+
+SRFI 44 (Collections), 90 (Extensible hash table constructor), 101 (Purely
+functional random-access pairs and lists), 123 (Generic accessor and modifier
+operators), 126 (R6RS-based hashtables), 153 (Ordered sets), 161 (Unifiable
+boxes), 167 (Ordered key-value store), 168 (Generic tuple store database),
+173 (Hooks), 178 (Bitvector library), 209 (Enums and enum sets),
+214 (Flexvectors), 217 (Integer sets), 224 (Integer mappings),
+225 (Dictionaries), and 234 (Topological sorting).
+
+##### Binding, control, and definitions
+
+SRFI 5 (A compatible `let` with signatures and rest arguments),
+7 (Feature-based program configuration), 51 (Handling rest lists),
+71 (Extended `let` for multiple values), 86 (`mu` and `nu` simulating
+`values`), 156 (Syntactic combiners for binary predicates), 165 (The
+environment monad), 190 (Coroutine generators), 201 (Syntactic extensions to
+the core bindings), 202 (Pattern-matching variant of `and-let*`),
+203 (A simple picture language in the style of SICP), 216 (SICP
+prerequisites), 221 (Generator/accumulator sub-library), 236 (Evaluating
+expressions in an unspecified order), 239 (Destructuring lists),
+242 (The CFG language), 244 (Multiple-value definitions), 251 (Mixing groups
+of definitions with expressions within bodies), and 255 (Restarting
+conditions).
+
+**SRFI 226 (Control features)** ships as three sub-libraries only —
+`(srfi 226 control prompts)`, `(srfi 226 control continuations)`, and
+`(srfi 226 control times)` — a reduced, escape-only continuation-prompt
+subset. The spec has no default library of its own, so there is no bare
+`(srfi 226)`; `lib/srfi/226/control/prompts.sld`'s header documents what is
+out of scope and why.
+
+##### Strings, text, characters, and formatting
+
+SRFI 29 (Localization), 30 (Nested multi-line comments), 54 (Formatting),
+62 (S-expression comments), 118 (Simple adjustable-size strings),
+129 (Titlecase), 135 (Immutable texts), 140 (Immutable strings),
+169 (Underscores in numbers), 185 (Linear adjustable-length strings), and
+270 (Hexadecimal floating-point constants).
+
+##### Numerics, comparators, and checking
+
+SRFI 67 (Compare procedures), 70 (Numbers), 94 (Type-restricted numerical
+functions), 95 (Sorting and merging), 162 (Comparators sublibrary),
+223 (Bisecting search), 228 (Composing comparators), 252 (Property testing),
+and 253 (Data type-checking).
+
+##### System, environment, and transducers
+
+SRFI 59 (Vicinity), 112 (Environment inquiry), 120 (Timer APIs),
+171 (Transducers, with `(srfi 171 meta)`), 193 (Command line), 194 (Random
+data generators), and 215 (Central log exchange).
+
+SRFI 120's timers are portable Scheme with no engine changes: each
+`make-timer` spawns one dedicated SRFI-18 thread owning its task list in its
+own heap, coordinated purely through a `(kaappi fibers)` control channel
+captured in the thread's own thunk. **Calling a timer's procedures from more
+than one thread is a hard requirement violation**, not a style guideline —
+doing so reproduced nondeterministic memory corruption that points at a real
+bug in multi-hop channel messages interacting with cross-thread deep copy,
+not root-caused and out of scope for a portable-library change.
+
+#### Tooling and developer experience
+
+- **`/create-announcement` skill** — drafts and posts a release announcement
+  to the org Announcements forum from a release tag.
+- **Markdown linting in CI** — a `format` job now runs markdownlint over the
+  tree, so structural drift in Markdown is caught the way `zig fmt` already
+  catches Zig drift (#1837).
+- **`docs/dev/performance.md`** — a slowdown-investigation runbook, plus
+  `docs/dev/srfi-exclusions.md` documenting all 30 excluded SRFIs with
+  rationale, and a `docs/dev/CLAUDE.md` for the dev-docs directory.
+- **Fuzzing beyond x86_64** — the fuzz matrix now covers ARM64 and
+  big-endian targets.
 
 #### SRFI 115 (regular expressions)
 
@@ -41,6 +242,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and had silently drifted behind it by three hardening commits, making it a
   trap for anyone who "fixed the installer" by editing it. `docs/dev/porting.md`
   and `docs/dev/netbsd.md` now point at the real location.
+
+- **`(srfi 4)`'s `f32vector` now truncates to 32-bit precision.** It is a thin
+  re-export over `(srfi 160 <tag>)` for the eight non-complex names, fixing a
+  real bug the old wrapped-vector implementation had: an `f32vector` stored
+  full f64 values, so a stored single-precision number read back at a
+  precision no `f32vector` should carry.
+
+- **Linux release binaries are now built against glibc (2.28 floor).** Zig
+  resolves the bare `x86_64-linux`/`aarch64-linux` targets to static musl, and
+  static musl cannot `dlopen` — so every released Linux binary rejected
+  `(kaappi ffi)` with "Dynamic loading not supported", making the entire C
+  extension ecosystem (net, http, sqlite, pg, redis, crypto) unusable from a
+  release install. Artifact names are unchanged, so `install.sh` keeps
+  matching. Interpreter-tier arches are unaffected (#1783).
+
+- **`define-values` now supports `letrec*`-style mutual reference.** R7RS
+  draws no distinction between `define` and `define-values` for a body's
+  `letrec*` scoping (5.3.2/5.3.3), but a `define-values` clause could not
+  reference a name bound by a later clause in the same body — the reference
+  silently compiled as a global lookup and surfaced as a runtime "undefined
+  variable" once the enclosing procedure was called (#1719).
+
+#### Performance
+
+- **The ReleaseSafe allocator's `0xAA` fill no longer runs on hot,
+  size-proportional buffers.** Zig 0.16's `Allocator.alloc`/`.free`/`.dupe`
+  unconditionally `memset(…, 0xAA)` new and freed memory in ReleaseSafe,
+  inside their own generic bodies rather than the vtable functions they call
+  — so it is unavoidable via a backing-allocator swap or a call-site
+  `@setRuntimeSafety(false)` (confirmed by disassembly). Every GC object's
+  variable-length payload (vector, string, and bytevector data, closure
+  upvalues, record fields) now goes through new no-fill helpers that call
+  `rawAlloc`/`rawFree` directly. Continuation-heavy workloads improve by
+  ~60% (#1809).
+
+- **Importing SRFI 148 dropped from ~87s to ~0.07s.** Two independent causes:
+  the expander's 1 MB buffers were declared `= undefined` and so were
+  `0xAA`-filled on *every* expansion under ReleaseSafe, and the `set!`
+  pre-scan speculatively ran the CK machine inside every transformer spec.
+  The pre-scan is now bounded, and the buffers skip the fill (#1775, #1802).
+
+- **The global inline cache could never hit — not once.** `call_global` and
+  `tail_call_global` populated a `Function`'s global inline cache but never
+  assigned `cache_version`, leaving it at its default of 0, while
+  `global_version` is bumped past 0 before any user code runs. The fast-path
+  guard was therefore false forever and every call to a global fell through
+  to a full hash-map lookup. `get_global` already self-healed; the two call
+  opcodes now apply the same pattern (#1817).
+
+- **`apply` is lowered natively in the LLVM backend.** It becomes an
+  argument-splicing `@kaappi_apply` runtime call, so an enclosing function
+  keeps its native compilation instead of declining it wholesale (#1803).
+
+#### Internal
+
+- **`src/types.zig` split into 11 domain files.** It had grown to 1871 lines,
+  one heap-type addition at a time across 105 commits — well past the
+  1500-line policy. Struct and enum definitions now live in `types_ffi.zig`,
+  `types_port.zig`, `types_continuation.zig`, and eight more, with
+  `types.zig` re-exporting every name so the dozens of existing `types.Foo`
+  call sites need no changes. `types.zig` drops to ~1200 lines (#1731).
 
 ### Fixed
 
@@ -248,6 +510,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   vectors in both cycle-detection passes, so a cyclic web of records prints
   with the same `#N=`/`#N#` datum-label markers instead of looping forever
   (#1713).
+
+#### Macro expander and hygiene
+
+- **A library body's reference to a global resolved in tail position only.**
+  The compiler picks a global-reference opcode purely by syntactic position —
+  `get_global` plus a plain `tail_call` for a tail call's operator, the
+  `call_global` superinstruction for every other call — but only `get_global`
+  carried the `vm.globals` fallback that library code has needed since the
+  fallback was introduced. A library importing just `(scheme base)` could call
+  `(cadar x)` as its body's last form yet get "undefined variable 'cadar'" for
+  the identical call one syntactic position over, surfacing as a bare "invalid
+  syntax" when the caller ran at macro-expansion time. All three opcodes now
+  resolve through one helper (#1831).
+
+- **A macro's free reference to a name its own defining library binds resolved
+  against the *use site's* globals.** A procedure reference was left completely
+  unrenamed, and a non-procedure reference was protected only against lexical
+  shadowing at the use site, not against a genuine top-level redefinition —
+  so an unrelated `(define helper2 …)` in the importing file could silently
+  corrupt an already-imported macro's expansion. Such references now resolve
+  through their own library (#1812).
+
+- **A template-introduced identifier inside `quote` was stripped of its
+  hygiene rename immediately**, before any per-expansion distinguishing
+  information could be recorded, so two separate expansions of `'g` were
+  structurally identical *as syntax*, not just as data. This broke any
+  `bound-identifier=?`-style trick built from further expansion, including
+  SRFI 148's `em-gensym`, which relies on hygiene alone for uniqueness. Quoted
+  identifiers are now renamed like any other and the rename is stripped back
+  off where the compiler turns a quoted datum into a literal value (#1801).
+
+- **A macro use expanding to a bare `(define x v)` in body position raised
+  "undefined variable" for later references to `x`.** The post-expansion
+  cleanup popped every compiler local added while compiling the expansion, on
+  the assumption that all of it was transient hygienic-alias bookkeeping — but
+  a definition's local is real and sibling-visible, and must survive the call
+  returning. Fixes six SRFI 148 assertions and one SRFI 251 test previously
+  quarantined behind `test-expect-fail` (#1800).
+
+- **`let`/`if` literals in a macro-generated nested `syntax-rules` never
+  matched.** Both are deliberately excluded from the well-known-forms set so a
+  macro's own executable use of them stays hygienic under use-site shadowing,
+  but that exclusion also meant a *nested* `syntax-rules`'s `let`/`if` literal
+  got hygiene-renamed by the generating macro. The literal fallback stripped a
+  rename off the input side only, never the literal side, so a renamed literal
+  could never match a real token typed at the generated macro's use site.
+  Both sides are now stripped before comparing (#1720).
+
+- **A sibling ellipsis variable from an independent pattern group was
+  re-collected wholesale.** A template like `(list (list formal (list binding
+  ...)) ...)` drawing `formal` and `binding` from independent groups failed
+  with an ellipsis count mismatch when the groups had different lengths, and
+  silently consumed `binding` per-iteration instead of replicating it when
+  they matched — because the driver scan recursed into inner `(x ...)`
+  sub-templates and wrongly treated inner-only bindings as driving the outer
+  repeat count. Repeat-count determination is now two-pass (#1721).
+
+- **A custom ellipsis identifier was unrecognized outside `quote`.** A nested
+  `syntax-rules` template's ordinary position can receive a custom ellipsis
+  substituted from an outer pattern variable, wrapped by the usertext-marking
+  protocol; neither of the two ellipsis-detection sites unwrapped it, so the
+  element was emitted literally instead of splicing its repetitions (#1776,
+  #1779). Two further spine walks that missed the same unwrap were fixed
+  separately (#1787, #1788).
+
+- **Head-position macro chains recursed instead of iterating**, hitting a
+  native stack overflow at a depth the CK machine of SRFI 148 reaches
+  routinely. The chain is now driven by a trampoline (#1796).
+
+- **A `define-syntax` inside a literal `begin` was invisible to later
+  siblings.** A literal `begin` outside real top level lowered every child
+  eagerly, but a `define-syntax`'s registration into the macro table is a side
+  effect of *compiling* its node, not lowering it — so a later sibling's macro
+  use compiled as a plain call to an unbound global. Lowering now reserves the
+  name the moment the form is reached (#1772).
+
+- **A `syntax-rules` template ellipsis with no driving pattern variable** now
+  raises rather than silently expanding to zero copies — see above (#1791).
+
+#### Native (LLVM) backend
+
+- **`let` and lambda bodies re-lowered without a macro table, silently
+  miscompiling any macro use inside them.** A `let` body's macro use was
+  unconditionally broken; a lambda body's was usually saved by accident
+  (free-variable analysis rejects an unrecognized name) *unless* the macro
+  shadowed an existing global, in which case it silently called the real
+  primitive instead. Native lowering is now gated on macro use (#1807).
+
+- **Long-running native loops overflowed the OS thread stack.** LLVM's
+  `alloca` frees its stack space only at function return, never at "next loop
+  iteration", but the backend compiles self-tail-call loops and `do` loops as
+  backward branches within a single function — and several paths emit
+  `alloca` inside that repeatable body, so every pass added stack that was
+  never reclaimed. Reproduced with a pure-fixnum loop and a plain `do` loop,
+  confirming it was unrelated to the bignum promotion in the original
+  reproducer (#1808).
+
+- **`apply` was evaluated in the global environment**, so a compiled `apply`
+  lost its enclosing lexical scope (#1798, #1799).
+
+- **`kaappi compile` now refuses an import it cannot resolve at runtime.** The
+  compiled binary starts a fresh VM with no library search path, and the
+  native backend never bundles `.sld` sources — so any import resolved from a
+  file compiled cleanly, exited 0, and then died at runtime with "library not
+  found". It now refuses to emit, names the unresolvable libraries, and points
+  at the interpreter or `-Dbundle-src` (#1743).
+
+- **Compiled binaries could not see their own command-line arguments** — see
+  above (#1744).
+
+#### Runtime and library
+
+- **`case-lambda` broke in any scope that shadowed `length`.** Its compiled
+  arity dispatch called the global `length` by name, so a library legitimately
+  providing its own for a list-like type (as SRFI 101 does) broke every
+  `case-lambda` defined within it. Dispatch now goes through an internal
+  `%length` alias, immune to ordinary user shadowing (#1714).
+
+- **`(expt -8.0 0.5)` returned `+nan.0` instead of the complex result.** The
+  real-number fallback called `pow` unconditionally, which is undefined for a
+  negative base with a non-integer real exponent — the same input shape `sqrt`
+  already promoted correctly. Such inputs now route through the shared
+  `z^w = e^(w·ln z)` helper; integer exponents are untouched (#1725).
+
+- **`string->number` accepted misplaced digit-separator underscores.**
+  Parsing called Zig's `parseInt` on unvalidated input, whose own underscore
+  convenience is more permissive than SRFI 169 — it rejects only a leading or
+  trailing underscore, not a doubled one — so `"1__2"` silently returned 12
+  instead of `#f`. Underscores are now validated and stripped up front by the
+  same validator the reader already used (#1724).
+
+- **A forked child inherited the parent's exact PRNG state.** The default
+  SRFI 27 source is created eagerly at VM startup, so every
+  `http-listen-prefork` worker continued the parent's stream and drew
+  identical "random" values — identical session ids across workers. A
+  `pthread_atfork` child handler now marks the source stale (writing exactly
+  one word, since anything that can take a libc lock or allocate is off-limits
+  in a forked child of a multithreaded parent) and the next touch reseeds it
+  in place from OS entropy (#1761).
+
+- **Tearing down a VM while a `thread-start!`ed child was still alive raced
+  into a crash.** GC and VM teardown are now skipped while children are alive
+  (#1792).
+
+#### Testing and CI
+
+- **`-Dbundle` test builds are isolated from the shared `kaappi` binary**,
+  fixing a compile-suite flake that had also been masking a Debug leg that
+  wasn't actually testing Debug (#1748).
+- **Mark-time use-after-free is now detected deterministically under
+  `-Dgc-stress`** via a freed-owner sentinel plus cross-collection quarantine,
+  so a dangling value panics with a clear message instead of segfaulting by
+  luck or silently aliasing a recycled object (#1687).
+- **The fuzz report files pre-fuzz unit-test failures with their test names**
+  instead of misclassifying them (#1688), and fuzz generator gates are bounded
+  by instruction count on Debug builds (#1835).
+- **The reactor timer tests no longer fail on a `poll()` that returns a tick
+  early** (#1785), and the `user-supplementary-gids` audit test uses `list?`
+  rather than `pair?`, so an empty result passes (#1845).
 
 #### SRFI 115 (regular expressions)
 
