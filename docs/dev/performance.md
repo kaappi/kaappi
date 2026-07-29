@@ -93,6 +93,43 @@ undefined value whose store into the local gets the fill anyway.
 `#0xaa` fill byte, settles in seconds whether a given declaration is
 being filled.
 
+**A second, distinct source of the same symptom: allocator convenience
+methods.** `std.mem.Allocator`'s `.alloc()`, `.free()`, `.create()`,
+`.destroy()`, `.dupe()`, and `.realloc()` *also* `@memset(..., undefined)`
+in ReleaseSafe — but inside their own generic, non-virtual bodies
+(`allocBytesWithAlignment`, `free`, `reallocAdvanced` in Zig's
+`std/mem/Allocator.zig`), not in the vtable functions they call into. This
+means the fill happens on every allocation and every free, regardless of
+which concrete allocator backs them (`c_allocator`, `DebugAllocator`,
+anything else) — a size-proportional tax distinct from #1802's fixed-size
+stack buffers (#1809: confirmed by disassembly on `GC.allocVectorFill`'s
+`self.allocator.alloc(Value, size)` call and `gc_collect.freeObject`'s
+matching free, both showing `bl _memset` with `#0xaa` immediately after
+the `malloc`/`free` call).
+
+The declaration-scope fix above does **not** apply here: wrapping a call
+to `.alloc()`/`.free()` in `@setRuntimeSafety(false)` has no effect,
+confirmed by disassembly — the convenience method is a separately-compiled
+function whose own safety mode is fixed by build mode, not inherited from
+the caller, even once the optimizer inlines it. Neither does swapping the
+backing allocator for a custom one with fill-free vtable functions: the
+fill lives in the shared wrapper *above* the vtable, so any caller still
+using `.alloc()`/`.free()` pays it no matter what's plugged in underneath.
+
+The only fix is to bypass the convenience methods entirely and call
+`allocator.rawAlloc(len, alignment, ret_addr)` /
+`allocator.rawFree(memory, alignment, ret_addr)` directly — public
+`inline fn`s on `std.mem.Allocator` that go straight to the vtable with no
+fill logic. `memory.allocSliceNoFill`/`freeSliceNoFill`/`dupeSliceNoFill`
+wrap this for Kaappi's own size-proportional buffers (vector/string/
+bytevector data, bignum limbs, register/frame arrays, hash table entries,
+...); reach for them instead of the raw `std.mem.Allocator` methods when
+adding a new hot, size-proportional allocation. This is always safe to do
+regardless of build mode: Kaappi's own Debug-mode content poisoning,
+`FREED_OWNER` stamping, and gc-stress quarantine (`gc_collect.
+poisonAndDestroy`) are independent of whatever the underlying allocator
+does and are entirely unaffected.
+
 ## 3. A/B two binaries without fooling yourself
 
 This is where measurement most often goes wrong, because two hazards

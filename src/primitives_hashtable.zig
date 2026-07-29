@@ -254,8 +254,8 @@ pub fn hashForMode(mode: CompareMode, key: Value) usize {
 }
 
 fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
-    if (ht.count == 0) return gc.allocator.alloc(HashEntry, 0) catch return null;
-    const buf = gc.allocator.alloc(HashEntry, ht.count) catch return null;
+    if (ht.count == 0) return memory.allocSliceNoFill(gc.allocator, HashEntry, 0) catch return null;
+    const buf = memory.allocSliceNoFill(gc.allocator, HashEntry, ht.count) catch return null;
     var idx: usize = 0;
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.state == .occupied) {
@@ -417,7 +417,7 @@ fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
 fn rehash(ht: *HashTable) PrimitiveError!void {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
-    const new_entries = gc.allocator.alloc(HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
+    const new_entries = memory.allocSliceNoFill(gc.allocator, HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
     for (new_entries) |*e| {
         e.* = .{ .key = 0, .value = 0, .state = .empty };
     }
@@ -430,7 +430,7 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     for (old_entries[0..old_cap]) |entry| {
         if (entry.state == .occupied) {
             const h = hashForTable(ht, entry.key) catch |err| {
-                gc.allocator.free(new_entries);
+                memory.freeSliceNoFill(gc.allocator, HashEntry, new_entries);
                 return err;
             };
             var idx = h & mask;
@@ -444,7 +444,7 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     ht.entries = new_entries;
     ht.capacity = new_cap;
     ht.count = new_count;
-    gc.allocator.free(old_entries);
+    memory.freeSliceNoFill(gc.allocator, HashEntry, old_entries);
 }
 
 fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
@@ -572,7 +572,7 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const proc = args[1];
 
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(snapshot);
+    defer memory.freeSliceNoFill(gc.allocator, HashEntry, snapshot);
 
     // Root all entries up front: the first callback can delete+allocate and
     // free a not-yet-visited entry's key/value that only the snapshot holds.
@@ -833,7 +833,7 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     defer gc.popRoot();
 
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(snapshot);
+    defer memory.freeSliceNoFill(gc.allocator, HashEntry, snapshot);
 
     // Root all entries up front: the first callback can delete+allocate and
     // free a not-yet-visited entry's key/value that only the snapshot holds.

@@ -396,8 +396,8 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
         .prefix, .suffix => count * delim.len,
     };
 
-    const buf = gc.allocator.alloc(u8, total) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     var pos: usize = 0;
     var first = true;
     current = args[0];
@@ -435,8 +435,8 @@ fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
     }
     if (total == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
 
-    const buf = gc.allocator.alloc(u8, total) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     var pos: usize = 0;
     current = args[0];
     while (current != types.NIL) {
@@ -529,8 +529,8 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
         return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
-    const alloc_buf = gc.allocator.alloc(u8, pad_count * pad_len + data.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(alloc_buf);
+    const alloc_buf = memory.allocSliceNoFill(gc.allocator, u8, pad_count * pad_len + data.len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, alloc_buf);
     for (0..pad_count) |i| {
         @memcpy(alloc_buf[i * pad_len ..][0..pad_len], pad_buf[0..pad_len]);
     }
@@ -560,8 +560,8 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
         return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
-    const alloc_buf = gc.allocator.alloc(u8, data.len + pad_count * pad_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(alloc_buf);
+    const alloc_buf = memory.allocSliceNoFill(gc.allocator, u8, data.len + pad_count * pad_len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, alloc_buf);
     @memcpy(alloc_buf[0..data.len], data);
     for (0..pad_count) |i| {
         @memcpy(alloc_buf[data.len + i * pad_len ..][0..pad_len], pad_buf[0..pad_len]);
@@ -584,8 +584,8 @@ fn stringReverseFn(args: []const Value) PrimitiveError!Value {
         offsets.append(gc.allocator, .{ i, i + len }) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
-    const alloc_buf = gc.allocator.alloc(u8, data.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(alloc_buf);
+    const alloc_buf = memory.allocSliceNoFill(gc.allocator, u8, data.len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, alloc_buf);
     var pos: usize = 0;
     var j = offsets.items.len;
     while (j > 0) {
@@ -660,8 +660,8 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const s2_range = try parseStartEnd(full_data2, args, 4);
     const data2 = s2_range.data;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
-    const alloc_buf = gc.allocator.alloc(u8, new_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(alloc_buf);
+    const alloc_buf = memory.allocSliceNoFill(gc.allocator, u8, new_len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, alloc_buf);
     @memcpy(alloc_buf[0..byte_start], data1[0..byte_start]);
     @memcpy(alloc_buf[byte_start .. byte_start + data2.len], data2);
     @memcpy(alloc_buf[byte_start + data2.len ..], data1[byte_end..]);

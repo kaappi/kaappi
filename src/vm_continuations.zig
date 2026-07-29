@@ -1,5 +1,6 @@
 const types = @import("types.zig");
 const Value = types.Value;
+const memory = @import("memory.zig");
 
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
@@ -28,9 +29,9 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
     if (min_needed > max_reg) max_reg = min_needed;
 
     // Convert frames to SavedFrames (heap-allocated for growable stacks)
-    const saved_frames = vm.gc.allocator.alloc(types.SavedFrame, vm.frame_count) catch
+    const saved_frames = memory.allocSliceNoFill(vm.gc.allocator, types.SavedFrame, vm.frame_count) catch
         return VMError.OutOfMemory;
-    defer vm.gc.allocator.free(saved_frames);
+    defer memory.freeSliceNoFill(vm.gc.allocator, types.SavedFrame, saved_frames);
     for (vm.frames[0..vm.frame_count], 0..) |f, i| {
         saved_frames[i] = .{
             .closure = f.closure,
