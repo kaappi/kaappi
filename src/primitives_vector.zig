@@ -168,8 +168,8 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
     }
 
     // Allocate and fill
-    const data = gc.allocator.alloc(Value, count) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(data);
+    const data = memory.allocSliceNoFill(gc.allocator, Value, count) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, data);
     current = args[0];
     for (0..count) |i| {
         data[i] = types.car(current);
@@ -272,8 +272,8 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
         total += types.toVector(a).data.len;
     }
 
-    const data = gc.allocator.alloc(Value, total) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(data);
+    const data = memory.allocSliceNoFill(gc.allocator, Value, total) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, data);
 
     var pos: usize = 0;
     for (args) |a| {
@@ -308,8 +308,8 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     }
 
     // Build string
-    const buf = gc.allocator.alloc(u8, utf8_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(buf);
+    const buf = memory.allocSliceNoFill(gc.allocator, u8, utf8_len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, u8, buf);
     var pos: usize = 0;
     for (data) |elem| {
         const cp = types.toChar(elem);
@@ -608,8 +608,8 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const range = try primitives.parseOptionalRange(args, 1, vec.data.len, "vector-reverse-copy");
     const len = range.end - range.start;
-    const new_data = gc.allocator.alloc(Value, len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(new_data);
+    const new_data = memory.allocSliceNoFill(gc.allocator, Value, len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, new_data);
     for (0..len) |i| {
         new_data[i] = vec.data[range.end - 1 - i];
     }
@@ -631,8 +631,8 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
         seeds.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
     }
 
-    const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(new_data);
+    const new_data = memory.allocSliceNoFill(gc.allocator, Value, length) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, new_data);
 
     const scope = gc.rootedScope();
     defer scope.release();
@@ -687,8 +687,8 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
         seeds.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
     }
 
-    const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(new_data);
+    const new_data = memory.allocSliceNoFill(gc.allocator, Value, length) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, new_data);
 
     const scope = gc.rootedScope();
     defer scope.release();
@@ -767,8 +767,8 @@ fn vectorConcatenateFn(args: []const Value) PrimitiveError!Value {
         total_len += types.toVector(v).data.len;
         tmp = types.cdr(tmp);
     }
-    const new_data = gc.allocator.alloc(Value, total_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(new_data);
+    const new_data = memory.allocSliceNoFill(gc.allocator, Value, total_len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, new_data);
     var pos: usize = 0;
     while (current != types.NIL) {
         const v = types.toVector(types.car(current));
@@ -786,8 +786,8 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
     var acc = args[1];
     if (!types.isVector(args[2])) return primitives.typeError("vector-cumulate", "vector", args[2]);
     const vec = types.toVector(args[2]);
-    const new_data = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(new_data);
+    const new_data = memory.allocSliceNoFill(gc.allocator, Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, new_data);
     const scope = gc.rootedScope();
     defer scope.release();
     for (0..vec.data.len) |i| {
@@ -828,8 +828,8 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
         gc.extra_roots.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
     }
 
-    const combined = gc.allocator.alloc(Value, yes.items.len + no.items.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(combined);
+    const combined = memory.allocSliceNoFill(gc.allocator, Value, yes.items.len + no.items.len) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, combined);
     @memcpy(combined[0..yes.items.len], yes.items);
     @memcpy(combined[yes.items.len..], no.items);
     var result_vec = gc.allocVector(combined) catch return PrimitiveError.OutOfMemory;
@@ -1165,8 +1165,8 @@ fn reverseListToVectorFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    const data = gc.allocator.alloc(Value, count) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(data);
+    const data = memory.allocSliceNoFill(gc.allocator, Value, count) catch return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, Value, data);
     current = args[0];
     var idx = count;
     while (idx > 0) {
@@ -1200,7 +1200,7 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         total += end - start;
     }
 
-    const result_data = gc.allocator.alloc(Value, total) catch return PrimitiveError.OutOfMemory;
+    const result_data = memory.allocSliceNoFill(gc.allocator, Value, total) catch return PrimitiveError.OutOfMemory;
     var pos: usize = 0;
     i = 0;
     while (i < args.len) : (i += 3) {
@@ -1210,6 +1210,6 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         @memcpy(result_data[pos .. pos + (end - start)], vec.data[start..end]);
         pos += end - start;
     }
-    defer gc.allocator.free(result_data);
+    defer memory.freeSliceNoFill(gc.allocator, Value, result_data);
     return gc.allocVector(result_data) catch return PrimitiveError.OutOfMemory;
 }
