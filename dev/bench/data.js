@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785314915171,
+  "lastUpdate": 1785319785917,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e3591242436f6eafc23d0d7032e7206c6a48c02b",
-          "message": "Splice top-level cond-expand into top-level forms (#1661) (#1663)\n\n* Splice top-level cond-expand into top-level forms (#1661)\n\nA `cond-expand` at the top level was compiled as an ordinary expression, so\nan `import` (or any top-level-only declaration) nested in the matched clause\nwas mis-compiled: `(srfi 1)` read as a call to an undefined `srfi`, printing\n`KP3001 undefined variable 'srfi'` and exiting 1 — even though the import's\nside effect still ran. This defeated the idiomatic #1649 probe\n`(cond-expand (srfi-1 (import (srfi 1))) (else ...))`.\n\nR7RS 4.2.1 says a top-level cond-expand expands to the selected clause's forms\nin a top-level context. Make `handleTopLevelForm` recognize `cond-expand`:\nselect the first satisfied clause (or `else`) with the existing\n`evalLibFeatureReq` — the same live-registry evaluator `define-library` uses,\nso `else`, `(library (srfi N))`, and the `srfi-N` feature ids all resolve\nidentically — then splice its body through `handleTopLevelBegin`, exactly as\ntop-level `begin` already does. `isSpecialTopLevelForm` learns `cond-expand`\ntoo so the native eval-cache declines it. Expression-position `cond-expand`\n(inside `define`, as an argument, ...) is untouched: it never reaches\n`handleTopLevelForm` and still goes through the compiler.\n\n`kaappi check` had the same splitting bug surfacing as spurious `KP4001`\nwarnings — the clause compiled as an expression flagged `srfi`, and a `define`\nnested in a matched clause was never gathered as a top-level name so a forward\nreference warned. Mirror the splice in `check.zig`: `checkForm` recurses into\nthe selected clause (like `begin`), and `collectFromForm` gathers names from\nevery clause body (no VM there to pick one — the same conservative\nover-approximation `test_selection.zig` already uses).\n\nRegression coverage: runtime splice/import + expression-value unit tests\n(tests_libraries.zig), check unit tests (tests_check.zig), and a top-level\nimport-in-cond-expand exit-code case (errors/exit-code.sh).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address review: re-entrancy-safe splice + malformed-tail parity (#1661)\n\nTwo fixes from CodeRabbit review of #1663:\n\n- handleTopLevelBegin ran the selected top-level body with vm.execute(), which\n  resetExecutionState and corrupts frame 0 when eval is re-entered from a native\n  callback (frame_count != 0) — the case runTopLevelFunction was added to\n  handle. Route through runTopLevelFunction instead; it is identical to\n  vm.execute at true top level and re-entrant otherwise. This is a latent bug in\n  top-level begin that the new cond-expand splice now also reaches.\n\n- handleTopLevelCondExpand silently yielded void for an improper clause-list\n  tail reached without a match (e.g. `(cond-expand (x 1) . junk)`), where the\n  expression-position compiler reports a syntax error. Reject it to match. (A\n  matched clause still returns immediately without inspecting later clauses,\n  exactly as the compiler does — so trailing clauses after a match are not\n  validated in either position; verified, and covered by a new parity test.)\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Reject improper cond-expand clause bodies at top level (#1661)\n\nSecond-pass review follow-up: `(cond-expand (else 1 . junk))` at top level\nspliced the proper prefix and silently dropped the improper tail (via\nhandleTopLevelBegin), while the expression-position compiler rejects the same\nform. Validate the selected body is a proper list in handleTopLevelCondExpand\nbefore splicing, so cond-expand's own structure is fully validated to match the\ncompiler. handleTopLevelBegin (shared with top-level begin) is left untouched —\nbegin's tail leniency is a separate, pre-existing concern.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T09:24:38Z",
-          "tree_id": "a47695090ead83066fc9c042bcdc8c2c6e878ce1",
-          "url": "https://github.com/kaappi/kaappi/commit/e3591242436f6eafc23d0d7032e7206c6a48c02b"
-        },
-        "date": 1784455398187,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.299699,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.074594,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912265,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.421946,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006762,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052786,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502182,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068851,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.419407,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.952086,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.575918,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.439517,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.847171,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.727213,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043674,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034441,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e9043b3f3e2faf8f03b8a0e14507943faaf4374",
+          "message": "Hygiene-rename free-global macro references to avoid arg collisions (#1839)\n\nexpandAndCompileMacroUse implemented R7RS 4.3.1 referential\ntransparency for a template's free reference to a global that already\nexisted at the macro's definition time by temporarily marking that\nglobal VOID, signaling renameForHygiene to leave the reference\nunrenamed so an injected register alias could pierce use-site\nshadowing under that bare name.\n\nA bare, unrenamed reference is indistinguishable from any other\nidentifier of the same spelling introduced elsewhere in the same\nexpansion -- including a pattern-variable argument the caller supplied\nwith that exact spelling. `(def a)`, where `def`'s own template\nfree-referenced a pre-existing global `a` while also taking `a` as an\nargument, collapsed both to the same bare symbol: `(let ((a 5)) (def2\na))` returned `(999 999)` instead of `(999 5)`, and a set!-based\nvariant could overwrite an unrelated use-site local instead of leaving\nit untouched.\n\nThe reference is now hygiene-renamed like any other\ntemplate-introduced identifier (mirroring what a set!-target prescan\nalready did, and how injectHygienicCapturedLocals already handles the\nanalogous captured-local case from #1288), and its\nreferential-transparency alias is injected under that renamed name --\nfound by walking the expansion, in injectHygienicGlobalAliases --\ninstead of the bare one. compileSet's write-through (both the legacy\nand IR compile paths) now targets the real global name via a new\nLocal.alias_global_name field rather than assuming the alias local's\nown name matches it.\n\nFixes #1832\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T15:02:17+05:30",
+          "tree_id": "eef0e2eb41b2a93876a602c273fad9e0674b6ee6",
+          "url": "https://github.com/kaappi/kaappi/commit/6e9043b3f3e2faf8f03b8a0e14507943faaf4374"
+        },
+        "date": 1785319783802,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.839922,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.03053,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.548895,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.743858,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00494,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04479,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.28397,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053472,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.766567,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.11009,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.485242,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.263151,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.665809,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.921716,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04088,
             "unit": "seconds"
           }
         ]
