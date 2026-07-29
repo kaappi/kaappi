@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785304858386,
+  "lastUpdate": 1785305369320,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a3b4157756061c240c382780cbcef5e824220649",
-          "message": "Add srfi-<n> cond-expand feature identifiers (#1660)\n\nCloses #1649.\n\nR7RS implementations conventionally advertise each supported SRFI as a\ncond-expand feature identifier (srfi-1, srfi-64, ...) so a program can\nprobe support without attempting an import. Kaappi exposed none, so\n(cond-expand (srfi-1 ...) (else ...)) always took the else branch despite\nthe interpreter shipping SRFI 0 itself.\n\nResolve srfi-<n> by routing through the same availability check as\n(library (srfi <n>)) (libraryIsAvailable), so built-in, portable,\n--sandbox and WASM answers all match what (import (srfi <n>)) would do --\nnothing hardcoded (the #1517 derive-don't-list principle). SRFI 261 is the\none supported SRFI with no library file, so srfi-261 answers true directly.\n\nA single implementation (vm_library.srfiFeatureAvailable) serves both\nfeature-req evaluators: evalLibFeatureReq (define-library) calls it\ndirectly; the compiler's evalFeatureReq reaches it via a new\nglobals.srfiFeatureAvailable callback the VM registers, mirroring the\nlibrary_exists_checker used by the (library ...) form.\n\nLike a (library ...) requirement, a srfi-<n> identifier is a derived probe\ncond-expand resolves on demand, not a bare feature, so (features) stays the\nplatform/subsystem table it must equal at the kaappi features CLI boundary\n(#1517); kaappi features notes the ids in its SRFIs section.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T08:41:08+05:30",
-          "tree_id": "0c6a2542cb7130a26df678c50aff5ad197934842",
-          "url": "https://github.com/kaappi/kaappi/commit/a3b4157756061c240c382780cbcef5e824220649"
-        },
-        "date": 1784432644520,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.069008,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.54678,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924093,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.428649,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006789,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05242,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511286,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06802,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.274651,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.001286,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.502079,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.480886,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.726371,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.889916,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045917,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043457,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ef8268df43960aa38758a2746c032d93e77e1a0",
+          "message": "Implement SRFI 150 (Hygienic ERR5RS Record Syntax), fixing #1810 (#1834)\n\nBuilds on SRFI 131's runtime substrate: a type name is bound directly to\nan ordinary SRFI 237 record-type-descriptor, with inheritance and\nfield/accessor/mutator resolution handled at run time by SRFI 237's own\nby-name introspection. The one piece SRFI 131 lacks -- hygienic\nfield/accessor-name matching for named constructor specs -- uses SRFI\n213 (identifier properties) instead of a query macro, so\ndefine-record-type itself is a SRFI 211 er-macro-transformer rather than\nan em-syntax-rules macro.\n\nTwo earlier designs (porting the reference's own SRFI 137 make-subtype\nclosures, then a from-scratch rewrite using a :secret descriptor macro\nover SRFI 237) both broke once more than one cross-expansion query\nrelationship existed side by side in the same program, isolated to\nem-syntax-rules engine bugs kaappi#1828 and kaappi#1829. This design\navoids that whole pattern by never threading anything across separate\ndefine-record-type expansions via a macro call.\n\n21 of 25 tests ported from the reference suite pass; the other 4 are\nmarked test-expect-fail/annotated, hitting a precise, minimal,\nrecord-free reproduction (kaappi#1832) of the already-documented\n\"top-level redefinition reaches the expansion\" hygiene limitation. A\nsecond new engine quirk (kaappi#1831) was found and worked around:\ncadar specifically fails when called from a helper function invoked\nduring an er-macro-transformer's expansion.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T10:50:53+05:30",
+          "tree_id": "96c5f9a89acc11c428968eda72321dba0d5991f7",
+          "url": "https://github.com/kaappi/kaappi/commit/1ef8268df43960aa38758a2746c032d93e77e1a0"
+        },
+        "date": 1785305368206,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.801842,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.202766,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.386289,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.039391,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004223,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034061,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.212214,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.040091,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.005934,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.840427,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.126569,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.221222,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.23975,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.696117,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.032836,
             "unit": "seconds"
           }
         ]
