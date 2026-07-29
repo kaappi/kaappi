@@ -80,6 +80,13 @@ const Local = struct {
     // template's free reference pierces use-site shadowing. set! through
     // the alias must write back to the global (see compileSet).
     is_global_alias: bool = false,
+    // The actual global's name, when is_global_alias is true. `name` itself
+    // is the reference's hygienic rename (e.g. __hyg_N_count), not the bare
+    // global name — kept distinct from any use-site identifier of the same
+    // spelling (kaappi#1832) — so compileSet's write-through must target
+    // THIS name instead of `name`. Unused (empty) when is_global_alias is
+    // false.
+    alias_global_name: []const u8 = "",
 };
 
 const Upvalue = struct {
@@ -383,15 +390,18 @@ pub const Compiler = struct {
         return false;
     }
 
-    pub fn isLocalGlobalAlias(self: *Compiler, name: []const u8) bool {
+    /// The real global name backing a global-alias local, or null if `name`
+    /// isn't a global-alias local. See Local.alias_global_name.
+    pub fn globalAliasTargetName(self: *Compiler, name: []const u8) ?[]const u8 {
         var i: usize = self.locals.items.len;
         while (i > 0) {
             i -= 1;
             if (std.mem.eql(u8, self.locals.items[i].name, name)) {
-                return self.locals.items[i].is_global_alias;
+                if (!self.locals.items[i].is_global_alias) return null;
+                return self.locals.items[i].alias_global_name;
             }
         }
-        return false;
+        return null;
     }
 
     pub fn isSlotBoxed(self: *Compiler, slot: u16) bool {

@@ -435,8 +435,11 @@ fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileErro
     try compileFromNode(self, val_root, dst, false);
 
     if (self.resolveLocal(name)) |slot| {
-        if (self.isLocalGlobalAlias(name)) {
-            const sym_idx = try self.addConstant(data.name);
+        if (self.globalAliasTargetName(name)) |gname| {
+            // `data.name` is the reference's hygienic rename, not the bare
+            // global name (kaappi#1832) — write through to `gname` instead.
+            const target_sym = try self.gc.allocSymbol(gname);
+            const sym_idx = try self.addConstant(target_sym);
             try self.emitOp(.set_global);
             try self.emitU16(sym_idx);
             try self.emitU16(dst);

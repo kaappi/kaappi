@@ -299,11 +299,25 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
                     }
                 }
             }
-            // Temporarily mark non-procedure free globals as VOID so
-            // renameForHygiene preserves them. Only mark identifiers that
-            // were bound at macro definition time (bound_free_refs) —
-            // template-introduced identifiers that coincidentally share a
-            // name with a later user define must still be renamed (#1208).
+            // Identify non-procedure free globals that were already bound at
+            // macro definition time (bound_free_refs): the template's own
+            // reference to one must resolve to THIS SAME variable at the use
+            // site regardless of what a use-site local shadows the name with
+            // (R7RS 4.3.1 referential transparency). This used to be done by
+            // temporarily marking the global VOID so renameForHygiene would
+            // preserve the reference's bare name — but a bare, unrenamed
+            // reference is textually indistinguishable from an unrelated
+            // identifier of the same spelling introduced elsewhere in the
+            // SAME expansion (e.g. a pattern-variable substitution of a
+            // same-named use-site argument), which is exactly the collision
+            // kaappi#1832 reported. So the reference is instead left to be
+            // hygiene-renamed like any other template-introduced identifier
+            // (#1208's own forward-reference concern still holds: only
+            // identifiers bound at macro definition time are collected
+            // here), and injectHygienicGlobalAliases (below, after
+            // expansion) finds the renamed occurrence(s) in the tree and
+            // aliases THEM to the global's current value instead of
+            // aliasing the bare name.
             if (globals_mod.globals_ctx) |gctx| {
                 for (tx.bound_free_refs) |cname| {
                     // #1812: a name resolvable through the transformer's own
@@ -334,12 +348,8 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
                     const existing = in_g orelse in_vm;
                     if (existing) |val| {
                         if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
-                            if (level_count < 128) {
-                                temp_globals.append(gpa, .{ .name = cname, .old_val = in_g, .was_present = in_g != null }) catch return CompileError.OutOfMemory;
-                                level_count += 1;
-                                try g.put(cname, types.VOID);
-                            }
-                            // Track for local injection after expansion
+                            // Track for local injection after expansion —
+                            // the global itself is never touched now.
                             if (global_free_count < 64) {
                                 global_free_names[global_free_count] = cname;
                                 global_free_count += 1;
@@ -388,38 +398,16 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         try self.scanSetTargets(expanded_root);
         try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
         // Inject non-procedure global free vars as locals so use-site
-        // locals don't shadow the definition-site global binding
-        // (R7RS 4.3.1 referential transparency).
-        for (global_free_names[0..global_free_count]) |gname| {
-            // Skip if already covered by captured_locals
-            var already_captured = false;
-            for (tx.captured_locals) |cap| {
-                if (std.mem.eql(u8, cap.name, gname)) {
-                    already_captured = true;
-                    break;
-                }
-            }
-            if (already_captured) continue;
-            // Load the global value into a fresh register. Register
-            // exhaustion skips the injection (non-fatal, as before), but a
-            // failure mid-emit must propagate: swallowing it after
-            // emitOp(.get_global) succeeded would leave a truncated
-            // instruction in the chunk for the VM to decode as garbage.
-            const gslot = self.allocReg() catch continue;
-            injected_reg_count += 1;
-            const gsym = try self.gc.allocSymbol(gname);
-            const gsym_idx = try self.addConstant(gsym);
-            try self.emitOp(.get_global);
-            try self.emitU16(gslot);
-            try self.emitU16(gsym_idx);
-            try self.locals.append(gpa, .{
-                .name = gname,
-                .depth = self.scope_depth,
-                .slot = gslot,
-                .binding_id = compiler_mod.freshBindingId(),
-                .is_global_alias = true,
-            });
-        }
+        // locals don't shadow the definition-site global binding (R7RS
+        // 4.3.1 referential transparency). The reference was hygienically
+        // renamed like any other template-introduced identifier (see the
+        // bound_free_refs scan above), so injectHygienicGlobalAliases finds
+        // whatever renamed name actually appears in the expansion instead
+        // of assuming the bare name — and, since injectHygienicCapturedLocals
+        // above already ran on this same tree, a name it already aliased is
+        // naturally skipped by the "already in self.locals" check, without
+        // needing a separate already-captured pre-filter.
+        try injectHygienicGlobalAliases(self, expanded_root, global_free_names[0..global_free_count], &injected_reg_count);
         // Swap let-syntax sibling keywords to their outer values while
         // material from this transformer is live; the undo record is
         // appended before each swap so a mid-chain error restores
@@ -1300,6 +1288,70 @@ fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.C
     if (types.isPair(expr)) {
         try injectHygCapturedWalk(self, types.car(expr), captured);
         try injectHygCapturedWalk(self, types.cdr(expr), captured);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hygienic global-alias injection
+// ---------------------------------------------------------------------------
+//
+// Companion to injectHygienicCapturedLocals above, for a template's free
+// reference to a non-procedure global that was already bound at the macro's
+// OWN definition time (bound_free_refs). Since kaappi#1832, such a reference
+// is hygiene-renamed like any other template-introduced identifier instead
+// of being preserved bare (a bare reference was indistinguishable from an
+// unrelated same-spelled identifier introduced elsewhere in the same
+// expansion — e.g. a pattern-variable substitution of a same-named use-site
+// argument). So, unlike the old bare-name injection, the alias here is
+// discovered by walking the expansion for the ACTUAL renamed name rather
+// than reconstructed from the pre-expansion candidate list, and it loads a
+// FRESH value from the global (there is no existing local slot to share, as
+// injectHygCapturedWalk has for a definition-site local).
+
+fn injectHygienicGlobalAliases(self: *Compiler, expr: Value, names: []const []const u8, injected_reg_count: *u16) CompileError!void {
+    if (names.len == 0) return;
+    try injectHygGlobalWalk(self, expr, names, injected_reg_count);
+}
+
+fn injectHygGlobalWalk(self: *Compiler, expr: Value, names: []const []const u8, injected_reg_count: *u16) CompileError!void {
+    if (types.isSymbol(expr)) {
+        const name = types.symbolName(expr);
+        if (!std.mem.startsWith(u8, name, "__hyg_")) return;
+        const base = types.stripHygienicPrefix(name);
+        if (base.len == name.len or !nameInSlice(names, base)) return;
+        // A __hyg_ name that is macro-bound is a renamed let-syntax KEYWORD,
+        // not a variable reference (see injectHygCapturedWalk's identical
+        // guard).
+        if (self.lookupMacro(name) != null) return;
+        for (self.locals.items) |loc| {
+            if (std.mem.eql(u8, loc.name, name)) return; // already injected
+        }
+        // Load the global's current value into a fresh register. Register
+        // exhaustion skips the injection (non-fatal, matching the old
+        // bare-name loop this replaces), but a failure mid-emit must still
+        // propagate: swallowing it after emitOp(.get_global) succeeded would
+        // leave a truncated instruction in the chunk for the VM to decode
+        // as garbage.
+        const gslot = self.allocReg() catch return;
+        injected_reg_count.* += 1;
+        const gsym = try self.gc.allocSymbol(base);
+        const gsym_idx = try self.addConstant(gsym);
+        try self.emitOp(.get_global);
+        try self.emitU16(gslot);
+        try self.emitU16(gsym_idx);
+        try self.locals.append(self.gc.allocator, .{
+            .name = name,
+            .depth = self.scope_depth,
+            .slot = gslot,
+            .binding_id = compiler_mod.freshBindingId(),
+            .is_global_alias = true,
+            .alias_global_name = base,
+        });
+        return;
+    }
+    if (types.isPair(expr)) {
+        try injectHygGlobalWalk(self, types.car(expr), names, injected_reg_count);
+        try injectHygGlobalWalk(self, types.cdr(expr), names, injected_reg_count);
     }
 }
 

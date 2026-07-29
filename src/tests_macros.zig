@@ -672,6 +672,46 @@ test "hygiene: template set! reaches the global past a use-site shadow" {
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(global));
 }
 
+test "hygiene: template's free-global reference stays distinct from a same-spelled pattern-variable argument (#1832)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `def2`'s template free-references the pre-existing global `a`
+    // while ALSO taking a pattern-variable argument. The compiler used to
+    // keep the template's own free reference to `a` unrenamed (so the
+    // referential-transparency alias it injects could pierce use-site
+    // shadowing by bare name) — but calling def2 with an argument of the
+    // SAME spelling from a scope that shadows `a` made the template's own
+    // reference and the pattern-variable-substituted argument collapse to
+    // the identical unrenamed symbol, so the injected alias intercepted
+    // BOTH instead of just the template's own reference.
+    _ = try vm.eval("(define a 999)");
+    _ = try vm.eval(
+        \\(define-syntax def2
+        \\  (syntax-rules ()
+        \\    ((def2 b) (list a b))))
+    );
+    const result = try vm.eval("(let ((a 5)) (def2 a))");
+    try std.testing.expectEqual(@as(i64, 999), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(types.car(types.cdr(result))));
+
+    // Same collision, but the template also set!s the global: the
+    // argument must still read the untouched use-site local, and the
+    // template's own set! must still reach the actual global.
+    _ = try vm.eval("(define counter2 0)");
+    _ = try vm.eval(
+        \\(define-syntax bump2!
+        \\  (syntax-rules ()
+        \\    ((bump2! x) (begin (set! counter2 (+ counter2 1)) x))))
+    );
+    const shadowed = try vm.eval("(let ((counter2 100)) (bump2! counter2))");
+    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(shadowed));
+    const mutated_global = try vm.eval("counter2");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(mutated_global));
+}
+
 test "hygiene: macro-expanded body-position define is visible to later siblings (#1800)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
