@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785296390235,
+  "lastUpdate": 1785304858386,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "935a98691ad13b62132e07dc1bde113d281c63b9",
-          "message": "Refuse native compilation on unsupported arches (#1659)\n\nCloses #1656.\n\n`kaappi compile`/`--emit-llvm` on a host the LLVM backend can't target (anything but aarch64/x86_64 × the six supported OSes) emitted a non-concrete `*-unknown-unknown` triple that the `-w` link silently overrode with the host default — the link succeeded and produced a segfaulting binary, worse than an honest failure. A single-source-of-truth `targetTriple` now returns null for such hosts; `emitLlvmFile` refuses before any codegen (exit nonzero, names the arch, points at the interpreter), and `kaappi doctor` reports one honest `arch` WARN instead of the misleading c-compiler/archive/smoke-link PASS trio. Verified end-to-end on riscv64 under QEMU; aarch64/x86_64 native compile unaffected.",
-          "timestamp": "2026-07-19T07:09:36+05:30",
-          "tree_id": "284d2b997fbf5ad64a787b387239ad35b8872ba6",
-          "url": "https://github.com/kaappi/kaappi/commit/935a98691ad13b62132e07dc1bde113d281c63b9"
-        },
-        "date": 1784427031754,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.580832,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.8407,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.727039,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.593444,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006629,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048014,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.407323,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058538,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.272089,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.566059,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.4172,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.446864,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.553308,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.912157,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038189,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043424,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "26334d245d9316529485ceed693cf50be343dfdd",
+          "message": "Fix syntax-rules wholesale re-collection of sibling ellipsis variable, fixing #1721 (#1833)\n\nA template like `(list (list formal (list binding ...)) ...)` where\n`formal` and `binding` come from independent pattern groups\n`(_ (formal ...) (binding ...))` failed with EllipsisCountMismatch when\nthe groups had different lengths, and silently consumed `binding`\nper-iteration (instead of replicating it wholesale) when lengths matched.\n\nRoot cause: `templateReferencesVar` recurses into ALL sub-expressions\nincluding inner `(x ...)` sub-templates, so it wrongly marked inner-only\nbindings as driving the outer repeat count.\n\nFix: two-pass repeat-count determination. Pass 1 finds \"direct\" drivers\nvia `templateReferencesVarDirectly` (which skips sub-expressions consumed\nby inner ellipses) and deep (depth > 1) bindings. Pass 2 classifies\nremaining indirect-only bindings using `sharesInnerEllipsisWithDriver`:\nif a binding shares an inner `(elem ...)` sub-template with a Pass-1\ndriver, it belongs to the same pattern group and is consumed per-iteration\n(SRFI 149 excess-ellipsis replication); otherwise it's from an independent\ngroup and is passed through wholesale with its full list state intact.\n\nAlso tightens `ellipsisReferencesOuter` to use the same direct-reference\ncriterion, so a binding appearing only inside an inner ellipsis of a\nnested syntax-rules doesn't wrongly claim the ellipsis for the outer macro.\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T10:50:36+05:30",
+          "tree_id": "a5dc876a82b46de62a3b54c4c53d26e0775ec50e",
+          "url": "https://github.com/kaappi/kaappi/commit/26334d245d9316529485ceed693cf50be343dfdd"
+        },
+        "date": 1785304857018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344853,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.543324,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.612053,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.000421,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004796,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046801,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316304,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057665,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.665755,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23366,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.59588,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286026,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.831379,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.623996,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043457,
             "unit": "seconds"
           }
         ]
