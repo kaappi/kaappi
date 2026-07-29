@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785319785917,
+  "lastUpdate": 1785320366836,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f7a136dbbcc0826aed08d26d85cef7014f270fc7",
-          "message": "Add understanding map and /quiz comprehension skill (#1664)\n\n* Add understanding map and /quiz comprehension skill\n\nAI-assisted development generates code faster than a human forms a\ntheory of it. The existing harness (CLAUDE.md, rules, memory) solves\nthe machine side of that gap — every session cold-starts into full\ncontext — but nothing maintained the human side.\n\ndocs/dev/understanding-map.md is the policy: it classifies subsystems\ninto a core tier, where the maintainer holds the theory (values/heap\nlayout, GC, IR + register contract, continuations/wind, expander\nhygiene, fibers/reactor, cross-thread ownership), and a fenced tier,\nwhere a contract of spec + tests makes shallow understanding a\ndeliberate, safe choice. It carries the decision rule, per-tier\nobligations, fence-integrity rules, and the reification ladder\n(tacit → documented → checklisted → machine-checked).\n\nThe /quiz skill is the practice: a prediction-with-commitment\ncomprehension quiz on a core-tier subsystem, graded against the\ncurrent code and live runs (never docs), with results appended to a\nper-user ledger at ~/.kaappi/quiz-ledger.md — outside the repo so it\nsurvives worktrees and stays private.\n\nAlso adds the missing /parallel-issues entries to both skill tables:\nthe harness doc claims to cover every component but didn't list it.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Address review: /quiz argument contract, prep wording, MD040\n\nMake /quiz's subsystem aliases canonical ledger keys mapped to the\nunderstanding map's numbered core-tier sections, and define how a\nsrc/ file argument resolves (owning core section's alias, or — for a\nfile no core section lists — fenced-tier, explicit-request-only, with\nthe file as syllabus and its path as ledger key). Reword the harness\ndoc's protocol summary so \"code is ground truth\" no longer reads as\n\"skip the docs\" (the map is the syllabus; docs are read last for\ndrift detection). Add the MD040 language tag on the decision-rule\nfence.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T15:00:16+05:30",
-          "tree_id": "5a490fd8c9ab59b5cd9fcd4ba023e4acc2d4cd19",
-          "url": "https://github.com/kaappi/kaappi/commit/f7a136dbbcc0826aed08d26d85cef7014f270fc7"
-        },
-        "date": 1784455858232,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.596931,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.852031,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573377,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.604789,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005515,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.038073,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.325951,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.050311,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.124241,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.199049,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.013804,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.328414,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.090009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.911925,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.028928,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04088,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f74d6663b888e7dff3f672873d87050d4027c85",
+          "message": "Comptime-gate lever-D bytevector checks in gc_collect.zig, fixing #1794 (#1838)\n\n`Bytevector.shared` is only ever set by `allocBytevectorShared`, called\nsolely from gc_deep_copy.zig's `if (comptime instrument.enabled)` block\n(KEP-0002 Phase 7 lever D, kaappi#1472). In a shipped build the field is\nprovably always null, but `freeObject` and `objectSize` in gc_collect.zig\nstill branched on it at runtime. Wrap both in the same `comptime\ninstrument.enabled` gate gc_deep_copy.zig already uses, so a shipped\nbinary never loads the field and a reader can tell from the code that\nthe branch is dead there.\n\nBehavior is unchanged in both build modes -- verified via `zig build\ntest` under the default and -Dchannel-instrument=true configs (including\ntests_shared_channel.zig's lever-D test, which exercises both changed\nsites), plus the full `tests/scheme/run-all.sh` suite (2009 pass, 0\nfail). This is a comptime dead-code-elimination clarity fix with no\nbehavioral change, so no new regression test is added.",
+          "timestamp": "2026-07-29T15:02:39+05:30",
+          "tree_id": "05f766564c8d5773e840fbf30f6d3f034972ff9b",
+          "url": "https://github.com/kaappi/kaappi/commit/5f74d6663b888e7dff3f672873d87050d4027c85"
+        },
+        "date": 1785320365649,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.037525,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.282572,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.841028,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004951,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045263,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302667,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054359,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.338138,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.181388,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.525819,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.310515,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.729496,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.769617,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047117,
             "unit": "seconds"
           }
         ]
