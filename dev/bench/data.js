@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785348133264,
+  "lastUpdate": 1785351461625,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a4d02495f55e05e5e0b393d7ab81f363d3263a25",
-          "message": "Implement SRFI 248 (minimal delimited continuations) (#1677)\n\nAdd (srfi 248): with-unwind-handler, empty-continuation?, and the extended\ntwo-variable guard, as a Filinski shift/reset over Kaappi's stack-copying\ncall/cc.\n\nEnabling VM change: a \"sticky\" exception handler (ExceptionHandler.sticky).\nraise/raise-continuable invoke it in place without popping, so a call/cc\nsnapshot taken while it handles includes it and resuming re-arms the prompt\n(reset0 semantics) — what lets coroutine generators work across yields.\nempty-continuation? combines the immediate tail-call latch (native_call_was_tail,\nset by every tail-call opcode) with the sticky handler's frame_count baseline,\nso a raise in tail position of a non-tail-called helper is correctly non-empty.\n\nSavedHandler is now the same type as ExceptionHandler, so captureContinuation\nhands the live handler stack straight to allocContinuation instead of building\na [MAX_HANDLERS]SavedHandler buffer on the stack of every call/cc. That buffer\npredates this branch; dropping it makes the continuations benchmark ~1.4x\nfaster than main rather than ~1.2x slower.\n\nThe public (srfi 248) is a portable lib/srfi/248.sld; the three helper\nprimitives (%call-with-unwind-handler, %unwind-raise-empty?,\n%pop-unwind-handler!) ship in a built-in sub-library (srfi 248 primitives)\nthat the .sld imports and does not re-export.\n\nAll SRFI 248 examples pass — coroutine generators, for-each->fold, effect\nhandlers, and empty-continuation?. Three documented caveats: delimited\ncontinuations are single-shot (resuming the same k twice crosses a native\nframe), the handler runs at the raise point rather than after unwinding, and\nthe metacontinuation cell is per-VM (not fiber-local).\n\nTests: tests/scheme/srfi/srfi248.scm (SRFI-64) and src/tests_srfi248.zig.\n\nCloses #1669.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T09:12:43+05:30",
-          "tree_id": "2e3315f0e1d9ce61ab77ce043985683293f71870",
-          "url": "https://github.com/kaappi/kaappi/commit/a4d02495f55e05e5e0b393d7ab81f363d3263a25"
-        },
-        "date": 1784521025759,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.321863,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.735022,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.94078,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.713705,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006382,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054352,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507821,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070835,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.634813,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.00487,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.608372,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435409,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.831269,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.652418,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045914,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035602,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "784bcc9954f55443add315f8c19eafb096d9bc88",
+          "message": "Add /create-announcement skill for release announcements (#1851)\n\n* Add /create-announcement skill for release announcements\n\nPosting a release to the org forum was an undocumented manual task, and\nthe one non-obvious fact it depends on was written down nowhere: org-level\ndiscussions at github.com/orgs/kaappi are backed by the kaappi/kaappi\nrepository, not by kaappi/.github, which has discussions disabled entirely.\nA skill that guessed the obvious repo would fail on every run, so the repo\nand category ids are pinned in the file for the GraphQL fallback that\ncovers `gh discussion` still being a preview command.\n\nThe skill carries the editorial half as well as the mechanics. Release\nnotes are exhaustive by design; an announcement is not a second copy of\nthem, so the file specifies how to pick 3-6 highlights (what a user can now\ndo, not what changed), a body template, and a rule that every claim trace\nback to the notes. Posting stops for explicit approval first: it publishes\npublic content in a maintainer-restricted category and notifies every org\nwatcher.\n\nRunning it against v0.21.0 surfaced a defect in the skill itself that also\naffects skill authoring generally, hence the harness-doc section. A dollar\nsign followed by a digit inside a SKILL.md is rewritten by slash-command\nargument expansion before the body is ever read, so a snippet in the file\nis not necessarily the snippet that runs. The numbering is zero-indexed --\nthe zeroth token takes the *first* argument -- an absent argument leaves the\ntoken untouched rather than emptying it, and code fences do not protect\nanything. All of that is measured from probe invocations at 0, 2, and 3\narguments rather than inferred; an earlier inference here was wrong in a way\nthat would have caused three unnecessary edits.\n\nThe awk field variables in the DigitalOcean skills are therefore left alone:\nthey read the third argument, those skills take none, and they were never\nbroken. Their cost notes were the real exposure, since a dollar sign followed\nby zero claims the first argument and a single stray argument is enough to\ngarble the figure.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: harden duplicate detection and fix two contradictions\n\nDuplicate detection listed the 30 newest announcements, which is exactly\nbackwards for the case that needs it most: announcing an older release, where\na duplicate is by definition not among the newest. Searches by tag instead --\nverified it returns the v0.21.0 announcement and nothing for an unannounced\ntag.\n\nThe GraphQL fallback fired on any non-zero exit from `gh discussion create`.\nThat mutation is a non-idempotent write, and a lost response -- posted server\nside, reply never arrived -- is indistinguishable from an outright failure at\nthe call site, so the fallback could publish a second announcement and notify\nevery watcher twice. It now re-runs the tag search first and only proceeds on\na zero count.\n\nTwo contradictions were self-inflicted. The troubleshooting row still claimed\nthe `@` and `*` forms get substituted, contradicting the measured table added\nin the same branch, which records that they never do. And the harness guide\nsaid \"seven steps\" for a skill that numbers eight, 0 through 7.\n\nThe link checker's character class excluded whitespace but not `>`, so an\nangle-bracket autolink contributed a URL with the delimiter attached and\nreported a spurious failure -- which blocks approval on a phantom defect,\nthe one failure mode a pre-flight check must not have. Also narrowed the\nmaintainer-restriction note: `kaappi/kaappi` is public, so a read-only token\ngets through both read steps and fails only on the write.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T23:33:24+05:30",
+          "tree_id": "7558634fc17729f8435095fec0415861482ed320",
+          "url": "https://github.com/kaappi/kaappi/commit/784bcc9954f55443add315f8c19eafb096d9bc88"
+        },
+        "date": 1785351459760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.301584,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.509072,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.575373,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.945859,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004666,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046999,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312916,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057159,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.650102,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216049,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.598656,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276192,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.794445,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.60208,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042692,
             "unit": "seconds"
           }
         ]
