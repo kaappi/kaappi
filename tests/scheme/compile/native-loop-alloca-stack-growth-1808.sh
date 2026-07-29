@@ -34,6 +34,15 @@ REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 KAAPPI="${1:-$REPO_DIR/zig-out/bin/kaappi}"
 KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 
+# Each reproducer below drives the interpreter through 3,000,000 iterations
+# as its correctness oracle before native-compiling the same program; under a
+# Debug build's un-optimized, leak-tracking allocator that oracle run alone
+# takes minutes rather than milliseconds (kaappi#1748). The regression this
+# test guards (native loop alloca stack growth) is independent of how the
+# *driver* was built, so ReleaseSafe/ReleaseFast/other-platform CI legs
+# already cover it at full rigor.
+skip_on_debug_build "$KAAPPI_ABS" "3M-iteration interpreter oracle is impractically slow under Debug (kaappi#1748); covered by other CI legs"
+
 ensure_runtime_lib "$REPO_DIR"
 
 DIR=$(mktemp -d)

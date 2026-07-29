@@ -71,14 +71,15 @@ if [[ ! -f "$DIR/main.sbc" ]]; then
     exit 1
 fi
 
-# Build bundled binary
+# Build bundled binary into an isolated --prefix so the shared zig-out/bin/kaappi
+# binary -- which run-all.sh and every other test read from a fixed path -- is
+# never touched. Rebuilding it in place here raced the next sequential test's
+# exec of that same path (kaappi#1748).
 BUNDLE_BIN="$DIR/main-standalone"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-(cd "$REPO_DIR" && zig build -Dbundle="$DIR/main.sbc" -Doptimize=ReleaseSafe 2>/dev/null)
-cp "$REPO_DIR/zig-out/bin/kaappi" "$BUNDLE_BIN"
-
-# Rebuild regular binary
-(cd "$REPO_DIR" && zig build 2>/dev/null)
+BUNDLE_PREFIX="$DIR/bundle-out"
+(cd "$REPO_DIR" && zig build -Dbundle="$DIR/main.sbc" -Doptimize=ReleaseSafe --prefix "$BUNDLE_PREFIX" 2>/dev/null)
+cp "$BUNDLE_PREFIX/bin/kaappi" "$BUNDLE_BIN"
 
 # Run the bundled binary — must not crash or show preamble errors
 OUTPUT=$("$BUNDLE_BIN" 2>&1)
