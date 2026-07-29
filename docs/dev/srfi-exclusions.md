@@ -427,8 +427,9 @@ comparison* to consult binding identity (an expander-matcher property no
 transformer-level facility reaches — SRFI 213's transformer-visible
 properties don't either), and 212 needs binding transfer, which neither
 renaming nor properties provide. SRFI 150, previously excluded here
-because its stated prerequisites (SRFI 147 + 148) were unimplemented,
-moved back to tracked when both shipped — see issue #1810.
+because its stated prerequisites (SRFI 147 + 148) were unimplemented, is
+now implemented (issue #1810) on exactly this SRFI 211 + 213 mechanism —
+see its own paragraph in `CLAUDE.md`.
 
 | SRFI | Title | Reason |
 |------|-------|--------|
@@ -564,9 +565,10 @@ syntactic layer's auto-naming, the SRFI is missing its primary
 user-facing feature. SRFI 131 (implemented, `lib/srfi/131.sld`) is
 precisely the reduced subset of 99 that drops the `#t` and bare-field
 shorthands to become fully syntax-rules-expressible, built on this
-codebase's `(srfi 237)` procedural layer instead of 99's own; SRFI 150
-(also excluded, below) is a further, hygienic refinement of 131 that
-this codebase cannot support for a different reason.
+codebase's `(srfi 237)` procedural layer instead of 99's own; SRFI 150 is
+a further, hygienic refinement of 131 built the same way (`(srfi 211
+explicit-renaming)` + `(srfi 213)` over `(srfi 237)`) — implemented, not
+excluded; see its own paragraph in `CLAUDE.md`.
 
 **Scope of change:** Would need either a low-level, non-hygienic macro
 facility this codebase's expander doesn't have, or dedicated compiler
