@@ -201,7 +201,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const dst_idx = try registerIndex(self, frame.base, dst);
-                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 if (func.env == null) {
                     if (func.global_cache) |cache| {
                         if (func.cache_version == self.global_version and
@@ -219,40 +218,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
-                // #1812: resolved once and reused below to also skip caching
-                // this reference — a def_env_binding_prefix name's resolution
-                // isn't invalidated by self.global_version (a library's own
-                // internal set! on its def_env doesn't bump it, since that
-                // mutation's func.env isn't null), so caching it under that
-                // version could go stale.
+                // #1812: skip caching a def_env_binding_prefix reference — its
+                // resolution isn't invalidated by self.global_version (a
+                // library's own internal set! on its def_env doesn't bump it,
+                // since that mutation's func.env isn't null), so caching it
+                // under that version could go stale.
                 const def_env_parts = vm_mod.globals_mod.parseDefEnvBindingSymbolName(name);
-                const found: ?Value = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
-                    resolveBaseBindingLocked(self, env, base_name)
-                else if (def_env_parts) |parts|
-                    vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname)
-                else blk: {
-                    // Map reads under the child-thread shared lock; the error
-                    // path runs after release (findSimilarName locks internally).
-                    self.lockGlobalsShared();
-                    defer self.unlockGlobalsShared();
-                    break :blk env.get(name) orelse blk2: {
-                        if (func.env != null and !func.restricted_globals) {
-                            if (self.globals.get(name)) |gval| break :blk2 gval;
-                        }
-                        // Hygienic-prefix fallback is intentionally ungated by
-                        // restricted_globals: macro-introduced references must
-                        // still resolve through globals even in restricted envs.
-                        const base = types.stripHygienicPrefix(name);
-                        if (base.len != name.len) {
-                            if (env.get(base)) |bval| break :blk2 bval;
-                            if (env != self.globals) {
-                                if (self.globals.get(base)) |gval| break :blk2 gval;
-                            }
-                        }
-                        break :blk2 null;
-                    };
-                };
-                const val = found orelse return raiseUndefinedVariable(self, name);
+                const val = lookupGlobalLocked(self, func, name) orelse
+                    return raiseUndefinedVariable(self, name);
                 self.registers[dst_idx] = val;
                 if (func.env == null and def_env_parts == null and (types.isClosure(val) or types.isNativeFn(val))) {
                     if (func.global_cache) |cache| {
@@ -926,7 +899,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const the_closure = frame.closure orelse return VMError.InvalidBytecode;
                 const the_func = the_closure.func;
-                const env: *std.StringHashMap(Value) = the_func.env orelse self.globals;
                 const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, base_wide, nargs);
                 const base: u32 = try toBase(base_wide);
@@ -945,7 +917,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
-                            const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
+                            const val = lookupGlobalLocked(self, the_func, name) orelse return raiseUndefinedVariable(self, name);
                             self.registers[base] = val;
                             // #1812: don't cache a def_env_binding_prefix
                             // resolution — see the get_global handler's own
@@ -961,7 +933,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const sym = try constantAt(self, the_func, sym_idx);
                         if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
-                        const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
+                        const val = lookupGlobalLocked(self, the_func, name) orelse return raiseUndefinedVariable(self, name);
                         self.registers[base] = val;
                         if ((types.isClosure(val) or types.isNativeFn(val)) and
                             vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
@@ -987,16 +959,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, the_func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    const found = if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name|
-                        resolveBaseBindingLocked(self, env, base_name)
-                    else if (vm_mod.globals_mod.parseDefEnvBindingSymbolName(name)) |parts|
-                        vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname)
-                    else blk: {
-                        self.lockGlobalsShared();
-                        defer self.unlockGlobalsShared();
-                        break :blk env.get(name);
-                    };
-                    const val = found orelse return raiseUndefinedVariable(self, name);
+                    const val = lookupGlobalLocked(self, the_func, name) orelse
+                        return raiseUndefinedVariable(self, name);
                     self.registers[base] = val;
                 }
 
@@ -1047,7 +1011,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
-                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
                 const abs_base: u32 = try toBase(abs_base_wide);
@@ -1066,7 +1029,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    callee = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
+                    callee = lookupGlobalLocked(self, func, name) orelse return raiseUndefinedVariable(self, name);
                     // #1812: don't cache a def_env_binding_prefix resolution
                     // — see get_global's own comment on why self.global_version
                     // can't be trusted to invalidate it.
@@ -1465,23 +1428,48 @@ noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
     return VMError.UndefinedVariable;
 }
 
-inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []const u8) ?Value {
+/// Resolve a global reference made by `func`: its own environment first, then
+/// the VM globals when `func` runs in a library (or `eval`) environment, then
+/// both again with any hygienic rename prefix stripped.
+///
+/// The three global-reference opcodes must all resolve through here.
+/// `get_global`, `call_global`, and `tail_call_global` describe the *same*
+/// reference — which one the compiler emits depends only on syntactic position
+/// (operand vs. operator, tail vs. non-tail) — so a name that resolves under
+/// one has to resolve under the others. They disagreed: only `get_global`
+/// carried the vm.globals fallback library code needs (455f5cc2), so a library
+/// body calling a global it hadn't imported (`cadar`, a `%`-prefixed internal
+/// primitive) worked in tail position, where the compiler emits get_global plus
+/// a plain tail_call, and raised "undefined variable" in every other position,
+/// where it emits call_global (kaappi#1831).
+inline fn lookupGlobalLocked(self: *VM, func: *types.Function, name: []const u8) ?Value {
+    const env: *std.StringHashMap(Value) = func.env orelse self.globals;
     if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name| {
         return resolveBaseBindingLocked(self, env, base_name);
     }
     if (vm_mod.globals_mod.parseDefEnvBindingSymbolName(name)) |parts| {
         return vm_mod.globals_mod.lookupDefEnvBinding(parts.libname, parts.origname);
     }
+    // Map reads under the child-thread shared lock; the error path runs after
+    // release (findSimilarName locks internally).
     self.lockGlobalsShared();
-    const found: ?Value = env.get(name) orelse blk: {
-        const b = types.stripHygienicPrefix(name);
-        if (b.len != name.len) {
-            if (env.get(b)) |bval| break :blk bval;
+    defer self.unlockGlobalsShared();
+    return env.get(name) orelse blk: {
+        if (func.env != null and !func.restricted_globals) {
+            if (self.globals.get(name)) |gval| break :blk gval;
+        }
+        // Hygienic-prefix fallback is intentionally ungated by
+        // restricted_globals: macro-introduced references must still resolve
+        // through globals even in restricted envs.
+        const base = types.stripHygienicPrefix(name);
+        if (base.len != name.len) {
+            if (env.get(base)) |bval| break :blk bval;
+            if (env != self.globals) {
+                if (self.globals.get(base)) |gval| break :blk gval;
+            }
         }
         break :blk null;
     };
-    self.unlockGlobalsShared();
-    return found;
 }
 
 /// Resolve a `globals_mod.base_binding_prefix`-marked name (#1715): prefer
