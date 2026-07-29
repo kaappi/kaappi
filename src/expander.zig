@@ -1055,7 +1055,9 @@ fn stripHygieneWalk(gc: *GC, expr: Value, depth: u16) !void {
 /// references none belongs to the inner macro and must be preserved.
 fn ellipsisReferencesOuter(elem: Value, bindings: []Binding) bool {
     for (bindings) |b| {
-        if (b.is_list and templateReferencesVar(elem, b.name)) return true;
+        if (b.is_list and templateReferencesVar(elem, b.name)) {
+            if (templateReferencesVarDirectly(elem, b.name) or b.depth > 1) return true;
+        }
     }
     return false;
 }
@@ -1472,6 +1474,77 @@ fn templateReferencesVar(template: Value, name: []const u8) bool {
     return false;
 }
 
+/// Like templateReferencesVar, but skips sub-expressions consumed by a
+/// nested inner ellipsis — i.e. elements immediately followed by `...`.
+/// A binding found only inside such a sub-expression is "indirectly"
+/// referenced and should not drive the outer ellipsis's repeat count.
+fn templateReferencesVarDirectly(template: Value, name: []const u8) bool {
+    if (types.isSymbol(template)) {
+        return std.mem.eql(u8, types.symbolName(template), name);
+    }
+    if (types.isPair(template)) {
+        const head = types.car(template);
+        const tail = types.cdr(template);
+        if (types.isPair(tail)) {
+            const next = types.car(tail);
+            if (types.isSymbol(next) and isEllipsis(types.symbolName(next))) {
+                var rest = types.cdr(tail);
+                while (types.isPair(rest)) {
+                    const r = types.car(rest);
+                    if (types.isSymbol(r) and isEllipsis(types.symbolName(r))) {
+                        rest = types.cdr(rest);
+                    } else break;
+                }
+                return templateReferencesVarDirectly(rest, name);
+            }
+        }
+        return templateReferencesVarDirectly(head, name) or
+            templateReferencesVarDirectly(tail, name);
+    }
+    return false;
+}
+
+/// Checks whether a candidate variable and any Pass-1 driver variable both
+/// appear inside the SAME inner `(elem ...)` sub-template.  When they do,
+/// the candidate shares a pattern group with the driver and should be
+/// consumed per-iteration (SRFI 149's excess-ellipsis replication).  When
+/// they don't — the candidate's only inner `(x ...)` contains no driver —
+/// the candidate is from an independent group and should be passed through
+/// wholesale (issue #1721).
+fn sharesInnerEllipsisWithDriver(template: Value, candidate_name: []const u8, bindings: []const Binding, referenced: *const [MAX_BINDINGS]bool) bool {
+    if (!types.isPair(template)) return false;
+
+    const head = types.car(template);
+    const tail = types.cdr(template);
+
+    if (types.isPair(tail)) {
+        const next = types.car(tail);
+        if (types.isSymbol(next) and isEllipsis(types.symbolName(next))) {
+            // `head` is consumed by an inner ellipsis.  Check whether it
+            // references both the candidate and any Pass-1 driver.
+            if (templateReferencesVar(head, candidate_name)) {
+                for (bindings, 0..) |b, bi| {
+                    if (referenced[bi] and templateReferencesVar(head, b.name)) {
+                        return true;
+                    }
+                }
+            }
+            // Skip past consecutive ellipses and check the rest of the list.
+            var rest = types.cdr(tail);
+            while (types.isPair(rest)) {
+                const r = types.car(rest);
+                if (types.isSymbol(r) and isEllipsis(types.symbolName(r))) {
+                    rest = types.cdr(rest);
+                } else break;
+            }
+            return sharesInnerEllipsisWithDriver(rest, candidate_name, bindings, referenced);
+        }
+    }
+
+    return sharesInnerEllipsisWithDriver(head, candidate_name, bindings, referenced) or
+        sharesInnerEllipsisWithDriver(tail, candidate_name, bindings, referenced);
+}
+
 fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     // Per-iteration sub-binding scratch, hoisted out of the loop and written
     // field-by-field there: whole-struct assignment re-initializes or copies
@@ -1492,14 +1565,34 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         var repeat_count: usize = 0;
         var count_set = false;
         var referenced: [MAX_BINDINGS]bool = @splat(false);
+        var indirect: [MAX_BINDINGS]bool = @splat(false);
+
         for (bindings, 0..) |b, bi| {
-            if (b.is_list and templateReferencesVar(elem_template, b.name)) {
+            if (b.is_list and (templateReferencesVarDirectly(elem_template, b.name) or
+                (b.depth > 1 and templateReferencesVar(elem_template, b.name))))
+            {
                 referenced[bi] = true;
                 if (!count_set) {
                     repeat_count = b.ellipsis_count;
                     count_set = true;
                 } else if (b.ellipsis_count != repeat_count) {
                     return ExpandError.EllipsisCountMismatch;
+                }
+            }
+        }
+
+        for (bindings, 0..) |b, bi| {
+            if (b.is_list and !referenced[bi] and templateReferencesVar(elem_template, b.name)) {
+                if (sharesInnerEllipsisWithDriver(elem_template, b.name, bindings, &referenced)) {
+                    referenced[bi] = true;
+                    if (!count_set) {
+                        repeat_count = b.ellipsis_count;
+                        count_set = true;
+                    } else if (b.ellipsis_count != repeat_count) {
+                        return ExpandError.EllipsisCountMismatch;
+                    }
+                } else {
+                    indirect[bi] = true;
                 }
             }
         }
@@ -1572,7 +1665,20 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
             var sub_count: usize = 0;
             for (bindings, 0..) |b, bi| {
                 if (b.is_list) {
-                    if (!referenced[bi]) continue;
+                    if (!referenced[bi] and !indirect[bi]) continue;
+                    if (indirect[bi]) {
+                        sub_bindings[sub_count].name = b.name;
+                        sub_bindings[sub_count].value = types.NIL;
+                        sub_bindings[sub_count].depth = b.depth;
+                        sub_bindings[sub_count].is_list = true;
+                        sub_bindings[sub_count].ellipsis_count = b.ellipsis_count;
+                        var ec: usize = 0;
+                        while (ec < b.ellipsis_count and ec < MAX_ELLIPSIS_VALUES) : (ec += 1) {
+                            sub_bindings[sub_count].ellipsis_values[ec] = b.ellipsis_values[ec];
+                        }
+                        sub_count += 1;
+                        continue;
+                    }
                     if (b.depth > 1) {
                         // Nested ellipsis: unpack list into sub-binding
                         sub_bindings[sub_count].name = b.name;
