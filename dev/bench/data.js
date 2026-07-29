@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785310710153,
+  "lastUpdate": 1785314915171,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d8cdaf53cac57d2d94d2421e0a61a1bf83c7fcca",
-          "message": "Report the real dlopen failure from ffi-open (#1662)\n\nffi-open probes several candidates (name as-is, platform suffixes,\n<home>/lib/ with suffixes) but reported dlerror() only after the last\nprobe — and dlerror only remembers the most recent failure. A library\nthat existed but refused to load (macOS code-signing rejection, wrong\narchitecture, corrupt file) was therefore reported as \"no such file\"\nfor a fallback path the user never asked for.\n\nTwo changes:\n\n- Snapshot per-candidate failures and report, in order of preference:\n  the first candidate that exists on disk but failed to load, else the\n  as-is attempt's error (prefixed with the requested name when the\n  platform's dlerror text doesn't contain it, e.g. Windows' bare\n  \"Win32 error N\") plus a note listing the other probes. The dlerror\n  text is clamped so the note survives the 256-byte detail buffer.\n\n- Skip the <home>/lib/ fallback for names containing a path separator,\n  matching dlopen(3) semantics where a slash means pathname, not search\n  key. Previously an absolute path produced nonsense probes like\n  \"<home>/lib//abs/path/libfoo.dylib.so\" — whose \"no such file\" then\n  masked the real error. All ecosystem packages pass bare names, so\n  nothing relied on the old behavior.\n\nMotivating repro: with libkaappi_math.dylib present in ~/.kaappi/lib\nbut rejected by library validation, (import (kaappi math)) reported\nonly \"no such file\" for ~/.kaappi/lib/libkaappi_math.so and never the\nvalidation error for the .dylib that exists. Since the library passes\na bare name, the interesting error came from a mid-order candidate —\nwhich is why existence, not probe order, selects the reported error.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T07:41:12Z",
-          "tree_id": "f4ee62349d8f4cb8840c65801b2941e1f1d91741",
-          "url": "https://github.com/kaappi/kaappi/commit/d8cdaf53cac57d2d94d2421e0a61a1bf83c7fcca"
-        },
-        "date": 1784448966947,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.443335,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.954518,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912342,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.442541,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006375,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053645,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497193,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069244,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.572538,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.953883,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.618425,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441765,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.837112,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713689,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044657,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043299,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07adabaf2211c8c8b2388c6ba49dcc4bca09069e",
+          "message": "Bound fuzz generator gates by instruction count on Debug builds (#1835) (#1836)\n\n`zig build test -Doptimize=Debug` is its own ubuntu-latest CI leg, and the\n`portable-subset generator: programs evaluate without error` gate fails on it.\nThe gate bounds each generated program by a 100 ms wall clock, which stops\ntracking work done as soon as the whole pipeline runs unoptimized.\n\nMeasured over the gate's own 60 fixed seeds under Debug: the in-`vm.eval`\nwindow is 35 ms min / 91 ms median / 435 ms max against that 100 ms budget --\nthe median *correct* program already sits at the threshold. 9 of 60 seeds\nmissed, every one as `.resource_limit`, none as a compile or runtime error.\nTwo structural details make the miss set jitter rather than a real\nslow-program signal: the deadline is only checked inside `runUntil`, so the\nfixed leading `(import (scheme base) (scheme char) (scheme lazy)\n(scheme write))` -- ~26 ms, a quarter of the budget -- spends it without ever\nbeing able to trip it, and read/expand/lower/emit are unchecked for the same\nreason. Consecutive runs of the same fixed seeds disagree about which seeds\nmiss, which is what made this look nondeterministic.\n\nThis is the same wall-clock-vs-slow-execution class already fixed for\ngc-stress (#1447/#1449) and for emulated cross-compiled targets (#1573), where\nthe gates bound by instruction count instead -- speed-independent, identical\nno matter how fast each instruction runs. Debug was never added to that list.\n\nFold `builtin.mode == .Debug` into `speed_independent`, so Debug takes the\nexisting 2M-instruction bound and 120 s wall-clock backstop unchanged. The\nchange is confined to `src/tests_fuzz.zig`; the shipped binary is unaffected.\n\nThe existing regression guard could not have caught this: its two branches are\nself-consistent with whatever `speed_independent` evaluates to, so a mode\nmissing from the definition just takes the other branch and passes. Add an\nexplicit `if (debug_build) try expect(speed_independent)` ahead of them.\nMutation-tested: dropping the `or debug_build` term makes the guard fail on\nthat exact assertion under Debug.\n\nThe issue also reported a second failure mode -- a native stack overflow with\na repeating `eval -> compile -> lower -> eval` cycle and \"445+ additional stack\nframes skipped\". That is not a stack overflow and not a second bug. The message\nis emitted only by `writeErrorReturnTrace` (std/debug.zig, `skipped =\net.index - len`), so it is an accumulated *error return trace*, not a call\nstack; the \"cycle\" is ~50 repetitions of one 9-frame CompileError propagation\npath. The Debug run that produced it ended in an ordinary test failure\n(1377 pass, 4 skip, 1 fail), with no panic. Its `--seed` dependence was also\nillusory: in non-fuzz mode Zig replays only the fixed corpus, and these gates\nuse hardcoded seeds 0..59, so the 60 programs are byte-identical every run.\n\nVerified: full unit suite green under both `-Doptimize=Debug` and ReleaseSafe;\n`-Dtest-filter=generator` under Debug goes from 1 fail to clean.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T08:13:39Z",
+          "tree_id": "be4a83135112401f4c161ba7fccbe6a72338b758",
+          "url": "https://github.com/kaappi/kaappi/commit/07adabaf2211c8c8b2388c6ba49dcc4bca09069e"
+        },
+        "date": 1785314913189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.086798,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.097804,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.413152,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.195082,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004327,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03481,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.229714,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.04209,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.092697,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.932788,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.201289,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.234582,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.317626,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.739714,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034441,
             "unit": "seconds"
           }
         ]
