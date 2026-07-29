@@ -40,6 +40,7 @@ pub fn setVMInstance(vm: *VM) void {
     globals_mod.def_env_binding_set = &setDefEnvBinding;
     globals_mod.eval_datum_for_macro = &evalDatumForMacro;
     globals_mod.call_proc_for_macro = &callProcForMacro;
+    globals_mod.error_detail_for_macro = &errorDetailForMacro;
     globals_mod.syntax_property_set = &syntaxPropertySet;
     globals_mod.syntax_property_get = &syntaxPropertyGet;
 }
@@ -63,10 +64,33 @@ fn evalDatumForMacro(expr: Value) anyerror!Value {
 }
 
 /// SRFI 211: invoke a procedural macro transformer (or a SRFI 213
-/// capture-lookup re-entry procedure) from inside the expander.
+/// capture-lookup re-entry procedure) from inside the expander. On failure,
+/// formats an escaping Scheme-level exception into last_error_detail exactly
+/// as a top-level form's own uncaught exception would (#1846): callReentrant
+/// (used here for a Closure transformer.proc) only preserves last_error_detail
+/// across its own cleanup, it doesn't populate it from current_exception the
+/// way execute()'s top-level boundary does via noteUncaughtException. Without
+/// this, `(error "msg" irritant)` raised inside a transformer leaves
+/// current_exception set but last_error_detail empty, and errorDetailForMacro
+/// below would have nothing to report. A primitive's own direct type error
+/// (e.g. `(car 7)`) already sets last_error_detail itself and is unaffected
+/// (noteUncaughtException no-ops for anything other than ExceptionRaised).
 fn callProcForMacro(proc: Value, args: []const Value) anyerror!Value {
     const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
-    return vm.callWithArgs(proc, args);
+    return vm.callWithArgs(proc, args) catch |err| {
+        vm.noteUncaughtException(err);
+        return err;
+    };
+}
+
+/// #1846: expose the VM's last recorded error detail to the expander/compiler
+/// (which cannot import vm.zig) so a procedural macro transformer's real
+/// failure -- the message above, or a primitive's own type-error text --
+/// reaches compiler_macro.zig's error.TransformerFailed arms instead of being
+/// discarded.
+fn errorDetailForMacro() []const u8 {
+    const vm = vm_instance orelse return "";
+    return vm.getErrorDetail();
 }
 
 /// SRFI 213: store a property value under the composite key

@@ -3,6 +3,7 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const compiler = @import("compiler.zig");
 
 test "define-syntax simple alias" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -1833,6 +1834,58 @@ test "SRFI 211: transformer raising at expansion time is a compile error" {
     );
     const result = ctx.vm.eval("(boom)");
     try std.testing.expectError(error.CompileError, result);
+}
+
+// #1846: the condition a procedural transformer raises used to be computed,
+// stored on the VM, and then discarded -- CompileError.InvalidSyntax carried
+// no detail, so the top-level reporter fell back to a bare "invalid syntax"
+// with no hint of the real cause (see #1831, where this hid the actual
+// "undefined variable 'cadar'" message for days). It now reaches the same
+// compiler.syntax_error_detail channel `syntax-error` reports through, via
+// the globals.error_detail_for_macro hook vm.callProcForMacro/errorDetailForMacro
+// populate. `eval` returns CompileError directly without consuming that
+// buffer (unlike the CLI's reportCompileError/kaappi check paths), so it is
+// still readable here immediately after.
+test "SRFI 211: transformer's raised condition reaches syntax_error_detail (#1846)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define-syntax boom
+        \\  (er-macro-transformer (lambda (f r c) (error "expansion refused" 'x 42))))
+    );
+    const result = ctx.vm.eval("(boom)");
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expectEqualStrings("expansion refused x 42", compiler.getSyntaxErrorDetail());
+}
+
+test "SRFI 211: a failing primitive call inside a transformer reaches syntax_error_detail (#1846)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define-syntax boom2
+        \\  (er-macro-transformer (lambda (f r c) (car 7))))
+    );
+    const result = ctx.vm.eval("(boom2)");
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expectEqualStrings("type error in 'car': expected pair, got 7", compiler.getSyntaxErrorDetail());
+}
+
+test "SRFI 211: syntax-rules NoMatchingPattern still has no detail (#1846 scope note)" {
+    // TransformerFailed is the only ExpandError arm #1846 changes -- an
+    // ordinary syntax-rules rejection has no VM-side condition to recover
+    // (see the ExpandError.TransformerFailed doc comment in expander.zig)
+    // and must keep reporting the generic InvalidSyntax message.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define-syntax only-one-arg (syntax-rules () ((_ x) x)))
+    );
+    const result = ctx.vm.eval("(only-one-arg 1 2 3)");
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expectEqual(@as(usize, 0), compiler.getSyntaxErrorDetail().len);
 }
 
 test "SRFI 211: a global transformer value works as a bare-symbol spec" {

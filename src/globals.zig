@@ -159,6 +159,18 @@ pub var eval_datum_for_macro: ?EvalDatumFn = null;
 pub const CallProcFn = *const fn (proc: Value, args: []const Value) anyerror!Value;
 pub var call_proc_for_macro: ?CallProcFn = null;
 
+/// #1846: retrieve the VM's last recorded error detail -- the message and
+/// irritants of whatever Scheme-level condition a procedural macro
+/// transformer raised (via call_proc_for_macro above), or the type-error text
+/// of a failing primitive call inside it (e.g. `(car 7)`). Registered by
+/// vm.setVMInstance alongside call_proc_for_macro. Read by
+/// compiler_macro.zig's error.TransformerFailed arms to populate
+/// compiler.syntax_error_detail -- the same channel `syntax-error` already
+/// reports through -- so the real condition reaches the user instead of a
+/// bare "invalid syntax".
+pub const ErrorDetailFn = *const fn () []const u8;
+pub var error_detail_for_macro: ?ErrorDetailFn = null;
+
 /// SRFI 213 (identifier properties): set/get on the VM-owned property
 /// table, keyed by the effective (hygiene-stripped) names of the property's
 /// identifier and key. Registered by vm.setVMInstance; the table's Values

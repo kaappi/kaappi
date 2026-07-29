@@ -106,6 +106,16 @@ single_diag("read stage", '(display "abc', "KP1", "unterminated string")
 # Expand stage (KP2002): a macro/syntax rejection carries its detail message.
 single_diag("expand stage", '(syntax-error "bad usage" 42)', "KP2", "bad usage")
 
+# Expand stage, procedural transformer (KP2002, kaappi#1846): a condition an
+# er-macro-transformer raises must carry its own message in JSON mode too,
+# not just the human-text CLI path -- same channel as syntax-error above.
+single_diag(
+    "expand stage: procedural transformer",
+    '(import (srfi 211 explicit-renaming)) '
+    '(define-syntax boom (er-macro-transformer (lambda (f r c) (error "field not found" (quote alpha) 42)))) '
+    '(boom)',
+    "KP2", "field not found alpha 42")
+
 # Compile stage (KP2xxx): an if with no test.
 single_diag("compile stage", "(if)", "KP2")
 

@@ -54,7 +54,7 @@ leading digit of the code identifies the stage (full taxonomy in
 | Stage | Codes | Example trigger |
 |-------|-------|-----------------|
 | Read / lexical | `KP1xxx` | `(display "abc` → `KP1006` unterminated string |
-| Expand (macros / `syntax-rules`) | `KP2002` | `(syntax-error "bad" 42)` → `KP2002` |
+| Expand (macros, `syntax-rules`, procedural transformers) | `KP2002` | `(syntax-error "bad" 42)` → `KP2002`; a raised condition inside an `er-macro-transformer`/`lisp-transformer` (SRFI 211) reports here too (#1846) |
 | Compile | `KP2xxx` | `(if)` → `KP2001` invalid syntax |
 | Runtime | `KP3xxx` | `(car 5)` → `KP3002` type error |
 

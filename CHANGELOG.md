@@ -44,6 +44,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A procedural macro transformer's own raised condition was discarded and
+  reported as a bare `"invalid syntax"`.** A Scheme-level error inside a
+  SRFI 211 `er-macro-transformer`/`lisp-transformer` — the transformer's own
+  `(error ...)`, or a primitive type error inside it like `(car 7)` — was
+  computed and stored on the VM, then thrown away when the expander's
+  `TransformerFailed` collapsed to the compiler's generic
+  `CompileError.InvalidSyntax`: #1831 was a one-line resolution bug whose
+  real message was `undefined variable 'cadar'`, none of which reached the
+  user, so it was chased for days as a `cadar`-specific primitives bug
+  instead. The real condition now flows through the same
+  `syntax-error[KP2002]` channel `syntax-error` itself already reports
+  through — in the CLI's text output, `kaappi check`, and
+  `--diagnostics=json` alike — while an ordinary `syntax-rules` pattern-match
+  rejection, which has no VM-side condition to recover, keeps its existing
+  generic message (#1846).
+
 - **A `syntax-rules` template's own free reference to a pre-existing global
   could collapse into an unrelated, same-spelled argument at the use site.**
   R7RS 4.3.1 referential transparency for a template's free reference to a
