@@ -21,8 +21,10 @@ the discussion in `kaappi/kaappi`; GitHub serves it at the `orgs/kaappi` URL.
 | Category | `Announcements` (id `DIC_kwDOS7a-es4C_rmH`) |
 | Other categories | `general`, `ideas`, `polls`, `q-a`, `show-and-tell` |
 
-Announcements is a **maintainer-restricted** category. A token without write
-access to `kaappi/kaappi` will fail at Step 6, not earlier.
+Announcements is a **maintainer-restricted** category, and `kaappi/kaappi` is
+public — so a read-only token sails through Steps 1 and 2 (both are public
+reads) and fails only at Step 6, on the write. A token that cannot authenticate
+at all fails earlier, at the `gh auth status` in Step 1.
 
 ## Who this is for
 
@@ -67,13 +69,19 @@ Stop and ask the user if any of these hold:
 
 Re-running this skill must not double-post.
 
+Search for the tag rather than listing the newest N. A plain `--limit 30` only
+inspects the 30 most recent announcements, which is exactly wrong for the case
+that needs the check most — announcing an *older* release, where any duplicate
+is by definition not among the newest:
+
 ```bash
 gh discussion list -R kaappi/kaappi --category "Announcements" \
-  --limit 30 --json number,title,url
+  --search "$TAG" --json number,title,url
 ```
 
-If one already covers `$TAG`, do not create a second. Show it to the user and
-offer to edit it instead (see "Editing an already-posted announcement" below).
+`totalCount: 0` means none exists. Any hit means one already covers `$TAG` — do
+not create a second. Show it to the user and offer to edit it instead (see
+"Editing an already-posted announcement" below).
 
 ## Step 3: Gather source material
 
@@ -193,7 +201,7 @@ URL comes from `gh release view --json url`, never from memory. Write the body
 to a file, then check every link in it actually resolves:
 
 ```bash
-grep -oE 'https://[^)[:space:]]+' /path/to/announcement.md \
+grep -oE 'https://[^)>"[:space:]]+' /path/to/announcement.md \
   | sed 's/[.,;:]*$//' | sort -u | while read -r u; do
   printf '%s  %s\n' "$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 20 "$u")" "$u"
 done
@@ -201,11 +209,14 @@ done
 
 Every line must read `200`. Fix anything that does not before showing the draft.
 
-The character class must exclude whitespace as well as `)`, and trailing
-punctuation must be stripped: the body contains
-`curl -fsSL https://kaappi-lang.org/install.sh | bash` inside a fence, and a
-laxer pattern swallows the trailing `| bash` and reports a spurious `000` for a
-URL that is fine.
+The character class is fussy for two measured reasons, so do not simplify it.
+Excluding whitespace and stripping trailing punctuation stops the body's
+`curl -fsSL https://kaappi-lang.org/install.sh | bash` fence from contributing a
+URL with the trailing `| bash` glued to it. Excluding `>` and `"` stops an
+angle-bracket
+autolink — `<https://kaappi-lang.org/download/>` — from contributing one with a
+trailing `>`. Both produce a spurious `000` for a URL that is perfectly fine,
+which is worse than useless: it blocks approval on a phantom defect.
 
 ## Step 5: Review with the user — STOP
 
@@ -228,9 +239,23 @@ gh discussion create -R kaappi/kaappi \
   --body-file /path/to/announcement.md
 ```
 
-`gh discussion` is a preview command. If it is missing or errors out, use the
-GraphQL mutation directly — the ids are fixed and listed at the top of this
-skill:
+`gh discussion` is a preview command. If it is missing or errors out, there is a
+GraphQL fallback below — but **re-check for the discussion before running it.**
+
+`createDiscussion` is a non-idempotent write. A non-zero exit from
+`gh discussion create` does not prove nothing was posted: a lost response (the
+mutation reached GitHub and succeeded, the reply did not make it back) looks
+identical to an outright failure from here. Firing the fallback blindly is how
+you get two public announcements and two rounds of watcher notifications.
+
+```bash
+gh discussion list -R kaappi/kaappi --category "Announcements" \
+  --search "$TAG" --json number,title,url
+```
+
+If that returns anything, the post *did* land — go to Step 7 with that number
+and do not run the mutation. Only on `totalCount: 0` use the fallback; the ids
+are fixed and listed at the top of this skill:
 
 ```bash
 gh api graphql -F body=@/path/to/announcement.md \
@@ -292,4 +317,4 @@ the same structure minus the "Install or upgrade" and "Full notes" sections.
 | `Category not found` | Slug is `announcements`; the display name is `Announcements`. Both work with `--category`. |
 | Discussion created but not at the `orgs/` URL | It will be — the org view and the repo view are the same discussion. |
 | Release body is empty | The release workflow generated notes from an empty `[Unreleased]` section. Fix the release, not the announcement. |
-| A shell snippet from this file behaves as if a variable were empty | A positional parameter (dollar sign plus digit, `@`, or `*`) in the snippet was replaced by the slash-command arguments before you read it. See the authoring note in Step 3. |
+| A shell snippet from this file produced a wrong or empty result | A dollar sign followed by a digit in the snippet was replaced by one of this invocation's arguments before you read it. Only that form is affected — `$@`, `$*`, and the braced form are not. See the authoring note in Step 3. |

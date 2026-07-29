@@ -258,12 +258,20 @@ so the discussion is created in `kaappi/kaappi` and GitHub serves it at the
 `orgs/kaappi` URL. Repo and category ids are pinned in the skill for the
 GraphQL fallback, since `gh discussion` is still a preview command.
 
-Seven steps: resolve the tag, preflight (`gh auth`, release exists and is
-neither draft nor prerelease), check the category for an existing announcement
-so a re-run cannot double-post, gather material (release body, previous tag,
-commit count, shipped assets), draft, **stop for explicit approval**, post and
+Eight steps, numbered 0 through 7: resolve the tag, preflight (`gh auth`,
+release exists and is neither draft nor prerelease, release not so old that the
+next one is imminent), search the category for an existing announcement of that
+tag so a re-run cannot double-post, gather material (release body, previous tag,
+commit count, shipped assets), draft, **stop for explicit approval**, post, and
 verify. The approval gate is mandatory — posting publishes public content in a
 maintainer-restricted category and notifies every org watcher.
+
+Both write paths guard against duplicating that notification. The duplicate
+check searches by tag rather than listing the newest N, since announcing an
+older release is precisely the case where a duplicate would not be among the
+newest. And because `createDiscussion` is a non-idempotent write whose lost
+response is indistinguishable from an outright failure, the GraphQL fallback
+re-runs that search before firing rather than trusting the CLI's exit code.
 
 Carries the editorial half too: how to pick 3–6 highlights (what a user can now
 *do*, not what changed — internal refactors and CI work are explicitly out), a
