@@ -246,6 +246,30 @@ Full release workflow with 10 steps and multiple confirmation gates:
 
 Includes error recovery procedures for both pre-push and post-push failures.
 
+### `/create-announcement`
+
+Drafts and posts a release announcement to the org Announcements forum at
+<https://github.com/orgs/kaappi/discussions/categories/announcements>. Takes a
+release tag (`/create-announcement v0.22.0`), defaulting to the latest release.
+
+The non-obvious fact the skill records: **org-level discussions are backed by
+the `kaappi/kaappi` repository** — the `.github` repo has discussions disabled,
+so the discussion is created in `kaappi/kaappi` and GitHub serves it at the
+`orgs/kaappi` URL. Repo and category ids are pinned in the skill for the
+GraphQL fallback, since `gh discussion` is still a preview command.
+
+Seven steps: resolve the tag, preflight (`gh auth`, release exists and is
+neither draft nor prerelease), check the category for an existing announcement
+so a re-run cannot double-post, gather material (release body, previous tag,
+commit count, shipped assets), draft, **stop for explicit approval**, post and
+verify. The approval gate is mandatory — posting publishes public content in a
+maintainer-restricted category and notifies every org watcher.
+
+Carries the editorial half too: how to pick 3–6 highlights (what a user can now
+*do*, not what changed — internal refactors and CI work are explicitly out), a
+title and body template, and accuracy rules requiring every claim to trace to
+the release notes.
+
 ### `/r7rs-reader`
 
 R7RS lexical syntax reference (Section 7.1). Documents implemented token types,
@@ -480,3 +504,42 @@ changes were made.
 Create a directory in `.claude/skills/<name>/` with a `SKILL.md` file.
 The directory name becomes the slash-command (`/name`). Skills are plain
 Markdown with step-by-step instructions.
+
+#### Argument expansion rewrites shell snippets before they are read
+
+A `SKILL.md` body is not delivered verbatim. Slash-command argument expansion
+rewrites positional tokens **before** the body reaches the model, so a shell
+snippet in the file is not necessarily the snippet that runs. Measured
+directly (three probe invocations at 0, 2, and 3 arguments):
+
+| Token in the file | What arrives |
+|-------------------|--------------|
+| `$0`, `$1`, `$2`, … | The **(N+1)-th** argument — the numbering is zero-indexed, so `$0` is the *first* argument |
+| `$0`, `$1`, … with no such argument | Left untouched — **not** replaced with an empty string |
+| `$ARGUMENTS` | The full argument string; empty when the skill is invoked with none |
+| `$@`, `$*`, `$#` | Never substituted |
+| `${1}` (braced) | Never substituted — the braced form is immune |
+| `$TAG` and other named variables | Never substituted |
+
+Position in the file is irrelevant: prose, inline code spans, and fenced code
+blocks are all rewritten alike. Fencing a snippet does **not** protect it.
+
+The failure mode is silent. `awk '$0==t{f=1}'` in a skill invoked as
+`/that-skill v0.21.0` arrives as `awk 'v0.21.0==t{f=1}'`, which matches nothing,
+exits 0, and yields an empty result far from the apparent cause — this is a real
+defect that shipped in `create-announcement` and was caught only by running it.
+
+Rules when authoring:
+
+- Prefer `git describe`, `cut -d' ' -f2`, or `sed -E` over `awk` field
+  variables. Where a field variable is unavoidable, `${2}` is safe.
+- Watch for `$` immediately before a digit in ordinary prose too — a cost note
+  reading `~$0.03/hr` renders as `~<first-argument>.03/hr`. Write `USD 0.03/hr`.
+- Before shipping, run `grep -nE '\$[0-9]' .claude/skills/<name>/SKILL.md` and
+  confirm every hit is deliberate.
+- When documenting this hazard *inside* a skill, describe it in prose ("a dollar
+  sign followed by a digit"). A warning containing the literal token rewrites
+  itself into an example of the bug.
+
+A no-argument skill is exposed only if someone passes arguments anyway; `$0` is
+the most fragile slot, since a single stray argument is enough to hit it.
