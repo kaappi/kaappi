@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785351461625,
+  "lastUpdate": 1785352838761,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "0687dc40a50acc4b6c870c5c69c407973c55a13f",
-          "message": "Release v0.21.0\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T12:36:56+05:30",
-          "tree_id": "7fcb72049611f3ebdc96c149330446a35f45a370",
-          "url": "https://github.com/kaappi/kaappi/commit/0687dc40a50acc4b6c870c5c69c407973c55a13f"
-        },
-        "date": 1784533868668,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329331,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.954391,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.973215,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.589273,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006498,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05454,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511352,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070531,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.646771,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.00724,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.596225,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437622,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.831128,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.678571,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043622,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042692,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "ca18ae69c906ea598462a9d4a92438048f1ee880",
+          "message": "Release v0.22.0\n\n93 new SRFIs (85 -> 178), closing the #1694 numeric-vector/array family,\n#1695 records, #1699 macros and syntax, plus #1702/#1703/#1810. The\nengine work behind them: procedural macro transformers (SRFI 211/213),\nnative apply lowering, and the types.zig split into 11 domain files.\n\nAlso refreshes counts that had drifted: built-in procedures 641 -> 690,\nprimitives files 26 -> 31, SRFI count 177/174 -> 178, and the R7RS suite\n1,391 -> 1,395 (what run-all.sh actually reports). SRFI 150 was missing\nfrom the CONFORMANCE table entirely; the table now cross-checks exactly\nagainst `kaappi features`.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T00:06:54+05:30",
+          "tree_id": "d57dfad572decd1c4e313321ce9a5aefa255a8f8",
+          "url": "https://github.com/kaappi/kaappi/commit/ca18ae69c906ea598462a9d4a92438048f1ee880"
+        },
+        "date": 1785352837302,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.948831,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.041143,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560853,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.809119,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00488,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044525,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.293782,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054496,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.343196,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.160104,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.505738,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305107,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.696183,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.803528,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045322,
             "unit": "seconds"
           }
         ]
