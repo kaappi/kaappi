@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785347568322,
+  "lastUpdate": 1785348133264,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "32dccea48d4833af53e9c39544b159423decea41",
-          "message": "Implement SRFI 257: pattern matcher with backtracking (#1678)\n\n* Implement SRFI 257: pattern matcher with backtracking (#1644)\n\nPort Sergei Egorov's reference implementation as portable libraries:\n(srfi 257) plus the misc and box sublibraries. The optional rx\nsublibrary needs SRFI 264 and is deferred.\n\nThe reference match is a CPS protocol of macro-generating macros\n(Petrofsky extraction, classify via nested let-syntax), and porting it\nsurfaced seven general expander/compiler defects, each fixed with a\nregression test in tests_macros.zig:\n\n- let-syntax templates could not reference an enclosing function's\n  locals: transformers now record definition-site lexical free refs\n  (def_site_local_refs) and renameForHygiene keeps them unrenamed when\n  the current frame cannot resolve them, so the normal upvalue path\n  applies; same-frame refs keep the shadow-proof rename+alias path\n- hygienic-capture alias injection could shadow a generated let-syntax\n  macro whose base name collides with a user variable; macro-bound\n  names are now skipped\n- injected aliases now read through boxes: they copy the slot's current\n  is_boxed and markLocalBoxedBySlot flips every same-slot local\n- quasiquote template symbols are data and are no longer hygiene-\n  renamed (2-bit nesting depth; depth-matching unquote resumes\n  expression mode)\n- a hygiene-renamed, unbound identifier now matches an unbound\n  syntax-rules literal of its base name (cm-match's <...>/<_> tokens)\n- pattern-var values substituted into nested syntax-rules templates are\n  wrapped in __hyg-usertext provenance markers, instantiated in\n  substitute-don't-rename mode, and stripped at the compile boundary --\n  without this every expansion generation re-renamed spliced user text\n  under a fresh scope, severing binders from references (the root cause\n  of broken non-linear patterns)\n- literal_bound now resolves a literal's definition-site binding\n  through the full lexical chain, matching the use-site check, so\n  literals bound in enclosing frames (non-linear pattern variables\n  inside generated backtracking lambdas) compare correctly\n\n111 of the reference suite's 112 assertions pass; the exception\ncompares boxes with equal?, which is implementation-specific. Two\nSRFI-241 catamorphism towers in the suite exceed the macro-expansion\nstep limit (runaway expansion, documented). Ships a 22-assertion smoke\nsuite in run-all plus the full port under tests/scheme/srfi/slow/.\n\nCloses #1644\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review feedback on SRFI 257\n\n- fix the upstream ~if-id-member reference bug: the non-identifier\n  fallback branch expanded an unbound yv where it meant xv, breaking\n  patterns whose atom is not a symbol (sr-match clauses with literal\n  numbers); note the deviation in the library header\n- wire the SRFI-64 failure exit code in both test suites (capture the\n  runner before test-end, exit 1 on failures) per tests/scheme\n  conventions, and cover ~etc+/~etc=/~etc**, the (f -> x) cata\n  operator, and non-symbol sr-match patterns in the smoke suite\n- fix the stale \"Portable SRFIs\" heading count in CONFORMANCE.md\n- rebase over SRFI 264 (#1672): counts move to 80 SRFIs / 70 portable;\n  the rx sublibrary is now unblocked and tracked as a follow-up\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Harden stripUsertextMarkers and make expansion context threadlocal\n\nReview follow-ups on the SRFI 257 machinery:\n\n- stripUsertextMarkers now terminates on cyclic inputs (tortoise-hare\n  on the cdr spine, cf. countPairs, plus a depth cap on nested\n  descent) — a macro invoked with a datum-label literal like\n  #0=(1 . #0#) previously hung the walk at every expansion call site —\n  and descends into vector literals so a user-text splice inside #(e)\n  cannot leak a marker pair into runtime data\n- the per-expansion expander context (active_custom_ellipsis,\n  active_literals, active_def_local_refs, active_use_check) is now\n  threadlocal: expansion is reachable from SRFI 18 child-thread\n  compile paths, and plain module globals let concurrent compilers\n  clobber each other's hygiene state\n- CONFORMANCE.md and the library header no longer claim SRFI 264 is\n  unavailable (it landed in #1672); the rx sublibrary stays a\n  follow-up\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address third review round on SRFI 257\n\n- fix a second upstream reference bug: ~seq-append and ~seq-append/ng\n  computed (x-length xv) before consulting the type predicate, so\n  matching (~string-append ...) against a non-string (or\n  (~vector-append ...) against a non-vector) raised a type error\n  instead of failing the pattern; the codegen now gates on (x? xv),\n  with smoke tests for all three mismatch shapes\n- make the remaining shared expansion state thread-safe: scope_table /\n  scope_table_count become threadlocal (they are per-expansion caches,\n  saved/restored around each expansion), and next_scope_id /\n  gensym_counter are bumped atomically so renames stay process-unique\n- raise the stripUsertextMarkers descent cap to 4096 and document why\n  a cap is sound (markers exist only in the freshly built template\n  skeleton, whose nesting is bounded by the expansion limits; the\n  compileForm safety net covers any survivor)\n- root freshly allocated Values across subsequent allocations in the\n  marker-wrap, quote, and quasiquote instantiation paths, per the GC\n  safety guidelines\n- exercise a real provenance marker in the vector-splice regression\n  test (a symbol datum; fixnums are never wrapped) and fix the stale\n  SRFI 264 note in the slow suite header\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address fourth review round on SRFI 257 machinery\n\n- strip vector-valued expansions too: the compile-boundary call sites\n  gated on isPair, so a macro whose whole expansion is #(e) skipped\n  stripping and leaked a marker into the vector constant; regression\n  test added\n- bound unwrapUsertext's chain walk: construction never stacks\n  wrappers, so legitimate chains are one layer; the bound keeps user\n  data forged as marker pairs — including a cyclic\n  #0=(__hyg-usertext . #0#) — from hanging the walk (the marker name\n  lives in the __hyg_ namespace the expander already reserves);\n  regression test added\n- widen quasiquote nesting depth to 3 bits (0-7, saturating) and add a\n  nested-quasiquote macro-vs-direct equivalence test. Towers whose\n  unquotes fully unwind at depth >= 3 turn out to be rejected by the\n  runtime quasiquote evaluator itself, macro or no macro — a separate\n  pre-existing limitation noted in the test\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make forged cyclic marker chains fully inert\n\nRouting the forged #0=(__hyg-usertext . #0#) datum through a macro (as\nthe review asked the regression test to do) exposed a real hang beyond\nthe bounded unwrap: when the chain unwraps to itself, the strip walk's\nre-examine step and the marker-splice instantiation path could loop.\nBoth now treat a chain that unwraps to a marker pair as opaque data,\nand the regression test passes the cyclic datum through expansion.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T03:34:42+05:30",
-          "tree_id": "0201b9ec44dd57f1d57225a6a3a9b8cbd0f9d789",
-          "url": "https://github.com/kaappi/kaappi/commit/32dccea48d4833af53e9c39544b159423decea41"
-        },
-        "date": 1784500591224,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.186974,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.208364,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.651235,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.304488,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006261,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.042,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.373092,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053658,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.984498,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.444774,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.247192,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.417647,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.415903,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.025592,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037074,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044671,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0822034d6d86cea9ac665ef3eb99a0f8c98e350a",
+          "message": "Reclassify digit-led glued identifiers from KP1002 to KP1004 (#1848)\n\n* Reclassify digit-led glued identifiers from KP1002 to KP1004\n\n`3-state`, `5foo`, `1.2.3`, and similar tokens are correctly rejected --\nR7RS identifiers can never begin with a digit -- but the reader had\nalready committed to parsing a number on the leading digit, so the\ngeneric KP1002 (\"unexpected character\", whose explanation talks about\nstray '#'-syntax) named the wrong category, gave no hint, and pointed\nthe caret one column past the token's actual start.\n\nSuch a token now reports KP1004 (\"invalid number literal\"), the\naccurate code since the reader already committed to a number, with the\ncaret at the token's start and a message that echoes the offending\ntoken and states the rule. Surfaced consistently across the CLI's text\noutput, `kaappi check`, `kaappi compile`, and `--diagnostics=json` via a\nnew reader detail-message channel mirroring the compiler's existing one.\n\nFixes #1723.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review findings on the digit-led-identifier fix\n\n- readNumber's wrapper reclassified to KP1004 whenever any non-delimiter\n  followed a number, not just an identifier-continuation character. A\n  stray backtick or comma (e.g. `3\\``) is neither a delimiter nor an\n  R7RS <subsequent> char, so it wrongly took the new path and reported\n  \"invalid number literal '3': ... cannot begin with a digit\" -- both\n  mislabeling the valid number '3' and dropping the actual offending\n  character. Now only reclassifies when consumeGluedIdentifierChars\n  actually consumes at least one character; otherwise it falls through\n  to the original, accurate UnexpectedChar (KP1002).\n\n- setReadErrorDetail's bufPrint-overflow fallback claimed the full\n  256-byte buffer as valid content without knowing how much a failed\n  write actually populated. Rebuilt on Io.Writer + buffered().len --\n  the same pattern compiler.formatSyntaxError already uses -- so a\n  pathologically long malformed token (the format string embeds it\n  twice) truncates to a clean prefix instead of risking a stale tail.\n\n- Strengthened the \"valid numbers are unaffected\" test to assert each\n  case's actual type/value (fixnum/complex/flonum/rational) rather than\n  just that reading succeeded, and added regression tests for both\n  fixes above plus the equivalent CLI-level cases.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:26:19Z",
+          "tree_id": "36ee992365ae3d5ee4934aa12b56146634115bb2",
+          "url": "https://github.com/kaappi/kaappi/commit/0822034d6d86cea9ac665ef3eb99a0f8c98e350a"
+        },
+        "date": 1785348131357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.08385,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.791491,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.436813,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.17329,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003767,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034303,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.227202,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041663,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.772529,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.888564,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.170878,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238203,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.314515,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.40522,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035602,
             "unit": "seconds"
           }
         ]
