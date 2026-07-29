@@ -5,6 +5,7 @@ const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_buffer = @import("shared_buffer.zig");
+const instrument = @import("channel_instrument.zig");
 const GC = memory_mod.GC;
 
 const Value = types.Value;
@@ -1079,8 +1080,16 @@ fn objectSize(obj: *Object) usize {
         .flonum => @sizeOf(Flonum),
         .vector => @sizeOf(Vector) + obj.as(Vector).data.len * @sizeOf(Value),
         // A backed bytevector (lever D) borrows its bytes from a SharedBuffer,
-        // so only the struct counts against this heap.
-        .bytevector => @sizeOf(Bytevector) + if (obj.as(Bytevector).shared == null) obj.as(Bytevector).data.len else 0,
+        // so only the struct counts against this heap. Comptime-pruned in the
+        // shipped build (kaappi#1794): `shared` is always null there, so this
+        // always takes the "count the full data" branch.
+        .bytevector => blk: {
+            const bv = obj.as(Bytevector);
+            if (comptime instrument.enabled) {
+                break :blk @sizeOf(Bytevector) + (if (bv.shared == null) bv.data.len else 0);
+            }
+            break :blk @sizeOf(Bytevector) + bv.data.len;
+        },
         .numeric_vector => @sizeOf(NumericVector) + obj.as(NumericVector).data.len,
         .transformer => blk: {
             const t = obj.as(Transformer);
@@ -1270,10 +1279,16 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             const bv = obj.as(Bytevector);
             // Lever D (kaappi#1472): a backed bytevector borrows its bytes from
             // a SharedBuffer -- release the reference (freeing the buffer at
-            // zero) instead of freeing bytes this heap never owned.
-            if (bv.shared) |raw| {
-                const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
-                sb.release();
+            // zero) instead of freeing bytes this heap never owned. Comptime-
+            // pruned in the shipped build (kaappi#1794): `shared` is always
+            // null there, so a shipped binary never loads the field at all.
+            if (comptime instrument.enabled) {
+                if (bv.shared) |raw| {
+                    const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
+                    sb.release();
+                } else {
+                    memory_mod.freeSliceNoFill(gc.allocator, u8, bv.data);
+                }
             } else {
                 memory_mod.freeSliceNoFill(gc.allocator, u8, bv.data);
             }
