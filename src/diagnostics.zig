@@ -232,7 +232,13 @@ pub const table = [_]Diagnostic{
         .explanation =
         \\A token that looked like a number could not be parsed as one — for
         \\example a malformed radix prefix (#x, #o, #b, #e, #i), a bad exponent,
-        \\or a rational with a zero denominator.
+        \\or a rational with a zero denominator. It is also raised for a token
+        \\that starts with a digit but is not a valid number, such as '3-state'
+        \\or '5foo': R7RS identifiers can never begin with a digit, so once the
+        \\reader commits to parsing a number on the leading digit, anything left
+        \\glued onto it makes the whole token a malformed number rather than a
+        \\stray character. Rename the identifier, or write it inside '|...|' to
+        \\get a literal symbol instead.
         ,
         .example = "1/0",
     },

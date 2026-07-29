@@ -157,6 +157,18 @@ if d is not None:
     check(d["range"]["start"]["line"] == 0 and d["range"]["start"]["character"] > 0,
           "reader error range carries a column", d["range"]["start"])
 
+# A digit-led identifier reclassifies from KP1002 to KP1004 in JSON mode too
+# (kaappi#1723), with the detail message echoing the token and the caret at
+# the token's start -- column 9 (0-based) of "(define (3-state x) x)".
+d = single_diag("digit-led identifier (kaappi#1723)",
+                "(define (3-state x) x)", "KP1", "3-state")
+if d is not None:
+    check(d["code"] == "KP1004", "digit-led identifier is exactly KP1004", d["code"])
+    check("cannot begin with a digit" in d["message"],
+          "digit-led identifier message states the rule", d["message"])
+    check(d["range"]["start"] == {"line": 0, "character": 9},
+          "digit-led identifier caret is at the token start", d["range"]["start"])
+
 # --- Suggestions map to data.suggestions ----------------------------------
 
 d = single_diag("undefined variable",

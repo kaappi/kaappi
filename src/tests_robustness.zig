@@ -145,6 +145,82 @@ test "reader: rational with zero denominator" {
     defer reader.deinit();
     const result = reader.readDatum();
     try std.testing.expectError(reader_mod.ReadError.InvalidNumber, result);
+    // The zero-denominator rejection happens after a fully-formed token (no
+    // trailing constituent characters), so it never sets the digit-led-
+    // identifier detail below -- confirm no stale hint leaks in here.
+    try std.testing.expectEqual(@as(usize, 0), reader_mod.getReadErrorDetail().len);
+}
+
+// ---------------------------------------------------------------------------
+// Digit-led identifiers reclassify from KP1002 to KP1004 (kaappi#1723)
+// ---------------------------------------------------------------------------
+//
+// `3-state`, `5foo`, `1.2.3`, `9x` all look like identifiers but R7RS forbids
+// a bare identifier from beginning with a digit, so the reader commits to
+// parsing a number on the leading digit and then finds constituent
+// characters glued onto it. This used to surface as the generic, miscoded
+// `UnexpectedChar` (KP1002); it must now be `InvalidNumber` (KP1004), with
+// the reported position at the token's start and a detail message that
+// echoes the token and explains the rule.
+
+test "reader: digit-led glued identifier reclassifies to InvalidNumber, not UnexpectedChar" {
+    const cases = [_][]const u8{ "3-state", "5foo", "1.2.3", "9x", "-3state" };
+    for (cases) |src| {
+        var gc = memory.GC.init(std.testing.allocator);
+        defer gc.deinit();
+        var reader = reader_mod.Reader.init(&gc, src);
+        defer reader.deinit();
+        const result = reader.readDatum();
+        try std.testing.expectError(reader_mod.ReadError.InvalidNumber, result);
+    }
+}
+
+test "reader: digit-led glued identifier reports the token's start position" {
+    // "(define (3-state x) x)" -- the bad token starts at byte offset 9.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const src = "(define (3-state x) x)";
+    var reader = reader_mod.Reader.init(&gc, src);
+    defer reader.deinit();
+    _ = reader.readDatum() catch {};
+    // Nothing else advances `pos` past the error: it must sit exactly on the
+    // '3', not on the '-' where the number scan actually stopped.
+    try std.testing.expectEqual(@as(usize, 9), reader.pos);
+    try std.testing.expectEqualStrings("3", src[reader.pos .. reader.pos + 1]);
+}
+
+test "reader: digit-led glued identifier detail echoes the token and the rule" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var reader = reader_mod.Reader.init(&gc, "3-state");
+    defer reader.deinit();
+    const result = reader.readDatum();
+    try std.testing.expectError(reader_mod.ReadError.InvalidNumber, result);
+    const detail = reader_mod.getReadErrorDetail();
+    try std.testing.expect(std.mem.indexOf(u8, detail, "3-state") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "cannot begin with a digit") != null);
+}
+
+test "reader: valid numbers and a piped digit-led symbol are unaffected" {
+    const cases = [_]struct { src: []const u8, is_symbol: bool }{
+        .{ .src = "3", .is_symbol = false },
+        .{ .src = "3-4i", .is_symbol = false },
+        .{ .src = "3e2", .is_symbol = false },
+        .{ .src = "1/2", .is_symbol = false },
+        .{ .src = "-.5", .is_symbol = false },
+        .{ .src = "|3-state|", .is_symbol = true },
+    };
+    for (cases) |c| {
+        var gc = memory.GC.init(std.testing.allocator);
+        defer gc.deinit();
+        var reader = reader_mod.Reader.init(&gc, c.src);
+        defer reader.deinit();
+        const result = try reader.readDatum();
+        if (c.is_symbol) {
+            try std.testing.expect(types.isSymbol(result));
+            try std.testing.expectEqualStrings("3-state", types.symbolName(result));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

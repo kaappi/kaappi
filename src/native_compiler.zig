@@ -98,6 +98,23 @@ fn reportUnresolvableLibraryImports(path: []const u8, files: *std.StringHashMap(
     writeStderr(std.fmt.bufPrint(&bundlebuf, "    zig build -Dbundle-src={s}\n", .{path}) catch "");
 }
 
+/// Print a read error the way `toplevel_driver.reportReadError` does, detail
+/// channel included (kaappi#1723) -- kept as its own hand-rolled block since
+/// this native-compile path has no `--diagnostics=json` mode and predates that
+/// consolidation. Shared by both of `emitLlvmFile`'s read-loop error arms.
+fn reportNativeReadError(path: []const u8, line: u32, col: u32, err: anyerror) void {
+    const code = diagnostics.readErrorCode(err);
+    const detail = reader_mod.getReadErrorDetail();
+    const msg = if (detail.len > 0) detail else code.message();
+    var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+    var errbuf: [256]u8 = undefined;
+    const prefix = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error[{s}]: ", .{ path, line, col, code.render(&cbuf) }) catch "read error: ";
+    writeStderr(prefix);
+    writeStderr(msg);
+    writeStderr("\n");
+    reader_mod.resetReadErrorDetail();
+}
+
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -181,11 +198,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        const code = diagnostics.readErrorCode(err);
-        var cbuf: [diagnostics.Code.render_width]u8 = undefined;
-        var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error[{s}]: {s}\n", .{ path, lc.line, lc.col, code.render(&cbuf), code.message() }) catch "read error\n";
-        writeStderr(s);
+        reportNativeReadError(path, lc.line, lc.col, err);
         return err;
     }) {
         timings.begin(.read); // kaappi#1515
@@ -193,11 +206,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         timings.end();
         const expr = read_result catch |err| {
             const lc = r.getLineCol();
-            const code = diagnostics.readErrorCode(err);
-            var cbuf: [diagnostics.Code.render_width]u8 = undefined;
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error[{s}]: {s}\n", .{ path, lc.line, lc.col, code.render(&cbuf), code.message() }) catch "read error\n";
-            writeStderr(s);
+            reportNativeReadError(path, lc.line, lc.col, err);
             return err;
         };
 

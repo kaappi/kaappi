@@ -403,6 +403,39 @@ assert_output_contains "index out of bounds is KP3006" \
 assert_output_contains "uncaught user error is KP3000" \
     '(error "boom")' 'error[KP3000]: boom'
 
+# --- Digit-led identifiers reclassify from KP1002 to KP1004 (kaappi#1723) ---
+# `3-state`, `5foo`, `1.2.3`, `9x` all look like identifiers, but R7RS forbids
+# a bare identifier from starting with a digit: the reader commits to a
+# number on the leading digit, then finds characters glued onto it. This used
+# to surface as the generic, miscoded KP1002 "unexpected character" (whose
+# explanation talks about stray '#'-syntax, irrelevant here) with the caret
+# one column past the token's start. It must now be KP1004 "invalid number
+# literal", caret at the token's start, with a detail message that echoes the
+# token and explains the rule.
+echo
+echo "-- Digit-led identifier diagnostics (kaappi#1723) --"
+
+assert_output_contains "3-state is KP1004, not KP1002" \
+    '(define (3-state x) x)' 'read error[KP1004]'
+assert_output_contains "3-state message echoes the token" \
+    '(define (3-state x) x)' "invalid number literal '3-state'"
+assert_output_contains "3-state message states the identifier rule" \
+    '(define (3-state x) x)' 'cannot begin with a digit'
+assert_output_contains "3-state caret is at the token start, not the glued char" \
+    '(define (3-state x) x)' '<stdin>:1:10: read error[KP1004]'
+
+assert_output_contains "5foo is KP1004" '5foo' 'read error[KP1004]'
+assert_output_contains "1.2.3 is KP1004" '1.2.3' 'read error[KP1004]'
+assert_output_contains "9x is KP1004" '9x' 'read error[KP1004]'
+
+# A piped digit-led symbol and ordinary valid numbers are untouched.
+assert_output_contains "|3-state| reads as a symbol, not an error" \
+    "(display '|3-state|)" '3-state'
+assert_output_contains "3-4i still reads as a complex number" \
+    '(display 3-4i)' '3-4i'
+assert_output_contains "1/0 keeps the generic KP1004 message (no stray hint)" \
+    '1/0' 'read error[KP1004]: invalid number literal'
+
 # --- Full source columns: file:line:col (#1506) ---
 # Spans are threaded from the reader through IR into the bytecode line table, so
 # compile and runtime errors now carry a column, not just a line. The column
@@ -501,6 +534,7 @@ assert_no_zig_leak "uncaught user error"     '(error "boom" 1)'
 assert_no_zig_leak "raised non-error value"  '(raise 42)'
 assert_no_zig_leak "ellipsis with no pattern variable (#1791)" \
     '(define-syntax demo (syntax-rules () ((_) (quote (head tok ... tail))))) (demo)'
+assert_no_zig_leak "digit-led identifier (kaappi#1723)" '3-state'
 
 echo
 echo "=== Results ==="

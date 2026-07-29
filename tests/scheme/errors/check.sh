@@ -85,6 +85,10 @@ echo "== read / compile errors still surface with KP codes =="
 assert_out "unclosed list is a read error"  'error\[KP1' '(car 1'
 assert_out "malformed if is a compile error" 'error\[KP2' '(if)'
 
+echo "== digit-led identifier reclassifies to KP1004 under check (kaappi#1723) =="
+assert_out "3-state is KP1004, not KP1002"       'error\[KP1004\]' '(define (3-state x) x) x'
+assert_out "3-state message echoes the token"    "invalid number literal '3-state'" '(define (3-state x) x) x'
+
 echo "== --diagnostics=json parity =="
 printf '(car 5)\n' > "$TMP/j.scm"
 JSON="$("$KAAPPI" check --diagnostics=json "$TMP/j.scm" 2>&1 || true)"
