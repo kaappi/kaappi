@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785320960893,
+  "lastUpdate": 1785327981095,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b68e1456cde8548b04db36fda21f9bf3e7bc7f12",
-          "message": "Add CI guard that fails on non-final SRFIs (#1671)\n\nKaappi intends to ship only SRFIs that have reached final status, but nothing\nenforced it — a stray lib/srfi/<n>.sld for a draft or withdrawn SRFI (or one\nthat gets withdrawn later) would go unnoticed. An audit of the current 78\nimplementations against the canonical registry found them all final; this keeps\nit that way.\n\ntools/check-srfi-status.sh cross-references two derived sources so there is no\nsecond list to drift: the implemented set from `kaappi features --json`\n(builtin + portable, plus SRFI 261 which has no .sld), and each SRFI's status\nfrom admin/srfi-data.scm in the srfi-common repo (what srfi.schemers.org itself\nrenders). The registry is fetched rather than vendored so a newly added SRFI is\nvalidated against its real current status, not a snapshot a contributor could\nmismark.\n\nWired into the test job on one matrix leg, reusing its built binary; kept out\nof run-all.sh since that runs in every leg and this makes a network request.\nExit 77 (SKIP, registry unreachable) maps to a CI warning so a network blip\nnever reds an unrelated change, while a genuine non-final SRFI exits 1.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-19T20:31:05+05:30",
-          "tree_id": "bdcab7161917df36e6dc53009457df703a29db54",
-          "url": "https://github.com/kaappi/kaappi/commit/b68e1456cde8548b04db36fda21f9bf3e7bc7f12"
-        },
-        "date": 1784477718578,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.168209,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.982019,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.720627,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.453636,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005196,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04094,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.398713,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053371,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.617459,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.550975,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.168319,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.375711,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.354432,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.357808,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035445,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045383,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b1c479c0a8070e40d326394e707308e48da1762",
+          "message": "Add regression tests for #1716's recursive generated-macro quote (#1841)\n\n#1716 reported that a macro-generating macro whose generated helper is\nself-recursive and quotes one of its own pattern variables substituted\nthe literal pattern-variable name instead of the captured identifier:\n`(collect a b c)` yielded `(nm nm nm)`.\n\nBisecting the repro against builds of 55e5bc6 (the commit that added\nSRFI 209, where the bug was found) and 76d6012 shows the defect was\nalready fixed by #1773 -- renameForHygiene used to skip the hygienic\nrename for any quoted identifier, splitting a nested syntax-rules\ntemplate's quoted occurrence of a pattern variable from the rename its\nown pattern side had already claimed. #1773 landed its own test for the\nnon-recursive shape only, so the recursive shape #1716 actually\ndescribed was left unpinned.\n\nAdd that coverage: three unit tests in tests_macros_nested_sr.zig\n(self-recursive, mutually recursive, and a quoted pattern variable\ninside a larger quoted list/vector datum) and an end-to-end Scheme\nsuite. Verified as real regression tests -- 11 of the Scheme suite's 13\nassertions fail on a pre-#1773 build and all pass now.\n\nAlso refresh the SRFI 209 comment that documented the workaround: the\nconstructor still routes through `type-name` rather than quoting `nm`\ndirectly, but now because `type-name`'s literals list rejects a name\noutside the enum type at expansion time instead of failing later inside\n`enum-set-adjoin` -- not because the expander can't handle the quote.\n\n\nClaude-Session: https://claude.ai/code/session_01KRP1wxfAwqVubfSW5TMK7Y\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T17:06:42+05:30",
+          "tree_id": "8c1e2ea0c6c20476facd9c07063f78c8c0e4506f",
+          "url": "https://github.com/kaappi/kaappi/commit/9b1c479c0a8070e40d326394e707308e48da1762"
+        },
+        "date": 1785327979871,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.365796,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.795365,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.577292,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.973045,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004732,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047016,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315232,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057001,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.615204,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.238539,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.617288,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280132,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799592,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.613621,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044097,
             "unit": "seconds"
           }
         ]
