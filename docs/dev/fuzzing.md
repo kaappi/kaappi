@@ -59,10 +59,24 @@ footguns).
 Ordinary Scheme read/compile/runtime errors are **expected** fuzz outcomes.
 Only crashes, panics, memory leaks (via `std.testing.allocator`),
 sanitizer findings, and differential mismatches fail a target. VM execution
-is bounded per input by a 100 ms wall-clock deadline — or, under
-`-Dgc-stress=true` (where a full collection on every allocation makes
-wall-clock time meaningless), by a speed-independent instruction-count budget
-instead (#1447).
+is bounded per input by a 100 ms wall-clock deadline — or, in any build where
+wall-clock time stops tracking how much work a program does, by a
+speed-independent instruction-count budget instead. Three modes take the
+instruction-count bound (`speed_independent` in `src/tests_fuzz.zig`):
+`-Dgc-stress=true` (a full collection on every allocation, #1447), a
+cross-compiled target running under an emulator (riscv64 under QEMU in CI,
+#1573), and `-Doptimize=Debug` (the whole pipeline unoptimized, #1835).
+
+The Debug case is worth understanding before touching the 100 ms number,
+because the deadline is only *checked* inside `runUntil`: time spent
+importing, reading, expanding, lowering, and emitting counts against the
+budget but can never trip it. Measured over the 60 portable seeds under
+Debug, the in-`vm.eval` window ran 35 ms min / 91 ms median / 435 ms max —
+the median correct program at the threshold — with ~26 ms of every budget
+going to the fixed leading `(import (scheme base) (scheme char)
+(scheme lazy) (scheme write))` alone. The result was 9 of 60 seeds landing
+in `.resource_limit` (never a compile or runtime error), and consecutive
+runs of the same fixed seeds disagreeing about which ones missed.
 
 ## Running locally
 
@@ -123,7 +137,9 @@ required to stay stress-clean since that fix.) The deterministic
 generator-coverage gates and the differential-oracle regression gate stay
 meaningful on stress builds by bounding evaluation with an instruction-count
 budget rather than the wall-clock deadline — see `eval_instruction_limit` in
-`src/tests_fuzz.zig` (#1447).
+`src/tests_fuzz.zig` (#1447). The same bound covers the emulated riscv64 job
+(#1573) and the `ubuntu-latest, Debug` leg of the main `ci.yml` test matrix
+(#1835); those gates run on every `zig build test`, not only under `--fuzz`.
 
 Trigger it manually (optionally overriding the limit) with:
 
