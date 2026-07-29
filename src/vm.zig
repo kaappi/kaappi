@@ -627,9 +627,9 @@ pub const VM = struct {
         var new_cap = self.frames.len;
         while (new_cap < needed) new_cap *= 2;
         if (new_cap > MAX_FRAME_LIMIT) new_cap = MAX_FRAME_LIMIT;
-        const new_frames = self.gc.allocator.alloc(CallFrame, new_cap) catch return VMError.OutOfMemory;
+        const new_frames = memory.allocSliceNoFill(self.gc.allocator, CallFrame, new_cap) catch return VMError.OutOfMemory;
         @memcpy(new_frames[0..self.frame_count], self.frames[0..self.frame_count]);
-        self.gc.allocator.free(self.frames);
+        memory.freeSliceNoFill(self.gc.allocator, CallFrame, self.frames);
         self.frames = new_frames;
     }
 
@@ -639,10 +639,10 @@ pub const VM = struct {
         var new_cap = self.registers.len;
         while (new_cap < needed) new_cap *= 2;
         if (new_cap > MAX_REGISTER_LIMIT) new_cap = MAX_REGISTER_LIMIT;
-        const new_regs = self.gc.allocator.alloc(Value, new_cap) catch return VMError.OutOfMemory;
+        const new_regs = memory.allocSliceNoFill(self.gc.allocator, Value, new_cap) catch return VMError.OutOfMemory;
         @memcpy(new_regs[0..self.registers.len], self.registers);
         @memset(new_regs[self.registers.len..], types.UNDEFINED);
-        self.gc.allocator.free(self.registers);
+        memory.freeSliceNoFill(self.gc.allocator, Value, self.registers);
         self.registers = new_regs;
     }
 
