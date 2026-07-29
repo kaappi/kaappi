@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785305369320,
+  "lastUpdate": 1785310710153,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "3e7986d6165d127ad85e99a44b33ad0b7e7e5af3",
-          "message": "Release v0.20.0",
-          "timestamp": "2026-07-19T11:00:54+05:30",
-          "tree_id": "65d7f1b38d839def0a9bbc258d7804f1b897ea85",
-          "url": "https://github.com/kaappi/kaappi/commit/3e7986d6165d127ad85e99a44b33ad0b7e7e5af3"
-        },
-        "date": 1784441256924,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.007265,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.822118,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.636733,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.042173,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005579,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.038896,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.344728,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05047,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.696289,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.311803,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.134202,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.372243,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.245831,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.79404,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033164,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.032836,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b83f4c249d757257f76758ff59c58b4a9026fa2d",
+          "message": "Isolate -Dbundle test builds from the shared kaappi binary (#1826)\n\ncompile-import-error-703.sh and compile-preamble-gc-700.sh rebuilt\nzig-out/bin/kaappi in place to embed test bytecode, then rebuilt it a\nsecond time to restore the plain interpreter for later tests in the\nsame run-all.sh pass. run-all.sh and every other sequential test read\nthat same fixed path, so a test executed right after either of these\ncould race the restoring rebuild and observe a not-yet-settled binary.\n\nBoth invocations now install to a --prefix inside the test's own\ntmpdir instead, so the shared binary is never touched -- and the\nrestoring rebuild is no longer needed at all.\n\nFixes #1748\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T07:01:41Z",
+          "tree_id": "a5a9f6a1cc86666147c66238c96fe18343c71d82",
+          "url": "https://github.com/kaappi/kaappi/commit/b83f4c249d757257f76758ff59c58b4a9026fa2d"
+        },
+        "date": 1785310708270,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.417951,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.757462,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583902,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.9967,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004631,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046701,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315781,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057292,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.670374,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237658,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.594862,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277852,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.812756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65037,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043299,
             "unit": "seconds"
           }
         ]
