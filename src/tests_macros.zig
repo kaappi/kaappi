@@ -1285,6 +1285,33 @@ test "syntax-rules: excess ellipsis depth with no sibling now errors (#1791, clo
     try std.testing.expectError(error.CompileError, result);
 }
 
+test "ellipsis: sibling list var re-collected wholesale inside per-iteration template (#1721)" {
+    // Different counts: formal has 2 elements, binding has 3.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax %test
+        \\    (syntax-rules ()
+        \\      ((_ (formal ...) (binding ...))
+        \\       (list (list formal (list binding ...)) ...))))
+        \\  (equal? (%test (1 2) (10 20 30))
+        \\          '((1 (10 20 30)) (2 (10 20 30)))))
+    );
+}
+
+test "ellipsis: sibling list var wholesale even when counts match (#1721)" {
+    // Same counts: both formal and binding have 2 elements.
+    // binding must still be passed wholesale (not consumed per-iteration).
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax %test
+        \\    (syntax-rules ()
+        \\      ((_ (formal ...) (binding ...))
+        \\       (list (list formal (list binding ...)) ...))))
+        \\  (equal? (%test (1 2) (10 20))
+        \\          '((1 (10 20)) (2 (10 20)))))
+    );
+}
+
 // SRFI 147 (Custom Macro Transformers) regression coverage. Unlike SRFI
 // 139/149, this genuinely needed an engine change: compileDefineSyntax/
 // compileLetSyntax/compileLetrecSyntax (compiler_macro.zig) now resolve a
