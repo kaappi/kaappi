@@ -187,39 +187,62 @@ test "fuzz seed .sbc fixture stays loadable" {
 // a per-program execution bound. Ordinary Scheme errors are expected outcomes;
 // only panics, crashes, and leaks fail the target.
 //
-// A normal native build bounds by a 100 ms wall clock. Two build/run modes make
-// that deadline meaningless while a program still executes the SAME number of
-// bytecode instructions — so a 100 ms deadline converts correct-but-slow
-// programs into timeouts and makes the generator-coverage gates below measure
-// execution speed instead of generator correctness:
+// A normal native ReleaseSafe/ReleaseFast build bounds by a 100 ms wall clock.
+// Three build/run modes make that deadline meaningless while a program still
+// executes the SAME number of bytecode instructions — so a 100 ms deadline
+// converts correct-but-slow programs into timeouts and makes the
+// generator-coverage gates below measure execution speed instead of generator
+// correctness:
 //   • gc-stress runs a full collection on every allocation, ballooning
 //     wall-clock time by orders of magnitude (#1447).
 //   • a cross-compiled target runs under an emulator — CI runs the riscv64 unit
 //     tests under QEMU user-mode, ~10-30x slower than native — so the same
 //     programs blow the 100 ms deadline (#1573).
-// In both modes we therefore bound by instruction count (speed-independent:
+//   • a Debug build runs the whole pipeline unoptimized, and `zig build test
+//     -Doptimize=Debug` is a real CI leg. Measured over these 60 portable
+//     seeds on an M-series mac: the in-`vm.eval` window is 35 ms min / 91 ms
+//     median / 435 ms max against the 100 ms budget, so the MEDIAN correct
+//     program already sits at the threshold — 9 of 60 tripped it, every one
+//     as `.resource_limit`, none as a compile or runtime error (#1835).
+//     Two things make this a jitter coin-flip rather than an honest "too
+//     slow" signal: ~26 ms of every program's budget goes to its fixed
+//     leading `(import (scheme base) (scheme char) (scheme lazy)
+//     (scheme write))`, which runs outside the bytecode loop and so spends
+//     the deadline without ever being checked against it; and read / expand /
+//     lower / emit are likewise unchecked, so a program can overrun long
+//     before the next `runUntil` notices. Consecutive runs of these fixed
+//     seeds disagree on which ones miss.
+// In all three modes we therefore bound by instruction count (speed-independent:
 // identical regardless of how fast each instruction runs) and keep only a loose
 // wall-clock backstop against a pathological input. The 2M budget clears the
 // largest correct generator program (~35k instructions, measured over 300 seeds
 // of each generator) by ~50x while staying well under the loop-heavy tail (>10M
 // instructions) the gates intentionally count as misses.
+const builtin = @import("builtin");
 const build_options = @import("build_options");
-const speed_independent = build_options.gc_stress or build_options.emulated_target;
+const debug_build = builtin.mode == .Debug;
+const speed_independent = build_options.gc_stress or build_options.emulated_target or debug_build;
 const eval_deadline_ns: u64 = if (speed_independent) 120_000_000_000 else 100_000_000;
 const eval_instruction_limit: ?u64 = if (speed_independent) 2_000_000 else null;
 
-// Regression guard for the fuzz-gate execution bound (#1447/#1573). The
+// Regression guard for the fuzz-gate execution bound (#1447/#1573/#1835). The
 // generator "programs evaluate without error" gates below must not be able to
 // mistake slow execution for generator error: whenever a build runs bytecode
-// far slower than native — gc-stress (collect-per-alloc) or an emulated
-// cross-compiled target (riscv64 under QEMU in CI) — they bound by instruction
-// count with only a loose wall-clock backstop, never the tight 100 ms deadline.
-// Without the emulated-target half of `speed_independent` this test fails on the
-// riscv64 CI job (eval_instruction_limit == null while emulated_target is true),
-// which is exactly the flake #1573 tracked. On native, non-stress builds it pins
-// the tight deadline so the gates stay cheap and still catch real slow-program
+// far slower than native ReleaseSafe — gc-stress (collect-per-alloc), an
+// emulated cross-compiled target (riscv64 under QEMU in CI), or an unoptimized
+// Debug build (its own ubuntu-latest CI leg) — they bound by instruction count
+// with only a loose wall-clock backstop, never the tight 100 ms deadline.
+// Without the emulated-target term this test fails on the riscv64 CI job
+// (eval_instruction_limit == null while emulated_target is true), which is
+// exactly the flake #1573 tracked; without the Debug term it fails on the Debug
+// CI leg, which is #1835. The Debug assertion is separate from the
+// `speed_independent` branch below on purpose: that branch is self-consistent
+// with whatever `speed_independent` evaluates to, so it cannot notice a mode
+// missing from the definition. On native, non-stress release builds it pins the
+// tight deadline so the gates stay cheap and still catch real slow-program
 // regressions.
-test "fuzz eval bound is speed-independent under gc-stress or emulation (#1447/#1573)" {
+test "fuzz eval bound is speed-independent under gc-stress, emulation, or Debug (#1447/#1573/#1835)" {
+    if (debug_build) try std.testing.expect(speed_independent);
     if (speed_independent) {
         try std.testing.expect(eval_instruction_limit != null);
         try std.testing.expect(eval_deadline_ns > 100_000_000);
@@ -511,10 +534,10 @@ test "fuzz grammar" {
 // generator change made programs start dying at runtime — fix the generator
 // or consciously re-baseline.
 test "grammar generator: majority of programs evaluate without error" {
-    // Under gc-stress or an emulated (cross-compiled) target, evalNormalized
-    // bounds by instruction count rather than the 100 ms wall clock, so this
-    // still measures the generator's correctness rate rather than execution
-    // speed (#1447/#1573).
+    // Under gc-stress, an emulated (cross-compiled) target, or a Debug build,
+    // evalNormalized bounds by instruction count rather than the 100 ms wall
+    // clock, so this still measures the generator's correctness rate rather
+    // than execution speed (#1447/#1573/#1835).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -546,8 +569,8 @@ test "grammar generator: majority of programs evaluate without error" {
 // VM-vs-native harness (tests/fuzz/native-diff.sh) skips nothing on clean
 // programs, so a drop here directly costs oracle coverage.
 test "native-subset generator: programs evaluate without error" {
-    // gc-stress and emulated (cross-compiled) targets bound by instruction
-    // count, not the 100 ms wall clock (#1447/#1573).
+    // gc-stress, emulated (cross-compiled) targets, and Debug builds bound by
+    // instruction count, not the 100 ms wall clock (#1447/#1573/#1835).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -573,8 +596,8 @@ test "native-subset generator: programs evaluate without error" {
 // sides exit cleanly, so every runtime error costs oracle coverage AND
 // suggests the generator leaked outside its total-by-construction subset.
 test "portable-subset generator: programs evaluate without error" {
-    // gc-stress and emulated (cross-compiled) targets bound by instruction
-    // count, not the 100 ms wall clock (#1447/#1573).
+    // gc-stress, emulated (cross-compiled) targets, and Debug builds bound by
+    // instruction count, not the 100 ms wall clock (#1447/#1573/#1835).
     var ok: u32 = 0;
     var total: u32 = 0;
     var seed_n: u64 = 0;
@@ -691,10 +714,11 @@ test "fuzz differential (opt vs no-opt)" {
 // off-by-one planted in the `*` constant fold diverges at seed 30 (and 3
 // more within 500), so this window has real detection power.
 test "differential oracle: fixed-seed programs agree opt vs no-opt" {
-    // Under gc-stress or an emulated (cross-compiled) target, evalNormalized
-    // bounds by instruction count rather than the 100 ms wall clock, so both
-    // compilation paths run to completion and produce comparable observables
-    // rather than degenerating into resource_limit pairs (#1447/#1573).
+    // Under gc-stress, an emulated (cross-compiled) target, or a Debug build,
+    // evalNormalized bounds by instruction count rather than the 100 ms wall
+    // clock, so both compilation paths run to completion and produce comparable
+    // observables rather than degenerating into resource_limit pairs
+    // (#1447/#1573/#1835).
     var seed_n: u64 = 0;
     while (seed_n < 60) : (seed_n += 1) {
         const src = try fuzz_gen.generateSeeded(seed_n, std.testing.allocator);
