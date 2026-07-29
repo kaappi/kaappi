@@ -39,6 +39,11 @@ jobs:
             exit 1
           fi
 
+      # Globs, ignores, and the rule set all live in .markdownlint-cli2.jsonc,
+      # so `npx markdownlint-cli2` locally lints exactly what this step does.
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe # v24.1.0
+
   test:
     needs: format
     # Explicit name, deliberately NOT including matrix.timeout: this job's

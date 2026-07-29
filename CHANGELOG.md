@@ -559,9 +559,11 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Added
 
 #### FreeBSD platform support
+
 - **FreeBSD target (x86_64, aarch64)** — `zig build -Dtarget=<arch>-freebsd` cross-compiles all three binaries (releases ship both arches). A full-POSIX port with no runtime degradations: kqueue-backed fiber I/O (the macOS reactor backend, shared), SRFI-18 OS threads, complete SRFI-170, FFI via `dlopen`, the full linenoise REPL, and thottam including `build:` manifests. Self-exe lookup uses `sysctl kern.proc.pathname`. Verified on real FreeBSD 15.1 aarch64 hardware: full unit, R7RS, and `run-all.sh` suites, plus the native backend (`kaappi compile`) linking with the base system `cc` — no Zig toolchain needed on the box. CI runs the suites in a KVM FreeBSD VM. See `docs/dev/freebsd.md`
 
 ### Fixed
+
 - **Out-of-memory errors are now deterministic across kernels** — a single vector/bytevector/string payload allocation is capped at 1 TiB (`GC.max_payload_bytes`) and raises the catchable out-of-memory error before asking the OS. Previously the graceful error relied on `malloc` refusing absurd requests, which overcommitting kernels (FreeBSD's default) don't do — `(make-bytevector 100000000000000)` was OOM-killed by the kernel instead of raising
 
 ## [0.16.0] - 2026-07-17
@@ -569,6 +571,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Added
 
 #### Windows platform support
+
 - **Windows aarch64 target** — `zig build -Dtarget=aarch64-windows` cross-compiles `kaappi.exe`, `thottam.exe`, and `kaappi-lsp.exe` (via Zig's bundled mingw-w64; releases ship `kaappi-aarch64-windows.exe`). The full interpreter works on Windows 11 ARM64 — REPL (plain line editing), fibers, channels (incl. capacity-0 rendezvous), SRFI-18 OS threads, FFI via `LoadLibrary`, and the `kaappi test` runner — verified with the complete unit and R7RS suites on real hardware. The POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info) raises a catchable file error, and `cond-expand`/`(features)` expose a `windows` identifier in place of `posix`. See `docs/dev/windows.md` (#1606)
 - **Windows fd readiness** — fiber I/O suspension now works on Windows: socket-backed ports get reactor-driven non-blocking I/O via `WSAEventSelect` (#1608 stage 1), and pipe-backed ports get emulated non-blocking mode via a polled peek/write-quota backend (#1608 stage 2). File ports keep blocking reads (the POSIX baseline — no OS has regular-file readiness). The fd-readiness unit suites (`tests_reactor`, `tests_scheduler`, `tests_port_io`) run on Windows over loopback TCP socket pairs
 - **Windows native backend** — `kaappi compile` verified end-to-end on Windows: `rt_lib_name` probes `kaappi_rt.lib`, emits a derived `.exe` output, and uses the `windows-gnu` triple; 38/38 tests pass via `run-e2e.ps1` (#1610)
@@ -576,6 +579,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Windows CI** — the shell-based test suites (`tests/scheme/run-all.sh` and sub-suites) run on Windows via Git Bash, and the FFI Scheme suite (`tests/scheme/ffi/`) runs with a cross-compiled fixture DLL (#1611, #1612)
 
 #### Other
+
 - **Rendezvous channels** — `(make-channel 0)` creates a capacity-0 channel with true rendezvous semantics (sender blocks until a receiver is ready) on both fiber-local and cross-thread (`SharedChannel`) representations (#1604)
 - **Heap-type layout guard** — a comptime check in `types.zig` asserts every heap struct keeps its `header: Object` at byte offset 0, catching layout drift at compile time instead of silent memory corruption (#1618, #1622)
 - **Porting guide** — `docs/dev/porting.md` documents porting surfaces, the degradation ladder, and staged checklists for adding a new OS or CPU architecture (#1624)
@@ -583,19 +587,23 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### Windows
+
 - `(ffi-open #f)` on Windows now has POSIX `dlopen(NULL)` semantics: symbol lookup on the process handle searches every loaded module, so CRT functions resolve from `ucrtbase.dll` (#1611)
 - FFI 64-bit integer marshaling now uses a platform-independent `i64` carrier: on LLP64 targets (Windows) C `long` is 32-bit and is routed through the 32-bit marshaling class, while `int64`/`uint64`/`size_t` keep full 64-bit range
 
 #### Concurrency
+
 - An idle in-place I/O drive pinned over a resolved ancestor's wait now unwinds with a catchable "port I/O abandoned" error instead of blocking unboundedly (#1625)
 - GC `referencesYoung` now traces `owned_mutexes` in the fiber arm, preventing young-generation mutexes shared with a fiber from being collected during minor GC (#1605)
 
 #### LLVM native backend
+
 - Fix native `let` root leak: body-scope roots were not popped on early return (#1585)
 - Fix duplicated fallback effects in transactional `emitLet` (#1586)
 - Fix VM-vs-native divergence for shadowed boxed names (#1590)
 
 #### Other
+
 - macOS release binaries can now `ffi-open` user-compiled libraries: signing entitlements add `com.apple.security.cs.disable-library-validation` (#1587)
 - `--profile` no longer drops functions promoted to the old GC generation (#1599)
 - Fuzz generator coverage leaks in `genLetMut` ordering and string length (#1620)
@@ -606,6 +614,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Added
 
 #### Machine legibility: CLI diagnostics & tooling (epic #1503)
+
 - **`kaappi check <file>`** — compile-only static analysis: reads, expands, and compiles without executing, reporting read/compile diagnostics plus `KP4xxx` lint findings (unknown top-level variable, wrong arity or wrong-type literal on a direct built-in call). Never rejects a program R7RS permits (#1511)
 - **`kaappi ast` / `expand` / `ir`** — read-only pipeline-stage dumps: post-read datums, fully macro-expanded source (round-trips), and the IR tree before/after the five optimization passes (#1512)
 - **Full source spans in diagnostics** — the reader records `(line, col, end_line, end_col)` per datum; compile and runtime errors report `file:line:col` instead of `file:line`, down to the exact offending sub-form. `.sbc` cache format bumped to v9 (#1506)
@@ -622,6 +631,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **`--timings[=json]`** — per-stage pipeline wall time (read/expand/lower/optimize/emit/execute, plus native `llvm-emit`/`link`) and an always-present cache HIT/MISS line with path, using a self-time profiler stack so nested stages stay disjoint (#1515)
 
 #### Concurrency: fiber I/O reactor (KEP-0001)
+
 - **Reactor core** — per-OS-thread event loop with kqueue/epoll backends and a userspace timer heap (#1446)
 - **Scheduler integration** — blocking fiber operations (channel/join/mutex/condvar waits, `thread-sleep!`) now park on the reactor instead of blocking the OS thread or busy-polling (#1453)
 - **Non-blocking port I/O** — reads/writes that would block suspend the calling fiber instead of the thread, so fibers serving different connections interleave; ports buffer writes (8 KiB high water) with real `flush-output-port` semantics (#1459)
@@ -630,6 +640,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **O(1) fiber scheduling** — a ready ring + free-slot list replace the old O(n) scan on every dispatch and spawn (154x faster dispatch at 5,000 concurrent fibers) (#1477); wake paths are further indexed by waited-on object for O(1) wakes instead of scanning every fiber (~8x at 10,000 fibers) (#1530)
 
 #### Concurrency: cross-thread channels (KEP-0002)
+
 - **`SharedChannel`** — a channel now promotes automatically for use across `thread-start!`ed OS threads; reaching one through a shared global instead of a legitimate handoff raises a descriptive error instead of corrupting memory (#1482)
 - **Envelope-based `thread-start!`/`thread-join!`** — thunks, results, and exceptions cross threads via a copy-once envelope, closing a concurrent-copy race and enabling channels created inside a thunk to promote correctly (#1483)
 - **Cross-thread wakeup** — a reactor-backed `ThreadNotifier` (kqueue/epoll/WASI) replaces the placeholder panic left by earlier phases (#1485)
@@ -638,6 +649,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Envelope-cost elision shipped as default** — immediate payloads (fixnums, booleans, chars) skip the per-message envelope heap entirely (28–120x faster sends), and pointer payloads reuse a recycled per-channel buffer (~50–63% lower round-trip latency for small messages) (#1472)
 
 #### Other
+
 - **Configurable REPL syntax highlighting** — dark/light presets, `NO_COLOR` support, per-token overrides, and configurable prompts via a new `~/.kaappi/config` file (#1456)
 - **`cond-expand`/`(features)`** gain `kaappi-fibers`, `kaappi-reactor`, and `kaappi-threads` subsystem identifiers (KEP-0004 Phase 0/1) (#1488)
 - **KEP-0003 access-semantics research experiment** — measures the cost of `unordered`-atomic element access for shared flat buffers ahead of building them; resolves KEP-0003's Unresolved Question 2 to a hybrid design. Docs/benchmarks only, no source changes (#1473)
@@ -645,6 +657,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Changed
 
 #### Native (LLVM) backend
+
 - **Guaranteed native mutual tail calls** — a fixed-arity direct tail call between natively-compiled functions now emits `musttail call tailcc`, giving mutual recursion (not just self-recursion) LLVM-guaranteed constant stack (#1499)
 - **Native `cond`/`case`/`do` lowering** — emitted directly instead of falling back to a whole-function `kaappi_eval` (#1564)
 - **Cached eval-fallback compilation** — a form the native backend can't lower (`letrec`, `guard`, quasiquote, named `let`, …) is parsed and compiled once per call site instead of on every execution (#1494)
@@ -656,11 +669,13 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Native lambda analysis buffers grow instead of bailing out** at fixed size limits, and variadic self-tail-calls now loop instead of recursing (#1498)
 
 #### Performance
+
 - **Batched fd reads** in `readOneByte` — up to 4096 bytes per syscall instead of one syscall per byte for byte-at-a-time port consumers (#1460)
 
 ### Fixed
 
 #### Concurrency
+
 - Lost cross-thread wakeup in shared channel send/receive that could park a receiver permanently (#1489)
 - Dirty-snapshot dispatch hazard in `mutex-lock!`, `condition-variable-wait`, `thread-join!`, and timed channel ops, via a generic `driving` guard that excludes an in-flight fiber from re-dispatch (#1487)
 - `mutex-lock!`/`mutex-unlock!`+condvar giving up instantly across OS threads instead of polling shared state, which could silently corrupt lock ownership (#1454)
@@ -671,15 +686,18 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Closures losing their library environment when deep-copied across threads, which hung or raised "undefined variable" for any library-defined procedure called from a `thread-start!` thunk (#1479)
 
 #### GC and memory
+
 - Stale "gap" registers (dead slots between live frame windows) copied verbatim into `call/cc` continuation snapshots (#1464) and fiber suspension snapshots (#1529) — both use-after-free hazards under `-Dgc-stress=true`
 
 #### Compiler and tooling
+
 - Portable SRFI libraries now resolve via an exe-relative `lib/` fallback, so a `zig build`-produced binary run from any directory (with no prior `thottam` setup) can still find them (#1523)
 - Fuzz generator-coverage gates bounded by instruction count instead of wall clock, so they measure generator correctness rather than timing out under `-Dgc-stress=true` or on emulated (QEMU riscv64) CI targets (#1447)
 
 ## [0.14.1] - 2026-07-11
 
 ### Added
+
 - **Persistent GC mark worklist** on the GC struct, eliminating per-collection heap allocation (#1436)
 - **Bignum rational literals** — the reader now accepts rational literals with bignum numerators or denominators (#1423)
 - **Chained nested-lambda captures** in the native closure tiers (#1419)
@@ -687,6 +705,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Fuzzing infrastructure** (Phases 1–3): seed corpora, Smith-driven grammar generator, three differential oracles (IR opt-vs-no-opt, VM-vs-native backend, Kaappi-vs-Chibi), scheduled CI job, and auto-filed GitHub issues for findings (#1388, #1398, #1403, #1405, #1408, #1418, #1424, #1426, #1434)
 
 ### Fixed
+
 - Root bignum intermediates in rational arithmetic and `string->number` (#1421)
 - Fix nested `syntax-rules` substitution and template-let ellipsis bindings (#1411)
 - Descend into `let`/`let*` in the native closure free-variable analysis (#1409)
@@ -696,6 +715,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Harden the `--no-ir-opt` compile guard (#1406)
 
 ### Changed
+
 - Pin GitHub Actions by SHA and disable persisted checkout credentials (#1413)
 - Build chibi-scheme from source in oracle-diff CI (#1434)
 - Security-harden the DigitalOcean test skills (#1435)
@@ -703,6 +723,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.14.0] - 2026-07-10
 
 ### Added
+
 - **SRFI-17 generalized `set!`** with pre-defined setters for `car`, `cdr`, `vector-ref`, `string-ref`, `hashtable-ref`, and `slot-ref` (#1349)
 - **SRFI-61 general `cond` clause** (`generator guard => receiver`) (#1357)
 - **SRFI-132 complete sort library** — 22 procedures: `list-sort`, `list-stable-sort`, `list-sort!`, `vector-sort`, `vector-stable-sort`, `vector-sort!`, merge operations, selection, and deletion (#1339)
@@ -715,6 +736,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **SRFI completions:** 15 missing SRFI-41 stream procedures (#1330), 9 missing SRFI-133 vector procedures (#1308), 27 missing SRFI-235 combinators (#1338), 21 missing SRFI-125 hash table exports (#1337), 16 missing SRFI-175 ASCII procedures (#1325), SRFI-33 aliases from SRFI-60 (#1328), SRFI-174 `timespec-hash`/`timespec->inexact`/`inexact->timespec` (#1352), SRFI-197 `nest`/`nest-reverse` (#1345), SRFI-78 `check-set-mode!`/`check-ec` (#1342), SRFI-69 `hash-table-update!` (#1315), SRFI-45 `lazy`/`eager` exports (#1353), SRFI-170 `owner/unchanged`/`group/unchanged` constants (#1363), SRFI-210 `box`/`mv` exports (#1318), SRFI-13 `string-join` grammar argument (#1312)
 
 ### Changed
+
 - **Trampoline rewrite:** `map`, `for-each`, `dynamic-wind`, and `force` are now Scheme closures bootstrapped at VM init, eliminating native VM re-entrancy for the callback family. ~460 lines of native code retired. Callbacks that `call/cc` out of `map` now park correctly instead of corrupting the native call stack (#1374, #1378)
 - **Native backend NativeClosure dispatch:** all VM call sites (call, tail-call, tail-apply, `call/cc` receiver, exception handler, dynamic-wind thunks) now handle NativeClosure, fixing native-compiled programs calling bootstrapped procedures (#1376, #1379)
 - **Test framework migration:** 55 test files migrated from `(chibi test)` to SRFI-64 — the R7RS suite remains on `(chibi test)` (#1382)
@@ -725,12 +747,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC and memory
+
 - Fix GC crash on stale VM registers after thread start/join cycles (#1254)
 - Add GC write barriers to `readListTail` `set-cdr!` calls (#1292)
 - Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1294)
 - Clear stale registers in tail-call window extension (#1293)
 
 #### Compiler and macros
+
 - Fix hygiene: use-site argument no longer captured by same-name def-site local (#1301)
 - Capture `let`/`lambda` locals in `define-syntax` transformers (#1287)
 - Expand macros during `set!` target pre-scan (#1291)
@@ -749,6 +773,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Rewrite SRFI-26 `cut`/`cute` with recursive helper macros to fix expander bug (#1344)
 
 #### Control flow
+
 - Fix spurious wind unwind on return into native-callback frames (#1380)
 - Make advisory yield a no-op under re-entrant native frames (#1384)
 - Fix yield raising inside `with-exception-handler` after `spawn` (#1369)
@@ -759,6 +784,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `parameterize` to evaluate all values before binding (#1260)
 
 #### R7RS conformance
+
 - Enforce immutability on literal vectors, pairs, and bytevectors (#1285)
 - Signal error on `define`/`set!` in immutable environments (#1275)
 - Reject non-environment second argument to `eval` (#1282)
@@ -771,6 +797,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Patch datum-label references inside vectors (#1257)
 
 #### SRFIs
+
 - Fix SRFI-1 `take-right`/`drop-right` to accept dotted lists (#1354)
 - Fix SRFI-4 integer vector kinds to be disjoint types with range validation (#1336)
 - Fix SRFI-9 record-type redefinition retargeting old procedures (#1371)
@@ -807,12 +834,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Honor timeout deadlines when no fibers are runnable (#1300)
 
 #### FFI
+
 - Fix FFI `char` type to accept Scheme characters and return characters (#1309)
 - Fix `group-info` by name returning gid 0 (#1307)
 
 ## [0.13.0] - 2026-07-05
 
 ### Added
+
 - **REPL parenthesis highlighting:** matching parentheses are highlighted as you type (#1228)
 - **`KAAPPI_HOME` environment variable:** override the default `~/.kaappi/` directory for libraries, packages, and REPL history (#1031, #1084)
 - **Native backend shadow-stack GC rooting:** native-compiled binaries now use a shadow stack for precise GC root tracking (#1034, #1082)
@@ -822,6 +851,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Comprehensive R7RS conformance audit** (Phases 0–3.4): gap tests for R7RS sections 4.1–6.14, primitives audit tests for all 21 files, SRFI conformance tests for 40+ SRFIs (#1137)
 
 ### Changed
+
 - **All compilation routed through the IR pipeline** — the legacy `compileExpr` direct-emit path is retired; every form now lowers to IR before bytecode emission (#1038, #1136)
 - **Comptime spec tables replace runtime registration** — primitive procedure metadata is now a single comptime array with compile-time duplicate and orphan detection (#1053, #1133)
 - **Unified error type:** `VMError` and `PrimitiveError` collapsed into a single error set, eliminating 8 inline error-mapping switches (#1046, #1128)
@@ -840,6 +870,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Replaced hand-rolled JSON** in LSP with `std.json` (#1066, #1091)
 
 ### Fixed
+
 - Fix `current-input-port` corruption under extreme GC pressure (#1013, #1015)
 - Root SRFI-1 `filter-map`/`append-map`/`unfold` callback results across allocations (#1027, #1085)
 - Root `callWithArgs` return values in `map`, `fold`, and `unfold` primitives (#1098)
@@ -860,6 +891,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.12.0] - 2026-07-04
 
 ### Added
+
 - **Width-aware pretty-printing for REPL output:** large results are formatted with indentation and line wrapping instead of a single long line (#1005)
 - **Multiple-values display at top level:** `(values 1 2 3)` now prints all values, not just the first (#973)
 - **Uncaught error detail:** show message and irritants for uncaught user-raised errors (#976)
@@ -868,6 +900,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC and memory
+
 - Fix GC corruption during library `include`-load: fresh s-expressions in Zig locals were not rooted during include processing (#1010, #1012)
 - Root top-level forms before compilation to prevent collection (#1011)
 - Root `vector-partition` yes/no accumulators across allocation (#810, #944)
@@ -883,12 +916,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Deep-copy `native_fn`/`native_closure` instead of aliasing across thread heaps (#975)
 
 #### Continuations
+
 - Fix `call/cc` escapes lost inside re-entrant native calls (`map`, `for-each`) — frame birth IDs now prevent incorrect escape detection (#934)
 - Raise error on continuation resume across a returned native call frame instead of silently corrupting state (#1009)
 - Fix continuation restore escape misdetection and `dynamic-wind` double-run (#870, #875, #905)
 - Fix use-after-free of frame pointer after re-entrant natives grow the frames array (#927)
 
 #### Threading (SRFI-18)
+
 - Share globals map by pointer with SRFI-18 child threads, lock rehashes (#958, #971)
 - Fix heap corruption from child threads touching shared parent state (#958, #968)
 - Fix `thread-terminate!` never stopping OS threads, hanging `thread-join!` (#933)
@@ -899,6 +934,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix top-level `thread-yield!` scheduler interaction and pre-scheduler parameter loss (#940)
 
 #### Compiler and IR
+
 - Replace fixed 256-node buffers with growable lists in IR lowering — removes hard limit on form complexity (#791, #1003)
 - Honor lexical shadowing of keywords in IR lowering (#788, #967)
 - Suppress constant folding of `set!`-reassigned globals in the same form (#962)
@@ -918,11 +954,13 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `car`/`cdr` type errors in LLVM native backend (#834, #892)
 
 #### Macro system
+
 - Fix nested-ellipsis expansion rejecting depth-2 pattern variables (#931)
 - Fix double hygiene renaming in macro-generating macros (#923)
 - Fix two R7RS suite forms aborted by hygiene and macro-shadowing bugs (#926)
 
 #### Arithmetic
+
 - Compare rationals exactly instead of falling back to f64 (#844, #949)
 - Fix bignum `toF64` double-rounding by using u128 top-two-limb combination (#833, #907)
 - Fix `exact-integer-sqrt` to use scale-aware initial guess for large bignums (#851, #906)
@@ -936,6 +974,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `numerator`/`denominator` on flonums to use exact dyadic fraction (#858, #903)
 
 #### I/O
+
 - Fix `read` after `peek-char` reordering stream bytes (#804, #997)
 - Fix `peek-char` returning raw lead byte for multi-byte UTF-8 on fd ports (#798, #1001)
 - Check `peek_byte` before returning EOF in string-port read (#799, #1006)
@@ -945,21 +984,25 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Signal `read-error?` when `read` hits EOF mid-datum per R7RS 6.13.2 (#977)
 
 #### Reader
+
 - Fix Unicode reader gaps and fold-case for non-ASCII identifiers (#920, #1004)
 - Fix char literal semicolon parsing and `string-prefix?`/`suffix?` argument order (#891)
 
 #### Strings
+
 - Fix `string-titlecase` word boundaries and Unicode case mapping (#824, #1002)
 - Fix `string-join` default delimiter from empty string to single space (#825, #909)
 - Fix `string-replace` index clamping and bignum parse error propagation (#830, #893)
 
 #### FFI
+
 - Handle bignums in `types.toF64` to fix FFI `double`/`float` marshaling (#792, #793, #998, #999)
 - Accept full unsigned 64-bit range for `uint64`/`size_t` FFI arguments (#794, #992)
 - Range-check FFI args against declared narrow int types (#795, #980)
 - Coerce FFI bool args to 0/1 before the C `_Bool` trampoline (#796, #963)
 
 #### Libraries
+
 - Handle `cond-expand` and nested `include-library-declarations` in library bodies (#874, #982)
 - Fix `cond-expand (library ...)` and `include` in library bodies (#917)
 - Search the script's directory for libraries; unify `cond-expand` library checks (#930)
@@ -968,19 +1011,23 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Add missing exports to SRFI-133 and SRFI-1 library definitions (#816, #818)
 
 #### SRFIs
+
 - Fix SRFI-158 `gtake` crash, SRFI-189 `nothing` procedure, SRFI-115 unknown char class (#1008)
 - Mark hash-table entries occupied on insert via `update!`/`default` and `alist->hash-table` (#939)
 - Guard `vector-unfold`/`unfold-right` against empty multiple values (#806, #986)
 - Fix `alist->hash-table` arity check (#1011)
 
 #### Quasiquote
+
 - Fix quasiquote nesting for `unquote-splicing`, vectors, and dotted tails (#849, #850, #852)
 
 #### Fibers
+
 - Fix `channel-receive` silently returning an unspecified value when the value had to flow through two or more intermediate fiber stages: a fiber blocked with no runnable siblings now parks on the channel and is woken by the next `channel-send`, so multi-stage pipelines deliver values correctly. A receive (or `fiber-join`) that can never be satisfied now raises a catchable deadlock error instead of returning void (#978)
 - `apply`-forwarded `channel-receive` propagates the park signal instead of collapsing it into a type error
 
 #### REPL and CLI
+
 - Stop `--sandbox` pre-scan at filename boundary (#783, #1007)
 - Skip `.sbc` bytecode cache in sandbox mode (#785, #995)
 - Include compiler version in `.sbc` cache validity check (#925, #993)
@@ -994,14 +1041,17 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Add missing separator before dotted tail in pretty-printer (#863, #883)
 
 #### LSP
+
 - Fix `positionEncoding` rejection and `jsonUnescape` `\uXXXX` (#866, #872, #901)
 - Fix `MethodNotFound` response, hover newlines, dotted define crash (#873, #871, #869, #895)
 
 #### Package manager (thottam)
+
 - Fix version-pinned installs: use `--end-of-options` instead of `--` so the ref resolves as a revision, not a pathspec (#780, #960)
 - Copy visited-set keys to fix use-after-free on transitive deps (#947)
 
 #### Other
+
 - Evaluate `parameterize` param expressions exactly once (#860, #887)
 - Allow empty datum list in `case` clauses (#854, #889)
 - Use `raise-continuable` for unmatched `guard` clauses per R7RS (#845, #897)
@@ -1019,12 +1069,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC and memory
+
 - Fix GC safety in vm_library: root AST before `handleImport`, write barrier in cond-expand splicing, root parsed declarations before compilation (#754, #757, #759)
 - Add GC write barrier in vector constant deserialization (#738)
 - Fix GC safety violations in rational arithmetic paths — root intermediate heap values across allocating calls (#747)
 - Fix data race in symbol table marking during SRFI-18 threading — use blocking lock instead of tryLock (#750)
 
 #### Arithmetic
+
 - Fix exact rational + bignum arithmetic to preserve exactness instead of falling back to inexact float (#746)
 - Fix two-argument `log` to return complex for negative first argument (#752)
 - Fix `angle` to return pi for -0.0 using `atan2` (#748)
@@ -1034,18 +1086,22 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Apply exactness prefix to complex number parsing in `string->number` (#751)
 
 #### Compiler
+
 - Fix off-by-one in `addConstant`: allow 65536 constants (#756)
 - Check `resolveUpvalue` before applying `apply` tail-call optimization when `apply` is shadowed by a closure variable (#760)
 - Decrement `no_collect` before propagating pushRoot OOM after macro expansion, preventing permanent GC suppression (#761)
 - Validate `let-syntax` bindings have transformer spec (#758)
 
 #### Deep copy
+
 - Fix deep copy of promise, parameter, and error_object: register in visited map before recursing to prevent infinite recursion on circular structures (#753, #755)
 
 #### Bytecode serialization
+
 - Handle EOF and UNDEFINED values in writeConstant/readConstant (#743, #745)
 
 #### Package manager (thottam)
+
 - Add `.git` suffix to `resolveVersion` URL (#733)
 - Check build exit code in `doUpdate` (#734)
 - Track update failures and exit 1 if any failed (#735)
@@ -1053,15 +1109,18 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Validate package name in `doRemove` before path construction (#737)
 
 #### CLI and REPL
+
 - Make REPL Ctrl-C show fresh prompt instead of exiting (#742)
 - Report missing arguments for CLI flags (`--lib-path`, `-o`, etc.) (#740)
 
 ### Changed
+
 - Split `main.zig`, `ir.zig`, and `memory.zig` into smaller files per 1500-line policy (#732)
 
 ## [0.11.0] - 2026-07-02
 
 ### Added
+
 - **R7RS eval environments:** `eval` now honors its second argument; added `environment`, `null-environment`, `scheme-report-environment`, and `interaction-environment` procedures (#691)
 - **Vector patterns in syntax-rules:** pattern matching and template instantiation for vector literals in `syntax-rules`
 - **Ellipsis-depth validation:** syntax-rules templates validate that pattern variables are used at correct ellipsis nesting depth
@@ -1074,46 +1133,56 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC and memory
+
 - Fix generational GC: mark `Closure.func` in minor collections — unmarked closures could be collected prematurely
 - Fix generational GC: mark `RecordInstance.record_type` in minor collections
 - Fix `hash-table-walk`/`hash-table-fold` use-after-free when callback triggers rehash
 - Fix GC roots in `loadLibrarySource`, `compileFile` preamble replay, and `handleTopLevelForm` (#699, #700)
 
 #### Macro system
+
 - Fix `let-syntax` referential transparency: free variables in transformer output now resolve in the definition environment
 - Fix macro hygiene for template-introduced bindings whose names shadow built-in procedures
 
 #### Compiler
+
 - Fix internal-define pre-scan: use dynamic list instead of fixed 64-entry buffer — more than 64 internal defines no longer crashes
 - Fix passthrough constant folding: check globals for redefined primitives before folding (#600 follow-up)
 - Fix `define-values` register corruption with 2+ names in lambda body
 
 #### LLVM native backend
+
 - Fix native closure compilation: bail out for variadic lambdas instead of generating incorrect code
 - Fix local parameter shadowing in call position — shadowed parameters now use the correct binding
 
 #### Reader
+
 - Require delimiter after numeric tokens per R7RS (e.g., `1a` is now an error, not parsed as `1`)
 - Fix `char-alphabetic?` misclassifying non-letter Unicode codepoints (e.g., digits, symbols)
 
 #### Hash tables
+
 - Fix hash-table sentinel collision: `eof-object` and `void` are no longer confused with empty/deleted slots
 
 #### I/O
+
 - Fix `read-bytevector!` returning wrong value for zero-length target at EOF
 - Fix `writeJsonEscaped`: properly escape backspace (`\b`) and form feed (`\f`)
 
 #### Library loading
+
 - Fix `handleDefineLibrary` aborting on import errors instead of propagating; fix bundled file paths (#703)
 - Fix `compileFile` preamble skip and GC safety (#699)
 
 #### CLI and REPL
+
 - Fix `(command-line)` removing hardcoded "kaappi" prefix from output
 - Fix REPL tab completion for Scheme identifiers containing `-`, `?`, `!`, `->` (#676)
 
 ## [0.10.0] - 2026-07-01
 
 ### Added
+
 - Abandon mutexes held by terminated fibers, per SRFI-18 spec (#642)
 - Detect `thread-join!` on current thread and raise error, per SRFI-18 spec (#643)
 - Remove 256-argument cap from `apply` by using heap-allocated ArrayList (#649)
@@ -1122,37 +1191,46 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC and threading
+
 - Fix `referencesYoung` .fiber case missing `handler_stack`, `wind_stack`, `param_overrides`, and `frame.native` — could cause premature remembered-set eviction (#646)
 - Fix `markVMRoots` iterating shared libraries map in child threads without synchronization (#634)
 - Fix `VM.initForThread` sharing parent's Port objects by raw pointer instead of allocating fresh ports per thread (#635)
 - Fix `equal?` exponential blowup on shared DAGs deeper than 128 nodes (#648)
 
 #### LLVM native backend
+
 - Fix tail call passing pointer to caller's stack alloca — LLVM may reuse the frame, corrupting arguments (#639)
 - Fix `emitDirectCall` skipping arity validation, causing silent wrong results on over/under-application (#636)
 
 #### Reader and compiler
+
 - Fix reader truncating peculiar identifiers like `->foo` to just the sign character (#647)
 - Fix internal `define-syntax` inside `let`/`letrec` body leaking macro binding into enclosing scope (#651)
 
 #### Strings
+
 - Fix `string-for-each`/`string-map` byte cursor desync when callback mutates the string via `string-set!` (#645)
 - Fix SRFI-13 `parseStartEnd` and `string-take`/`-drop` silently clamping out-of-range indices instead of raising errors (#640)
 
 #### Arithmetic
+
 - Fix `parseBignumString` CHUNK_DIGITS overflow for radix 12–36 (#631)
 - Fix complex number printing dropping `-0.0` components (#637)
 
 #### I/O
+
 - Fix `read-bytevector` allocating full k-byte buffer upfront — a large k caused hangs; exploitable under `--sandbox` (#638)
 
 #### FFI
+
 - Fix `toCString` silently truncating strings with embedded NUL bytes (#630)
 
 #### LSP
+
 - Fix LSP crash on negative or oversized line/character position values (#641)
 
 #### Other
+
 - Fix `create-temp-file` raising uninformative bare TypeError on long prefix (#632)
 - Fix REPL `highlightCallback` misparsing character literals like `#\;` and `#\(` (#633)
 
@@ -1161,13 +1239,16 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### Security
+
 - Fix git argument injection in thottam package manager — custom source URLs starting with `-` parsed as git options (#614)
 
 #### Compiler
+
 - Fix bare lambda internal define register clobbering (#601)
 - Fix constant folding ignoring redefined primitives (#600)
 
 #### Arithmetic and numeric
+
 - Fix exact division with bignums returning flonum instead of rational (#612)
 - Fix `makeRationalFromReader` using unchecked `makeFixnum`, truncating large rational literals (#610)
 - Fix `toRationalParts` calling `toFixnum` on bignum fields (#611)
@@ -1175,25 +1256,31 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `string->number` `"#e<large>"` process abort from unchecked `@intFromFloat` (#604)
 
 #### GC and memory
+
 - Fix `deepCopyValue` dropping transformer fields on cross-thread copy (#605)
 - Fix `deepCopyValue` record_instance missing cycle guard, causing stack overflow on cyclic records (#606)
 
 #### Bytecode
+
 - Fix bytecode symbol name length write/read mismatch, panic on names > 4096 bytes (#609)
 - Reject denormalized bignum in bytecode reader (#607)
 
 #### Macro system
+
 - Fix macro import leaking entire `def_env` into importer (#608)
 
 #### CLI
+
 - Fix `-o` flag stripped from `(command-line)` in normal runs (#602)
 
 #### Package manager
+
 - Fix `isConstraintSpec` panic on empty-after-trim version string (#613)
 
 ## [0.9.0] - 2026-06-30
 
 ### Added
+
 - **Growable frame stack and register array:** frame stack starts at 480 and doubles on overflow up to 32,768; register file starts at 2,048 and grows to 65,536 — eliminates fixed-size stack overflow for deeply recursive programs
 - **R7RS 5.3.2 compliance:** internal `define` forms desugared to `letrec*` per spec, enabling correct scoping in procedure bodies
 - **Benchmark infrastructure:** 13 benchmarks covering continuations, tail calls, closures, bignum, GC pressure, plus trend visualization with regression detection and PR-level comparison workflow
@@ -1206,6 +1293,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ### Fixed
 
 #### GC safety
+
 - Root closure during upvalue capture to prevent collection
 - Fix `markObjectContents` missing types causing use-after-free
 - Clear old marks before full collection (corruption fix)
@@ -1222,6 +1310,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Unroot accessor/mutator functions in `vm_records`
 
 #### Compiler
+
 - Fix `case =>` proc clause clobbering live local registers
 - Guard `apply` tail-call optimization against local variable shadowing
 - Fix panic on calls with >255 arguments
@@ -1237,6 +1326,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `define-values` to reject arity mismatches
 
 #### FFI
+
 - Fix unsigned return types marshaled as signed
 - Fix `uint32` params panic for values > 2^31
 - Fix integer args crashing on out-of-range values
@@ -1249,6 +1339,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Make `(pointer, long, long, pointer)->void` handler generic
 
 #### Arithmetic and numeric
+
 - Fix `inexact->exact` to return true IEEE-754 value for non-integer flonums
 - Fix `floor`/`ceiling`/`truncate`/`round` on exact rationals to use exact arithmetic
 - Fix `exact` returning flonum instead of bignum for large values
@@ -1262,6 +1353,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Reject non-integer flonums in `even?` and `odd?`
 
 #### Reader and I/O
+
 - Fix token validation for codepoints, delimiters, and booleans
 - Fix `readConstant` accepting malformed numeric constants from `.sbc`
 - Fix `#e` on complex numbers and `#i` on bignums
@@ -1275,6 +1367,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix bytevector port primitives: `u8-ready?`, `read-bytevector`, `get-output-bytevector`
 
 #### LLVM native backend
+
 - Mark tail position in `let`/`let*` body expressions
 - Fix symbol escaping and LSP document text memory leak
 - Update `current_block` in `and`/`or`, handle symbol refs in `define`/`set!`
@@ -1282,6 +1375,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix arithmetic for non-fixnum operands and overflow
 
 #### VM and runtime
+
 - Handle `ContinuationInvoked` in `call_global` and `tail_call_global` fast paths
 - Fix `pending_lib_envs` unconditional pop causing use-after-free on deep nesting
 - Fix `callWithArgs` register bounds check and >255 args panic
@@ -1292,6 +1386,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Detect re-entrant promise forcing per SRFI-45
 
 #### Fibers and threading
+
 - Fix fiber error handling: proper limit error, error propagation, native proc rejection
 - Fix fiber scheduling starvation with round-robin dispatch
 - Reclaim completed fiber slots in scheduler
@@ -1299,6 +1394,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Store `default-random-source` on VM instead of thread-local
 
 #### Strings and characters
+
 - Fix character write format and `string-every`/`string-any` char criterion
 - Handle `start`/`end` arguments in `string-pad` and `string-pad-right`
 - Escape control characters in write mode for strings and symbols
@@ -1309,11 +1405,13 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Reject surrogate codepoints in `integer->char`
 
 #### Vectors
+
 - Fix `vector-count`, `vector-index-right`, and `vector-partition` SRFI-133 bugs
 - Process vector unquotes in quasiquote splicing context
 - Validate `vector-append-subvectors` indices are non-negative and in bounds
 
 #### R7RS library compliance
+
 - Fix `export (rename ...)` to use R7RS flat syntax
 - Add `exact-integer-sqrt` to `(scheme base)` exports
 - Remove `open-binary-input-file` and `open-binary-output-file` from `(scheme base)`
@@ -1323,6 +1421,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Replace fixed-size arrays with dynamic lists in import `except`/`rename`
 
 #### Package manager (thottam)
+
 - Fix semver resolution to use `KAAPPI_ORG`
 - Fix caret (`^`) semver constraint for major version 0
 - Validate package names and use cwd to prevent shell injection
@@ -1331,24 +1430,28 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix `doVerify` SHA parsing to exclude source URL from lockfile
 
 #### Filesystem
+
 - Fix error handling: descriptive errno, `getgroups` cap, `readlink` truncation
 - Validate `mode`/`uid`/`gid` range instead of panicking
 - Validate `user-info` and `group-info` reject negative integer arguments
 - Distinguish `char-special` and `block-special` in `file-info-type`
 
 #### Bytecode serialization
+
 - Fix cached bytecode path to handle bundled files and preamble
 - Fix f64 read/write to use little-endian byte order
 - Add fixnum range validation during deserialization
 - Fix memory leaks in deserialization error paths
 
 #### LSP
+
 - Support string request IDs
 - Fix three JSON handling bugs
 - Fix document text memory leak
 - Fix `safeValueDescription` `native_closure` tag
 
 #### Debugger
+
 - Fix break line number and up/down navigation
 - Free breakpoint name/condition strings on delete, cap overflow, and VM teardown
 - Add bounds check on register access
@@ -1356,14 +1459,17 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Fix dangling pointer in watch command
 
 #### Expander
+
 - Fix flonum datum patterns and ellipsis escape hygiene
 - Fix infinite loop when `cond-expand` clause has empty body
 
 #### SRFI-27
+
 - Fix `make-random-source` seeding and unit validation
 - Fix lossless state roundtrip, negative arg guard, zero-state rejection
 
 #### Other
+
 - Fix record field spec validation and REPL datum comment handling
 - Fix crashes in record primitives, `read-bytevector!`, and `hash-table-merge!`
 - Fix printer freeing string literal on bignum `toString` failure
@@ -1371,12 +1477,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Use PID-unique temp path for native compilation LLVM IR
 
 ### Changed
+
 - Split four files that exceeded the 1500-line policy
 - Use descriptive `typeError` calls instead of bare `PrimitiveError.TypeError`
 
 ## [0.8.0] - 2026-06-28
 
 ### Added
+
 - **Generational GC:** young/old generations with minor and full collections; young objects surviving 2 minor cycles are promoted; write barrier tracks old→young references
 - **Native compilation CLI:** `kaappi compile program.scm -o binary` bundles LLVM IR emission and linking in one command; finds `libkaappi_rt.a` via `KAAPPI_LIB_DIR`, exe-relative path, or `zig-out/lib/`
 - **LLVM backend — tail call optimization:** self-tail-calls compiled as loops; cross-function tail calls use LLVM `tail call` annotation
@@ -1393,12 +1501,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Fuzz testing:** compiler and eval fuzz targets (in addition to existing reader and bytecode loader targets)
 
 ### Fixed
+
 - `kaappi compile` finds `libkaappi_rt.a` relative to the binary using `_NSGetExecutablePath` (macOS) / `/proc/self/exe` (Linux); release artifacts now include `libkaappi_rt.a`
 - Unit test false failure from disassembler stderr writes corrupting Zig test runner IPC
 
 ## [0.7.0] - 2026-06-28
 
 ### Added
+
 - **LLVM native backend:** compile Scheme programs to native executables via `zig build native -Dnative-src=program.scm` or `kaappi --emit-llvm`
 - **Native lambda compilation:** simple functions compile as separate LLVM function definitions with direct calls; self-recursive calls bypass runtime dispatch
 - **Closure support in native backend:** inner lambdas capturing outer parameters work in native binaries
@@ -1416,14 +1526,17 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **Benchmarks:** string, list, vector, hashtable benchmarks (suite grows from 4 to 8)
 
 ### Changed
+
 - **Compiler:** all expressions route through IR pipeline (`lowerWithMacros` → analysis → optimization → `compileFromNode`)
 - **IR lowering:** `lower()` is now a thin wrapper over `lowerWithMacros(null)`; macros threaded through all recursive lowering helpers
 
 ### Removed
+
 - **JIT backends:** removed 5,215 lines of hand-written AArch64 and x86_64 JIT code; replaced by LLVM native backend
 - **`--no-jit` flag:** no longer needed
 
 ### Fixed
+
 - **IR lowering:** nested calls inside `if`/`begin`/`and`/`or` produced `passthrough` nodes instead of proper `call` nodes
 - **Native backend:** symbol constants not interned at runtime, breaking `eq?` identity in closures
 - **Native backend:** quoted list constants (`'(1 2 3)`) emitted as dangling pointers
@@ -1432,6 +1545,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.6.6] - 2026-06-27
 
 ### Fixed
+
 - **Expander:** Mismatched-length ellipsis template variables read uninitialized memory; now returns clean error
 - **Reader:** Datum-label placeholder (`#N=`/`#N#`) not GC-rooted — use-after-free during nested read
 - **Reader:** Malformed `#`-prefixed numeric literals (`#d` at EOF, `#e1e19`) panicked instead of clean error
@@ -1445,15 +1559,18 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - **SRFI-18:** Child thread data races — globals marking wrote cross-heap mark bits, `markRoots` deadlocked on symbol mutex, fiber result stored child-heap pointers visible to parent GC
 
 ### Changed
+
 - **Build:** Release binaries now stripped (`-Dstrip` option) — Linux x86_64 drops from 9.6 MB to 1.7 MB
 
 ## [0.6.5] - 2026-06-27
 
 ### Changed
+
 - **Bytecode:** Register operands widened from u8 to u16 (format version 3→4), raising the per-function register limit from 250 to 2048 for large library modules
 - **Runtime:** Main entry point runs on a worker thread with 64 MB stack to prevent stack overflow from deeply nested `cond`/`if` chains in the compiler's recursive descent
 
 ### Fixed
+
 - **FFI:** 64-bit integer returns (c_long) silently truncated to 48-bit fixnums; now promotes to bignum for values exceeding ±2^47
 - **FFI:** Pointer returns promote to bignum for addresses ≥ 2^47; `marshalToPointer` handles bignum round-trips
 - **FFI:** qsort-shaped handler `(pointer, long, long, pointer) -> void` panicked on negative count/size
@@ -1474,9 +1591,11 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.6.4] - 2026-06-26
 
 ### Added
+
 - Nested/composed import sets: `(prefix (only (scheme base) car cdr) s:)` now works per R7RS §5.6
 
 ### Fixed
+
 - **GC safety:** Root accumulators in SRFI-1 `circular-list`, `lset-adjoin`, `lset-union`, `lset-xor`, `append-reverse`, `concatenate`, `cons*`, `unfold`
 - **GC safety:** Root return value across dynamic-wind after-thunks in `.return` handler
 - **GC safety:** Root vector elements during bytecode cache deserialization
@@ -1502,17 +1621,20 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.6.3] - 2026-06-26
 
 ### Fixed
+
 - macOS signed binaries crashing on JIT due to missing `allow-jit` entitlement for hardened runtime
 
 ## [0.6.2] - 2026-06-26
 
 ### Fixed
+
 - JIT NaN-boxing encoding mismatch causing arithmetic crashes on both AArch64 and x86_64 backends
 - Verification link in README now points to download page
 
 ## [0.6.1] - 2026-06-25
 
 ### Fixed
+
 - Root intermediate heap values in multi-allocation GC loops
 - Root remaining unrooted heap intermediates across the runtime
 - Propagate errors from silent `catch {}` discards instead of swallowing them
@@ -1521,6 +1643,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Add FFI argument type validation and sandbox defense-in-depth
 
 ### Added
+
 - Vision and philosophy document for contributors (`docs/dev/vision.md`)
 - Developer guide for GC safety and error handling (`docs/dev/gc-safety-and-error-handling.md`)
 - Downloads page at kaappi-lang.org/download/
@@ -1529,6 +1652,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.6.0] - 2026-06-25
 
 ### Added
+
 - 5 new REPL commands: `,quit`/`,exit`, `,version`, `,load <file>`,
   `,import <lib>`, `,dis <expr>`
 - Grouped `,help` output with section headers (Evaluation, Inspection,
@@ -1544,6 +1668,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - REPL banner shows `,help` hint for discovering commands
 
 ### Changed
+
 - **NaN-boxing**: values are now NaN-boxed 64-bit words — flonums are packed
   directly into the Value without heap allocation, improving floating-point
   performance and reducing GC pressure
@@ -1551,6 +1676,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
   (`echo '(+ 1 2)' | kaappi` prints only `3`)
 
 ### Fixed
+
 - FFI parameter limit raised from 4 to 5
 - Library import errors now report the actual missing dependency instead of
   blaming the top-level library (e.g. "library not found: (srfi 132)"
@@ -1562,12 +1688,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.5.0] - 2026-06-25
 
 ### Added
+
 - `--timeout` and `--max-memory` CLI flags for resource limits (time and
   memory caps for script execution)
 - REPL history moved to `~/.kaappi/history` with comma command tab completion
 - Sandbox mode blocks SRFI-18 OS threads
 
 ### Fixed
+
 - Type error messages now include expected-vs-actual context across all
   primitives (21 files)
 - Improved error messages for failed imports and arity mismatches
@@ -1575,6 +1703,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.4.0] - 2026-06-24
 
 ### Added
+
 - WebAssembly (wasm32-wasi) build target: `zig build wasm` produces
   `kaappi.wasm` for browser and WASI runtimes
 - WASM binary included in GitHub Release artifacts
@@ -1586,6 +1715,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Codecov integration in CI for Zig source coverage
 
 ### Fixed
+
 - JIT tail_call and self-call bugs causing data corruption on recursive
   closures
 - JIT `emitStoreHalfAtOffset` slow path stored address instead of value
@@ -1594,6 +1724,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - Thread deep copy hardened: proper error handling and memory leak fixes
 
 ### Changed
+
 - JIT compiler handles `closure`, `close_upvalue`, and closure tail calls
   natively (fewer side-exits to interpreter)
 - Split `vm.zig` into `vm_dispatch.zig` and `vm_calls.zig` for
@@ -1606,6 +1737,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.3.0] - 2026-06-23
 
 ### Added
+
 - Language Server Protocol (LSP) server (`kaappi-lsp`) with diagnostics,
   completions, and hover — works with VS Code, Neovim, Emacs, Helix
 - REPL: Ctrl+R reverse history search, `,type`, `,describe`, `,apropos`
@@ -1618,6 +1750,7 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 - SRFI 19 test suite (112 tests)
 
 ### Fixed
+
 - x86_64 JIT crash: `readU16` used wrong byte order (little-endian vs
   VM's big-endian), causing misread jump offsets and SIGABRT on Linux
 - JIT branch-target pre-scan: added bounds checking for jump targets
@@ -1627,21 +1760,25 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.2.1] - 2026-06-23
 
 ### Added
+
 - Colored output for thottam (green/red/cyan, TTY-gated — no escape codes
   when piped)
 - Thottam integration test in CI (install/remove cycle against kaappi-json)
 
 ### Removed
+
 - Old `scripts/thottam` shell script (replaced by the Zig binary in v0.2.0)
 
 ## [0.2.0] - 2026-06-23
 
 ### Added
+
 - `thottam` package manager rewritten in Zig as a compiled binary, replacing
   the shell script (`scripts/thottam`). Ships alongside `kaappi` in release
   artifacts for all 4 platforms. Adds dependency cycle detection.
 
 ### Changed
+
 - Release workflow now builds and uploads `thottam` binaries for all platforms
 - `install.sh` now downloads and installs both `kaappi` and `thottam`
 - macOS binaries (both `kaappi` and `thottam`) are Developer ID signed and
@@ -1650,12 +1787,14 @@ Found by the SRFI 257 `rx` conformance suite, which drove every one of these
 ## [0.1.2] - 2026-06-23
 
 ### Changed
+
 - macOS binary is now signed with Developer ID and notarized by Apple,
   eliminating the Gatekeeper "malware" warning for downloaded binaries
 
 ## [0.1.1] - 2026-06-23
 
 ### Fixed
+
 - Release binaries printed `DebugAllocator` leak warnings to stderr when stdin
   was piped — now use `c_allocator` in release builds, `DebugAllocator` only in
   Debug mode
@@ -1669,6 +1808,7 @@ forms, 14 standard libraries, 51 SRFIs, C FFI, JIT compiler, green threads,
 profiler, stepping debugger, bytecode caching, and standalone binary bundling.
 
 ### Added
+
 - x86_64 JIT backend with full feature parity to AArch64 (all opcodes,
   specialized arithmetic, function calls, self-tail-call)
 - Register allocation for x86_64 JIT via lazy-store cache
@@ -1690,6 +1830,7 @@ profiler, stepping debugger, bytecode caching, and standalone binary bundling.
 - Versioning policy (`VERSIONING.md`)
 
 ### Fixed
+
 - JIT W^X violation on Linux: pages were mapped RWX, now properly use
   RW-then-RX via mprotect
 - JIT icache flush on Linux aarch64
@@ -1698,6 +1839,7 @@ profiler, stepping debugger, bytecode caching, and standalone binary bundling.
   (it auto-promotes to bignum)
 
 ### Changed
+
 - `thread-start!` now requires `--experimental-threads` flag (was silently
   unsafe)
 - Applied `zig fmt` to all 22 source files that had drifted

@@ -111,15 +111,18 @@ Check off each unit when its PR is open and issues are filed. Add the date
 and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 0 — Baseline**
+
 - [x] 0: Baseline run, tracking issue, labels created, `audit-baseline.sh` committed (2026-07-05, #1137; baseline fully green at b2317e8 — 0 failures across all suites, no issues filed)
 
 **Phase 1 — R7RS spec gap analysis** (independent; run in parallel)
+
 - [x] 1A: Expressions & syntax (4.1–4.3) + Libraries (5.6–5.7) (2026-07-05, #1139–#1142; 34 new gap tests, 3 disabled pending fixes; libraries 5.6 fully green)
 - [x] 1B: Equivalence, numbers, booleans, lists, symbols (6.1–6.5) (2026-07-05, no bugs found — 40 gap tests all pass, incl. circular equal? termination and numeric I/O round-trips)
 - [x] 1C: Characters, strings, vectors, bytevectors (6.6–6.9) (2026-07-05, #1145; 43 gap tests, 4 disabled — char classification derives from case mappings; full string casing, UTF-8 slicing, overlap copies all conform)
 - [x] 1D: Control, exceptions, eval, I/O, system (6.10–6.14) (2026-07-05, #1147; 30 gap tests, 2 disabled — immutable environments don't signal on define/set!; cyclic write, CRLF read-line, raise-continuable all conform)
 
 **Phase 2 — Primitives audit** (independent; run in parallel; order = risk)
+
 - [x] 2.1: `primitives_srfi18.zig` (threads) (2026-07-05, #1153–#1156; 73 audit tests + 4 disabled — mutex timeout lock-steal, #f-thread owner, native thunks rejected, gc-stress SIGSEGV)
 - [x] 2.2: `primitives_string_ext.zig` (SRFI-13) (2026-07-05, #825/#826 reopened + #1158–#1159; 84 audit tests + 6 disabled — join grammar, Unicode trim, s2 ranges, ignored optional args)
 - [x] 2.3: `primitives_char.zig` (Unicode) (2026-07-05, no new bugs — 59 audit tests; final-sigma, ligatures, Cherokee all conform; classification pending #1145)
@@ -140,6 +143,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 2.18: `primitives.zig` (core) (2026-07-05, #1198–#1199; 196 audit tests + 4 disabled — reverse/append/apply(non-tail) hang on circular lists while length/list?/tail_apply detect or bound them; record accessors/mutators skip the type check, cross-type reads/writes silently succeed; eqv?/equal?/predicates/apply otherwise fully conform incl. circular equal? and width-changing string mutations)
 
 **Phase 3 — SRFI conformance**
+
 - [x] 3.0: Run all 35 existing SRFI test files, capture failures (2026-07-05, no failures — all 35 files pass individually under timeout 30 at 96ce73b: chibi-test files all print 0 fail, SRFI-64 files report 0 unexpected failures (srfi64.scm's 1 "expected failure" is an intentional test-expect-fail), exit-code files all print their OK markers; no hangs, no escaped errors)
 - [x] 3.1: Built-in SRFIs without adequate tests (9, 39, 170) (2026-07-05, #1202–#1203 + #560 reopened; 68 tests + 6 disabled — parameterize installs bindings sequentially (SRFI-39 "1010" example fails), record redefinition retargets old ctors/predicates via call-time __record_type_ lookup, define-record-type still broken in lambda/let bodies (begin was fixed); constructors map fields by name, converters, disjointness, escape-restore all conform; 170 covered by 2.5)
 - [x] 3a: SRFIs 0, 6, 17, 23, 26 (syntax extensions) (2026-07-05, #1205 + #1208; 54 tests + 9 disabled — SRFI-17 is a stub (no generalized set!, no predefined setters), cut/cute hardcoded patterns (cute re-evaluates per call, later slots swallowed, no operator slots, arity cap); cond-expand/string ports/error all conform)
@@ -150,11 +154,13 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 3.4: Upgrade smoke-only SRFIs to behavioral tests (98, 125, 128, 132, 141, 151, 152, 174, 175, 195, 219, 232) (2026-07-05, #1229–#1238; 402 tests + ~60 disabled — SRFI-219 dead on arrival (imported define macro can't shadow the built-in special form, #1237 is a core expander bug), SRFI-232 currying is strictly unary chains, balanced/ aliased to round/, default comparator not a total order (pairs/vectors/cross-type unordered) + eq/eqv comparators unhashable, hash-table-ref/find ignore success/proc-result (125), string-every drops last value (152), ascii-digit-value treats letters as digits (175), copy-bit rejects spec booleans + eqv/bits->list arity (151, beyond #1214), 14 of 22 SRFI-132 exports missing, timespec conversions missing (174); SRFI-98 and 195 fully conform)
 
 **Phase 4 — Compiler & VM edge cases**
+
 - [x] 4A: Tail positions in derived forms + thin-coverage forms (2026-07-05, #1240–#1242; 54 tests + 6 disabled — call-with-values consumer, call/cc receiver, and eval are NOT tail-called (§3.5 requires; native re-entry panics at ~1024 via #1191's mechanism), let*-values body is not a tail context (even 1 clause; let-values is fine), force caps promise chains at 100k iterations and mislabels longer legit delay-force chains as circular; apply/cond=>/case-lambda/do/let-syntax and all other §3.5 contexts verified at 1e5–1e6 depth; parameterize/define-values/letrec*/letrec-syntax thin coverage conforms except sequential-binding #1202)
 - [x] 4B: Continuation interactions (2026-07-05, no new issues; 22 tests + 1 disabled (#1169) — R7RS 6.10 connect/talk/disconnect re-entry example exact, multi-shot segments, parameterize captured+restored across re-entry, escape/afters inner-to-outer, guard =>/else/re-raise, raise-continuable resume, handler-return secondary exception, mv through dynamic-wind all conform; state kept global to dodge #1168)
 - [x] 4C: Macro hygiene + define-library import sets (2026-07-05, #1243; 23 tests + 1 disabled — doubled-ellipsis template (x ... ...) produces garbage with a literal ... instead of flattening; be-like-begin/(... ...) escape, custom ellipsis, vector patterns, tail patterns after ellipsis, =>-shadowing (p.24 example!), macro exports through prefix/only/rename/except and only-of-rename, cond-expand library declarations all conform; circular imports cleanly detected with nonzero exit)
 
 **Phase 5 — Synthesis**
+
 - [x] 5: Deduplicate, group by root cause, prioritize, update tracking issue (2026-07-05 — 87 findings filed over the campaign, 81 still open, 6 already fixed (#1176 #1178 #1180 #1184 #1185 #1188 — their FAIL markers still need re-enabling); no duplicates found (dedup enforced at filing time); grouped into 9 root-cause clusters with 2 epics filed (native re-entrancy, portable-SRFI quality); priority order + 197-marker inventory posted on #1137; run-all.sh hardened to parse chibi-test/SRFI-64 fail counts so exit-0 failures no longer pass silently)
 
 ---
@@ -189,9 +195,9 @@ coverage/ (gap-fillers), deferred/ (known-deferred .sbc files), phase1–5/
 
 Most Scheme test files use **no formal framework** — they succeed on exit
 code 0 and fail on non-zero. Audit, SRFI, and compliance tests use
-`(srfi 64)` with an exit-on-fail epilogue (migrated from `(chibi test)` in
-#1313); only the R7RS suite still uses the chibi-test shim, and its output
-is parsed specially by `run-all.sh`. See Footguns above.
+`(srfi 64)` with an exit-on-fail epilogue (migrated from `(chibi test)`
+in #1313); only the R7RS suite still uses the chibi-test shim, and its
+output is parsed specially by `run-all.sh`. See Footguns above.
 
 ### Primitives audit status
 
@@ -301,7 +307,7 @@ Sessions 1A–1D are independent — run them in parallel.
 
 ### Session prompt (Phase 1)
 
-```
+```text
 Read docs/audit-strategy.md — follow the Session protocol. Your unit is
 Phase 1, session 1X (domains listed in the Domain map).
 
@@ -365,7 +371,7 @@ Small files can be batched: 2.15–2.17 (random, lazy, cxr) fit in one session.
 
 ### Session prompt (Phase 2)
 
-```
+```text
 Read docs/audit-strategy.md — follow the Session protocol. Your unit is
 Phase 2.N: src/primitives_XXX.zig.
 
@@ -433,7 +439,7 @@ SRFIs — see Progress tracker for exact groupings). Adapt tests from
 
 ### Session prompt (Phase 3)
 
-```
+```text
 Read docs/audit-strategy.md — follow the Session protocol. Your unit is
 Phase 3X: SRFIs N1, N2, ... (see the Progress tracker grouping).
 
@@ -506,7 +512,7 @@ Existing: `tests/scheme/hygiene/` (12 files), `src/tests_macros.zig`
 
 ### Session prompt (Phase 4)
 
-```
+```text
 Read docs/audit-strategy.md — follow the Session protocol. Your unit is
 Phase 4X (see the focus list for your unit).
 
@@ -529,7 +535,7 @@ Deliverables: PR with test files, issues filed, tracker updated.
 **Goal:** Review all issues filed, deduplicate, identify root causes,
 prioritize. Runs after all other phases.
 
-```
+```text
 Read all open GitHub issues with labels "audit", "r7rs-conformance", or "srfi".
 1. Group by root cause (e.g., "bignum dispatch missing in 5 procedures") —
    close duplicates, link related issues, create epics for systemic problems.
@@ -548,7 +554,7 @@ so future chibi-test failures actually fail the run.
 
 ## Parallelization Plan
 
-```
+```text
         Phase 0 (baseline)
               │
     ┌─────────┼─────────┐
@@ -619,7 +625,7 @@ If a match exists, comment on it instead of filing a new issue.
 
 ### Issue title conventions
 
-```
+```text
 [R7RS 6.2] exact->inexact: returns wrong value for rationals
 [SRFI-1] filter: does not preserve order for improper lists
 [R7RS 4.2] named-let: not in tail position

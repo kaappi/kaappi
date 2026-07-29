@@ -18,6 +18,7 @@ Most new forms use this path — ~4 edits:
 
 3. **Dispatch** in the `.sexpr_form` arm of `compileFromNode()` in
    `src/compiler_ir.zig`:
+
    ```zig
    .my_form => try forms.compileMyForm(self, sf.args, dst, tail),
    ```

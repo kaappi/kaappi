@@ -86,7 +86,7 @@ permission deny rules — the hook also catches `git tag -d` and
 4. Runs `zig build test` with a 120-second timeout (`timeout` on Linux,
    `gtimeout` on macOS, bare if neither available).
 5. If tests pass, exits 0.
-6. If tests fail, emits `{"decision":"block","reason":"Unit tests failed:\n..."}` 
+6. If tests fail, emits `{"decision":"block","reason":"Unit tests failed:\n..."}`
    with the last 30 lines of test output, preventing Claude from finishing
    until it fixes the failures.
 
@@ -400,7 +400,7 @@ The `infra/` repo also contains non-plugin resources:
 
 The harness has three layers that reinforce each other:
 
-```
+```text
 Permissions (settings.json)     ← first gate: allow / deny
     ↓
 Pre-tool hooks (bash-guard)     ← second gate: block dangerous patterns
@@ -435,6 +435,7 @@ changes were made.
 
 1. Write a shell script in `.claude/hooks/`.
 2. Add a hook entry in `.claude/settings.json` under the appropriate event key:
+
    ```json
    {
      "hooks": {
@@ -453,6 +454,7 @@ changes were made.
      }
    }
    ```
+
 3. The script receives the tool payload as JSON on stdin.
 4. To block: emit `{"decision":"block","reason":"..."}` on stdout.
 5. To permit: exit 0 with no blocking output.
@@ -460,6 +462,7 @@ changes were made.
 ### Adding a rule
 
 1. Write a Markdown file in `.claude/rules/` with YAML front matter:
+
    ```markdown
    ---
    globs: ["src/my_*.zig"]
@@ -468,6 +471,7 @@ changes were made.
    
    Rule content here...
    ```
+
 2. The rule loads automatically when editing files matching the globs.
    No `settings.json` change needed.
 

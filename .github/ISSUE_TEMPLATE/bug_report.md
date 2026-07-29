@@ -17,6 +17,7 @@ labels: bug
 <!-- What happened? What did you expect? -->
 
 **Minimal reproduction**
+
 ```scheme
 ;; Paste the smallest program that triggers the bug
 ```
@@ -26,5 +27,6 @@ labels: bug
      a wrong Scheme error. If unsure, paste the full output. -->
 
 **Full output**
-```
+
+```text
 ```

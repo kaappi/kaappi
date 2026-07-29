@@ -74,8 +74,8 @@ fd 1 would corrupt `Content-Length` framing. Paths are normalized to
 `GetModuleFileNameW`, `getcwd`, `_wfullpath`): Win32 accepts forward
 slashes everywhere the runtime passes paths, and every internal path
 split/join is written for `/` (a `std.fs.path.join`, which uses `\` on
-Windows, is a bug — it broke `kaappi test --changed` suite discovery,
-#1612).
+Windows, is a bug — it broke `kaappi test --changed` suite
+discovery, #1612).
 
 ## Fd readiness: sockets and pipes (#1608)
 
@@ -257,7 +257,7 @@ Windows-specific pieces of the path (#1610):
   a foreign `zig cc` link of the static archive must name the import lib
   explicitly. The equivalent manual link is:
 
-  ```
+  ```bash
   zig cc -w -O2 out.ll -o prog.exe -L<libdir> -lkaappi_rt -lc -lm -lws2_32
   ```
 

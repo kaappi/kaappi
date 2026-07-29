@@ -23,9 +23,11 @@ zig build run -- scripts/large-files.scm
 ```
 
 Output before the fix:
-```
+
+```text
    1243██src/vm.zig    ##############################
 ```
+
 The `██` are bytes `0xAA 0xAA` — the literal `"  "` (two spaces) freed by GC and
 its data buffer overwritten by the poison pattern.
 

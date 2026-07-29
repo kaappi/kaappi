@@ -37,6 +37,7 @@ try reg(vm, "my-proc", &myProc, .{ .exact = 1 });
 ```
 
 Arity options:
+
 - `.{ .exact = N }` -- exactly N arguments
 - `.{ .variadic = N }` -- N or more arguments
 

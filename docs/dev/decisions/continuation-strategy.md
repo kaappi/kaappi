@@ -65,6 +65,7 @@ no overhead. Only the small fraction of code that reaches `call/cc` falls
 back to the VM.
 
 **Pros:**
+
 - Zero overhead for continuation-free code (the common case)
 - No changes to the bytecode VM — it keeps working as-is
 - The direct-style IR serves both backends without conversion
@@ -72,6 +73,7 @@ back to the VM.
   `setjmp`/`longjmp` — they're single-shot by definition
 
 **Cons:**
+
 - Code that uses `call/cc` in hot loops does not benefit from native
   compilation. This is acceptable: such code is rare, and the bytecode
   the bytecode VM already handles it well.
@@ -87,6 +89,7 @@ stays, native is an additional backend) and avoids penalizing the common case.
 
 The semantic analysis pass (Stage 3) determines which functions may reach
 `call/cc` — conservatively, any function that:
+
 - Directly calls `call-with-current-continuation` or `call/cc`
 - Calls a function that is not provably continuation-free
 - Receives a closure argument that might invoke a continuation

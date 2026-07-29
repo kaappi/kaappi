@@ -54,6 +54,7 @@ keeps it alive.
 
 3. **Root the accumulator in loops.** When building a list or vector
    via repeated `allocPair`/`allocVector`, root the accumulating result:
+
    ```zig
    var result: Value = types.NIL;
    try gc.pushRoot(&result);

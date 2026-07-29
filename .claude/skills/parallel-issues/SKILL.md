@@ -94,7 +94,7 @@ Before grouping, determine which issues depend on which others:
 For each set, output only the issue numbers as a comma-separated list on one
 line:
 
-```
+```text
 Set 1: NNN, NNN, NNN, ...
 Set 2: NNN, NNN, ...
 ```

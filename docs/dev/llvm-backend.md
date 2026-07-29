@@ -11,6 +11,7 @@ the second of two execution backends:
 LLVM replaces the machine-code backend, not the Scheme runtime.
 
 **LLVM provides:**
+
 - Optimization passes (constant propagation, inlining, loop optimization, etc.)
 - Code generation for many architectures (x86_64, AArch64, RISC-V, etc.)
 - Mature debugging support (DWARF)
@@ -19,6 +20,7 @@ LLVM replaces the machine-code backend, not the Scheme runtime.
 - Platform portability
 
 **The Kaappi runtime provides (unchanged):**
+
 - Garbage collector (mark-and-sweep, `memory.zig`)
 - Closure representation (Function + upvalues)
 - NaN-boxed value scheme (tagged u64)
@@ -32,7 +34,7 @@ runtime that the bytecode VM uses. The native binary links against
 
 ## Architecture
 
-```
+```text
 Source → Reader → Expander → IR → Analysis → Optimization
                                                     |
                               +---------------------+---------------------+
@@ -391,6 +393,7 @@ past the fixed arity before branching, so variadic named functions loop too
 (kaappi#1498). (Boxed frames still disable the loop; see below.)
 
 **Falls back to the [cached eval](#cached-eval-fallback) when the body:**
+
 - contains an eval-fallback form (`letrec`, `guard`, named `let`, …), or a
   `cond`/`case`/`do` whose clauses themselves reach one (kaappi#1496);
 - contains a keyword-only special form that reaches the interpreter as a whole

@@ -8,7 +8,7 @@ discovers SRFI-64 suites, runs each one, and aggregates pass/fail/skip counts
 (kaappi#1503, kaappi#1509); the guiding rule is that a caller can go from a
 failing suite to a fix using documented, structured output alone.
 
-```
+```text
 kaappi test [paths...]
 ```
 
@@ -143,7 +143,7 @@ closure is derivable by *reading library declarations* — no build-system
 integration, no compiler instrumentation. `kaappi test` exploits this to run
 only the suites a change actually touches (kaappi#1510).
 
-```
+```text
 kaappi test --changed [--since <rev>]     # run only affected suites
 kaappi test --list-affected [--since <rev>]  # print them, run nothing
 ```

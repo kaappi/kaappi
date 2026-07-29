@@ -119,7 +119,7 @@ release builds compile both features out.
 
 Scheme tests live in `tests/scheme/`, organized by purpose:
 
-```
+```text
 tests/scheme/
   r7rs/             R7RS test suite (1,391 tests via chibi test)
     r7rs-tests.scm  Canonical suite — imports (chibi test)
@@ -350,7 +350,7 @@ regression).
 After the benchmark job has run at least once on `main`, a trend chart is
 published to GitHub Pages. Access it at:
 
-```
+```text
 https://kaappi-lang.org/kaappi/dev/bench/
 ```
 
@@ -375,6 +375,7 @@ slow drift over many commits is usually runner variance.
 ### Adding a new benchmark
 
 1. Create `benchmarks/<name>.scm` using the harness:
+
    ```scheme
    (include "benchmarks/common.scm")
 
@@ -389,6 +390,7 @@ slow drift over many commits is usually runner variance.
       (lambda () (my-bench input))
       (lambda (result) (= result expected))))
    ```
+
 2. Create `benchmarks/<name>.input` with `count input expected` (one per line).
    Calibrate so each iteration runs 0.5–3 seconds.
 3. Add the entry to the `BENCHMARKS` array in `benchmarks/run-benchmarks.sh`.
@@ -463,7 +465,7 @@ A pull request will not be merged if CI fails.
 E2e tests verify that the LLVM native backend produces binaries with
 identical output to the interpreter. They live in `tests/e2e/`:
 
-```
+```text
 tests/e2e/
   run-e2e.sh              Shell runner (BDD specs + native parity tests)
   test-llvm-backend.scm   BDD specs using kaappi-bdd
@@ -492,6 +494,7 @@ bash tests/e2e/run-e2e.sh
 ```
 
 The script:
+
 1. Builds `kaappi` and `libkaappi_rt.a`
 2. Runs BDD specs via the interpreter
 3. For each program in `programs/`: runs via interpreter, compiles to

@@ -221,7 +221,7 @@ When both could read true, **Absent wins** — it is the stronger claim
 Alternative 1 as well. Rule 1 (Racket) excludes both by the same
 monotonicity. Hence the fixed precedence:
 
-```
+```text
 outcome(machine) =
     Rule1 (Racket)  if  ≥ 2 of 3 IP-* pass the C+D lower-bound test
   else Rule3 (Absent) if  all 24 none cells have ci95_hi < 10 %
@@ -241,7 +241,7 @@ outcome(machine) =
 > demand shape on one microarchitecture only is not enough to carve out
 > the GC model (§5 cross-machine rule).
 
-```
+```text
 combined =
     outcome(macOS)  if  outcome(macOS) == outcome(Linux)
   else Between (4)          # disagreement ⇒ stays gated, publish both

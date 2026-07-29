@@ -6,11 +6,11 @@ documentation that ships *inside the binary* — offline, version-matched, and
 identical for a human reading prose and an agent parsing JSON. The model is
 Rust's `rustc --explain E0308`.
 
-```
+```bash
 kaappi explain KP3001
 ```
 
-```
+```text
 KP3001  undefined-variable
 runtime · error
 

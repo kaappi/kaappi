@@ -251,11 +251,13 @@ reference-machine quirks are in the `reference-win11-vm` memory.
 3. **Ship** into `C:\tmp` (must exist — tests write `/tmp/...` → `\tmp`).
    Create the staging subdir first (`tar -C` won't make it), keep PowerShell
    off the binary stdin with a `cmd` wrapper, and suppress AppleDouble files:
+
    ```bash
    ssh win11 'cmd /c "if not exist C:\tmp\kaappi-vm mkdir C:\tmp\kaappi-vm"'
    COPYFILE_DISABLE=1 tar czf - <files> \
      | ssh win11 'cmd /c "tar -xzf - -C C:\tmp\kaappi-vm"'
    ```
+
 4. **Run** unit-tests.exe + R7RS + the VM-verified `.scm` suites. Shell
    (`run-all.sh`) suites run under the box's Git Bash
    (`C:\tmp\PortableGit\bin\bash.exe`) via a scp'd runner script — quoting

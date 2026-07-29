@@ -53,6 +53,7 @@ The same cache had a second, independent problem — it wasn't traced by the GC,
 **Symptom:** Opening a second file after reading and closing a first file caused `read-line` type errors.
 
 **Root cause:** Two interacting issues:
+
 1. Named let closures captured ports via upvalues. The first call's closure was stored as a global. On the second call, a new closure was created but the global cache returned the OLD closure (with the closed port's upvalue).
 2. The global cache invalidation bug (#3 above) prevented the new closure from being seen.
 
@@ -101,12 +102,14 @@ The same cache had a second, independent problem — it wasn't traced by the GC,
 **Symptom:** Various use-after-free crashes during library loading and multi-file I/O.
 
 **Root causes found:**
+
 - `vm_instance` not set in `main()`, so `markVMRoots` did nothing during early GC cycles
 - Library export values not rooted — heap objects in the library registry weren't traced during GC
 - Flonum cache entries not rooted — cached flonums could be freed between GC cycles
 - Exception handler closures not rooted between `popHandler` and `callHandler`
 
 **Fixes:**
+
 - Set `vm_instance` early in `main()` before any allocations
 - Mark library export values in `markVMRoots`
 - Mark flonum cache entries in `markRoots`
@@ -145,6 +148,7 @@ Full investigation: [postmortems/2026-06-17-gc-reachability-bug.md](postmortems/
 ## 11. Performance: what worked and what didn't
 
 **What worked:**
+
 - **Global variable cache** (+10%): Cache resolved procedure values in Function objects. Avoids hash table lookups on repeated `get_global` instructions.
 - **Flonum cache** (+10%): 16-entry cache for frequently-used float values. Reduces GC pressure from temporary flonum allocations.
 - **Closure-first type dispatch** (+5%): Reorder `callValue` to check closures before native fns, FFI, parameters, continuations. Closures are the common case in Scheme.
@@ -152,10 +156,12 @@ Full investigation: [postmortems/2026-06-17-gc-reachability-bug.md](postmortems/
 - **Bypass the ReleaseSafe allocator fill on hot, size-proportional buffers** (#1809; continuations -60%, bignum -56%, string -40%, nqueens -9.5%, no regressions on the benchmark suite): `std.mem.Allocator`'s `.alloc`/`.free`/`.dupe` unconditionally `@memset(..., 0xAA)` in ReleaseSafe, inside their own generic bodies rather than the vtable — so no backing allocator swap or `@setRuntimeSafety(false)` can suppress it. `memory.allocSliceNoFill`/`freeSliceNoFill`/`dupeSliceNoFill` call `rawAlloc`/`rawFree` directly, skipping the fill, applied at ~80 call sites (GC object payloads, bignum scratch buffers, register/frame growth, continuation capture, string/vector/bytevector builders). Debug/gc-stress poisoning is untouched since it's independently implemented (`gc_collect.poisonAndDestroy`). See [performance.md](performance.md#when-the-profile-bottoms-out-in-memset).
 
 **What didn't work:**
+
 - **`tail_call_global` superinstruction**: Attempted and reverted — the real blocker was callee-type dispatch, not register layout. The shipped alternative, `self_tail_call` (~23% on tak), covers the hot self-recursion case. Full analysis: [decisions/self-tail-call-optimization.md](decisions/self-tail-call-optimization.md).
 - **Per-entry cache versioning**: Considered for the global cache, but full-cache clearing on version mismatch is simpler and just as effective.
 
 **Rejected, then shipped anyway:**
+
 - **NaN-boxing**: Rejected at the time over fixnum-range fears (a naive scheme would cut fixnums from i63 to i51). Shipped 2026-06-25 with a 48-bit fixnum payload and automatic bignum promotion, which preserves R7RS integer semantics — and made flonums allocation-free. The lesson: a rejected design can become viable when one blocking assumption (here, that range loss breaks semantics) is removed by another mechanism (bignum auto-promotion).
 
 **Total improvement (pre-NaN-boxing):** fib(35) from 2.69s to ~2.0s (26% faster).

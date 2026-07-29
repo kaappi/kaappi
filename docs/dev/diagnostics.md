@@ -2,7 +2,7 @@
 
 Every user-facing diagnostic Kaappi prints carries a stable `KP`-prefixed code:
 
-```
+```text
 err.scm:2: error[KP3001]: undefined variable 'countr'. Did you mean 'count'?
 ```
 
@@ -74,7 +74,7 @@ The stage word is kept for the human reader; the bracketed code is inserted
 before the colon. Every stage reports `file:line:col`, the column pointing at
 the offending form's opening paren ([full source spans](#source-spans), #1506):
 
-```
+```text
 <stdin>:1:12: read error[KP1002]: unexpected character
 <stdin>:1:1: compile error[KP2001]: invalid syntax
 <stdin>:1:1: syntax-error[KP2002]: bad usage 1

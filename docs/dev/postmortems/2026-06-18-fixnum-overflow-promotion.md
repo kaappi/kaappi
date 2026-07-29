@@ -28,7 +28,8 @@ stored as `i64` internally via `toFixnum()`, and results are packed back with
 ```
 
 This causes 2 of the 4 remaining R7RS test failures:
-```
+
+```text
 FAIL [6.2 Numbers]: expected 4611686018427387904 got -4611686018427387904  (division)
 FAIL [6.2 Numbers]: expected 4611686018427387904 got -4611686018427387904  (quotient)
 ```
@@ -88,6 +89,7 @@ fn makeFixnumOrBignum(gc: *memory.GC, n: i64) !Value {
 **Multiplication** (line ~447): Same pattern.
 
 **Division/quotient**: Add an explicit check after `@divTrunc`:
+
 ```zig
 const result = @divTrunc(a, b);
 if (!fitsFixnum(result)) return bignum_mod.fromI64(gc, result);
@@ -137,6 +139,7 @@ of wrapping with `makeFixnum`.
 ## Verification
 
 After fixing:
+
 ```scheme
 (+ 4611686018427387903 1)       ;=> 4611686018427387904 (bignum)
 (* 2305843009213693952 2)       ;=> 4611686018427387904 (bignum)
@@ -148,9 +151,11 @@ After fixing:
 ```
 
 Run `zig build test` and then:
+
 ```bash
 zig build run -- tests/scheme/r7rs/r7rs-tests.scm
 ```
+
 The two "expected 4611686018427387904" failures should resolve.
 
 ## Complexity

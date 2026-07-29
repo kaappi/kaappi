@@ -4,7 +4,7 @@ Complete R7RS-small Scheme implementation. Zig 0.16, ~80k lines, 641 built-in pr
 
 ## Build
 
-```
+```bash
 zig build                          # build executable (zig-out/bin/kaappi)
 zig build run                      # launch REPL (linenoise: arrow keys, history, tab completion)
 zig build run -- f.scm             # run a Scheme file
@@ -89,7 +89,7 @@ Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
 After cloning, enable the pre-commit format check:
 
-```
+```bash
 git config core.hooksPath .githooks
 ```
 
@@ -195,7 +195,7 @@ cannot resolve. `zig cc` includes these automatically.
 
 ## Architecture
 
-```
+```text
 Source → Reader → Expander → IR → Analysis → Optimization → Bytecode Emission → VM
          (UTF-8    (syntax-    (33 node  (tail pos,    (const fold,     (register-   (generational
           lexer)    rules)      types)    primitives,   dead branch,      based)       GC)
@@ -217,6 +217,7 @@ Source → Reader → Expander → IR → Analysis → Optimization → Bytecode
 
 NaN-boxed u64 — flonums, fixnums, booleans, characters, and nil all fit in a
 single word with zero heap allocation:
+
 - **Any non-NaN f64**: flonum (stored directly, no heap allocation)
 - **0xFFFC | 48-bit pointer**: heap `Object` (8-byte aligned)
 - **0xFFFD | 48-bit integer**: fixnum (signed, up to ±2^47; auto-promotes to bignum)
@@ -240,6 +241,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 ## File organization
 
 ### Core runtime
+
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `types.zig` | ~1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
@@ -277,6 +279,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 
 ### Compiler & IR (9 files)
+
 | File | Responsibility |
 |------|---------------|
 | `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
@@ -291,6 +294,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
 ### VM (split into 8 files)
+
 | File | Responsibility |
 |------|---------------|
 | `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
@@ -303,6 +307,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
 
 ### Primitives (split into 26 files)
+
 | File | Procedures |
 |------|-----------|
 | `primitives.zig` | Registration hub, core list/pair ops, type predicates, equivalence, map, for-each, apply |
@@ -329,6 +334,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `primitives_srfi260.zig` | SRFI-260: generated symbols (generate-symbol) |
 
 ### Other
+
 | File | Responsibility |
 |------|---------------|
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
@@ -352,6 +358,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
+
 178 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133, 170, 192, 254, 258, 260. 162 portable R7RS .sld files loaded on demand via `(import (srfi N))`, plus SRFI 261 (Portable SRFI Library References) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 (see below) as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan): 0, 2, 4, 5, 6, 7, 8, 11, 14, 16, 17, 19, 23, 25, 26, 27, 28, 29, 30, 31, 34, 35, 36, 37, 38, 41, 42, 43, 44, 45, 46, 48, 51, 54, 57, 59, 60, 61, 62, 63, 64, 66, 67, 70, 71, 74, 78, 86, 87, 90, 94, 95, 98, 101, 111, 112, 113, 115, 116, 117, 118, 120, 123, 125, 126, 127, 128, 129, 130, 131, 132, 134, 135, 136, 137, 139, 140, 141, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 156, 158, 161, 162, 164, 165, 166, 167, 168, 169, 171, 173, 174, 175, 178, 180, 181, 185, 188, 189, 190, 193, 194, 195, 196, 197, 201, 202, 203, 207, 209, 210, 213, 214, 215, 216, 217, 219, 221, 222, 223, 224, 225, 227, 228, 229, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 244, 247, 248, 250, 251, 252, 253, 255, 257, 259, 263, 264, 267, 270, 271. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 211 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized), (srfi 248 primitives). SRFI 226 (Control Features) is a 12-sub-library spec with no default/main library of its own (every feature lives under a named sub-library per its own spec); only the three `control` sub-libraries listed above (a reduced, escape-only continuation-prompt subset) are implemented — see the header of `lib/srfi/226/control/prompts.sld` for what's out of scope and why — so unlike every other portable SRFI it never appears as a bare number in `kaappi features`' scan (kaappi#1517 scans `lib/srfi/*.sld` non-recursively, matching what actually ships). SRFI 257's `rx` sublibrary layers regexp match patterns over SRFI 115 and SRFI 264 (`(~/ "([a-z]*):([0-9]*)" s name num)`); it is a verbatim port apart from the reference's missing `regexp-search-all`, which `~/all+` calls (see the header of `lib/srfi/257/rx.sld`). Its reference suite is what drove SRFI 115's matcher to a backtracking CPS engine (#1679): `%run` now offers each way a node can match to a continuation instead of returning one possessive answer, so `(regexp-matches (rx (* any) "b") "ab")` succeeds, `*?`/`??`/`**?` work, and a single-character repetition body still scans iteratively (`%run-rep1`) so `(* any)` over a long string costs no stack. #1681 then closed the remaining SRE gaps: look-behind (`%run-behind` scans backwards, floored at the search `start` that `%run` now threads alongside `end`), `grapheme`/`bog`/`eog` (UAX #29 clusters via `%gcb`/`%gcb-join?`/`%grapheme-end`), the `title-case` and `symbol` char sets, `&`/`-` set operators (every `<cset-sre>` compiles to a node `%match-one` decides, so `~`/`&`/`-` never re-enter the backtracking matcher), a real `w/ascii`/`w/unicode` context (a compile-time flag in the `%make-ctx` box, not a runtime one — SRFI 115 scopes it to char sets, so `%cm` is untouched), `w/nocapture`, submatch lookup by `(-> name …)` symbol, and bare `word` as a whole word rather than one word-constituent character. The three Unicode properties `(scheme char)` cannot answer — Lt, S\*, and the UAX #29 break classes — ship as range tables *inside* the portable `.sld`, generated by `tools/gen_srfi115_charsets.py`; regenerate them on a Unicode version bump and keep the version in step with `tools/gen_unicode_tables.py`. SRFI-254 (ephemerons and guardians) needs GC integration — its weak-reference marking/resurrection lives in `gc_collect.processWeakRefs`, its heap types (`Ephemeron`, `Guardian`, `TransportCell`) in `types.zig`, its primitives in `primitives_srfi254.zig`, and guardian invocation (a guardian is callable) in `vm_calls.invokeGuardian`. On this non-moving collector `current-hash` is a stable identity hash and transport cell guardians are degenerate (keys never move, so `(tg)` always yields #f). SRFI 258 (uninterned symbols) is built-in: `string->uninterned-symbol` and `generate-uninterned-symbol` allocate via `GC.allocUninternedSymbol` (memory.zig), which bypasses the intern table so the result is an ordinary collectable object never `eqv?` to any other symbol; the `Symbol.interned` flag (types.zig) drives `symbol-interned?` and the unreadable `#<uninterned-symbol …>` printer form that `read` rejects. Equality needs no special code (symbols already compare by identity), and `gc_deep_copy` preserves uninterned-ness across SRFI-18 thread boundaries. SRFI 260 (generated symbols) is built-in but needs no engine integration beyond one primitive (`generate-symbol` in `primitives_srfi260.zig`): because Kaappi interns every symbol by name (no uninterned symbols), write/read invariance is automatic, so the primitive just interns a fresh `"<pretty>.<counter>.<128-bit-OS-entropy-hex>"` name — a process-global atomic counter guarantees in-process uniqueness and `platform.osRandomBytes` supplies the unpredictability. SRFI 120 (Timer APIs) is portable (`lib/srfi/120.sld`) with no engine
 changes: each `make-timer` spawns one dedicated SRFI-18 thread owning its
 task list entirely in its own heap, coordinated purely through a `(kaappi
@@ -563,10 +570,11 @@ fully shipped too, leaving only SRFI 58's reader/writer array-literal
 syntax excluded (its stated blocker — no typed array infrastructure to
 build on — no longer holds at all now that SRFI 4/160/25/164/63/231 exist,
 worth re-examining if 58 is ever picked up). #1695 was fully closed
-earlier in Phase 4: 57/131/136/137/237/240 shipped, 99/100/150 excluded.
-#1699 (minus what Phases 1–3 closed) and #1729, which completed SRFI 181's
-transcoded-port half — custom ports landed separately in Phase 3, #1727 —
-plus issues #1703 and #1702, were all closed in full in Phase 4 as well.
+earlier in Phase 4: 57/131/136/137/237/240 shipped, 99/100/150
+excluded. #1699 (minus what Phases 1–3 closed) and #1729, which completed
+SRFI 181's transcoded-port half — custom ports landed separately in
+Phase 3, #1727 — plus issues #1703 and #1702, were all closed in full in
+Phase 4 as well.
 `docs/dev/srfi-exclusions.md`'s 30 excluded break down as: 7 meta/ecosystem SRFIs
 already covered by existing features, 11 non-standard reader syntax SRFIs
 that would fundamentally alter the parser, reinterpret already-valid syntax,
@@ -937,6 +945,7 @@ map.deinit();  // no allocator arg needed
 ## How to add a new built-in procedure
 
 1. Write the function in the appropriate `src/primitives_*.zig` file:
+
    ```zig
    fn myProc(args: []const Value) PrimitiveError!Value {
        if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
@@ -945,9 +954,11 @@ map.deinit();  // no allocator arg needed
    ```
 
 2. Register in the file's `registerXxx` function:
+
    ```zig
    try primitives.reg(vm, "my-proc", &myProc, .{ .exact = 1 });
    ```
+
    Arity: `.{ .exact = N }` for fixed, `.{ .variadic = N }` for N minimum args.
 
 3. Add to library exports in `src/library.zig` (the `scheme.base` section).
@@ -998,6 +1009,7 @@ mutating heap object fields, root `Function*` before `vm.execute()`.
 
 **Every bug fix MUST include a regression test** that fails without the fix and
 passes with it. Place it in the appropriate location:
+
 - Zig unit test → `src/tests_*.zig` (for VM, compiler, GC internals)
 - Scheme test → `tests/scheme/smoke/` or a dedicated file under `tests/scheme/`
   (for end-to-end behavior visible from Scheme)
@@ -1027,7 +1039,7 @@ iteration should scale their counts down via
 
 Uses [kcov](https://simonkagstrom.github.io/kcov/) to track which Zig source lines execute during tests. Install with `brew install kcov`. Both steps build in Debug mode (regardless of `-Doptimize`) since kcov needs DWARF line info.
 
-```
+```bash
 zig build coverage                                        # unit tests only
 zig build coverage-scheme -- tests/scheme/r7rs/r7rs-tests.scm  # R7RS test suite
 open coverage/index.html                                  # view HTML report
@@ -1069,7 +1081,7 @@ and its `rt_artifact` case — `docs/dev/porting.md` Stage 6.
 `src/thottam.zig` is a Zig binary that installs Kaappi ecosystem libraries.
 Built alongside kaappi via `zig build`, ships in release artifacts for all platforms.
 
-```
+```bash
 thottam install kaappi-web                                    # from default org
 thottam install kaappi-auth::https://github.com/bob/kaappi-auth  # from custom URL
 thottam install kaappi-web@v1.0.0                             # pinned version
@@ -1080,6 +1092,7 @@ thottam remove kaappi-web                                     # uninstall
 ```
 
 **How it works:**
+
 - Clones from `github.com/kaappi/<package>` (or a custom `::url`) to `~/.kaappi/src/`
 - Reads `kaappi.pkg` for dependencies and build commands
 - Copies `.sld` files to `~/.kaappi/lib/` (preserving directory structure)
@@ -1093,7 +1106,8 @@ native libraries. No `--lib-path` or `DYLD_LIBRARY_PATH` needed after
 install.
 
 **Package manifest** (`kaappi.pkg`):
-```
+
+```text
 name: kaappi-web
 depends: kaappi-http kaappi-json
 build: make
@@ -1121,6 +1135,7 @@ The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 | kaappi-web | Pure Scheme | kaappi-http, kaappi-json | Web framework (routing, middleware) |
 
 **Library pattern** (for creating new kaappi-* packages):
+
 - `csrc/` — C helper for FFI (if needed)
 - `lib/kaappi/<name>.sld` — main library with re-exports
 - `lib/kaappi/<name>/` — sub-libraries (ffi.sld, parse.sld, etc.)
@@ -1182,6 +1197,7 @@ This means threads cannot share mutable heap state. The child GC collects
 independently and the child heap is freed after `thread-join!`.
 
 **Key implementation details:**
+
 - `vm_instance` and `gc_instance` are `threadlocal` (`src/vm.zig:37`, `src/primitives.zig:182`)
 - `GC.initForThread` creates per-thread GC sharing parent's symbol table (`src/memory.zig`)
 - `GC.deepCopy` / `GC.deepCopyValue` deep-copies values between GC heaps (`src/memory.zig`)
@@ -1258,6 +1274,7 @@ workspace-level `.claude/settings.json` when working from the multi-repo workspa
 |------|------------|-------|
 | Session context | SessionStart hook | `.claude/hooks/session-start.sh` |
 | Zig formatting | PostToolUse hook + git pre-commit | `.claude/hooks/zig-fmt-post.sh`, `.githooks/pre-commit` |
+| Markdown structure | CI `format` job (markdownlint) | `.markdownlint-cli2.jsonc`, `.github/workflows/ci.yml` |
 | No destructive commands | Deny permissions + PreToolUse hook | `.claude/settings.json`, `.claude/hooks/bash-guard-pre.sh` |
 | Tests pass before stop | Stop hook | `.claude/hooks/test-on-stop.sh` |
 | GC safety checklist | Path-scoped rule (auto-loaded) | `.claude/rules/gc-safety.md` |

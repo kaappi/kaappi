@@ -48,7 +48,7 @@ Verified 2026-07-19 on riscv64 (Alpine container under QEMU, riscv64 Zig
 squarely inside the natively-compiled feature set (self-tail-call loop +
 closure):
 
-```
+```console
 $ kaappi compile hello.scm -o hello
 Compiled hello              # ~29 s under TCG, warm caches
 $ ./hello

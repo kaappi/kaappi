@@ -2,7 +2,7 @@
 
 Kaappi compiles a program through a fixed sequence of stages:
 
-```
+```text
 Source → Reader → Expander → IR → (optimization) → Bytecode → VM
          ast       expand      ir      ir            --disassemble
 ```

@@ -83,7 +83,7 @@ Implemented in `src/disassembler.zig`. Three entry points:
 
 ### Output format
 
-```
+```text
 ; Function: fib
 ; Source: fib.scm:1
 ; Arity: 1, Locals: 6, Upvalues: 0
@@ -101,6 +101,7 @@ Implemented in `src/disassembler.zig`. Three entry points:
 ```
 
 Formatting choices:
+
 - Hex offsets for jump target calculation
 - Register names (`r0`, `r1`, ...) with `debug_locals` annotations where available
 - Symbol names resolved from constant pool (not raw indices)

@@ -11,6 +11,7 @@ Systematically audit one `src/primitives_*.zig` file at a time. The argument is 
 ### Step 1: Extract procedures
 
 Read `src/<file>` and list every procedure registered with `try reg(vm, ...)`:
+
 - Scheme name, Zig function name, arity (exact N or variadic N)
 - Note which procedures call back into the VM (use `callWithArgs`, `callVM`)
 
@@ -23,6 +24,7 @@ For each procedure, check these categories against the R7RS spec:
 **Type errors** — what happens when given the wrong type? Every primitive should raise a catchable error, not crash. Test with: fixnum where string expected, string where pair expected, `#f` where procedure expected, etc.
 
 **Boundary conditions:**
+
 - Empty inputs: `'()`, `""`, `#()`, `#u8()`, `0`
 - Single-element: `'(x)`, `"a"`, `#(1)`
 - Large values: bignums `(expt 2 100)`, long strings, deep lists
@@ -31,12 +33,14 @@ For each procedure, check these categories against the R7RS spec:
 - Mixed exact/inexact, fixnum/bignum/rational/complex combinations
 
 **Higher-order functions** — if the procedure takes a callback:
+
 - Does error propagation work? `(guard (e (#t 'caught)) (proc (lambda (x) (error "e")) ...))`
 - Are continuations handled? What if the callback invokes `call/cc`?
 
 **Optional arguments** — if variadic, does each optional arg actually work?
 
 **GC safety** — does the procedure root values before allocating? Look for patterns like:
+
 ```zig
 const a = try gc.allocPair(...);
 // BUG: a may be invalidated by the next allocation
@@ -76,6 +80,7 @@ zig build run -- tests/scheme/audit/<basename>-audit.scm
 ```
 
 For each failure:
+
 1. Read the Zig source for the failing procedure
 2. Identify the bug (wrong logic, missing branch, type coercion error)
 3. Fix the source
@@ -91,7 +96,9 @@ Summarize: how many procedures audited, tests written, bugs found, bugs fixed.
 These patterns were found during coverage testing and are likely to recur:
 
 ### 1. Thunk not called
+
 Functions accepting an optional callback that return the procedure object instead of calling it:
+
 ```zig
 // BUG: returns the thunk instead of calling it
 if (args.len > 2) return args[2];
@@ -100,7 +107,9 @@ if (types.isProcedure(args[2])) return vm.callWithArgs(args[2], &[_]Value{});
 ```
 
 ### 2. Missing overwrite semantics
+
 Merge/update operations that skip existing entries instead of overwriting:
+
 ```zig
 // BUG: skips existing keys
 if (findKey(ht, key) == null) { ... }
@@ -109,7 +118,9 @@ if (findKey(ht, key)) |idx| { entries[idx].value = new_val; } else { ... }
 ```
 
 ### 3. Truncation instead of exact conversion
+
 Numeric operations that truncate floats where exact conversion is needed:
+
 ```zig
 // BUG: #e1.5 becomes 1
 .fixnum = @intFromFloat(f)
@@ -117,7 +128,9 @@ Numeric operations that truncate floats where exact conversion is needed:
 ```
 
 ### 4. Ignored optional arguments
+
 Variadic functions that accept but never inspect extra arguments:
+
 ```zig
 // BUG: trim ignores predicate
 while (isWhitespace(data[start])) ...
@@ -126,7 +139,9 @@ if (args.len > 1) { ... call pred ... } else { isWhitespace(...) }
 ```
 
 ### 5. Resource leaks
+
 Heap allocations in primitives or VM without corresponding cleanup:
+
 ```zig
 // BUG: allocated but never freed
 const sched = allocator.create(Scheduler);
@@ -136,7 +151,9 @@ if (self.scheduler) |s| { allocator.destroy(s); }
 ```
 
 ### 6. Missing type dispatch
+
 Arithmetic/comparison functions that handle fixnum and flonum but miss bignum, rational, or complex:
+
 ```zig
 // BUG: (even? (expt 2 100)) → TypeError
 if (types.isFixnum(args[0])) { ... }
@@ -170,6 +187,7 @@ return PrimitiveError.TypeError; // misses bignum!
 ## Audit Priority
 
 Start with files that have the highest bug density risk (complex type dispatch, many optional args):
+
 1. `primitives_arithmetic.zig` — most complex type dispatch
 2. `primitives_numeric.zig` — exact/inexact conversion edge cases
 3. `primitives_string.zig` — UTF-8 + mutation

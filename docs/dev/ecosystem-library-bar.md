@@ -40,6 +40,7 @@ The following `kaappi-*` repos have been identified as having committed
 - `kaappi-http` — `libkaappi_http.dylib`
 
 When cleaning these up:
+
 1. Add `*.dylib` and `*.so` to `.gitignore`
 2. `git rm --cached` the artifact
 3. Ensure `make` rebuilds it

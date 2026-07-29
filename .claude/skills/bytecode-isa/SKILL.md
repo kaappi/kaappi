@@ -10,6 +10,7 @@ encoding, and disassembler output format. Do not duplicate the table here;
 that doc is the single source of truth.
 
 Quick orientation:
+
 - Opcodes are defined in the `OpCode` enum in `src/types.zig`
 - Executed by the dispatch loop `runUntil` in `src/vm_dispatch.zig`
 - Emitted by `src/compiler.zig` (and the `compiler_*.zig` form modules)

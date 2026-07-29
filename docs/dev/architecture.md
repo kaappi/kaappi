@@ -8,7 +8,7 @@ fit together.
 
 ## Pipeline
 
-```
+```text
 Source code
     |
     v
@@ -126,7 +126,7 @@ Source code
 All Scheme values fit in a single **NaN-boxed 64-bit word**. Flonums, fixnums,
 booleans, characters, and nil all fit in a u64 with zero heap allocation:
 
-```
+```text
 Flonum:    any f64 that is not a NaN             -- stored directly
 Pointer:   0xFFFC | 48-bit pointer               -- heap object
 Fixnum:    0xFFFD | 48-bit signed integer         -- up to ±2^47
@@ -279,6 +279,7 @@ enum value followed by operands.
 ### Function objects
 
 A compiled `Function` contains:
+
 - Bytecode array (opcodes + operands)
 - Constant pool (values referenced by `load_const`)
 - Upvalue descriptors (for closure creation)

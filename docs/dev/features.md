@@ -18,7 +18,7 @@ discovery *inside* Scheme via `cond-expand`. Part of the machine-legibility epic
 
 ## Forms
 
-```
+```text
 kaappi features            human-readable capability table
 kaappi features --json     one JSON object for structured / agent use
 ```

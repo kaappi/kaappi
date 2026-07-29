@@ -33,7 +33,7 @@ The binary **must** be built with the instrumentation compiled in, or every
 copy counter reads 0 and the lever flag is inert (protocol §3 keeps them out of
 the shipped default):
 
-```
+```bash
 zig build -Dchannel-instrument=true
 ```
 
@@ -72,7 +72,7 @@ are free to call shared kernels.
 
 ## Metrics (protocol §3)
 
-```
+```text
 share = (T_submit_copy + T_result_copy + T_reassembly) / E
 ```
 
@@ -94,7 +94,7 @@ Secondary (non-gating): child peak RSS (from `wait4`), peak live envelope bytes.
 
 Pilot (validates the harness; 5 invocations × 20 iterations by default):
 
-```
+```bash
 zig build -Dchannel-instrument=true
 python3 benchmarks/gate/run-gate.py \
     --bin zig-out/bin/kaappi --mode pilot \
@@ -106,7 +106,7 @@ python3 benchmarks/gate/run-gate.py \
 Full frozen run (per machine; floors 20 invocations × 10 iterations — set the
 counts from the pilot's CI half-widths to hit the protocol's ±2% target):
 
-```
+```bash
 python3 benchmarks/gate/run-gate.py \
     --bin zig-out/bin/kaappi --mode full \
     --machine macos-aarch64 --cores 12 \
@@ -123,7 +123,7 @@ ASLR on, and selects the lever at runtime on one binary (§4.4).
 
 `--out` is the §6 CSV:
 
-```
+```text
 machine, workload, size_bytes, workers, levers, invocations, iterations,
 E_mean_ms, E_ci95_lo, E_ci95_hi, share_mean, share_ci95_lo, share_ci95_hi,
 S_ms, speedup, rss_peak_mib, envelope_peak_mib
@@ -153,7 +153,7 @@ well-differentiated, statistically-summarized `share` values:
 | fo-tree   | ~67 | ~70 | symbol-heavy fan-out over-copy dominates |
 | fo-slice  | ~48 | ~55 | whole-vector fan-out over-copy dominates |
 
-Speedups came out sane (IP-* ≤ 8× with 8 workers; FO-* < 1× — the fan-out
+Speedups came out sane (`IP-*` ≤ 8× with 8 workers; `FO-*` < 1× — the fan-out
 idiom does redundant whole-payload work per worker, by design). The pilot also
 exercised the driver's timeout handling: ~8 % of invocations hit the
 kaappi#1489 hang and were recorded as `TIMEOUT` failures (see limitation 2).
