@@ -102,6 +102,52 @@ pub fn setGCInstance(gc: *GC) void {
     gc_instance = gc;
 }
 
+/// Allocate a slice of `n` `T` without paying Zig's ReleaseSafe-only
+/// alloc-fill. `std.mem.Allocator.alloc`/`.create`/`.dupe` unconditionally
+/// `@memset(..., undefined)` (a real 0xAA fill in ReleaseSafe) inside their
+/// own generic bodies before returning — not in the vtable `rawAlloc` they
+/// call into, so no backing allocator or `@setRuntimeSafety(false)` at the
+/// call site can suppress it (#1809; confirmed by disassembly). Every call
+/// site here immediately overwrites the memory anyway (a dupe, a fill-value
+/// pass, or a struct literal), so the fill is pure waste on the hot,
+/// size-proportional buffers this is used for (vector/string/bytevector
+/// data, bignum limbs, register/frame arrays, ...). Debug/gc-stress
+/// poisoning is unaffected: `gc_collect.poisonAndDestroy` does its own
+/// explicit content poisoning, `FREED_OWNER` stamping, and quarantine,
+/// entirely independent of whatever the underlying allocator does.
+///
+/// The `byte_count == 0` guard (not `n == 0`) matters: `std.testing.
+/// allocator` is a `DebugAllocator`, whose size-class math underflows on a
+/// zero-length `rawAlloc`/`rawFree` call, and Kaappi routinely allocates
+/// zero-length vectors/strings/bytevectors.
+pub fn allocSliceNoFill(allocator: std.mem.Allocator, comptime T: type, n: usize) ![]T {
+    const byte_count = std.math.mul(usize, @sizeOf(T), n) catch return error.OutOfMemory;
+    if (byte_count == 0) {
+        const ptr: [*]T = @ptrFromInt(comptime std.mem.Alignment.of(T).backward(std.math.maxInt(usize)));
+        return ptr[0..n];
+    }
+    const raw = allocator.rawAlloc(byte_count, .of(T), @returnAddress()) orelse return error.OutOfMemory;
+    const ptr: [*]T = @ptrCast(@alignCast(raw));
+    return ptr[0..n];
+}
+
+/// Free a slice allocated by `allocSliceNoFill`/`dupeSliceNoFill` (or
+/// anything else with the same address/length/alignment contract) without
+/// paying the matching ReleaseSafe free-fill. See `allocSliceNoFill`.
+pub fn freeSliceNoFill(allocator: std.mem.Allocator, comptime T: type, slice: []T) void {
+    const byte_count = slice.len * @sizeOf(T);
+    if (byte_count == 0) return;
+    const bytes: []u8 = @as([*]u8, @ptrCast(slice.ptr))[0..byte_count];
+    allocator.rawFree(bytes, .of(T), @returnAddress());
+}
+
+/// Copy `data` into a freshly `allocSliceNoFill`d buffer.
+pub fn dupeSliceNoFill(allocator: std.mem.Allocator, comptime T: type, data: []const T) ![]T {
+    const buf = try allocSliceNoFill(allocator, T, data.len);
+    @memcpy(buf, data);
+    return buf;
+}
+
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,
@@ -397,8 +443,8 @@ pub const GC = struct {
     pub fn allocString(self: *GC, data: []const u8) !Value {
         // Copy before collecting: `data` may point into another heap object
         // (e.g. a SchemeString's bytes) that this collection could free.
-        const owned = try self.allocator.dupe(u8, data);
-        errdefer self.allocator.free(owned);
+        const owned = try dupeSliceNoFill(self.allocator, u8, data);
+        errdefer freeSliceNoFill(self.allocator, u8, owned);
         try self.maybeCollect();
         const str = try self.allocator.create(SchemeString);
         str.* = .{
@@ -427,8 +473,8 @@ pub const GC = struct {
         try self.maybeCollect();
         self.clearArgRoots();
         const upvalue_count = func.upvalue_count;
-        const upvalues = try self.allocator.alloc(Value, upvalue_count);
-        errdefer self.allocator.free(upvalues);
+        const upvalues = try allocSliceNoFill(self.allocator, Value, upvalue_count);
+        errdefer freeSliceNoFill(self.allocator, Value, upvalues);
         @memset(upvalues, types.UNDEFINED);
 
         const cls = try self.allocator.create(Closure);
@@ -456,9 +502,8 @@ pub const GC = struct {
     pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
         // Copy upvalues before collecting and root them across the collection
         // (see allocVector).
-        const uv_copy = try self.allocator.alloc(Value, upvalues.len);
-        errdefer self.allocator.free(uv_copy);
-        @memcpy(uv_copy, upvalues);
+        const uv_copy = try dupeSliceNoFill(self.allocator, Value, upvalues);
+        errdefer freeSliceNoFill(self.allocator, Value, uv_copy);
         const saved_slice_roots = self.slice_roots;
         self.slice_roots = uv_copy;
         defer self.slice_roots = saved_slice_roots;
@@ -484,9 +529,8 @@ pub const GC = struct {
         // Copy before collecting (`data` may alias another vector's storage),
         // and root the copied values across the collection: callers routinely
         // pass freshly allocated Values held nowhere else.
-        const owned = try self.allocator.alloc(Value, data.len);
-        errdefer self.allocator.free(owned);
-        @memcpy(owned, data);
+        const owned = try dupeSliceNoFill(self.allocator, Value, data);
+        errdefer freeSliceNoFill(self.allocator, Value, owned);
         const saved_slice_roots = self.slice_roots;
         self.slice_roots = owned;
         defer self.slice_roots = saved_slice_roots;
@@ -518,8 +562,8 @@ pub const GC = struct {
         self.rootArgs1(fill);
         try self.maybeCollect();
         self.clearArgRoots();
-        const data = try self.allocator.alloc(Value, size);
-        errdefer self.allocator.free(data);
+        const data = try allocSliceNoFill(self.allocator, Value, size);
+        errdefer freeSliceNoFill(self.allocator, Value, data);
         @memset(data, fill);
         const vec = try self.allocator.create(Vector);
         vec.* = .{
@@ -696,8 +740,8 @@ pub const GC = struct {
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
         // Copy the fields before collecting and root them (plus the record
         // type itself) across the collection (see allocVector).
-        const fields = try self.allocator.alloc(Value, record_type.num_fields);
-        errdefer self.allocator.free(fields);
+        const fields = try allocSliceNoFill(self.allocator, Value, record_type.num_fields);
+        errdefer freeSliceNoFill(self.allocator, Value, fields);
         for (0..record_type.num_fields) |i| {
             if (i < field_values.len) {
                 fields[i] = field_values[i];
@@ -915,8 +959,8 @@ pub const GC = struct {
 
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
         // Copy before collecting: `data` may alias another bytevector/string.
-        const owned = try self.allocator.dupe(u8, data);
-        errdefer self.allocator.free(owned);
+        const owned = try dupeSliceNoFill(self.allocator, u8, data);
+        errdefer freeSliceNoFill(self.allocator, u8, owned);
         try self.maybeCollect();
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
@@ -930,8 +974,8 @@ pub const GC = struct {
     pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
         if (size > max_payload_bytes) return error.OutOfMemory;
         try self.maybeCollect();
-        const data = try self.allocator.alloc(u8, size);
-        errdefer self.allocator.free(data);
+        const data = try allocSliceNoFill(self.allocator, u8, size);
+        errdefer freeSliceNoFill(self.allocator, u8, data);
         @memset(data, fill);
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
@@ -946,8 +990,8 @@ pub const GC = struct {
     /// bytes, correctly encoded -- callers (primitives_srfi160.zig) build the
     /// byte buffer themselves since encoding is Value-type-dependent.
     pub fn allocNumericVector(self: *GC, kind: types.NumericElementKind, data: []const u8) !Value {
-        const owned = try self.allocator.dupe(u8, data);
-        errdefer self.allocator.free(owned);
+        const owned = try dupeSliceNoFill(self.allocator, u8, data);
+        errdefer freeSliceNoFill(self.allocator, u8, owned);
         try self.maybeCollect();
         const nv = try self.allocator.create(types.NumericVector);
         nv.* = .{
@@ -968,8 +1012,8 @@ pub const GC = struct {
         if (elements > max_payload_bytes / width) return error.OutOfMemory;
         const size = elements * width;
         try self.maybeCollect();
-        const data = try self.allocator.alloc(u8, size);
-        errdefer self.allocator.free(data);
+        const data = try allocSliceNoFill(self.allocator, u8, size);
+        errdefer freeSliceNoFill(self.allocator, u8, data);
         var i: usize = 0;
         while (i < elements) : (i += 1) {
             @memcpy(data[i * width ..][0..width], fill_bytes);
@@ -1070,8 +1114,8 @@ pub const GC = struct {
         const wind_words = wind_records.len * (@sizeOf(WindRecord) / @sizeOf(Value));
         const total_words = registers.len + frame_words + handler_words + wind_words;
 
-        const backing = try self.allocator.alloc(Value, total_words);
-        errdefer self.allocator.free(backing);
+        const backing = try allocSliceNoFill(self.allocator, Value, total_words);
+        errdefer freeSliceNoFill(self.allocator, Value, backing);
 
         var off: usize = 0;
         const saved_regs = backing[off..][0..registers.len];
@@ -1250,10 +1294,10 @@ pub const GC = struct {
         try self.maybeCollect();
         self.clearArgRoots();
         const fiber_mod = @import("fiber.zig");
-        const registers = try self.allocator.alloc(Value, types.INITIAL_FIBER_REGISTER_CAPACITY);
-        errdefer self.allocator.free(registers);
-        const frames = try self.allocator.alloc(types.CallFrame, types.INITIAL_FIBER_FRAME_CAPACITY);
-        errdefer self.allocator.free(frames);
+        const registers = try allocSliceNoFill(self.allocator, Value, types.INITIAL_FIBER_REGISTER_CAPACITY);
+        errdefer freeSliceNoFill(self.allocator, Value, registers);
+        const frames = try allocSliceNoFill(self.allocator, types.CallFrame, types.INITIAL_FIBER_FRAME_CAPACITY);
+        errdefer freeSliceNoFill(self.allocator, types.CallFrame, frames);
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{
             .header = .{ .tag = .fiber },
@@ -1383,8 +1427,8 @@ pub const GC = struct {
         if (cap & (cap - 1) != 0) {
             cap = @as(usize, 1) << @intCast(@as(std.math.Log2Int(usize), @intCast(@bitSizeOf(usize) - @clz(cap))));
         }
-        const entries = try self.allocator.alloc(HashEntry, cap);
-        errdefer self.allocator.free(entries);
+        const entries = try allocSliceNoFill(self.allocator, HashEntry, cap);
+        errdefer freeSliceNoFill(self.allocator, HashEntry, entries);
         for (entries) |*e| {
             e.* = .{ .key = 0, .value = 0, .state = .empty };
         }
@@ -1404,8 +1448,8 @@ pub const GC = struct {
 
     pub fn allocBignumFromI64(self: *GC, n: i64) !Value {
         try self.maybeCollect();
-        const limbs = try self.allocator.alloc(u64, 1);
-        errdefer self.allocator.free(limbs);
+        const limbs = try allocSliceNoFill(self.allocator, u64, 1);
+        errdefer freeSliceNoFill(self.allocator, u64, limbs);
         const bn = try self.allocator.create(Bignum);
         const mag: u64 = if (n < 0) @intCast(-@as(i128, n)) else @intCast(n);
         limbs[0] = mag;
@@ -1425,9 +1469,8 @@ pub const GC = struct {
         // when the caller holds it only in a local, and the fresh `owned`
         // block can then land in the freed limbs' place — the "@memcpy
         // arguments alias" crash under -Dgc-stress=true (#1401).
-        const owned = try self.allocator.alloc(u64, limbs.len);
-        errdefer self.allocator.free(owned);
-        @memcpy(owned, limbs);
+        const owned = try dupeSliceNoFill(self.allocator, u64, limbs);
+        errdefer freeSliceNoFill(self.allocator, u64, owned);
         try self.maybeCollect();
         const bn = try self.allocator.create(Bignum);
         bn.* = .{
@@ -1600,8 +1643,8 @@ pub const GC = struct {
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         // Copy before collecting and root the values across the collection
         // (see allocVector).
-        const owned = try self.allocator.dupe(Value, values);
-        errdefer self.allocator.free(owned);
+        const owned = try dupeSliceNoFill(self.allocator, Value, values);
+        errdefer freeSliceNoFill(self.allocator, Value, owned);
         const saved_slice_roots = self.slice_roots;
         self.slice_roots = owned;
         defer self.slice_roots = saved_slice_roots;
@@ -2010,4 +2053,60 @@ test "mark worklist retains capacity across collections" {
 
     gc.popRoot();
     gc.popRoot();
+}
+
+test "allocSliceNoFill: write and read back" {
+    const buf = try allocSliceNoFill(std.testing.allocator, u8, 16);
+    defer freeSliceNoFill(std.testing.allocator, u8, buf);
+    for (buf, 0..) |*b, i| b.* = @truncate(i);
+    for (buf, 0..) |b, i| try std.testing.expectEqual(@as(u8, @truncate(i)), b);
+}
+
+test "allocSliceNoFill: works for non-byte element types" {
+    const buf = try allocSliceNoFill(std.testing.allocator, Value, 8);
+    defer freeSliceNoFill(std.testing.allocator, Value, buf);
+    for (buf) |*v| v.* = types.makeFixnum(42);
+    for (buf) |v| try std.testing.expectEqual(@as(i64, 42), types.toFixnum(v));
+}
+
+// #1809: a naive `n == 0` (rather than `byte_count == 0`) guard is
+// equivalent for every real element type Kaappi uses, but the load-bearing
+// behavior this pins down is that a zero-length alloc/free never reaches
+// `rawAlloc`/`rawFree` at all. `std.testing.allocator` is a `DebugAllocator`
+// whose size-class math does `len - 1`, which panics on overflow for a
+// true zero-length call — this must short-circuit before that.
+test "allocSliceNoFill/freeSliceNoFill: zero length does not reach the allocator" {
+    const buf = try allocSliceNoFill(std.testing.allocator, Value, 0);
+    try std.testing.expectEqual(@as(usize, 0), buf.len);
+    freeSliceNoFill(std.testing.allocator, Value, buf);
+
+    const empty_u8 = try allocSliceNoFill(std.testing.allocator, u8, 0);
+    try std.testing.expectEqual(@as(usize, 0), empty_u8.len);
+    freeSliceNoFill(std.testing.allocator, u8, empty_u8);
+}
+
+test "dupeSliceNoFill: copies into a distinct buffer" {
+    const src = [_]u8{ 1, 2, 3, 4, 5 };
+    const copy = try dupeSliceNoFill(std.testing.allocator, u8, &src);
+    defer freeSliceNoFill(std.testing.allocator, u8, copy);
+    try std.testing.expectEqualSlices(u8, &src, copy);
+    try std.testing.expect(@intFromPtr(copy.ptr) != @intFromPtr(&src));
+}
+
+test "dupeSliceNoFill: zero length" {
+    const src = [_]u8{};
+    const copy = try dupeSliceNoFill(std.testing.allocator, u8, &src);
+    try std.testing.expectEqual(@as(usize, 0), copy.len);
+    freeSliceNoFill(std.testing.allocator, u8, copy);
+}
+
+test "allocSliceNoFill: propagates OutOfMemory" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(failing.allocator(), u8, 64));
+}
+
+test "dupeSliceNoFill: propagates OutOfMemory" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const src = [_]u8{ 9, 9, 9 };
+    try std.testing.expectError(error.OutOfMemory, dupeSliceNoFill(failing.allocator(), u8, &src));
 }

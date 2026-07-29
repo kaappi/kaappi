@@ -27,6 +27,8 @@ const Continuation = types.Continuation;
 const MultipleValues = types.MultipleValues;
 const Promise = types.Promise;
 const HashTable = types.HashTable;
+const HashEntry = types.HashEntry;
+const CallFrame = types.CallFrame;
 const FfiLibrary = types.FfiLibrary;
 const FfiFunction = types.FfiFunction;
 const FfiCallback = types.FfiCallback;
@@ -1189,12 +1191,12 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .string => {
             const str = obj.as(SchemeString);
-            gc.allocator.free(str.data);
+            memory_mod.freeSliceNoFill(gc.allocator, u8, str.data);
             poisonAndDestroy(gc, SchemeString, str);
         },
         .closure => {
             const cls = obj.as(Closure);
-            gc.allocator.free(cls.upvalues);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, cls.upvalues);
             poisonAndDestroy(gc, Closure, cls);
         },
         .function => {
@@ -1219,7 +1221,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
-            gc.allocator.free(nc.upvalues);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, nc.upvalues);
             poisonAndDestroy(gc, types.NativeClosure, nc);
         },
         .flonum => {
@@ -1228,7 +1230,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .vector => {
             const vec = obj.as(Vector);
-            gc.allocator.free(vec.data);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, vec.data);
             poisonAndDestroy(gc, Vector, vec);
         },
         .transformer => {
@@ -1261,7 +1263,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            gc.allocator.free(ri.fields);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, ri.fields);
             poisonAndDestroy(gc, RecordInstance, ri);
         },
         .bytevector => {
@@ -1273,13 +1275,13 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 const sb: *shared_buffer.SharedBuffer = @ptrCast(@alignCast(raw));
                 sb.release();
             } else {
-                gc.allocator.free(bv.data);
+                memory_mod.freeSliceNoFill(gc.allocator, u8, bv.data);
             }
             poisonAndDestroy(gc, Bytevector, bv);
         },
         .numeric_vector => {
             const nv = obj.as(NumericVector);
-            gc.allocator.free(nv.data);
+            memory_mod.freeSliceNoFill(gc.allocator, u8, nv.data);
             poisonAndDestroy(gc, NumericVector, nv);
         },
         .promise => {
@@ -1364,12 +1366,12 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             // registers/frames/handlers/wind_records are all views into
             // the single backing allocation; free it once. Escape
             // continuations have no backing (empty slice).
-            if (cont.backing.len > 0) gc.allocator.free(cont.backing);
+            if (cont.backing.len > 0) memory_mod.freeSliceNoFill(gc.allocator, Value, cont.backing);
             poisonAndDestroy(gc, Continuation, cont);
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
-            gc.allocator.free(mv.values);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, mv.values);
             poisonAndDestroy(gc, MultipleValues, mv);
         },
         .complex => {
@@ -1382,7 +1384,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .hash_table => {
             const ht = obj.as(HashTable);
-            gc.allocator.free(ht.entries);
+            memory_mod.freeSliceNoFill(gc.allocator, HashEntry, ht.entries);
             poisonAndDestroy(gc, HashTable, ht);
         },
         .ffi_library => {
@@ -1407,7 +1409,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .bignum => {
             const bn = obj.as(Bignum);
-            gc.allocator.free(bn.limbs);
+            memory_mod.freeSliceNoFill(gc.allocator, u64, bn.limbs);
             poisonAndDestroy(gc, Bignum, bn);
         },
         .rational => {
@@ -1446,8 +1448,8 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             fiber.param_overrides.deinit();
             fiber.owned_mutexes.deinit(gc.allocator);
-            gc.allocator.free(fiber.frames);
-            gc.allocator.free(fiber.registers);
+            memory_mod.freeSliceNoFill(gc.allocator, CallFrame, fiber.frames);
+            memory_mod.freeSliceNoFill(gc.allocator, Value, fiber.registers);
             poisonAndDestroy(gc, @import("fiber.zig").Fiber, fiber);
         },
         .channel => {
