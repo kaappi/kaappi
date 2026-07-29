@@ -121,7 +121,7 @@
 (test-equal #t (number? (nice 0)))
 (test-equal #t (and (number? (user-uid)) (number? (user-gid))
                     (number? (user-effective-uid)) (number? (user-effective-gid))))
-(test-equal #t (pair? (user-supplementary-gids)))
+(test-equal #t (list? (user-supplementary-gids)))
 
 ;;; --- environment variables (write side) ---
 (set-environment-variable! "KAAPPI_AUDIT_VAR" "v1")
