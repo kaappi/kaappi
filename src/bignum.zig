@@ -56,7 +56,7 @@ fn compareMagnitude(a_limbs: []const u64, a_len: usize, b_limbs: []const u64, b_
 /// Add magnitudes. Caller must free result.limbs.
 fn addMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize, b_limbs: []const u64, b_len: usize) !struct { limbs: []u64, len: usize } {
     const max_len = @max(a_len, b_len);
-    var result = try allocator.alloc(u64, max_len + 1);
+    var result = try memory.allocSliceNoFill(allocator, u64, max_len + 1);
     var carry: u1 = 0;
     for (0..max_len) |i| {
         const a: u64 = if (i < a_len) a_limbs[i] else 0;
@@ -75,7 +75,7 @@ fn addMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize
 
 /// Subtract magnitudes (a >= b assumed). Caller must free result.limbs.
 fn subMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize, b_limbs: []const u64, b_len: usize) !struct { limbs: []u64, len: usize } {
-    var result = try allocator.alloc(u64, a_len);
+    var result = try memory.allocSliceNoFill(allocator, u64, a_len);
     var borrow: u1 = 0;
     for (0..a_len) |i| {
         const a: u64 = a_limbs[i];
@@ -95,12 +95,12 @@ fn subMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize
 /// Schoolbook multiply. Caller must free result.limbs.
 fn mulMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize, b_limbs: []const u64, b_len: usize) !struct { limbs: []u64, len: usize } {
     if (a_len == 0 or b_len == 0) {
-        var result = try allocator.alloc(u64, 1);
+        var result = try memory.allocSliceNoFill(allocator, u64, 1);
         result[0] = 0;
         return .{ .limbs = result, .len = 0 };
     }
     const max_len = a_len + b_len;
-    var result = try allocator.alloc(u64, max_len);
+    var result = try memory.allocSliceNoFill(allocator, u64, max_len);
     @memset(result, 0);
 
     for (0..a_len) |i| {
@@ -129,11 +129,11 @@ fn mulMagnitude(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize
 /// Caller must free quotient.limbs.
 fn divMagnitudeBySingleLimb(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: usize, divisor: u64) !struct { limbs: []u64, len: usize, remainder: u64 } {
     if (a_len == 0) {
-        var result = try allocator.alloc(u64, 1);
+        var result = try memory.allocSliceNoFill(allocator, u64, 1);
         result[0] = 0;
         return .{ .limbs = result, .len = 0, .remainder = 0 };
     }
-    var result = try allocator.alloc(u64, a_len);
+    var result = try memory.allocSliceNoFill(allocator, u64, a_len);
     @memset(result, 0);
     var rem: u128 = 0;
     var i: usize = a_len;
@@ -212,7 +212,7 @@ pub fn add(gc: *memory.GC, a: Value, b: Value) !Value {
     if (la.positive == lb.positive) {
         // Same sign: add magnitudes
         const r = try addMagnitude(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-        defer gc.allocator.free(r.limbs);
+        defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
         return makeBignumValue(gc, r.limbs, r.len, la.positive);
     } else {
         // Different signs: subtract smaller from larger
@@ -220,11 +220,11 @@ pub fn add(gc: *memory.GC, a: Value, b: Value) !Value {
         if (cmp == 0) return types.makeFixnum(0);
         if (cmp > 0) {
             const r = try subMagnitude(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-            defer gc.allocator.free(r.limbs);
+            defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
             return makeBignumValue(gc, r.limbs, r.len, la.positive);
         } else {
             const r = try subMagnitude(gc.allocator, lb.limbs, lb.len, la.limbs, la.len);
-            defer gc.allocator.free(r.limbs);
+            defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
             return makeBignumValue(gc, r.limbs, r.len, lb.positive);
         }
     }
@@ -241,18 +241,18 @@ pub fn sub(gc: *memory.GC, a: Value, b: Value) !Value {
 
     if (la.positive == neg_b_positive) {
         const r = try addMagnitude(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-        defer gc.allocator.free(r.limbs);
+        defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
         return makeBignumValue(gc, r.limbs, r.len, la.positive);
     } else {
         const cmp = compareMagnitude(la.limbs, la.len, lb.limbs, lb.len);
         if (cmp == 0) return types.makeFixnum(0);
         if (cmp > 0) {
             const r = try subMagnitude(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-            defer gc.allocator.free(r.limbs);
+            defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
             return makeBignumValue(gc, r.limbs, r.len, la.positive);
         } else {
             const r = try subMagnitude(gc.allocator, lb.limbs, lb.len, la.limbs, la.len);
-            defer gc.allocator.free(r.limbs);
+            defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
             return makeBignumValue(gc, r.limbs, r.len, neg_b_positive);
         }
     }
@@ -285,7 +285,7 @@ pub fn mul(gc: *memory.GC, a: Value, b: Value) !Value {
     if (la.len == 0 or lb.len == 0) return types.makeFixnum(0);
 
     const r = try mulMagnitude(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-    defer gc.allocator.free(r.limbs);
+    defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
     const positive = (la.positive == lb.positive);
     return makeBignumValue(gc, r.limbs, r.len, positive);
 }
@@ -325,7 +325,7 @@ pub fn quotient(gc: *memory.GC, a: Value, b: Value) !Value {
 
     if (lb.len == 1) {
         const r = try divMagnitudeBySingleLimb(gc.allocator, la.limbs, la.len, lb.limbs[0]);
-        defer gc.allocator.free(r.limbs);
+        defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
         return makeBignumValue(gc, r.limbs, r.len, positive);
     }
 
@@ -336,8 +336,8 @@ pub fn quotient(gc: *memory.GC, a: Value, b: Value) !Value {
 
     // General multi-limb division (schoolbook, Knuth Algorithm D simplified)
     const r = try divMagnitudeMulti(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-    defer gc.allocator.free(r.q_limbs);
-    defer gc.allocator.free(r.r_limbs);
+    defer memory.freeSliceNoFill(gc.allocator, u64, r.q_limbs);
+    defer memory.freeSliceNoFill(gc.allocator, u64, r.r_limbs);
     return makeBignumValue(gc, r.q_limbs, r.q_len, positive);
 }
 
@@ -352,7 +352,7 @@ pub fn remainder(gc: *memory.GC, a: Value, b: Value) !Value {
 
     if (lb.len == 1) {
         const r = try divMagnitudeBySingleLimb(gc.allocator, la.limbs, la.len, lb.limbs[0]);
-        defer gc.allocator.free(r.limbs);
+        defer memory.freeSliceNoFill(gc.allocator, u64, r.limbs);
         if (r.remainder == 0) return types.makeFixnum(0);
         var rem_limbs = [1]u64{r.remainder};
         return makeBignumValue(gc, &rem_limbs, 1, la.positive);
@@ -366,8 +366,8 @@ pub fn remainder(gc: *memory.GC, a: Value, b: Value) !Value {
     if (cmp == 0) return types.makeFixnum(0);
 
     const r = try divMagnitudeMulti(gc.allocator, la.limbs, la.len, lb.limbs, lb.len);
-    defer gc.allocator.free(r.q_limbs);
-    defer gc.allocator.free(r.r_limbs);
+    defer memory.freeSliceNoFill(gc.allocator, u64, r.q_limbs);
+    defer memory.freeSliceNoFill(gc.allocator, u64, r.r_limbs);
     return makeBignumValue(gc, r.r_limbs, r.r_len, la.positive);
 }
 
@@ -382,9 +382,9 @@ fn divMagnitudeMulti(allocator: std.mem.Allocator, a_limbs: []const u64, a_len: 
     // Count total bits in a
     const total_bits = (a_len) * 64;
 
-    var q = try allocator.alloc(u64, a_len);
+    var q = try memory.allocSliceNoFill(allocator, u64, a_len);
     @memset(q, 0);
-    var r = try allocator.alloc(u64, b_len + 1);
+    var r = try memory.allocSliceNoFill(allocator, u64, b_len + 1);
     @memset(r, 0);
     var r_len: usize = 0;
 
@@ -514,12 +514,12 @@ pub fn toString(allocator: std.mem.Allocator, v: Value) ![]u8 {
     if (types.isFixnum(v)) {
         var buf: [32]u8 = undefined;
         const s = std.fmt.bufPrint(&buf, "{d}", .{types.toFixnum(v)}) catch return error.OutOfMemory;
-        return allocator.dupe(u8, s) catch return error.OutOfMemory;
+        return memory.dupeSliceNoFill(allocator, u8, s) catch return error.OutOfMemory;
     }
 
     const bn = types.toBignum(v);
     if (bn.len == 0) {
-        return allocator.dupe(u8, "0") catch return error.OutOfMemory;
+        return memory.dupeSliceNoFill(allocator, u8, "0") catch return error.OutOfMemory;
     }
 
     // Repeated division by 10^18 (largest power of 10 fitting in u64)
@@ -527,8 +527,8 @@ pub fn toString(allocator: std.mem.Allocator, v: Value) ![]u8 {
     const CHUNK_DIGITS: usize = 18;
 
     // Copy limbs since we'll modify them
-    var work = try allocator.alloc(u64, bn.len);
-    defer allocator.free(work);
+    var work = try memory.allocSliceNoFill(allocator, u64, bn.len);
+    defer memory.freeSliceNoFill(allocator, u64, work);
     @memcpy(work, bn.limbs[0..bn.len]);
     var work_len = bn.len;
 
@@ -602,17 +602,17 @@ pub fn toStringRadix(allocator: std.mem.Allocator, v: Value, radix: u8) ![]u8 {
             pos -= 1;
             buf[pos] = '-';
         }
-        return allocator.dupe(u8, buf[pos..]) catch return error.OutOfMemory;
+        return memory.dupeSliceNoFill(allocator, u8, buf[pos..]) catch return error.OutOfMemory;
     }
 
     const bn = types.toBignum(v);
     if (bn.len == 0) {
-        return allocator.dupe(u8, "0") catch return error.OutOfMemory;
+        return memory.dupeSliceNoFill(allocator, u8, "0") catch return error.OutOfMemory;
     }
 
     const r64: u64 = @intCast(radix);
-    var work = try allocator.alloc(u64, bn.len);
-    defer allocator.free(work);
+    var work = try memory.allocSliceNoFill(allocator, u64, bn.len);
+    defer memory.freeSliceNoFill(allocator, u64, work);
     @memcpy(work, bn.limbs[0..bn.len]);
     var work_len = bn.len;
 
@@ -998,7 +998,7 @@ test "bignum toString" {
 
     const val = types.makeFixnum(12345);
     const s = try toString(std.testing.allocator, val);
-    defer std.testing.allocator.free(s);
+    defer memory.freeSliceNoFill(std.testing.allocator, u8, s);
     try std.testing.expectEqualStrings("12345", s);
 }
 
