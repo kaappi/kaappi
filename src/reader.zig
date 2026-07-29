@@ -40,12 +40,17 @@ pub fn resetReadErrorDetail() void {
     read_error_detail_len = 0;
 }
 
+/// A token longer than the buffer overflows this on a pathologically long
+/// malformed identifier (the format string embeds it twice); rather than
+/// trusting `bufPrint`'s failure case to mean "the whole buffer holds valid
+/// output" (it doesn't specify how much of a partial write landed), build the
+/// writer directly and read back exactly how much it actually wrote -- same
+/// pattern as `compiler.formatSyntaxError`. The result is a cleanly truncated
+/// prefix of the intended message, never a partially-overwritten buffer.
 fn setReadErrorDetail(comptime fmt: []const u8, args: anytype) void {
-    const s = std.fmt.bufPrint(&read_error_detail, fmt, args) catch {
-        read_error_detail_len = read_error_detail.len;
-        return;
-    };
-    read_error_detail_len = s.len;
+    var w: std.Io.Writer = .fixed(&read_error_detail);
+    w.print(fmt, args) catch {};
+    read_error_detail_len = w.buffered().len;
 }
 
 pub const Token = union(enum) {
@@ -362,15 +367,23 @@ pub const Reader = struct {
         const start = self.pos;
         const tok = try reader_tokens.readNumber(self);
         if (self.pos < self.source.len and !isDelimiter(self.source[self.pos])) {
-            // The reader already committed to a number on the leading digit, so
-            // a non-delimiter character glued onto it -- `3-state`, `5foo`,
-            // `1.2.3` -- is a malformed *number* literal, not a stray character:
-            // R7RS identifiers can never begin with a digit, so there is no
-            // valid re-interpretation as an identifier either (kaappi#1723).
+            // Only reclassify when the character actually glued onto the number
+            // could continue an identifier (`<subsequent>`, ASCII or Unicode) --
+            // `3-state`, `5foo`, `1.2.3` are malformed number literals, since
+            // R7RS identifiers can never begin with a digit (kaappi#1723). A
+            // character that ISN'T a valid identifier continuation either --
+            // e.g. the backtick in `3\``, or a stray comma -- is unrelated to
+            // that rule and stays the original, accurate UnexpectedChar: an
+            // "identifiers cannot begin with a digit" hint would be nonsensical
+            // for it, and consumeGluedIdentifierChars would consume nothing
+            // anyway, leaving the message describing the number alone as if
+            // that were the problem.
+            const glued_start = self.pos;
+            consumeGluedIdentifierChars(self);
+            if (self.pos == glued_start) return ReadError.UnexpectedChar;
             // Consume the rest of the token so the message can echo it in full,
             // then rewind to the token's start so the reported position is the
             // start of the bad token, not wherever the number scan stopped.
-            consumeGluedIdentifierChars(self);
             setReadErrorDetail(
                 "invalid number literal '{s}': identifiers cannot begin with a digit; use |{s}| for a literal symbol",
                 .{ self.source[start..self.pos], self.source[start..self.pos] },

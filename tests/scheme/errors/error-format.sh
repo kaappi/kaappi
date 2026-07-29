@@ -436,6 +436,16 @@ assert_output_contains "3-4i still reads as a complex number" \
 assert_output_contains "1/0 keeps the generic KP1004 message (no stray hint)" \
     '1/0' 'read error[KP1004]: invalid number literal'
 
+# A non-identifier character glued onto a number (not an <subsequent> char) is
+# unrelated to the digit-led-identifier rule and must keep the original,
+# accurate KP1002 -- not a nonsensical "invalid number literal '3': ...
+# identifiers cannot begin with a digit" that both mislabels the valid number
+# '3' and drops the actual offending character (review fix).
+assert_output_contains "3 followed by a stray backtick keeps KP1002" \
+    '3`' 'read error[KP1002]'
+assert_output_contains "3 followed by a stray comma keeps KP1002" \
+    '3,' 'read error[KP1002]'
+
 # --- Full source columns: file:line:col (#1506) ---
 # Spans are threaded from the reader through IR into the bytecode line table, so
 # compile and runtime errors now carry a column, not just a line. The column
