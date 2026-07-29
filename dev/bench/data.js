@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785332438839,
+  "lastUpdate": 1785336097536,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9ace0b26c3afbff63e12f9f8495abd175c62bcbc",
-          "message": "Add SRFI 260 (Generated Symbols) (#1674)\n\ngenerate-symbol mints a fresh symbol on every call with a unique,\nunpredictable name. The point of the SRFI is that — unlike an uninterned\nsymbol (SRFI 258) — a generated symbol keeps write/read invariance:\nprinted and read back it is eq? to the original. Kaappi interns every\nsymbol by name and has no uninterned symbols, so that property is free;\nthe whole SRFI reduces to interning a fresh, unpredictable name.\n\nThe one primitive interns \"<pretty>.<counter>.<128-bit-hex>\": a\nprocess-global atomic counter is a hard in-process uniqueness guarantee\nindependent of entropy quality (and of SRFI-18 threads, which share the\nstatic), while platform.osRandomBytes supplies 128 bits of OS entropy for\nthe unpredictability. The optional pretty-name is a display-only prefix.\n\nWired as the 10th built-in SRFI through a single primitives.Lib tag, so\navailability, the srfi-260 cond-expand id, (srfi srfi-260) SRFI-261\nresolution, and the kaappi features listing all derive automatically —\nno second list to maintain.\n\nCloses #1668\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T01:57:14+05:30",
-          "tree_id": "a864a9187a193f26cc320ced04364e9d7abeb23c",
-          "url": "https://github.com/kaappi/kaappi/commit/9ace0b26c3afbff63e12f9f8495abd175c62bcbc"
-        },
-        "date": 1784494558162,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.258248,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.75985,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.657299,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.19275,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006153,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041689,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.401658,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058684,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.815981,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.406621,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.258999,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.398297,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.365053,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.783956,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03701,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046558,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5fefdd98f6ab54f4f6eacff3e142aa175e6639b",
+          "message": "Surface procedural macro transformer errors instead of bare \"invalid syntax\" (#1847)\n\nA Scheme-level condition raised inside a SRFI 211 er-macro-transformer/\nlisp-transformer was computed, stored on the VM, and discarded before the\ncompiler's TransformerFailed collapsed to a generic InvalidSyntax -- #1831\nwas a one-line resolution bug whose real message was \"undefined variable\n'cadar'\", none of which reached the user, so it was chased for days as a\ncadar-specific primitives bug instead.\n\nglobals.error_detail_for_macro exposes the VM's last error detail to the\ncompiler (which cannot import vm.zig), and compiler_macro.zig's two\nTransformerFailed arms copy it into the same syntax_error_detail channel\nsyntax-error already reports through. vm.callProcForMacro also now calls\nnoteUncaughtException on failure: callReentrant (used to invoke the\ntransformer's own closure) preserves last_error_detail across its cleanup\nbut never populates it from current_exception the way execute()'s\ntop-level boundary does, so a plain (error \"msg\" ...) raised with no\nactive handler left last_error_detail empty -- confirmed with a throwaway\ndebug print before writing the real fix. A primitive's own type error\n(e.g. (car 7)) already set the detail directly and needed no VM change.\n\nFixes #1846.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-29T19:34:59+05:30",
+          "tree_id": "3e25d8b6cac716966277cac77537ad3788f4aa8f",
+          "url": "https://github.com/kaappi/kaappi/commit/f5fefdd98f6ab54f4f6eacff3e142aa175e6639b"
+        },
+        "date": 1785336095846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.052888,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.049565,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.572425,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.465807,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004673,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.049463,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.368885,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056292,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.650948,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.422637,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.619859,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28025,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.955041,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.556314,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046612,
             "unit": "seconds"
           }
         ]
