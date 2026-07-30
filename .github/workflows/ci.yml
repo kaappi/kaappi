@@ -27,11 +27,14 @@ jobs:
       - name: Format check
         run: zig fmt --check src/
 
+      # Ratchet: lower the baseline whenever the count drops, so the guard keeps
+      # its bite. Was 91 when introduced; the remaining 20 are in
+      # primitives{,_hashtable,_parallel,_srfi18,_srfi237}.zig.
       - name: Check bare TypeError regression
         run: |
           count=$(grep -r 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok' | wc -l | tr -d ' ')
-          echo "Unannotated bare TypeErrors: $count (baseline: 91)"
-          if [ "$count" -gt 91 ]; then
+          echo "Unannotated bare TypeErrors: $count (baseline: 20)"
+          if [ "$count" -gt 20 ]; then
             echo "::error::New bare PrimitiveError.TypeError without 'bare-ok' annotation."
             echo "Use primitives.typeError(proc, expected, got) for type checks."
             echo "Only add '// bare-ok: <reason>' for infrastructure guards."

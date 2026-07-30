@@ -311,7 +311,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
 | `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
 
-### Primitives (split into 26 files)
+### Primitives (split into 31 files)
 
 | File | Procedures |
 |------|-----------|
@@ -337,6 +337,15 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `primitives_srfi18.zig` | SRFI-18: threads, mutexes, condition variables, time objects |
 | `primitives_srfi258.zig` | SRFI-258: uninterned symbols (string->uninterned-symbol, symbol-interned?, generate-uninterned-symbol) |
 | `primitives_srfi260.zig` | SRFI-260: generated symbols (generate-symbol) |
+| `primitives_srfi160.zig` | SRFI-160: the 6 generic `%`-prefixed `NumericVector` primitives every per-type `.sld` builds on |
+| `primitives_srfi181.zig` | SRFI-181: custom ports (the 5 `make-custom-*-port` constructors) and `%transcoded-port` |
+| `primitives_srfi211.zig` | SRFI-211: `er-macro-transformer`, `lisp-transformer` procedural transformer constructors |
+| `primitives_srfi237.zig` | SRFI-237: R6RS record procedural layer (`(srfi 237 primitives)`) |
+| `primitives_srfi254.zig` | SRFI-254: ephemeron/guardian constructors, predicates, accessors (GC half lives in `gc_collect.zig`) |
+| `primitives_fiber.zig` | `(kaappi fibers)`: spawn, yield, fiber-join, channels |
+| `primitives_parallel.zig` | KEP-0002: the single native primitive backing `lib/kaappi/parallel.sld` |
+| `primitives_random_port.zig` | SRFI-271 random port `%`-prefixed internals |
+| `primitives_sysinfo.zig` | System inquiry shared by SRFI 59 (vicinity), 112 (environment), 193 (command line) |
 
 ### Other
 
@@ -979,14 +988,26 @@ map.deinit();  // no allocator arg needed
 
 ## How to add a new built-in procedure
 
-1. Write the function in the appropriate `src/primitives_*.zig` file:
+`docs/dev/adding-features.md` is the detailed reference; this is the checklist.
+
+1. Write the function in the appropriate `src/primitives_*.zig` file — one of
+   the 30 domain files, not `primitives.zig` itself (that's the registration
+   hub plus core list/pair ops):
 
    ```zig
    fn myProc(args: []const Value) PrimitiveError!Value {
-       if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+       if (!types.isFixnum(args[0]))
+           return primitives.typeError("my-proc", "exact integer", args[0]);
        return types.makeFixnum(types.toFixnum(args[0]) + 1);
    }
    ```
+
+   Report type errors with `primitives.typeError(proc, expected, got)`, never a
+   bare `return PrimitiveError.TypeError` — it names the procedure and the
+   offending value in the message, and the `format` CI job ratchets against new
+   bare returns. `expectFixnum`/`expectString`/`expectPair`/… validate and
+   unwrap in one step. Infrastructure guards with no procedure context to
+   report opt out with `// bare-ok: <reason>`.
 
 2. Add one entry to the file's `specs` table — name, function, arity, and the
    libraries that export it. `registerAll` walks `all_specs` and
@@ -1012,8 +1033,21 @@ map.deinit();  // no allocator arg needed
    user binding of the same name silently wins. See
    `docs/dev/adding-features.md`.
 
-4. If the procedure needs heap allocation, use `primitives.gc_instance`.
-   If it needs to call Scheme procedures, use `primitives.vm_instance`.
+4. If the procedure needs heap allocation, use `memory.gc_instance` (a
+   threadlocal in `src/memory.zig`; `primitives.zig` does not re-export it).
+   If it needs to call Scheme procedures, use `vm_mod.vm_instance` and
+   `vm.callWithArgs(proc, args)`. Both are `orelse`-optional:
+
+   ```zig
+   const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+   ```
+
+5. Add a unit test in the matching `src/tests_*.zig` file (44 of them, one per
+   feature area) using the `testing_helpers.zig` helpers — `th.expectEval` for
+   the common case, `th.TestContext` when the test needs several evals. Not in
+   `src/vm.zig`: its one `test` block only imports sibling modules into the
+   test build. Add a Scheme test under `tests/scheme/` when the behavior is
+   worth an end-to-end check.
 
 ## How to add a new compiler form
 
@@ -1248,7 +1282,7 @@ independently and the child heap is freed after `thread-join!`.
 
 **Key implementation details:**
 
-- `vm_instance` and `gc_instance` are `threadlocal` (`src/vm.zig:37`, `src/primitives.zig:182`)
+- `vm_instance` and `gc_instance` are `threadlocal` (`src/vm.zig`, `src/memory.zig`)
 - `GC.initForThread` creates per-thread GC sharing parent's symbol table (`src/memory.zig`)
 - `GC.deepCopy` / `GC.deepCopyValue` deep-copies values between GC heaps (`src/memory.zig`)
 - `VM.initForThread` creates per-thread VM sharing parent's globals/libraries (`src/vm.zig`)
