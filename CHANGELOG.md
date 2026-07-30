@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Native backend: an internal `define` in a `let` body could be collected**
+  (#1854). The LLVM backend gave the binding an `alloca` but never pushed it on
+  the GC shadow stack, so a collection triggered anywhere later in the body
+  freed the value it held and the memory was recycled into whatever the body
+  allocated next — a wrong answer in a compiled binary, with no crash and no
+  divergence in the interpreter. `emitLet` now mints and roots these slots
+  alongside the `let`'s own bindings; a `define` outside the head of the body
+  (where R7RS puts internal definitions) routes the whole form to the
+  interpreter rather than compile to something unrooted.
+
 ## [0.22.0] - 2026-07-30
 
 ### Added
