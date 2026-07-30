@@ -1556,3 +1556,86 @@ test "LLVM emit: a function body using a macro with no colliding global falls ba
     const ll = res.toSlice();
     try expectNoNativeDef(ll, "f");
 }
+
+// -- Shorthand internal define (#1861) --
+
+// The IR of @main only. The direct-call assertions below are about the top-level
+// form sequence, so a call inside some *other* function's body must not satisfy
+// (or defeat) them.
+fn mainBody(ll: []const u8) []const u8 {
+    const start = std.mem.indexOf(u8, ll, "define i32 @main") orelse return "";
+    const rest = ll[start..];
+    const end = std.mem.indexOf(u8, rest, "\n}\n") orelse return rest;
+    return rest[0 .. end + 3];
+}
+
+// Does this stretch of IR call one of the module's own native entries directly,
+// rather than resolving the name at run time?
+//
+// Three spellings, and a test that checks only one is arch-specific: the
+// register-argument `tailcc` fast entry exists only where
+// `llvm_emit.fast_tailcalls_supported` (aarch64/x86_64), so on the QEMU-tier
+// arches every direct call is the uniform array ABI instead — where a reserved
+// name is `@r{i}` and an unreserved one `@lambda_{i}`. Matching the fast
+// spelling alone made the control below fail on ppc64le/riscv64/s390x while the
+// assertion it controls passed vacuously.
+//
+// Anchored on the callee position (right after `call [tailcc ]i64 `) so the
+// `ptr @r0` *argument* of a kaappi_create_native_closure — present either way —
+// is not mistaken for a call to it. Runtime imports are all `@kaappi_…`, so no
+// prefix here can match one.
+fn hasDirectNativeCall(ir_text: []const u8) bool {
+    for ([_][]const u8{ "call tailcc i64 @r", "call i64 @r", "call i64 @lambda_" }) |spelling| {
+        if (std.mem.indexOf(u8, ir_text, spelling) != null) return true;
+    }
+    return false;
+}
+
+test "LLVM emit: a shorthand internal define declines the enclosing let (#1861)" {
+    // `lowerDefine` turns a pair target into a passthrough, so this never
+    // reaches emitDefine's #1854 internal path — emitPassthrough used to define
+    // a global for it, overwriting the top-level `g` the interpreter merely
+    // shadows. Declining sends the whole let to the interpreter.
+    var res = try emitMultiResult("(define (g) 1) (let ((a 2)) (define (g) 3) (g))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // The top-level define still compiles; only the internal one declines.
+    try expectNativeDef(ll, "g");
+    try std.testing.expectEqual(@as(usize, 1), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: a shorthand internal define declines the enclosing function body (#1861)" {
+    // The same define in a lambda body, where `self.locals` is null and only
+    // the params make the frame lexical — a guard keyed on locals alone would
+    // let this one through.
+    var res = try emitMultiResult("(define (g) 1) (define (outer x) (define (g) 2) (g))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNoNativeDef(ll, "outer");
+}
+
+test "LLVM emit: a top-level shorthand define still compiles natively (#1861 guard)" {
+    // The decline keys on "is a lexical scope active", so an over-broad version
+    // would take ordinary top-level defines with it.
+    var res = try emitMultiResult("(define (f n) (+ n 1)) (f 1)");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "f");
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: an internal shorthand define drops the direct-call binding (#1861)" {
+    // Declining still has to invalidate the name in native_fns: this
+    // interpreter rebinds a body define that is not at the head of its body as
+    // a global, and the trailing (g) cannot observe that through a direct call
+    // to the top-level function it used to denote.
+    var res = try emitMultiResult("(define (g) 1) (let ((a 2)) (display a) (define (g) 3) (g)) (g)");
+    defer res.deinit();
+    try std.testing.expect(!hasDirectNativeCall(mainBody(res.toSlice())));
+
+    // Positive control: without the internal define the same trailing call IS a
+    // direct call, so the assertion above is not vacuous.
+    var ctl = try emitMultiResult("(define (g) 1) (let ((a 2)) (display a)) (g)");
+    defer ctl.deinit();
+    try std.testing.expect(hasDirectNativeCall(mainBody(ctl.toSlice())));
+}

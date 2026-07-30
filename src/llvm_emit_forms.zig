@@ -839,31 +839,70 @@ pub fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError
             return self.emitApplyForm(expr, is_tail);
         }
         if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "define")) {
+            // The `(define (f …) …)` shorthand, split up, or null for any other
+            // define shape (a curried target, a malformed form).
+            const Shorthand = struct { name: []const u8, formals: Value, body: Value };
             const rest = types.cdr(expr);
-            if (rest != types.NIL and types.isPair(rest)) {
+            const shorthand: ?Shorthand = blk: {
+                if (rest == types.NIL or !types.isPair(rest)) break :blk null;
                 const target = types.car(rest);
-                if (types.isPair(target) and types.isSymbol(types.car(target))) {
-                    const fn_name = types.symbolName(types.car(target));
-                    const formals = types.cdr(target);
-                    const body = types.cdr(rest);
-                    _ = self.native_fns.fetchRemove(fn_name);
-                    self.rebound_globals.put(fn_name, {}) catch {};
-                    if (self.tryCompileDefineFunction(fn_name, formals, body) != null) {
-                        _ = self.rebound_globals.fetchRemove(fn_name);
-                        // #1500: bind the global to a native closure over the
-                        // compiled entry instead of eval'ing the whole define
-                        // form. Fixed-arity, and not when the body reaches a
-                        // code eval fallback (its bindParamsAsGlobals aliases
-                        // across activations — see NativeLambda.has_eval_fallback);
-                        // both keep the eval path, and `@f` still serves direct
-                        // call sites.
-                        if (self.native_fns.get(fn_name)) |info| {
-                            if (!info.is_variadic and !info.has_eval_fallback) {
-                                const val = try self.emitNativeFnClosureValue(info, fn_name);
-                                const sym = try self.internSymbol(fn_name);
-                                try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, fn_name.len, val });
-                                return self.emitVoid();
-                            }
+                if (!types.isPair(target) or !types.isSymbol(types.car(target))) break :blk null;
+                break :blk .{
+                    .name = types.symbolName(types.car(target)),
+                    .formals = types.cdr(target),
+                    .body = types.cdr(rest),
+                };
+            };
+
+            // Whatever this name denoted, it does not any more — drop the
+            // direct-call binding before ANY path below returns. The decline
+            // just below returns without emitting, so doing this after it would
+            // leave a later call site bound to the top-level function of the
+            // same name (or to an inline primitive): the interpreter, running
+            // the abandoned scope, rebinds a body define that is not at the head
+            // of its body as a global, and a stale direct call cannot observe
+            // that (#1861). Costs nothing unless the name collides — the maps
+            // hold only natively compiled and reserved globals.
+            if (shorthand) |sh| {
+                _ = self.native_fns.fetchRemove(sh.name);
+                self.rebound_globals.put(sh.name, {}) catch {};
+            }
+
+            // An internal define inside a lexical scope is an R7RS letrec*
+            // binding of the enclosing body, never a global one — but both
+            // paths below define a global: the native one calls
+            // kaappi_define_global outright, and emitEvalExpr evaluates in the
+            // global environment. `lowerDefine` routes the `(define (f …) …)`
+            // shorthand here rather than to emitDefine, so this is the only
+            // place that can decline it, and #1854's slot machinery (which
+            // emitDefine uses for the symbol form) never sees it (#1861).
+            //
+            // Declining hands the whole enclosing scope to the interpreter,
+            // which scopes it correctly: a let body abandons via emitLet, and a
+            // function body fails emitLambdaFunction so the whole define falls
+            // back to eval. Compiling it as a native local binding instead would
+            // need the closure value in a rooted slot — #1854's machinery
+            // extended to a lambda-valued define — plus a way to keep the inner
+            // name out of the module-wide `native_fns` map, where it would
+            // capture direct call sites outside this scope.
+            if (self.inLexicalScope()) return error.UnsupportedNodeType;
+
+            if (shorthand) |sh| {
+                if (self.tryCompileDefineFunction(sh.name, sh.formals, sh.body) != null) {
+                    _ = self.rebound_globals.fetchRemove(sh.name);
+                    // #1500: bind the global to a native closure over the
+                    // compiled entry instead of eval'ing the whole define
+                    // form. Fixed-arity, and not when the body reaches a
+                    // code eval fallback (its bindParamsAsGlobals aliases
+                    // across activations — see NativeLambda.has_eval_fallback);
+                    // both keep the eval path, and `@f` still serves direct
+                    // call sites.
+                    if (self.native_fns.get(sh.name)) |info| {
+                        if (!info.is_variadic and !info.has_eval_fallback) {
+                            const val = try self.emitNativeFnClosureValue(info, sh.name);
+                            const sym = try self.internSymbol(sh.name);
+                            try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, sh.name.len, val });
+                            return self.emitVoid();
                         }
                     }
                 }

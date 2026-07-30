@@ -100,8 +100,10 @@ const Checkpoint = struct {
 
 // The bound name of a `(define <symbol> <expr>)` body form, or null for
 // anything else — including `(define (f …) …)`, which `lowerDefine` turns into a
-// passthrough that defines a global and so never reaches emitDefine's internal
-// path (#1854).
+// passthrough that never reaches emitDefine's internal path (#1854). Returning
+// null for the shorthand is what makes `emitPassthrough` decline it in a lexical
+// scope, abandoning this let to the interpreter (#1861); modelling it here
+// instead would mean holding a closure value in one of these slots.
 fn headDefineName(form: Value) ?[]const u8 {
     if (!types.isPair(form)) return null;
     const head = types.car(form);
