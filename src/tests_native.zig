@@ -1560,13 +1560,35 @@ test "LLVM emit: a function body using a macro with no colliding global falls ba
 // -- Shorthand internal define (#1861) --
 
 // The IR of @main only. The direct-call assertions below are about the top-level
-// form sequence, so a fast-entry call inside some *other* function's body must
-// not satisfy (or defeat) them.
+// form sequence, so a call inside some *other* function's body must not satisfy
+// (or defeat) them.
 fn mainBody(ll: []const u8) []const u8 {
     const start = std.mem.indexOf(u8, ll, "define i32 @main") orelse return "";
     const rest = ll[start..];
     const end = std.mem.indexOf(u8, rest, "\n}\n") orelse return rest;
     return rest[0 .. end + 3];
+}
+
+// Does this stretch of IR call one of the module's own native entries directly,
+// rather than resolving the name at run time?
+//
+// Three spellings, and a test that checks only one is arch-specific: the
+// register-argument `tailcc` fast entry exists only where
+// `llvm_emit.fast_tailcalls_supported` (aarch64/x86_64), so on the QEMU-tier
+// arches every direct call is the uniform array ABI instead — where a reserved
+// name is `@r{i}` and an unreserved one `@lambda_{i}`. Matching the fast
+// spelling alone made the control below fail on ppc64le/riscv64/s390x while the
+// assertion it controls passed vacuously.
+//
+// Anchored on the callee position (right after `call [tailcc ]i64 `) so the
+// `ptr @r0` *argument* of a kaappi_create_native_closure — present either way —
+// is not mistaken for a call to it. Runtime imports are all `@kaappi_…`, so no
+// prefix here can match one.
+fn hasDirectNativeCall(ir_text: []const u8) bool {
+    for ([_][]const u8{ "call tailcc i64 @r", "call i64 @r", "call i64 @lambda_" }) |spelling| {
+        if (std.mem.indexOf(u8, ir_text, spelling) != null) return true;
+    }
+    return false;
 }
 
 test "LLVM emit: a shorthand internal define declines the enclosing let (#1861)" {
@@ -1609,11 +1631,11 @@ test "LLVM emit: an internal shorthand define drops the direct-call binding (#18
     // to the top-level function it used to denote.
     var res = try emitMultiResult("(define (g) 1) (let ((a 2)) (display a) (define (g) 3) (g)) (g)");
     defer res.deinit();
-    try expectNotContains(mainBody(res.toSlice()), "call tailcc i64 @");
+    try std.testing.expect(!hasDirectNativeCall(mainBody(res.toSlice())));
 
     // Positive control: without the internal define the same trailing call IS a
-    // direct fast-entry call, so the assertion above is not vacuous.
+    // direct call, so the assertion above is not vacuous.
     var ctl = try emitMultiResult("(define (g) 1) (let ((a 2)) (display a)) (g)");
     defer ctl.deinit();
-    try expectContains(mainBody(ctl.toSlice()), "call tailcc i64 @");
+    try std.testing.expect(hasDirectNativeCall(mainBody(ctl.toSlice())));
 }
