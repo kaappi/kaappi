@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Native backend: a nested `let` that fell back to the interpreter lost the
+  enclosing `let`'s bindings** (#1862). When a `let` inside another `let` gave up
+  on native compilation mid-emission — more than 32 bindings, more head
+  `define`s than the scope roots, or any binding/body form the emitter could not
+  lower — the LLVM backend handed that inner form alone to `kaappi_eval`, which
+  resolves names in the global environment. The compiled binary then died with
+  `undefined variable` on the outer binding, or, with a same-named global in
+  scope, silently read that instead; the interpreter ran the same program
+  correctly. `bindParamsAsGlobals` republishes the frame's params, rest
+  parameter, and upvalues, but a `let`-local lives in an `alloca` it has no name
+  for, so it now declines when one is in scope. The error abandons the enclosing
+  `let` in turn, handing the interpreter that whole lexical scope in one piece —
+  the rule #827 already applied to everything an up-front syntactic scan can
+  see, now applied to the mid-emission escape hatch as well. A fallback inside a
+  plain lambda frame, where the params *are* publishable, still compiles the
+  lambda natively and is unaffected.
 - **Native backend: an internal `define` in a `let` body could be collected**
   (#1854). The LLVM backend gave the binding an `alloca` but never pushed it on
   the GC shadow stack, so a collection triggered anywhere later in the body

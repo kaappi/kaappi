@@ -40,6 +40,9 @@ fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError!
     // The let form is about to be evaluated in the global environment;
     // bind the enclosing frame's params/rest/upvalues as globals first
     // or references to them inside the form come up undefined (#1410).
+    // It declines outright when an enclosing let's locals are in scope, since
+    // those it cannot publish — the error then abandons that outer let too, so
+    // the interpreter gets the whole scope in one piece (#1862).
     try lambda.bindParamsAsGlobals(self);
     const keyword = if (sequential) "let*" else "let";
     // Build `(let bindings body ...)` by iterating the args list elements.
