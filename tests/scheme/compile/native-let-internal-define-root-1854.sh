@@ -41,9 +41,11 @@ KAAPPI="${1:-zig-out/bin/kaappi}"
 KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-if [[ ! -f "$REPO_DIR/zig-out/lib/libkaappi_rt.a" ]]; then
-    (cd "$REPO_DIR" && zig build lib > /dev/null 2>&1)
-fi
+# `kaappi compile` needs the native runtime archive. The helper freshens it with
+# zig when a toolchain is present and otherwise accepts a prebuilt one, so a box
+# running cross-compiled binaries still exercises the compile+link path — and it
+# knows the archive's per-platform name, which this script must not spell itself.
+ensure_runtime_lib "$REPO_DIR"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
@@ -93,9 +95,13 @@ check() {
     # Whether the top-level body kept the let native or handed it to the
     # interpreter: a natively emitted let leaves no kaappi_eval_cached in @main,
     # while emitLetFallback is exactly one such call.
-    (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1) || true
+    if ! (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1); then
+        echo "FAIL: $name — --emit-llvm failed, so native routing went unchecked" >&2
+        fail=1
+        return
+    fi
     local evals
-    evals=$(sed -n '/^define i32 @main/,/^}/p' "$DIR/$name.ll" 2>/dev/null | grep -c 'kaappi_eval_cached' || true)
+    evals=$(sed -n '/^define i32 @main/,/^}/p' "$DIR/$name.ll" | grep -c 'kaappi_eval_cached' || true)
     case "$native_expected" in
         native)
             if [[ "$evals" -ne 0 ]]; then
