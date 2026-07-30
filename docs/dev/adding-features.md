@@ -6,17 +6,22 @@ Step-by-step guides for the most common extension tasks in Kaappi.
 
 ## Adding a Built-in Procedure
 
-This is the most common change. Follow these steps:
+This is the most common change, and this section is the detailed reference for
+it. The root `CLAUDE.md` and the `/add-builtin` skill are short checklists that
+defer here. Follow these steps:
 
 ### 1. Write the function
 
 Choose the appropriate `src/primitives_*.zig` file based on domain (arithmetic,
-string, vector, I/O, etc.) and add your function:
+string, vector, I/O, etc.) and add your function. There are 31 of them;
+`primitives.zig` itself is the registration hub plus core list/pair ops, so a
+new procedure almost always belongs in one of the domain files, not there:
 
 ```zig
 fn myProc(args: []const Value) PrimitiveError!Value {
     // Validate argument types
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]))
+        return primitives.typeError("my-proc", "exact integer", args[0]);
 
     // Compute result
     const n = types.toFixnum(args[0]);
@@ -27,6 +32,22 @@ fn myProc(args: []const Value) PrimitiveError!Value {
 The function signature is always `fn([]const Value) PrimitiveError!Value`.
 Arguments are passed as a slice -- arity checking has already been done by the
 dispatch layer.
+
+**Report type errors through `primitives.typeError(proc, expected, got)`**, not
+a bare `return PrimitiveError.TypeError`. `typeError` attaches the procedure
+name, the expected type, and a description of what actually arrived to the
+error detail, so the user sees `type error in 'my-proc': expected exact
+integer, got #t` instead of an anonymous `TypeError`. The `format` CI job
+enforces this with a ratchet on the count of unannotated bare returns
+(`.github/workflows/ci.yml`), so adding one fails the build. Only
+infrastructure guards that have no procedure context to report -- the
+`vm_instance orelse` fallbacks, for example -- take a bare return, and those
+carry a `// bare-ok: <reason>` comment to opt out of the ratchet.
+
+For the common checks there are wrappers that validate and unwrap in one step,
+each taking the procedure name for the same error detail: `expectFixnum`,
+`expectString`, `expectChar`, `expectPair`, `expectVector`, `expectPort`, plus
+`indexError(proc, index, len)` for out-of-range access.
 
 ### 2. Register the procedure and its libraries
 
@@ -90,32 +111,68 @@ For SRFI procedures, tag with the corresponding `srfi_*` `Lib` value.
 ### 4. Handle heap allocation
 
 If your procedure allocates heap objects (strings, pairs, vectors, etc.), you
-need the GC instance:
+need the GC instance. It is a threadlocal declared in `src/memory.zig` as
+`memory.gc_instance` -- reach it through that module, since `primitives.zig`
+does not re-export it:
 
 ```zig
 fn myAllocProc(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.TypeError;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocPair(args[0], args[1]) catch return PrimitiveError.OutOfMemory;
 }
 ```
 
+Read `.claude/rules/gc-safety.md` before writing anything that allocates more
+than once: values held in Zig locals across a second allocation must be rooted,
+and mutating a heap object's fields needs a write barrier.
+
 ### 5. Handle calling Scheme procedures
 
 If your procedure needs to call back into Scheme code (like `map` or
-`for-each`), use the VM instance:
+`for-each`), use the VM instance -- likewise a threadlocal, declared in
+`src/vm.zig` and reached as `vm_mod.vm_instance` under the import name every
+primitives file already uses for that module:
 
 ```zig
 fn myHigherOrder(args: []const Value) PrimitiveError!Value {
-    const vm = primitives.vm_instance orelse return PrimitiveError.TypeError;
-    const result = vm.callValue(args[0], args[1..]) catch return PrimitiveError.TypeError;
-    return result;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    return vm.callWithArgs(args[0], args[1..]);
 }
 ```
 
+`callWithArgs(proc, args)` is the entry point that takes a Value slice.
+(`vm_calls.callValue` is a different, register-based call used by the dispatch
+loop -- it takes a register base and an argument count, not a slice.) Let the
+callee's error propagate rather than rewriting it: `PrimitiveError` and
+`VMError` are both aliases of `errors.KaappiError`, so a raise from inside the
+Scheme procedure returns straight out of your primitive with its detail intact.
+
 ### 6. Test
 
-Add unit tests in the appropriate `src/tests_*.zig` file and/or a Scheme
-test in `tests/scheme/`.
+Add unit tests in the appropriate `src/tests_*.zig` file (there are 44, one per
+feature area -- pick the one matching your procedure's domain, and add a new
+file only for a genuinely new area). `src/vm.zig` is not a test file: its single
+`test` block only pulls sibling modules into the test build, and holds no
+assertions.
+
+Use the helpers in `src/testing_helpers.zig`, conventionally imported as `th`,
+rather than standing a GC and VM up by hand:
+
+```zig
+const th = @import("testing_helpers.zig");
+
+test "my-proc increments" {
+    try th.expectEval("(my-proc 42)", 43);
+}
+```
+
+`th.expectEvalTrue`, `th.expectEvalBool`, and `th.expectEvalVoid` cover the
+other result shapes; `th.TestContext` is for tests needing several evals or
+direct inspection of the result value. See `src/CLAUDE.md` for the full set.
+
+Add a Scheme-level test under `tests/scheme/` too when the behavior is worth
+checking end to end. A bug fix **must** come with a regression test that fails
+without the fix.
 
 ---
 
