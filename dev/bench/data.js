@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785422174558,
+  "lastUpdate": 1785429662807,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fe05ec92023362cf0920b925d24d3aab557a8190",
-          "message": "Add 15 portable SRFIs (Phase 1 — quick wins, high value) (#1709)\n\n* Add 15 portable SRFIs (67, 95, 129, 135, 162, 171, 185, 190, 194, 221, 223, 228, 234, 252, 253)\n\nSRFI Phase 1 — quick wins, high value. All are pure portable .sld\nimplementations with comprehensive test suites:\n\n- 67  Compare Procedures (195 tests)\n- 95  Sorting and Merging (62 tests)\n- 129 Titlecase (18 tests)\n- 135 Immutable Texts (106 tests)\n- 162 Comparators sublibrary (46 tests)\n- 171 Transducers with (srfi 171 meta) sub-library (48 tests)\n- 185 Linear adjustable-length strings (14 tests)\n- 190 Coroutine Generators (8 tests)\n- 194 Random data generators (11404 tests)\n- 221 Generator/accumulator sub-library (18 tests)\n- 223 Bisecting search (16 tests)\n- 228 Composing Comparators (82 tests)\n- 234 Topological sorting (13 tests)\n- 252 Property testing (105 tests)\n- 253 Data (type) checking (105 tests)\n\nTotal supported SRFIs: 85 → 100 (11 built-in + 88 portable + SRFI 261).\n\nCloses #1692, closes #1696.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* Address review: missing imports, ASCII-only char range, SRFI 261 count\n\n- Add (scheme process-context) import to 8 test files that use (exit 1)\n  without it (srfi129, srfi162, srfi171, srfi185, srfi190, srfi221,\n  srfi223, srfi234)\n- Raise SRFI 252 max-char from 128 to #x110000 so char/string/symbol\n  generators cover full Unicode (surrogate filter was already in place)\n- Mention SRFI 261 in CLAUDE.md SRFI libraries section to reconcile\n  the 11 + 88 + 1 = 100 count\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-21T07:24:41Z",
-          "tree_id": "f6c77e2c5618b7f16c1260e1de16653ed2db79d6",
-          "url": "https://github.com/kaappi/kaappi/commit/fe05ec92023362cf0920b925d24d3aab557a8190"
-        },
-        "date": 1784620903253,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.297555,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.818274,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.980399,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.579084,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006355,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054589,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.547167,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071151,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.497479,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.102959,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.568749,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.424914,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.81082,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.571877,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043261,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04564,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1301270410a98872534c481387ef84df7d8ff13",
+          "message": "Name the expected type, and the right argument, in every type error (#1868) (#1871)\n\nThe `format` job's bare-TypeError ratchet stood at 20. Those 20 were not one\nthing, so this works through them in the four groups the issue identified: 9\ninfrastructure guards gain a `// bare-ok:` reason, 11 become real diagnostics.\nWith none left the ratchet loses its baseline and becomes a plain grep-and-fail,\nso there is no longer a number in CI to keep in step with the source.\n\nA bare return was never as anonymous as it looked, which is what made the\nbacklog easy to leave alone: `vm_calls.mapNativeError` already fills in\n`type error in '<primitive>': got <args[0]>` for any primitive that set no\ndetail. The procedure name survives. What is lost is the *expected* type -- and\nwhenever the offending value is not the first argument, the report confidently\nnames the wrong one. A string-keyed hash table handed a bad key blamed the\ntable itself:\n\n    -  type error in 'hash-table-set!': got #<hash-table size=0>\n    +  type error in 'hash-table-set!': expected string key\n         (this table compares with string=?), got 1\n\nReporting the key instead of the table means the hash-table key path has to know\nwhich procedure it is serving, so `proc` is threaded through equalForTable /\nhashForTable / findKey / findSlot / rehash / growIfNeeded. A fixed \"hash-table\"\nlabel would have been cheaper and nearly worthless: every call site already\nholds the exact literal one line above, in its own `getHashTable` call.\n\nTwo of the 20 were not type errors at all. R6RS's \"parent is sealed\" and a uid\ncollision both reject an argument whose type is perfectly good, which is what\n`invalid-argument` (KP3007) already describes -- \"a value a procedure explicitly\nrejects\", per its own registry entry. They now report that, via a new\n`primitives.argError(proc, fmt, args)` alongside `typeError`/`indexError`. The\nunknown-elision-lever check joins them for a second reason: `typeError` routes\nits value through `safeValueDescription`, which deliberately never dereferences\nheap payloads, so it renders every symbol as a bare `#<symbol>` and could not\nhave named the one passed.\n\nRegression tests assert the message text, since asserting that an error was\nraised -- or even that it names the procedure -- passes against the pre-fix\nbuild too. That is not hypothetical: the first version of the hash-table\nassertion did exactly that and had to be replaced with a pair that pins both\nthe old wrong answer and the new right one.\n\nWhile placing a `bare-ok` marker on threadStartFn's WASM branch, its comment\nclaimed the `else` was what kept std.Thread.spawn out of the wasm32 build. It\nis not. A `@compileError` canary in threadStartImpl fires under neither\n`if/else` nor a plain early return, though one in threadStartFn itself does\nfire: the pruning comes from the comptime-true branch returning\nunconditionally, not from the branch structure. Comment corrected, `else` kept.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T21:28:21+05:30",
+          "tree_id": "3efdccc8c2a3b74a8f43b5eee6905a6047e2ff52",
+          "url": "https://github.com/kaappi/kaappi/commit/a1301270410a98872534c481387ef84df7d8ff13"
+        },
+        "date": 1785429660408,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.323705,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.046186,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.597107,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.017648,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005077,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047193,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311865,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057113,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.789,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.225132,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.616054,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287421,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.782857,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.675602,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043959,
             "unit": "seconds"
           }
         ]
