@@ -90,7 +90,10 @@
 ;;; same as already noted for (srfi 237) -- this SRFI doesn't have those,
 ;;; nothing to note.
 (define-library (srfi 57)
-  (import (scheme base) (srfi 237) (srfi 237 primitives))
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
+  (import (scheme base) (srfi 237) (srfi 237 primitives) (kaappi primitives))
   (export define-record-type define-record-scheme
           record-update record-update! record-compose)
   (begin

@@ -647,7 +647,7 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
         while (fi > 0) {
             fi -= 1;
             if (spec.mutator_names[fi]) |mn| {
-                const rs = gc.allocSymbol("%record-set!") catch return CompileError.OutOfMemory;
+                const rs = globals_mod.baseBindingSymbol(gc, "%record-set!") catch return CompileError.OutOfMemory;
                 const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
                 const v = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
                 const idx = types.makeFixnum(@intCast(fi));
@@ -664,7 +664,7 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
         var fi = spec.field_count;
         while (fi > 0) {
             fi -= 1;
-            const rr = gc.allocSymbol("%record-ref") catch return CompileError.OutOfMemory;
+            const rr = globals_mod.baseBindingSymbol(gc, "%record-ref") catch return CompileError.OutOfMemory;
             const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
             const idx = types.makeFixnum(@intCast(fi));
             const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
@@ -676,7 +676,7 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
 
     // Predicate
     {
-        const rc = gc.allocSymbol("%record?") catch return CompileError.OutOfMemory;
+        const rc = globals_mod.baseBindingSymbol(gc, "%record?") catch return CompileError.OutOfMemory;
         const v = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
         const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
         const body = gc.makeList(&[_]Value{ rc, v, rt_ref }) catch return CompileError.OutOfMemory;
@@ -686,7 +686,7 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
 
     // Constructor
     {
-        const mr = gc.allocSymbol("%make-record") catch return CompileError.OutOfMemory;
+        const mr = globals_mod.baseBindingSymbol(gc, "%make-record") catch return CompileError.OutOfMemory;
         const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
         var body_elems: [258]Value = undefined;
         body_elems[0] = mr;
@@ -716,7 +716,7 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
 
     // Internal record type: (define __rt (%make-record-type "name" n))
     {
-        const mrt = gc.allocSymbol("%make-record-type") catch return CompileError.OutOfMemory;
+        const mrt = globals_mod.baseBindingSymbol(gc, "%make-record-type") catch return CompileError.OutOfMemory;
         const ns = gc.allocString(spec.type_name) catch return CompileError.OutOfMemory;
         const nf = types.makeFixnum(@intCast(spec.field_count));
         const init = gc.makeList(&[_]Value{ mrt, ns, nf }) catch return CompileError.OutOfMemory;
@@ -1050,7 +1050,7 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     try emitClosureEpilogue(self, &child, thunk_reg);
 
     // Call %make-promise-lazy(thunk) — use fresh registers to avoid clobbering
-    const sym = self.gc.allocSymbol("%make-promise-lazy") catch return CompileError.OutOfMemory;
+    const sym = globals_mod.baseBindingSymbol(self.gc, "%make-promise-lazy") catch return CompileError.OutOfMemory;
     const sym_idx = try self.addConstant(sym);
     const call_base = try self.allocReg();
     try self.emitOp(.get_global);

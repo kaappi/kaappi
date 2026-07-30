@@ -31,11 +31,11 @@ const version: u8 = 1;
 const seed_len = 32; // bytes consumed to seed the four state words
 
 pub const specs = [_]primitives.PrimSpec{
-    .{ .name = "%random-port-make-randomized", .func = &makeRandomizedFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%random-port-make-from-seed", .func = &makeFromSeedFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%random-port-make-from-state", .func = &makeFromStateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%random-port-state", .func = &portStateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%random-port?", .func = &randomPortPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%random-port-make-randomized", .func = &makeRandomizedFn, .arity = .{ .exact = 0 }, .libs = primitives.INTERNAL_PUBLIC },
+    .{ .name = "%random-port-make-from-seed", .func = &makeFromSeedFn, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
+    .{ .name = "%random-port-make-from-state", .func = &makeFromStateFn, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
+    .{ .name = "%random-port-state", .func = &portStateFn, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
+    .{ .name = "%random-port?", .func = &randomPortPredFn, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
 };
 
 /// The determinized random port behind `v`, or a type error.

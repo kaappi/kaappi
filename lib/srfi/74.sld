@@ -10,7 +10,10 @@
 ;;; genuinely big-endian host (kaappi supports s390x/ppc64le as first-class
 ;;; targets, so this can't be assumed little-endian).
 (define-library (srfi 74)
-  (import (scheme base) (srfi 160 u8))
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
+  (import (scheme base) (srfi 160 u8) (kaappi primitives))
   (export endianness
           blob? make-blob blob-length blob-copy blob-copy!
           blob->u8-list u8-list->blob blob=?

@@ -29,8 +29,8 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "get-environment-variable", .func = &getEnvVar, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
     .{ .name = "get-environment-variables", .func = &getEnvVars, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
     .{ .name = "make-parameter", .func = &makeParameterFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_39 }) },
-    .{ .name = "%parameter-set!", .func = &parameterSetDirectFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%parameter-convert", .func = &parameterConvertFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%parameter-set!", .func = &parameterSetDirectFn, .arity = .{ .exact = 2 }, .libs = primitives.INTERNAL },
+    .{ .name = "%parameter-convert", .func = &parameterConvertFn, .arity = .{ .exact = 2 }, .libs = primitives.INTERNAL },
     .{ .name = "eval", .func = &evalFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs }), .sandbox = false },
     .{ .name = "environment", .func = &environmentFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_eval), .sandbox = false },
     .{ .name = "interaction-environment", .func = &interactionEnvironmentFn, .arity = .{ .exact = 0 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs, .scheme_repl }), .sandbox = false },
@@ -41,7 +41,7 @@ pub const specs = [_]primitives.PrimSpec{
     // Internal fact for portable libraries that need real hardware byte
     // order (e.g. SRFI 74's `(endianness native)`) -- not part of any
     // public R7RS/SRFI surface itself.
-    .{ .name = "%host-big-endian?", .func = &hostBigEndianFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%host-big-endian?", .func = &hostBigEndianFn, .arity = .{ .exact = 0 }, .libs = primitives.INTERNAL_PUBLIC },
 };
 
 fn hostBigEndianFn(args: []const Value) PrimitiveError!Value {
