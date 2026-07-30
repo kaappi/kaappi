@@ -996,7 +996,20 @@ map.deinit();  // no allocator arg needed
 
    Arity: `.{ .exact = N }` for fixed, `.{ .variadic = N }` for N minimum args.
 
-3. Add to library exports in `src/library.zig` (the `scheme.base` section).
+3. Add to the file's `specs` table with the exporting libraries in `.libs`
+   (`library.zig` derives every export set from these tags — there is no
+   second list). An internal helper — a `%`-prefixed name only
+   compiler-generated code or a portable `.sld` calls — takes
+   `primitives.INTERNAL` instead: registered in `vm.globals`, exported by
+   nothing, so it doesn't reserve the name against user libraries
+   (kaappi#1856; a comptime check rejects a `%` name tagged `scheme.*`).
+   `primitives.INTERNAL_PUBLIC` additionally exports it from
+   `(kaappi primitives)`, for helpers a portable `.sld` names in Scheme
+   source (SRFI 27/74/271 and the record SRFIs import it).
+   Synthesize *references* to one with `Compiler.trueBuiltinRefOrSymbol` /
+   `globals_mod.baseBindingSymbol`, never a bare `allocSymbol("%foo")`, or a
+   user binding of the same name silently wins. See
+   `docs/dev/adding-features.md`.
 
 4. If the procedure needs heap allocation, use `primitives.gc_instance`.
    If it needs to call Scheme procedures, use `primitives.vm_instance`.

@@ -114,8 +114,11 @@
 ;;; the global environment, which never consults lib_env at all. The
 ;;; idiomatic spelling is back.
 (define-library (srfi 150)
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
   (import (scheme base) (srfi 211 explicit-renaming) (srfi 213)
-          (srfi 237) (srfi 237 primitives))
+          (srfi 237) (srfi 237 primitives) (kaappi primitives))
   (export define-record-type)
   (begin
 

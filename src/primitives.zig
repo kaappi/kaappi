@@ -98,9 +98,43 @@ pub const Lib = enum {
     // (SRFI 211 is sub-library-only, so the sub-library names must stay
     // file-resolvable).
     srfi_211_primitives,
+    /// `(kaappi primitives)`: the internal helpers a *portable* `.sld` names
+    /// in its own Scheme source -- SRFI 27's random-source accessors, SRFI
+    /// 74's endianness probe, SRFI 271's random ports, the record substrate
+    /// SRFI 57/131/136/150/237 build on. They used to ride along in
+    /// `(scheme base)`, which reserved their names against every user library
+    /// (kaappi#1856); they are named here instead so each `.sld` declares the
+    /// dependency it actually has. Every spec tagged with this is *also*
+    /// tagged `.internal` (see `INTERNAL_PUBLIC`), so compiler-synthesized
+    /// references still resolve against the pristine snapshot.
+    ///
+    /// Not a stability promise: `(kaappi primitives)` is this implementation's
+    /// own substrate, and portable code should use the SRFIs layered over it.
+    kaappi_primitives,
     /// Internal-only tag for primitives that live in vm.globals but must
     /// not be exported by any standard library. No library is registered
     /// for this tag, so `addExportsForLib` never picks these specs up.
+    ///
+    /// Reachable anyway, by two routes that both bypass the import graph:
+    /// compiler-generated code (case-lambda's arity dispatch,
+    /// `define-record-type`'s desugaring, `delay`'s promise construction)
+    /// references them through `Compiler.trueBuiltinRefOrSymbol`, which
+    /// resolves against `LibraryRegistry.internal_bindings`; a portable
+    /// `.sld` that names one in Scheme source imports
+    /// `(kaappi primitives)` (see `kaappi_primitives` above).
+    ///
+    /// Exporting them from `(scheme base)` instead took the whole
+    /// `%`-prefixed namespace away from user libraries, since R7RS 5.2 makes
+    /// importing one name from two libraries with different bindings an
+    /// error — a user library defining its own `%length` could no longer be
+    /// imported at all (kaappi#1856). The comptime guard below keeps them
+    /// out of the `scheme.*` export sets.
+    ///
+    /// A subset of these are additionally *removed* from vm.globals once
+    /// `vm_bootstrap.install()` has captured them (its `internal_helpers`
+    /// list): `%push-wind` and the `%promise-*` mutators corrupt VM state
+    /// if called out of sequence, so they must be unreachable, not merely
+    /// unexported. Being `.internal` does not imply being purged.
     internal,
 
     pub fn canonicalName(self: Lib) []const u8 {
@@ -144,6 +178,7 @@ pub const Lib = enum {
             .srfi_237_primitives => "srfi.237.primitives",
             .srfi_160_primitives => "srfi.160.primitives",
             .srfi_211_primitives => "srfi.211.primitives",
+            .kaappi_primitives => "kaappi.primitives",
             .internal => "kaappi.internal",
         };
     }
@@ -204,6 +239,13 @@ pub const PrimSpec = struct {
 };
 
 const LS = LibSet;
+/// Registered in vm.globals, exported by nothing — see `Lib.internal`.
+pub const INTERNAL = LS.initOne(.internal);
+/// Same, plus exported by `(kaappi primitives)` for the portable `.sld`s that
+/// name it in Scheme source — see `Lib.kaappi_primitives`. The `.internal`
+/// half is not redundant: it is what puts the spec in the pristine snapshot
+/// `Compiler.trueBuiltinRefOrSymbol` resolves against.
+pub const INTERNAL_PUBLIC = LS.initMany(&.{ .internal, .kaappi_primitives });
 const BR = LS.initMany(&.{ .scheme_base, .scheme_r5rs });
 const BRS1 = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 });
 const BCRS1 = LS.initMany(&.{ .scheme_base, .scheme_cxr, .scheme_r5rs, .srfi_1 });
@@ -216,13 +258,15 @@ const core_specs = [_]PrimSpec{
     .{ .name = "set-cdr!", .func = &setCdr, .arity = .{ .exact = 2 }, .libs = BRS1 },
     .{ .name = "list", .func = &list, .arity = .{ .variadic = 0 }, .libs = BRS1 },
     .{ .name = "length", .func = &length, .arity = .{ .exact = 1 }, .libs = BRS1 },
-    // Internal alias for case-lambda's compiled arity dispatch (kaappi#1714):
-    // a library that legitimately shadows `length` (e.g. `except`s it and
-    // supplies its own) must not break case-lambda's dispatch, which needs
-    // the real list-length primitive regardless of what `length` currently
-    // means in scope. Same %-prefixed-internal-primitive convention as
-    // %record-set! etc. below.
-    .{ .name = "%length", .func = &length, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    // There is deliberately no `%length` alias here. case-lambda's arity
+    // dispatch needs the real list-length primitive regardless of what
+    // `length` means at its use site (kaappi#1714), but it gets that from
+    // `Compiler.trueBuiltinRefOrSymbol("length")` -- the pristine
+    // `(scheme base)` binding (kaappi#1715) -- rather than a second global.
+    // The alias, exported from `(scheme base)`, made a user library that
+    // defined its own `%length` un-importable (kaappi#1856); the prefixed
+    // reference is also strictly stronger, since a top-level redefinition
+    // could overwrite the alias but cannot touch the export table.
     .{ .name = "append", .func = &append, .arity = .{ .variadic = 0 }, .libs = BRS1 },
     .{ .name = "reverse", .func = &reverse, .arity = .{ .exact = 1 }, .libs = BRS1 },
     .{ .name = "caar", .func = &caarFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
@@ -249,11 +293,14 @@ const core_specs = [_]PrimSpec{
     .{ .name = "string-length", .func = &stringLength, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
     .{ .name = "string-append", .func = &stringAppend, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
     .{ .name = "symbol->string", .func = &symbolToString, .arity = .{ .exact = 1 }, .libs = BR },
-    .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%record?", .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.scheme_base) },
+    // The record substrate `define-record-type`'s desugarer emits and the
+    // portable record SRFIs (57/131/136/150/237) call directly. Internal,
+    // not `(scheme base)` exports (kaappi#1856).
+    .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
+    .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = INTERNAL_PUBLIC },
+    .{ .name = "%record?", .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
+    .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 3 }, .libs = INTERNAL_PUBLIC },
+    .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 4 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "apply", .func = &applyFn, .arity = .{ .variadic = 2 }, .libs = BR },
 };
 
@@ -306,6 +353,26 @@ comptime {
     for (all_specs) |spec| {
         if (spec.libs.count() == 0)
             @compileError("orphan spec (no libraries): " ++ spec.name);
+    }
+    // A `%`-prefixed name must never be exported by an R7RS standard
+    // library (kaappi#1856). `%` is this codebase's own "private helper"
+    // marker -- and the portable SRFI libraries' -- so user code has good
+    // reason to treat that namespace as its own; exporting `%length` from
+    // `(scheme base)` made a user library that defines its own `%length`
+    // un-importable outright, because R7RS 5.2 makes importing one
+    // identifier from two libraries with different bindings an error
+    // (enforced since kaappi#1726). Internal helpers belong in `.internal`,
+    // which keeps them in vm.globals and out of every export set; a
+    // deliberately public `%` name belongs in a `*_primitives`
+    // sub-library, which a `.sld` opts into by name.
+    for (all_specs) |spec| {
+        if (spec.name[0] != '%') continue;
+        for (std.enums.values(Lib)) |lib| {
+            if (!spec.libs.contains(lib)) continue;
+            if (std.mem.startsWith(u8, lib.canonicalName(), "scheme."))
+                @compileError("%-prefixed spec \"" ++ spec.name ++ "\" is exported by " ++
+                    lib.canonicalName() ++ "; use `.internal` (see Lib.internal) or a *_primitives sub-library");
+        }
     }
 }
 

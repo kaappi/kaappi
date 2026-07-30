@@ -254,13 +254,18 @@ test "case-lambda dispatch is unaffected by a shadowed global length" {
     // Regression (#1714): the desugaring called the global `length` directly
     // to count arguments, so a scope that legitimately shadows `length` (e.g.
     // a library providing its own for a non-standard list-like type) broke
-    // every case-lambda defined within it. Fixed by dispatching through an
-    // internal %length alias instead.
+    // every case-lambda defined within it. Dispatch now goes through
+    // `length`'s pristine (scheme base) binding (#1715's base_binding_prefix),
+    // which no rebinding of either `length` or the former `%length` alias can
+    // reach (#1856).
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    // Both names rebound, at top level (which the old alias could not
+    // survive: a top-level define overwrote it in vm.globals) and lexically.
+    _ = try vm.eval("(define (%length x) 'also-shadowed)");
     _ = try vm.eval(
         \\(define f
         \\  (let ()

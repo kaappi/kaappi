@@ -17,15 +17,15 @@ fn freshSeed() u64 {
 pub const specs = [_]primitives.PrimSpec{
     .{ .name = "random-integer", .func = &randomIntegerFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-real", .func = &randomRealFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%default-random-source", .func = &defaultRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%default-random-source", .func = &defaultRandomSourceFn, .arity = .{ .exact = 0 }, .libs = primitives.INTERNAL_PUBLIC },
     .{ .name = "random-source?", .func = &randomSourcePFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "make-random-source", .func = &makeRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source-randomize!", .func = &randomSourceRandomizeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source-pseudo-randomize!", .func = &randomSourcePseudoRandomizeFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source-state-ref", .func = &randomSourceStateRefFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source-state-set!", .func = &randomSourceStateSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%rs-next-int", .func = &rsNextIntFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%rs-next-real", .func = &rsNextRealFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%rs-next-int", .func = &rsNextIntFn, .arity = .{ .exact = 2 }, .libs = primitives.INTERNAL_PUBLIC },
+    .{ .name = "%rs-next-real", .func = &rsNextRealFn, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
 };
 
 // A fork(2)ed child inherits the parent's PRNG state, and the default source

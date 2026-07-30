@@ -28,12 +28,14 @@ The function signature is always `fn([]const Value) PrimitiveError!Value`.
 Arguments are passed as a slice -- arity checking has already been done by the
 dispatch layer.
 
-### 2. Register the procedure
+### 2. Register the procedure and its libraries
 
-In the same file's `registerXxx` function, add a registration call:
+Add an entry to the same file's `specs` table. One entry carries the name,
+implementation, arity, *and* the set of libraries that export it -- there is
+no second list to keep in sync:
 
 ```zig
-try reg(vm, "my-proc", &myProc, .{ .exact = 1 });
+.{ .name = "my-proc", .func = &myProc, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
 ```
 
 Arity options:
@@ -41,19 +43,49 @@ Arity options:
 - `.{ .exact = N }` -- exactly N arguments
 - `.{ .variadic = N }` -- N or more arguments
 
-### 3. Export from a library
+`.libs` takes a `LibSet` (`LS.initOne(.scheme_base)`,
+`LS.initMany(&.{ .scheme_base, .scheme_r5rs })`, or one of the shorthand
+aliases at the top of `src/primitives.zig`). `library.zig` derives every
+standard library's export set from these tables at startup, so the tag *is*
+the export. Two optional fields narrow that: `.sandbox = false` withholds the
+primitive under `--sandbox`, `.wasm = false` on WASM.
 
-Add the name to the appropriate library in `src/library.zig`. For most
-procedures, this means adding it to the `scheme_base_names` array:
+### 3. If the procedure is an internal helper, do not export it
+
+A primitive that only compiler-generated code or a portable `.sld` calls --
+conventionally named with a `%` prefix -- belongs in `.internal`, not in a
+standard library:
 
 ```zig
-const scheme_base_names = [_][]const u8{
-    // ... existing names ...
-    "my-proc",
-};
+.{ .name = "%my-helper", .func = &myHelper, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL },
 ```
 
-For SRFI procedures, add to the corresponding SRFI names array.
+`.internal` registers the primitive in `vm.globals` (so it resolves by name,
+including from a library body) while exporting it from nothing. Putting a `%`
+name in `(scheme base)` instead reserves it against every user library that
+imports `(scheme base)`, because R7RS 5.2 makes importing one identifier from
+two libraries with different bindings an error -- a user library that defined
+its own `%length` could not be imported at all (kaappi#1856). A comptime check
+in `primitives.zig` now rejects any `%` name tagged with a `scheme.*` library.
+
+If a *portable* `.sld` names the helper in its own Scheme source, tag it
+`primitives.INTERNAL_PUBLIC` instead: that is `.internal` plus
+`.kaappi_primitives`, which exports it from `(kaappi primitives)` so the
+`.sld` can declare the dependency (`lib/srfi/27.sld` and the record SRFIs do).
+A helper tied to one SRFI belongs in that SRFI's own `*_primitives`
+sub-library (`.srfi_237_primitives` and friends) rather than the general one.
+Either way the name stays out of `(scheme base)`.
+
+Compiler-synthesized *references* to an internal helper must go through
+`Compiler.trueBuiltinRefOrSymbol` / `globals_mod.baseBindingSymbol` rather
+than a bare `gc.allocSymbol("%my-helper")`: that marks the reference so it
+resolves against the pristine startup snapshot
+(`LibraryRegistry.internal_bindings`) instead of whatever the program being
+compiled has bound that name to. A bare symbol silently picks up a user's
+same-named binding -- which is how `define-record-type` inside a library that
+defined its own `%record-ref` started returning the wrong value.
+
+For SRFI procedures, tag with the corresponding `srfi_*` `Lib` value.
 
 ### 4. Handle heap allocation
 

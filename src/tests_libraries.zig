@@ -7,6 +7,7 @@ const platform = @import("platform.zig");
 const library_mod = @import("library.zig");
 const primitives_mod = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
+const vm_bootstrap = @import("vm_bootstrap.zig");
 const bytecode_file = @import("bytecode_file.zig");
 
 test "import scheme base" {
@@ -696,13 +697,17 @@ test "every spec name resolves in globals (drift guard)" {
     defer vm.deinit();
 
     for (&primitives_mod.all_specs) |spec| {
-        // .internal-only helpers are deliberately removed from globals by
-        // vm_bootstrap.install() after being captured by the bootstrapped
-        // closures (#1375) — they must NOT resolve.
-        const internal_only = spec.libs.eql(primitives_mod.LibSet.initOne(.internal));
-        if (internal_only) {
+        // The helpers vm_bootstrap.install() removes from globals after the
+        // bootstrapped closures capture them (#1375) must NOT resolve —
+        // calling %push-wind or a %promise-* mutator out of sequence
+        // corrupts VM state. Every other spec must, `.internal` included:
+        // being unexported is not being unreachable (#1856).
+        const purged = for (&vm_bootstrap.internal_helpers) |name| {
+            if (std.mem.eql(u8, name, spec.name)) break true;
+        } else false;
+        if (purged) {
             if (vm.globals.get(spec.name) != null) {
-                std.debug.print("DRIFT: internal spec \"{s}\" is still in globals\n", .{spec.name});
+                std.debug.print("DRIFT: purged spec \"{s}\" is still in globals\n", .{spec.name});
                 return error.TestUnexpectedResult;
             }
             continue;
@@ -712,6 +717,107 @@ test "every spec name resolves in globals (drift guard)" {
             return error.TestUnexpectedResult;
         }
     }
+}
+
+test "no standard library exports a %-prefixed internal (#1856)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The comptime guard in primitives.zig covers the spec tables; this
+    // covers the assembled export sets, which also draw on
+    // library.extra_exports and would not be caught there.
+    var it = vm.libraries.libraries.iterator();
+    while (it.next()) |entry| {
+        const lib_name = entry.key_ptr.*;
+        if (!std.mem.startsWith(u8, lib_name, "scheme.")) continue;
+        var exports = entry.value_ptr.exports.iterator();
+        while (exports.next()) |e| {
+            if (e.key_ptr.*[0] == '%') {
+                std.debug.print("DRIFT: {s} exports \"{s}\"\n", .{ lib_name, e.key_ptr.* });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
+
+test "(kaappi primitives) exports what the portable .slds import (#1856)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // lib/srfi/{27,74,271/*,57,131,136,150,237}.sld name these in Scheme
+    // source and import (kaappi primitives) for them. A .sld cannot spell the
+    // base_binding_prefix compiler-synthesized references use, so this export
+    // is the only declared route — losing it breaks those libraries at load.
+    const lib = vm.libraries.get("kaappi.primitives") orelse {
+        std.debug.print("(kaappi primitives) is not registered\n", .{});
+        return error.TestUnexpectedResult;
+    };
+    for ([_][]const u8{
+        "%make-record",                 "%make-record-type",            "%record?",
+        "%record-ref",                  "%record-set!",                 "%host-big-endian?",
+        "%rs-next-int",                 "%rs-next-real",                "%default-random-source",
+        "%random-port?",                "%random-port-state",           "%random-port-make-from-seed",
+        "%random-port-make-from-state", "%random-port-make-randomized",
+    }) |name| {
+        if (lib.exports.get(name) == null) {
+            std.debug.print("(kaappi primitives) is missing \"{s}\"\n", .{name});
+            return error.TestUnexpectedResult;
+        }
+        // Same spec is `.internal` too, which is what puts it in the pristine
+        // snapshot the compiler resolves against — the two halves are
+        // independent and both load-bearing.
+        if (vm.libraries.internal_bindings.get(name) == null) {
+            std.debug.print("\"{s}\" is missing from internal_bindings\n", .{name});
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+// A user library may define its own %-prefixed name and still import
+// (scheme base): #1856's exact failure was the R7RS 5.2 collision check
+// (#1726) firing between (scheme base)'s %length and the user's own.
+test "user library may define %length alongside (scheme base) (#1856)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (mylib ffi)
+        \\  (import (scheme base))
+        \\  (export %length)
+        \\  (begin (define (%length s) (string-length s))))
+    );
+    _ = try vm.eval(
+        \\(define-library (mylib)
+        \\  (import (scheme base) (mylib ffi))
+        \\  (export byte-length)
+        \\  (begin (define (byte-length s) (%length s))))
+    );
+    _ = try vm.eval("(import (mylib))");
+    const result = try vm.eval("(byte-length \"hi\")");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+
+    // ... and case-lambda's arity dispatch still counts arguments with the
+    // real list-length inside that same library, rather than picking up the
+    // user's one-argument string-length (#1714 via #1715's pristine
+    // (scheme base) reference — the former %length alias, being an ordinary
+    // global, would have lost to the import here).
+    _ = try vm.eval(
+        \\(define-library (mylib cl)
+        \\  (import (scheme base) (mylib ffi))
+        \\  (export pick)
+        \\  (begin
+        \\    (define pick (case-lambda ((a) 'one) ((a b) 'two)))))
+    );
+    _ = try vm.eval("(import (mylib cl))");
+    const two = try vm.eval("(pick 1 2)");
+    try std.testing.expect(types.isSymbol(two));
+    try std.testing.expectEqualStrings("two", types.toObject(two).as(types.Symbol).name);
 }
 
 // ── SRFI 261 (#1645): portable SRFI library references ──────────────────────

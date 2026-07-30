@@ -43,7 +43,10 @@
 ;;;     functionality) -- the base R6RS 2-form name-spec (bare symbol, or
 ;;;     `(<name> <ctor> <pred>)`) is fully supported.
 (define-library (srfi 237)
-  (import (scheme base) (srfi 237 primitives))
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
+  (import (scheme base) (srfi 237 primitives) (kaappi primitives))
   (export
     ;; procedural
     make-record-type-descriptor record-type-descriptor?

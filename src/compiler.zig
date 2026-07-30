@@ -290,9 +290,7 @@ pub const Compiler = struct {
     /// desugaring, which must always mean the standard procedures
     /// regardless of what the user's program does with those names.
     pub fn trueBuiltinRefOrSymbol(gc: *memory.GC, name: []const u8) CompileError!Value {
-        var buf: [96]u8 = undefined;
-        const prefixed = globals_mod.baseBindingSymbolName(&buf, name);
-        return gc.allocSymbol(prefixed) catch return CompileError.OutOfMemory;
+        return globals_mod.baseBindingSymbol(gc, name) catch return CompileError.OutOfMemory;
     }
 
     /// Emit code loading `name`'s pristine `(scheme base)` binding into

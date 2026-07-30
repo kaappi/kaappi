@@ -14,7 +14,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "force", .func = primitives.bootstrapStub("force"), .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_lazy, .scheme_r5rs }) },
     .{ .name = "promise?", .func = &promiseP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
     .{ .name = "make-promise", .func = &makePromiseFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
-    .{ .name = "%make-promise-lazy", .func = &makePromiseLazy, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%make-promise-lazy", .func = &makePromiseLazy, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL },
     .{ .name = "%promise-forced?", .func = &promiseForcedP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
     .{ .name = "%promise-forcing?", .func = &promiseForcingP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
     .{ .name = "%promise-value", .func = &promiseValue, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },

@@ -17,11 +17,22 @@ fn myProc(args: []const Value) PrimitiveError!Value {
 }
 ```
 
-2. **Register it** in `registerAll()` in `src/primitives.zig`:
+2. **Add a spec entry** to the file's `specs` table. One entry carries the
+   name, function, arity, and the libraries that export it — `library.zig`
+   derives every export set from these tags, so there is no second list:
 
 ```zig
-try reg(vm, "my-proc", &myProc, .{ .exact = 1 });  // or .{ .variadic = N }
+.{ .name = "my-proc", .func = &myProc, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
 ```
+
+An **internal helper** — a `%`-prefixed name only compiler-generated code or
+a portable `.sld` calls — takes `.libs = primitives.INTERNAL` instead:
+registered in `vm.globals`, exported by nothing, so it doesn't reserve the
+name against every user library that imports `(scheme base)` (kaappi#1856; a
+comptime check rejects a `%` name tagged `scheme.*`). Synthesize *references*
+to one with `Compiler.trueBuiltinRefOrSymbol` /
+`globals_mod.baseBindingSymbol`, never a bare `allocSymbol("%foo")`.
+See `docs/dev/adding-features.md`.
 
 3. **Add a test** in `src/vm.zig` test section:
 

@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const conditionals = @import("compiler_conditionals.zig");
 const expander = @import("expander.zig");
+const globals_mod = @import("globals.zig");
 const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
@@ -787,7 +788,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
         //   (let* ((old0 (%pp0)) (new0 (%parameter-convert %pp0 %pv0))
         //          (old1 (%pp1)) (new1 (%parameter-convert %pp1 %pv1)) ...)
         //     (dynamic-wind ...))
-        const pconv_sym = gc.allocSymbol("%parameter-convert") catch return CompileError.OutOfMemory;
+        const pconv_sym = globals_mod.baseBindingSymbol(gc, "%parameter-convert") catch return CompileError.OutOfMemory;
         var inner_bindings: Value = types.NIL;
         i = binding_count;
         while (i > 0) {
@@ -805,7 +806,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 
         const dw_sym = gc.allocSymbol("dynamic-wind") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-        const pset_sym = gc.allocSymbol("%parameter-set!") catch return CompileError.OutOfMemory;
+        const pset_sym = globals_mod.baseBindingSymbol(gc, "%parameter-set!") catch return CompileError.OutOfMemory;
 
         // before-thunk: (%parameter-set! %pp_i new_i) — install pre-converted values
         var before_body: Value = types.NIL;
@@ -845,18 +846,24 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 /// Desugars to (internal names %-prefixed so clause bodies referencing
 /// user variables named `args` or `n` are not captured):
 /// (lambda %cl-args
-///   (let ((%cl-n (%length %cl-args)))
+///   (let ((%cl-n (length %cl-args)))
 ///     (cond
 ///       ((= %cl-n arity1) (apply (lambda formals1 body1...) %cl-args))
 ///       ((= %cl-n arity2) (apply (lambda formals2 body2...) %cl-args))
 ///       ...
 ///       (else (error "wrong number of arguments")))))
 ///
-/// Uses the internal `%length` alias rather than `length` itself (kaappi#1714):
-/// a library legitimately shadowing `length` (e.g. to supply its own for a
-/// non-standard list-like type) must not break dispatch here, which needs
-/// the real list-length primitive regardless of what `length` currently
-/// resolves to in scope.
+/// `length` there is emitted as `length`'s pristine `(scheme base)` binding
+/// (`globals_mod.base_binding_prefix`, kaappi#1715), not as the name `length`
+/// means at the use site: a scope legitimately shadowing `length` — say, to
+/// supply its own for a non-standard list-like type — must not break dispatch
+/// here, which needs the real list-length primitive regardless (kaappi#1714).
+/// That used to be a dedicated `%length` primitive, but exporting it from
+/// `(scheme base)` made a user library defining its own `%length`
+/// un-importable outright (kaappi#1856), and being an ordinary global it lost
+/// to a top-level redefinition anyway. The prefixed reference has neither
+/// problem: it reserves no name and reads from the export table, which no
+/// user code can write.
 pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!void {
     const gc = self.gc;
 
@@ -873,7 +880,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
         const cond_sym = try gc.allocSymbol("cond");
         const eq_sym = try gc.allocSymbol("=");
         const ge_sym = try gc.allocSymbol(">=");
-        const length_sym = try gc.allocSymbol("%length");
+        const length_sym = try Compiler.trueBuiltinRefOrSymbol(gc, "length");
         const apply_sym = try gc.allocSymbol("apply");
         const else_sym = try gc.allocSymbol("else");
         const error_sym = try gc.allocSymbol("error");

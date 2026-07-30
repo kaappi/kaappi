@@ -127,10 +127,21 @@ fn checkSrfiFeature(name: []const u8) bool {
 /// startup from vm.globals and never touched again afterward — rather than
 /// vm.globals itself, which a later top-level `define` (or a library like
 /// SRFI 101 redefining `list`) freely overwrites (#1715).
+///
+/// Falls back to the `.internal` primitives' snapshot, which has the same
+/// write-once-at-startup property but hangs off no `(scheme …)` library
+/// (#1856). Compiler-synthesized code reaches
+/// `%make-record`/`%record-ref`/`%parameter-set!`/… through here, so a user
+/// program is free to bind those names itself without breaking
+/// `define-record-type`, `parameterize`, or `delay` in the same scope. The two
+/// tables have disjoint key sets — a `%`-prefixed name is never a `scheme.*`
+/// export (comptime-enforced in primitives.zig) — so the order is immaterial.
 fn lookupBaseBinding(name: []const u8) ?Value {
     const vm = vm_instance orelse return null;
-    const lib = vm.libraries.get("scheme.base") orelse return null;
-    return lib.exports.get(name);
+    if (vm.libraries.get("scheme.base")) |lib| {
+        if (lib.exports.get(name)) |val| return val;
+    }
+    return vm.libraries.internal_bindings.get(name);
 }
 
 /// The canonical name of the library currently being compiled, live for the
@@ -245,6 +256,11 @@ fn markVMRoots(gc: *memory.GC) void {
             var eit = env.valueIterator();
             while (eit.next()) |v| gc.markValue(v.*);
         }
+        // The pristine `.internal` primitives (#1856): only compiler-
+        // synthesized references reach them, so a user `define` of the same
+        // name is all it takes for globals to stop holding them.
+        var iit = vm.libraries.internal_bindings.valueIterator();
+        while (iit.next()) |v| gc.markValue(v.*);
     }
 
     // Mark library environments being built by handleDefineLibrary

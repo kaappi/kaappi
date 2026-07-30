@@ -1,5 +1,8 @@
 (define-library (srfi 27)
-  (import (scheme base))
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
+  (import (scheme base) (kaappi primitives))
   (export random-integer random-real
           default-random-source random-source?
           make-random-source
