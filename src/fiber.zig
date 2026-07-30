@@ -966,6 +966,16 @@ pub fn ensureScheduler(vm: *VM) VMError!struct { vm: *VM, sched: *FiberScheduler
     if (vm.scheduler == null) {
         const sched = vm.gc.allocator.create(FiberScheduler) catch return VMError.OutOfMemory;
         sched.* = FiberScheduler.init(vm);
+        // Nothing owns `sched` until `vm.scheduler` is assigned below, so the
+        // two fallible steps in between have to give it back themselves —
+        // both the struct and the managed `waiter_index` map init() built
+        // inside it (#1864). Block-scoped, so a failure in the *reactor*
+        // block below — after this one has exited normally and stored the
+        // scheduler — never reaches it and cannot free a live scheduler.
+        errdefer {
+            sched.deinit(vm.gc.allocator);
+            vm.gc.allocator.destroy(sched);
+        }
         const main_fiber = vm.gc.allocFiber(types.VOID, sched.next_id) catch return VMError.OutOfMemory;
         sched.next_id += 1;
         main_fiber.status = .running;
