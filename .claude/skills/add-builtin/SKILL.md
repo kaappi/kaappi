@@ -10,9 +10,9 @@ detailed reference — read it for anything this doesn't cover.
 ## Steps
 
 1. **Define the function** in the `src/primitives_*.zig` file matching its
-   domain (arithmetic, string, vector, I/O, …). There are 31; `primitives.zig`
-   itself is the registration hub plus core list/pair ops, so a new procedure
-   rarely belongs there:
+   domain (arithmetic, string, vector, I/O, …). There are 30 of those;
+   `primitives.zig` itself is the registration hub plus core list/pair ops, so
+   a new procedure rarely belongs there:
 
 ```zig
 fn myProc(args: []const Value) PrimitiveError!Value {
@@ -20,7 +20,8 @@ fn myProc(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]))
         return primitives.typeError("my-proc", "exact integer", args[0]);
     // Compute result
-    return types.makeFixnum(result);
+    const n = types.toFixnum(args[0]);
+    return types.makeFixnum(n + 1);
 }
 ```
 
@@ -109,5 +110,6 @@ infrastructure guards with no procedure context to report opt out, with
 
 `expectFixnum` / `expectString` / `expectChar` / `expectPair` / `expectVector` /
 `expectPort` validate and unwrap in one step, and `indexError(proc, index, len)`
-covers out-of-range access. Other error tags (`DivisionByZero`,
-`IndexOutOfBounds`, `OutOfMemory`, …) are returned directly.
+covers out-of-range access — prefer it over returning `IndexOutOfBounds` bare,
+for the same reason. Error tags with no detail to attach (`DivisionByZero`,
+`OutOfMemory`, …) are returned directly.

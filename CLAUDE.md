@@ -991,7 +991,7 @@ map.deinit();  // no allocator arg needed
 `docs/dev/adding-features.md` is the detailed reference; this is the checklist.
 
 1. Write the function in the appropriate `src/primitives_*.zig` file — one of
-   the 31 domain files, not `primitives.zig` itself (that's the registration
+   the 30 domain files, not `primitives.zig` itself (that's the registration
    hub plus core list/pair ops):
 
    ```zig

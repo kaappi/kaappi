@@ -13,7 +13,7 @@ defer here. Follow these steps:
 ### 1. Write the function
 
 Choose the appropriate `src/primitives_*.zig` file based on domain (arithmetic,
-string, vector, I/O, etc.) and add your function. There are 31 of them;
+string, vector, I/O, etc.) and add your function. There are 30 of them;
 `primitives.zig` itself is the registration hub plus core list/pair ops, so a
 new procedure almost always belongs in one of the domain files, not there:
 
