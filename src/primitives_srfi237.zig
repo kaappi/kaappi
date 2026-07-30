@@ -55,11 +55,17 @@ const RecordInstance = types.RecordInstance;
 const PrimitiveError = primitives.PrimitiveError;
 const typeError = primitives.typeError;
 const indexError = primitives.indexError;
+const argError = primitives.argError;
 const expectString = primitives.expectString;
 const expectFixnum = primitives.expectFixnum;
 const LS = primitives.LibSet;
 
 const SRFI237 = LS.initOne(.srfi_237_primitives);
+
+/// Shared by the spec entry and every error this primitive reports, so the name
+/// a caller sees can never drift from the name it called.
+const MAKE_RTD = "%make-record-type-descriptor";
+
 // %record?/inherit, %record-ref/inherit, %record-set!/inherit, and
 // %record-split-args are referenced directly by vm_records.zig's R6RS
 // desugarer's GENERATED code, exactly like the original R7RS %make-record/
@@ -74,7 +80,7 @@ const SRFI237 = LS.initOne(.srfi_237_primitives);
 const INTERNAL = primitives.INTERNAL;
 
 pub const specs = [_]primitives.PrimSpec{
-    .{ .name = "%make-record-type-descriptor", .func = &makeRecordTypeDescriptorFn, .arity = .{ .exact = 6 }, .libs = SRFI237 },
+    .{ .name = MAKE_RTD, .func = &makeRecordTypeDescriptorFn, .arity = .{ .exact = 6 }, .libs = SRFI237 },
     .{ .name = "%record?/inherit", .func = &recordCheckInheritFn, .arity = .{ .exact = 2 }, .libs = INTERNAL },
     .{ .name = "%record-ref/inherit", .func = &recordRefInheritFn, .arity = .{ .exact = 3 }, .libs = INTERNAL },
     .{ .name = "%record-set!/inherit", .func = &recordSetInheritFn, .arity = .{ .exact = 4 }, .libs = INTERNAL },
@@ -123,21 +129,24 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args: name(string), parent(record-type-or-#f), uid(string-or-#f),
     // sealed?(bool), opaque?(bool), field-specs(list of (name-string . mutable?))
-    const name = try expectString("%make-record-type-descriptor", args[0]);
+    const name = try expectString(MAKE_RTD, args[0]);
 
     const parent: ?*RecordType = if (args[1] == types.FALSE)
         null
     else blk: {
-        if (!types.isRecordType(args[1])) return typeError("%make-record-type-descriptor", "record-type", args[1]);
+        if (!types.isRecordType(args[1])) return typeError(MAKE_RTD, "record-type", args[1]);
         break :blk asRecordType(args[1]);
     };
-    // R6RS: "An exception ... is raised if parent is sealed".
-    if (parent) |p| if (p.sealed) return PrimitiveError.TypeError;
+    // R6RS: "An exception ... is raised if parent is sealed". Not a type error:
+    // a sealed rtd is a perfectly good record type, it just refuses to be
+    // extended -- so this reports as `invalid-argument` (KP3007).
+    if (parent) |p| if (p.sealed)
+        return argError(MAKE_RTD, "record type '{s}' is sealed and cannot be a parent", .{p.name});
 
     const uid: ?[]const u8 = if (args[2] == types.FALSE)
         null
     else
-        try expectString("%make-record-type-descriptor", args[2]);
+        try expectString(MAKE_RTD, args[2]);
 
     const sealed = args[3] != types.FALSE;
     const is_opaque = args[4] != types.FALSE;
@@ -147,11 +156,11 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     var field_count: usize = 0;
     var specs_cur = args[5];
     while (specs_cur != types.NIL) {
-        if (!types.isPair(specs_cur)) return typeError("%make-record-type-descriptor", "list", args[5]);
+        if (!types.isPair(specs_cur)) return typeError(MAKE_RTD, "list", args[5]);
         const entry = types.car(specs_cur);
-        if (!types.isPair(entry)) return typeError("%make-record-type-descriptor", "(name . mutable?) pair", entry);
+        if (!types.isPair(entry)) return typeError(MAKE_RTD, "(name . mutable?) pair", entry);
         if (field_count >= 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive; own_field_count is u8
-        field_names_buf[field_count] = try expectString("%make-record-type-descriptor", types.car(entry));
+        field_names_buf[field_count] = try expectString(MAKE_RTD, types.car(entry));
         field_mutable_buf[field_count] = types.cdr(entry) != types.FALSE;
         field_count += 1;
         specs_cur = types.cdr(specs_cur);
@@ -176,7 +185,10 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
             {
                 return existing;
             }
-            return PrimitiveError.TypeError;
+            // Also not a type error: the uid is a fine string, it is just
+            // already claimed by a type this call does not match.
+            return argError(MAKE_RTD, "uid \"{s}\" is already bound to a record type with a " ++
+                "different parent, sealed/opaque flag, or field set", .{u});
         }
     }
 

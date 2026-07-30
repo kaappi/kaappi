@@ -362,11 +362,16 @@ fn threadSpecificSetFn(args: []const Value) PrimitiveError!Value {
 fn threadStartFn(args: []const Value) PrimitiveError!Value {
     // Unregistered on WASM (spec .wasm = false) but the body must still
     // compile there: the comptime spec-table filter (wasm_specs) evaluates
-    // the full `specs` array, which analyzes every referenced function.
-    // The else-branch is what keeps std.Thread.spawn out of the
-    // single-threaded wasm32 build — only the taken branch of a
-    // comptime-known if is analyzed.
-    if (comptime is_wasm) return PrimitiveError.TypeError else return threadStartImpl(args);
+    // the full `specs` array, which analyzes every referenced function --
+    // this one included (a `@compileError` here does fire on `zig build wasm`).
+    // What keeps threadStartImpl's std.Thread.spawn out of that build is the
+    // comptime-true branch returning unconditionally, so nothing after it is
+    // analyzed. Measured, because the `else` looks load-bearing and is not:
+    // a `@compileError` in threadStartImpl fires on neither `if/else` nor a
+    // plain early return. Keep the guard; the spelling is free (kaappi#1868).
+    if (comptime is_wasm) {
+        return PrimitiveError.TypeError; // bare-ok: unregistered on WASM, so unreachable
+    } else return threadStartImpl(args);
 }
 
 fn threadStartImpl(args: []const Value) PrimitiveError!Value {

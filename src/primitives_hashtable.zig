@@ -155,23 +155,30 @@ fn stringBytesOrNull(v: Value) ?[]const u8 {
     return s.data[0..s.len];
 }
 
-fn equalForTable(ht: *HashTable, a: Value, b: Value) PrimitiveError!bool {
+// A string-keyed table rejects a non-string key, but "expected string" alone
+// leaves the caller guessing why: nothing about `(hash-table-set! h 1 'x)` says
+// the table's own equivalence function is what makes 1 wrong. Naming the
+// compare mode puts the reason in the message.
+const STRING_EQ_KEY = "string key (this table compares with string=?)";
+const STRING_CI_KEY = "string key (this table compares with string-ci=?)";
+
+fn equalForTable(proc: []const u8, ht: *HashTable, a: Value, b: Value) PrimitiveError!bool {
     return switch (ht.compare_mode) {
         .equal => primitives.deepEqual(a, b),
         .eq => a == b,
         .eqv => eqvEqual(a, b),
         .string_eq => blk: {
-            const sa = stringBytesOrNull(a) orelse return PrimitiveError.TypeError;
-            const sb = stringBytesOrNull(b) orelse return PrimitiveError.TypeError;
+            const sa = stringBytesOrNull(a) orelse return primitives.typeError(proc, STRING_EQ_KEY, a);
+            const sb = stringBytesOrNull(b) orelse return primitives.typeError(proc, STRING_EQ_KEY, b);
             break :blk std.mem.eql(u8, sa, sb);
         },
         .string_ci => blk: {
-            const sa = stringBytesOrNull(a) orelse return PrimitiveError.TypeError;
-            const sb = stringBytesOrNull(b) orelse return PrimitiveError.TypeError;
+            const sa = stringBytesOrNull(a) orelse return primitives.typeError(proc, STRING_CI_KEY, a);
+            const sb = stringBytesOrNull(b) orelse return primitives.typeError(proc, STRING_CI_KEY, b);
             break :blk char_mod.foldCompareStrings(sa, sb) == .eq;
         },
         .custom => blk: {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ a, b };
             const result = vm.callWithArgs(ht.equiv_fn, &call_args) catch |err| {
                 return err;
@@ -215,20 +222,20 @@ fn stringCiContentHash(data: []const u8) usize {
     return h;
 }
 
-fn hashForTable(ht: *HashTable, key: Value) PrimitiveError!usize {
+fn hashForTable(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!usize {
     return switch (ht.compare_mode) {
         .equal, .eqv => valueHash(key),
         .eq => identityHash(key),
         .string_eq => blk: {
-            const data = stringBytesOrNull(key) orelse return PrimitiveError.TypeError;
+            const data = stringBytesOrNull(key) orelse return primitives.typeError(proc, STRING_EQ_KEY, key);
             break :blk stringContentHash(data);
         },
         .string_ci => blk: {
-            const data = stringBytesOrNull(key) orelse return PrimitiveError.TypeError;
+            const data = stringBytesOrNull(key) orelse return primitives.typeError(proc, STRING_CI_KEY, key);
             break :blk stringCiContentHash(data);
         },
         .custom => blk: {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [1]Value{key};
             const result = vm.callWithArgs(ht.hash_fn, &call_args) catch |err| {
                 return err;
@@ -345,7 +352,7 @@ fn valueHashDepth(key: Value, depth: usize) usize {
     return @truncate(key *% 2654435761);
 }
 
-fn findKey(ht: *HashTable, key: Value) PrimitiveError!?usize {
+fn findKey(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!?usize {
     if (ht.capacity == 0) return null;
     const mask = ht.capacity - 1;
     if (ht.compare_mode == .equal) {
@@ -360,12 +367,12 @@ fn findKey(ht: *HashTable, key: Value) PrimitiveError!?usize {
         }
         return null;
     }
-    var idx = (try hashForTable(ht, key)) & mask;
+    var idx = (try hashForTable(proc, ht, key)) & mask;
     var probes: usize = 0;
     while (probes < ht.capacity) {
         const entry = &ht.entries[idx];
         if (entry.state == .empty) return null;
-        if (entry.state == .occupied and try equalForTable(ht, entry.key, key)) return idx;
+        if (entry.state == .occupied and try equalForTable(proc, ht, entry.key, key)) return idx;
         idx = (idx + 1) & mask;
         probes += 1;
     }
@@ -374,7 +381,7 @@ fn findKey(ht: *HashTable, key: Value) PrimitiveError!?usize {
 
 const FindSlotResult = struct { idx: usize, found: bool };
 
-fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
+fn findSlot(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
     const mask = ht.capacity - 1;
     if (ht.compare_mode == .equal) {
         var idx = valueHash(key) & mask;
@@ -395,7 +402,7 @@ fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
         }
         return .{ .idx = first_tombstone orelse 0, .found = false };
     }
-    var idx = (try hashForTable(ht, key)) & mask;
+    var idx = (try hashForTable(proc, ht, key)) & mask;
     var first_tombstone: ?usize = null;
     var probes: usize = 0;
     while (probes < ht.capacity) {
@@ -405,7 +412,7 @@ fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
         }
         if (entry.state == .tombstone) {
             if (first_tombstone == null) first_tombstone = idx;
-        } else if (try equalForTable(ht, entry.key, key)) {
+        } else if (try equalForTable(proc, ht, entry.key, key)) {
             return .{ .idx = idx, .found = true };
         }
         idx = (idx + 1) & mask;
@@ -414,7 +421,7 @@ fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
     return .{ .idx = first_tombstone orelse 0, .found = false };
 }
 
-fn rehash(ht: *HashTable) PrimitiveError!void {
+fn rehash(proc: []const u8, ht: *HashTable) PrimitiveError!void {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
     const new_entries = memory.allocSliceNoFill(gc.allocator, HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
@@ -429,7 +436,7 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     var new_count: usize = 0;
     for (old_entries[0..old_cap]) |entry| {
         if (entry.state == .occupied) {
-            const h = hashForTable(ht, entry.key) catch |err| {
+            const h = hashForTable(proc, ht, entry.key) catch |err| {
                 memory.freeSliceNoFill(gc.allocator, HashEntry, new_entries);
                 return err;
             };
@@ -447,10 +454,10 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     memory.freeSliceNoFill(gc.allocator, HashEntry, old_entries);
 }
 
-fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
+fn growIfNeeded(proc: []const u8, ht: *HashTable) PrimitiveError!void {
     // Grow when load factor > 75% (count uses > 3/4 of capacity)
     if (ht.capacity == 0 or ht.count * 4 >= ht.capacity * 3) {
-        try rehash(ht);
+        try rehash(proc, ht);
     }
 }
 
@@ -461,7 +468,7 @@ fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
 // (make-hash-table) or (make-hash-table equal-proc [hash-proc])
 fn makeHashTableFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const ht_val = gc.allocHashTable(8) catch return PrimitiveError.OutOfMemory;
     const ht = types.toHashTable(ht_val);
     configureHashTable(ht, ht_val, gc, vm, args);
@@ -476,7 +483,7 @@ fn hashTablePFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-ref ht key) or (hash-table-ref ht key default)
 fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-ref", args[0]);
-    if (try findKey(ht, args[1])) |idx| {
+    if (try findKey("hash-table-ref", ht, args[1])) |idx| {
         return ht.entries[idx].value;
     }
     // Key not found — call thunk if provided
@@ -495,8 +502,8 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-set! ht key value)
 fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
-    try growIfNeeded(ht);
-    const slot = try findSlot(ht, args[1]);
+    try growIfNeeded("hash-table-set!", ht);
+    const slot = try findSlot("hash-table-set!", ht, args[1]);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), args[1]);
         gc.writeBarrier(types.toObject(args[0]), args[2]);
@@ -513,7 +520,7 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-delete! ht key)
 fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-delete!", args[0]);
-    if (try findKey(ht, args[1])) |idx| {
+    if (try findKey("hash-table-delete!", ht, args[1])) |idx| {
         ht.entries[idx].state = .tombstone;
         ht.entries[idx].key = 0;
         ht.entries[idx].value = 0;
@@ -525,7 +532,7 @@ fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-exists? ht key)
 fn hashTableExistsFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-exists?", args[0]);
-    return if ((try findKey(ht, args[1])) != null) types.TRUE else types.FALSE;
+    return if ((try findKey("hash-table-exists?", ht, args[1])) != null) types.TRUE else types.FALSE;
 }
 
 // (hash-table-size ht)
@@ -616,7 +623,7 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
 // (alist->hash-table alist) or (alist->hash-table alist equal-proc [hash-proc])
 fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     var current = args[0];
 
     // Count entries first
@@ -642,7 +649,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
         const value = types.cdr(entry_pair);
 
         // Only add if key not already present (first occurrence wins)
-        const slot = try findSlot(ht, key);
+        const slot = try findSlot("alist->hash-table", ht, key);
         if (!slot.found) {
             ht.entries[slot.idx] = .{ .key = key, .value = value, .state = .occupied };
             ht.count += 1;
@@ -675,7 +682,7 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
     const key = args[1];
     const proc = args[2];
 
-    const old_val = if (try findKey(ht, key)) |idx|
+    const old_val = if (try findKey("hash-table-update!", ht, key)) |idx|
         ht.entries[idx].value
     else if (args.len > 3) blk: {
         break :blk vm.callWithArgs(args[3], &[_]Value{}) catch |err| {
@@ -690,8 +697,8 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
         return err;
     };
 
-    try growIfNeeded(ht);
-    const slot = try findSlot(ht, key);
+    try growIfNeeded("hash-table-update!", ht);
+    const slot = try findSlot("hash-table-update!", ht, key);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
         gc.writeBarrier(types.toObject(args[0]), new_val);
@@ -713,7 +720,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
     const proc = args[2];
     const default_val = args[3];
 
-    const old_val = if (try findKey(ht, key)) |idx|
+    const old_val = if (try findKey("hash-table-update!/default", ht, key)) |idx|
         ht.entries[idx].value
     else
         default_val;
@@ -723,8 +730,8 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
         return err;
     };
 
-    try growIfNeeded(ht);
-    const slot = try findSlot(ht, key);
+    try growIfNeeded("hash-table-update!/default", ht);
+    const slot = try findSlot("hash-table-update!/default", ht, key);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
         gc.writeBarrier(types.toObject(args[0]), new_val);
@@ -815,7 +822,7 @@ fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-ref/default ht key default)
 fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-ref/default", args[0]);
-    if (try findKey(ht, args[1])) |idx| {
+    if (try findKey("hash-table-ref/default", ht, args[1])) |idx| {
         return ht.entries[idx].value;
     }
     return args[2];
@@ -862,7 +869,7 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance;
     for (ht2.entries[0..ht2.capacity]) |entry| {
         if (entry.state != .occupied) continue;
-        const slot = try findSlot(ht1, entry.key);
+        const slot = try findSlot("hash-table-merge!", ht1, entry.key);
         if (gc) |g| {
             g.writeBarrier(types.toObject(args[0]), entry.key);
             g.writeBarrier(types.toObject(args[0]), entry.value);
@@ -870,8 +877,8 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
         if (slot.found) {
             ht1.entries[slot.idx].value = entry.value;
         } else {
-            try growIfNeeded(ht1);
-            const new_slot = try findSlot(ht1, entry.key);
+            try growIfNeeded("hash-table-merge!", ht1);
+            const new_slot = try findSlot("hash-table-merge!", ht1, entry.key);
             ht1.entries[new_slot.idx] = entry;
             ht1.count += 1;
         }
@@ -882,13 +889,13 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
 fn hashTableEquivFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-equivalence-function", args[0]);
     if (ht.equiv_fn != 0) return ht.equiv_fn;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     return lookupGlobal(vm, "equal?");
 }
 
 fn hashTableHashFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-hash-function", args[0]);
     if (ht.hash_fn != 0) return ht.hash_fn;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     return lookupGlobal(vm, "hash");
 }

@@ -102,14 +102,33 @@ out of your primitive with its detail intact.
 ## Error handling
 
 Use `primitives.typeError(proc, expected, got)` for type checks — it produces
-`type error in 'my-proc': expected exact integer, got #t` instead of an
-anonymous `TypeError`. The `format` CI job ratchets against new bare
-`return PrimitiveError.TypeError`, so adding one fails the build; only
-infrastructure guards with no procedure context to report opt out, with
-`// bare-ok: <reason>`.
+`type error in 'my-proc': expected exact integer, got #t`. The `format` CI job
+rejects **any** bare `return PrimitiveError.TypeError` that lacks a
+`// bare-ok: <reason>` comment, so adding one fails the build; the annotation is
+only for infrastructure guards with no procedure context to report (a
+`vm_instance orelse` with no VM, say).
+
+A bare return is not silent — `vm_calls.mapNativeError` fills in
+`type error in '<primitive>': got <args[0]>` — so it looks deliberate while
+dropping the expected type and, when the bad value is not `args[0]`, naming the
+wrong argument. That is the trap, not the missing name.
 
 `expectFixnum` / `expectString` / `expectChar` / `expectPair` / `expectVector` /
-`expectPort` validate and unwrap in one step, and `indexError(proc, index, len)`
-covers out-of-range access — prefer it over returning `IndexOutOfBounds` bare,
-for the same reason. Error tags with no detail to attach (`DivisionByZero`,
-`OutOfMemory`, …) are returned directly.
+`expectPort` validate and unwrap in one step. Pick the helper that matches the
+failure rather than routing everything through `typeError`:
+
+| Helper | Tag | Use for |
+|--------|-----|---------|
+| `typeError(proc, expected, got)` | `TypeError` (KP3002) | wrong type |
+| `indexError(proc, index, len)` | `IndexOutOfBounds` (KP3006) | index outside `0..len` |
+| `argError(proc, fmt, args)` | `InvalidArgument` (KP3007) | right type, rejected anyway |
+
+`argError` takes a comptime format string and prefixes the procedure name
+itself — reach for it when "expected X, got Y" would misdescribe the failure
+(a symbol outside an accepted set, a sealed rtd, an already-claimed uid). It is
+also how you name an offending *symbol*: `typeError`'s `safeValueDescription`
+never dereferences heap payloads, so its `got` renders every symbol as a bare
+`#<symbol>`, while `argError`'s format string can print the name.
+
+Error tags with no detail to attach (`DivisionByZero`, `OutOfMemory`, …) are
+returned directly.

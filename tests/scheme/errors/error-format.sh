@@ -23,6 +23,21 @@ assert_output_contains() {
     fi
 }
 
+assert_output_lacks() {
+    local label="$1"
+    local input="$2"
+    local forbidden="$3"
+    local output
+    output=$(echo "$input" | "$KAAPPI" 2>&1 || true)
+    if echo "$output" | grep -qF "$forbidden"; then
+        echo "FAIL: $label — output still contains '$forbidden'"
+        FAIL=$((FAIL + 1))
+    else
+        echo "PASS: $label"
+        PASS=$((PASS + 1))
+    fi
+}
+
 assert_file_output_contains() {
     local label="$1"
     local file="$2"
@@ -527,6 +542,68 @@ assert_file_output_contains "channel-receive deadlock names the other thread ins
     "never shared with it"
 rm -rf "$THREADDIR"
 
+# --- Retired bare TypeError returns (kaappi#1868) ---
+# These conditions used to return an anonymous PrimitiveError.TypeError. Note
+# what that did and did NOT cost: vm_calls.mapNativeError already synthesized
+# "type error in '<primitive>': got <args[0]>" for any primitive that set no
+# detail, so the procedure name was never the missing piece. What was missing is
+# the *expected* type — and for the hash-table cases args[0] is the table, so
+# the fallback actively blamed the wrong argument ("got #<hash-table size=0>"
+# for a bad key). Assert the message; asserting only "an error was raised", or
+# only that the procedure is named, passes against the pre-fix build too.
+echo
+echo "-- Retired bare TypeErrors (kaappi#1868) --"
+
+# A string-keyed table rejecting a non-string key. This pair is deliberately
+# both halves of the same claim: the negative pins the old wrong answer (the
+# table) and the positive pins the new right one (the key) -- a "lacks" check
+# alone would also pass if the call stopped erroring altogether.
+assert_output_lacks "string-keyed table blames the key, not the table itself" \
+    '(import (scheme base) (srfi 69)) (hash-table-set! (make-hash-table string=?) 1 2)' \
+    'got #<hash-table'
+
+assert_output_contains "string-keyed table names the compare mode, not just 'string'" \
+    '(import (scheme base) (srfi 69)) (hash-table-set! (make-hash-table string=?) 1 2)' \
+    'expected string key (this table compares with string=?), got 1'
+
+# Each entry point must name ITSELF, not a shared "hash-table" label: the proc
+# name is threaded through findKey/findSlot/growIfNeeded, so a regression shows
+# up as the wrong procedure in the message rather than as a missing one.
+assert_output_contains "string-keyed hash-table-ref names itself, not hash-table-set!" \
+    '(import (scheme base) (srfi 69)) (hash-table-ref (make-hash-table string=?) 42)' \
+    "type error in 'hash-table-ref': expected string key"
+
+assert_output_contains "a string-ci=? table names string-ci=?, not string=?" \
+    '(import (scheme base) (srfi 69)) (hash-table-delete! (make-hash-table string-ci=?) 42)' \
+    "type error in 'hash-table-delete!': expected string key (this table compares with string-ci=?), got 42"
+
+# R6RS "parent is sealed" and a uid collision are not type errors at all: both
+# arguments are of an acceptable type and the procedure rejects them anyway, so
+# they now report as invalid-argument (KP3007), not KP3002.
+assert_output_contains "sealed parent rtd is KP3007, not a type error" \
+    "(import (scheme base) (srfi 237)) (define l (make-record-type-descriptor 'l #f #f #t #f '#())) (make-record-type-descriptor 'c l #f #f #f '#())" \
+    "error[KP3007]: %make-record-type-descriptor: record type 'l' is sealed and cannot be a parent"
+
+assert_output_contains "non-equivalent uid collision is KP3007 and echoes the uid" \
+    "(import (scheme base) (srfi 237)) (make-record-type-descriptor 'a #f 'dup #f #f '#((mutable x))) (make-record-type-descriptor 'a #f 'dup #f #f '#((mutable y)))" \
+    'error[KP3007]: %make-record-type-descriptor: uid "dup" is already bound to a record type'
+
+# %elision-lever-set! is a KEP-0002 gate-harness hook compiled in only with
+# -Dchannel-instrument=true, so it is absent from ordinary builds (including
+# the one CI runs this suite against). Probe for it rather than assuming.
+if echo '(import (scheme base) (kaappi fibers)) (%elision-lever-set! (quote none))' \
+    | "$KAAPPI" >/dev/null 2>&1; then
+    echo "-- %elision-lever-set! (instrumented build) --"
+    assert_output_contains "a non-symbol lever is a type error naming the primitive" \
+        "(import (scheme base) (kaappi fibers)) (%elision-lever-set! 42)" \
+        "type error in '%elision-lever-set!': expected symbol, got 42"
+    assert_output_contains "an unknown lever symbol is KP3007 and echoes the symbol" \
+        "(import (scheme base) (kaappi fibers)) (%elision-lever-set! 'bogus)" \
+        "error[KP3007]: %elision-lever-set!: expected lever none, c, or cd, got 'bogus'"
+else
+    echo "SKIP: %elision-lever-set! lever diagnostics (needs -Dchannel-instrument=true)"
+fi
+
 # --- No leaked Zig error names on any path (KEP-0005, #1504) ---
 echo
 echo "-- No leaked Zig error names --"
@@ -545,6 +622,10 @@ assert_no_zig_leak "raised non-error value"  '(raise 42)'
 assert_no_zig_leak "ellipsis with no pattern variable (#1791)" \
     '(define-syntax demo (syntax-rules () ((_) (quote (head tok ... tail))))) (demo)'
 assert_no_zig_leak "digit-led identifier (kaappi#1723)" '3-state'
+assert_no_zig_leak "string-keyed table, non-string key (kaappi#1868)" \
+    '(import (scheme base) (srfi 69)) (hash-table-set! (make-hash-table string=?) 1 2)'
+assert_no_zig_leak "sealed parent rtd (kaappi#1868)" \
+    "(import (scheme base) (srfi 237)) (define l (make-record-type-descriptor 'l #f #f #t #f '#())) (make-record-type-descriptor 'c l #f #f #f '#())"
 
 echo
 echo "=== Results ==="

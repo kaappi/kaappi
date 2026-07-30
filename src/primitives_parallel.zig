@@ -40,8 +40,12 @@ const instr_specs = [_]primitives.PrimSpec{
     .{ .name = "%chan-instr-reassembly-end!", .func = &chanInstrReassemblyEnd, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
     .{ .name = "%chan-instr-reassembly-ns", .func = &chanInstrReassemblyNs, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
     .{ .name = "%chan-instr-envelope-peak-bytes", .func = &chanInstrEnvelopePeakBytes, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
-    .{ .name = "%elision-lever-set!", .func = &elisionLeverSet, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = LEVER_SET, .func = &elisionLeverSet, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
 };
+
+/// Shared by the spec entry and `elisionLeverSet`'s own error messages, so the
+/// name a caller sees reported can never drift from the name it called.
+const LEVER_SET = "%elision-lever-set!";
 
 pub const specs = base_specs ++ (if (build_options.channel_instrument) instr_specs else [0]primitives.PrimSpec{});
 
@@ -86,10 +90,8 @@ fn chanInstrEnvelopePeakBytes(args: []const Value) PrimitiveError!Value {
 /// `(%elision-lever-set! 'none|'c|'cd)` -- selects the envelope elision lever
 /// for subsequent sends/receives (protocol §2). Inert unless instrumented.
 fn elisionLeverSet(args: []const Value) PrimitiveError!Value {
-    if (!types.isPointer(args[0])) return PrimitiveError.TypeError;
-    const obj = types.toObject(args[0]);
-    if (obj.tag != .symbol) return PrimitiveError.TypeError;
-    const name = obj.as(types.Symbol).name;
+    if (!types.isSymbol(args[0])) return primitives.typeError(LEVER_SET, "symbol", args[0]);
+    const name = types.toObject(args[0]).as(types.Symbol).name;
     const lever: instrument.Lever = if (std.mem.eql(u8, name, "none"))
         .none
     else if (std.mem.eql(u8, name, "c"))
@@ -97,7 +99,10 @@ fn elisionLeverSet(args: []const Value) PrimitiveError!Value {
     else if (std.mem.eql(u8, name, "cd"))
         .cd
     else
-        return PrimitiveError.TypeError;
+        // Not a type error: args[0] IS a symbol, just not one of the three this
+        // lever accepts -- and `safeValueDescription` renders every symbol as a
+        // bare `#<symbol>`, so typeError could not name the one passed.
+        return primitives.argError(LEVER_SET, "expected lever none, c, or cd, got '{s}'", .{name});
     instrument.setLever(lever);
     return types.VOID;
 }
