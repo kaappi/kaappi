@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785406537682,
+  "lastUpdate": 1785413944785,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "10b56fe4d4870a905e9536e69aac165ea50af1b0",
-          "message": "Detect mark-time use-after-free deterministically under gc-stress (#1687) (#1690)\n\nThe #1682 dangling-local bug survived twelve nightly gc-stress runs\nbecause both existing defenses structurally miss marking-time UAF: the\nDebug 0xAA poison makes a freed header's owner read as some other GC's\nid, so markValueInner's #958 foreign-owner skip silently absorbs it, and\nwhen the freed slot is recycled by the next same-size allocation the\nowner is valid again and the corruption is invisible.\n\nTwo mechanisms close those escape modes, comptime-gated so release\nbuilds pay nothing:\n\n- Freed-owner sentinel (Debug or gc-stress): poisonAndDestroy stamps\n  Object.owner with the reserved FREED_OWNER id (0xFFFF_FFFF, skipped by\n  nextGcId) after the poison memset, and markValueInner/weakReachable\n  panic with \"GC: marking freed object (use-after-free)\" on reading it —\n  a deterministic, attributable failure instead of a lucky segfault.\n\n- Free-quarantine (gc-stress only): freed header slots are withheld from\n  the allocator and released oldest-first, only past a 4 MiB per-GC cap\n  and only between a later collection's mark and sweep phases, so every\n  slot survives at least one full mark after its free and the sentinel\n  stays readable instead of the slot aliasing a recycled live object.\n  GC.deinit and the two arena resets that never collect\n  (shared_channel.resetForReuse, bench_channel.freeArena) drain it.\n\nVerified per the issue's acceptance criterion: both the synthetic\nunrooted-local-into-makeList case and the actual #1682 test with its\n#1685 rooting fix reverted panic with the freed-object message on 8/8\ngc-stress runs (previously: twelve silent runs before one crash). Full\nunit suite green in normal, Debug, and gc-stress builds; wasm/Linux/\nWindows/FreeBSD cross-compiles and the stress binary's Scheme smoke +\nSRFI-254 weak-ref suites all pass.\n\nCloses #1687\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-21T01:25:42+05:30",
-          "tree_id": "a5953a2ffaeba5451d658a9f1002f86df73bc6f4",
-          "url": "https://github.com/kaappi/kaappi/commit/10b56fe4d4870a905e9536e69aac165ea50af1b0"
-        },
-        "date": 1784579326254,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.271046,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.093734,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.969513,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.461018,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006411,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054798,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.54007,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070744,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.58533,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.993798,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.588764,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437098,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.80456,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.653055,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045185,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044514,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "138857555a5aa83d8f1a5231e52a913d7a3154a1",
+          "message": "Correct the three \"add a built-in procedure\" docs (#1863) (#1865)\n\n* Correct the three \"add a built-in procedure\" docs (#1863)\n\nAll three drifted far enough that two of them taught code that cannot\ncompile, so a contributor following them hit errors before reaching a\nreview. Rather than repeat the same content three times, make\ndocs/dev/adding-features.md the one detailed reference and reduce\nCLAUDE.md and the /add-builtin skill to checklists that defer to it.\n\nThe symbol names were the load-bearing errors. `primitives.gc_instance`\nand `primitives.vm_instance` do not exist and never did; the real\ndeclarations are the `memory.gc_instance` and `vm_mod.vm_instance`\nthreadlocals that all 31 primitives files already reach through those\nmodule names. The skill had a third spelling, bare unqualified\n`gc_instance`, which resolves in no primitives file at all.\n\nThe higher-order sample was wrong in a way the issue did not catch:\n`vm.callValue(proc, args_slice)` has no such method on VM, and the free\nfunction `vm_calls.callValue` is register-based — `(vm, callee, base,\nnargs)`. The slice-taking entry point is `vm.callWithArgs`. Since\nPrimitiveError and VMError are both aliases of errors.KaappiError, the\nsample now propagates the callee's error instead of flattening it to a\nTypeError and discarding the detail.\n\nThe skill also taught `return PrimitiveError.TypeError`, which the format\nCI job exists to prevent, so following the documented pattern broke the\nbuild. All three now teach `primitives.typeError(proc, expected, got)`\nand mention the expect* wrappers and the `// bare-ok:` opt-out. That\nguard's baseline was 91 against a current count of 20, leaving room for\n71 regressions; re-tighten it to 20 so it bites again.\n\nRemaining fixes: tests go in one of the 44 src/tests_*.zig files via the\ntesting_helpers (`th.`) API, not the \"src/vm.zig test section\" — vm.zig's\nsingle test block only pulls sibling modules into the test build and\nholds no assertions. Drop the step pointing at STATUS.md, deleted in\ncfe013ce. Correct the primitives table from 26 to 31 and add the 9 files\nit never listed, the stale src/vm.zig:37 and src/primitives.zig:182\nthreadlocal citations, and src/CLAUDE.md's test-file count.\n\nEvery sample was verified by compiling it: each was added verbatim as a\nreal primitive plus a th.expectEval test, built, run, and then reverted.\nThe documented error text is the observed output.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: undeclared `result` in sample, domain-file count\n\nThree findings from CodeRabbit, all valid.\n\nThe skill's step-1 sample returned `types.makeFixnum(result)` with no\n`result` in scope — inherited from the old skill and carried forward\nunexamined, which is precisely the non-compiling-sample defect #1863 is\nabout. Replaced with the computed body already verified in\ndocs/dev/adding-features.md, and compiled it the same way: added verbatim\nas a real primitive plus a th.expectEval test, built, ran (6/6), reverted.\n\n`primitives_*.zig` is 30 files; the 31st is `primitives.zig` itself, which\nall three docs explicitly exclude in the same sentence that claimed 31 —\ninternally contradictory. Prose now says 30 domain files. The table header\nstays at 31: it counts rows, and the table lists `primitives.zig` as one.\n\nListing `IndexOutOfBounds` among tags \"returned directly\" contradicted the\npreceding recommendation of `indexError(proc, index, len)` for exactly\nthose failures, for the same attach-the-detail reason typeError exists.\nDropped it from that list and made the preference explicit.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T16:54:12+05:30",
+          "tree_id": "e7982b0d61ddd19078d5b4f1911a36efb25c2583",
+          "url": "https://github.com/kaappi/kaappi/commit/138857555a5aa83d8f1a5231e52a913d7a3154a1"
+        },
+        "date": 1785413943358,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.266495,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.827828,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56789,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.004717,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004666,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046518,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309417,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056888,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.636908,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.208337,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.636028,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279357,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.77862,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.611433,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043665,
             "unit": "seconds"
           }
         ]
