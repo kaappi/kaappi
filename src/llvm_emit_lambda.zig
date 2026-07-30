@@ -365,6 +365,21 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 // them. Leaving any of them out surfaces as "undefined variable" (or a
 // silently wrong value when a same-named global exists) at run time (#1410).
 pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
+    // Params, rest, and upvalues are the whole of what this can reach: a
+    // `let`-local lives in an alloca this function has no name for, so there is
+    // nothing here to publish it from. Refuse rather than emit an eval that
+    // silently cannot see it (#1862) — a nested let/lambda that abandons
+    // mid-emission inside an enclosing let died with "undefined variable" on the
+    // outer binding in a compiled binary while the interpreter ran it fine.
+    // Declining sends the error up to the enclosing scope's own abandon path,
+    // which re-evaluates that whole scope as one unit and so keeps the bindings
+    // (#827's rule: never split one lexical scope across the boundary).
+    //
+    // Publishing the locals instead was the other option, and is worse: a boxed
+    // local hits the same #1422 by-value problem as a boxed param below, and both
+    // of this helper's documented weaknesses — it aliases across activations, and
+    // it permanently clobbers a same-named global — would extend to them.
+    if (self.locals != null) return error.UnsupportedNodeType;
     // A boxed captured variable cannot be republished as a global: a global
     // holds a by-value snapshot, and re-reading a boxed param/upvalue here
     // would capture the value *before* a later set!, reintroducing the exact
@@ -425,12 +440,11 @@ pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
 }
 
 fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
-    // #827: Inside a lexical scope with local bindings (a let body),
-    // evaluating the lambda in the global environment would lose those
-    // bindings.  Signal failure so the enclosing let falls back to the
-    // interpreter, which handles scoping correctly.
-    if (self.locals != null) return error.UnsupportedNodeType;
-
+    // #827: inside a lexical scope with local bindings (a let body), evaluating
+    // this lambda in the global environment would lose those bindings — the
+    // locals gate in bindParamsAsGlobals declines for exactly that reason, so the
+    // enclosing let abandons to the interpreter, which handles the scope
+    // correctly.
     try bindParamsAsGlobals(self);
 
     var source_buf: std.ArrayList(u8) = .empty;

@@ -178,7 +178,7 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy). A fixed-arity one's global value is a native closure over that entry (`kaappi_create_native_closure`, #1500); a variadic one's value stays `kaappi_eval_cached`. Non-lambda values: `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
 | `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
-| `let`, `let*` | Native `alloca`s with shadow-stack rooting, for the bindings and the body's head internal defines alike (see [Internal defines in a `let` body](#internal-defines-in-a-let-body)); falls back to `kaappi_eval_cached` for forms it cannot lower in scope (`src/llvm_emit_let.zig`) |
+| `let`, `let*` | Native `alloca`s with shadow-stack rooting, for the bindings and the body's head internal defines alike (see [Internal defines in a `let` body](#internal-defines-in-a-let-body)); falls back to `kaappi_eval_cached` for forms it cannot lower in scope — a nested one declines instead, so the whole enclosing scope goes to the interpreter as one unit (kaappi#1862, `src/llvm_emit_let.zig`) |
 | `cond`, `case`, `do` | Native `if`-style block/`phi` chains (`cond`/`case`) and a self-branching `alloca` loop (`do`) when every sub-form is emittable in the current lexical scope; otherwise a whole-form `kaappi_eval_cached` fallback (`src/llvm_emit_forms.zig`, kaappi#1496) |
 | `letrec`, `letrec*`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
 | `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
@@ -477,9 +477,25 @@ would reject every natively lowered `cond`/`case` with an else clause.
 
 Publishing the frame's bindings as globals instead (`bindParamsAsGlobals`,
 the kaappi#1410 mechanism the `letrec`/`let` fallbacks use) is **not** an
-alternative here: it aliases across activations, it cannot see `let`-locals at
-all, and it permanently clobbers a same-named global. Declining the frame is
-what keeps the interpreter's own lexical scope authoritative.
+alternative here: it aliases across activations, and it permanently clobbers a
+same-named global. Declining the frame is what keeps the interpreter's own
+lexical scope authoritative.
+
+`bindParamsAsGlobals` also cannot reach a `let`-local, which lives in an alloca
+it has no name for, so it refuses outright when `self.locals != null`
+(kaappi#1862) rather than emit an eval that silently cannot see one. Until that
+gate existed, `emitLet`'s own mid-emission escape hatch
+(`abandonLetForFallback`, reached on the triggers no up-front scan can pre-empt
+— more than 32 bindings, more head defines than the scope roots, an
+`ir.lowerSingleExpr`/`emitNode` failure) broke the very rule this section
+describes: an inner `let` abandoning inside an enclosing one was evaluated in
+the global environment, dying with `undefined variable` on the outer binding —
+or, with a same-named global in scope, quietly reading that instead. Refusing
+sends the error up to the enclosing scope's own abandon path, which
+re-evaluates that whole scope as one unit and so keeps the bindings. Publishing
+the locals was the other option and is worse: a boxed local hits the same
+by-location problem as a boxed param (kaappi#1422), and both weaknesses above
+would extend to let-locals.
 
 ### Native `apply` (kaappi#1803)
 

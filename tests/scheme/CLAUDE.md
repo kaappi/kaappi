@@ -98,6 +98,15 @@ Conventions:
 - Don't bake POSIX-only spellings into assertions: kaappi prints native
   paths, the runtime archive name is per-platform, and a Windows abort
   exits 3 rather than dying by signal (see `errors/crash-handler.sh`).
+- **No GNU regex extensions in `grep`/`sed` patterns.** `\?`, `\|` and `\+`
+  are GNU additions to POSIX BRE. macOS, GNU, FreeBSD and NetBSD all accept
+  them, so a pattern using one passes locally and on 16 of 17 CI checks —
+  and then matches *nothing* on `openbsd-test`, the only leg whose grep is
+  strict (kaappi#1862). Use `grep -E` and write them as plain ERE `?`, `|`,
+  `+`, remembering that ERE makes `(`, `)`, `[` and `{` metacharacters that
+  a literal match has to escape. A suite whose *assertions* all fail
+  uniformly while its output comparisons stay clean is the signature of
+  this, not of a real regression.
 
 ## Quirks
 
