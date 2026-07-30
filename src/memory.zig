@@ -112,7 +112,7 @@ pub fn setGCInstance(gc: *GC) void {
 /// pass, or a struct literal), so the fill is pure waste on the hot,
 /// size-proportional buffers this is used for (vector/string/bytevector
 /// data, bignum limbs, register/frame arrays, ...). Debug/gc-stress
-/// poisoning is unaffected: `gc_collect.poisonAndDestroy` does its own
+/// poisoning is unaffected: `gc_sweep.poisonAndDestroy` does its own
 /// explicit content poisoning, `FREED_OWNER` stamping, and quarantine,
 /// entirely independent of whatever the underlying allocator does.
 ///
@@ -212,7 +212,7 @@ pub const GC = struct {
     /// #1687 free-quarantine (gc-stress builds only; see `free_quarantine`).
     /// FIFO of freed header slots withheld from the allocator: entries before
     /// `quarantine_head` are already released. Slots are appended by
-    /// gc_collect's poisonAndDestroy and released oldest-first — only once
+    /// gc_sweep's poisonAndDestroy and released oldest-first — only once
     /// the held bytes exceed `quarantine_max_bytes`, and only after a mark
     /// phase — so every entry survives at least one full mark after its free
     /// and a dangling value marked then still reads the FREED_OWNER sentinel.

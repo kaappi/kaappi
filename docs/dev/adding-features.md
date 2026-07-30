@@ -269,6 +269,9 @@ In `src/gc_sweep.zig`, add cases to `freeObject` (free any owned memory) and
 },
 ```
 
+Also add the new tag to `types.zig`'s `typeName` switch so type-error
+messages can name it.
+
 ### 6. Add display support
 
 In `src/printer.zig`, add a case for how the object should be printed:

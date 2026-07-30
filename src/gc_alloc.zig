@@ -641,7 +641,7 @@ pub fn allocTranscodedPort(
 }
 
 /// A SRFI-271 random binary input port backed by `gen` (copied to the
-/// heap and owned by the port; freed in gc_collect's port sweep). No fd,
+/// heap and owned by the port; freed in gc_sweep's port sweep). No fd,
 /// no string buffer — reads come from gen.nextByte() via readOneByte.
 pub fn allocRandomPort(self: *GC, gen: types.RandomGen) !Value {
     try self.maybeCollect();

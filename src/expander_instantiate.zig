@@ -749,27 +749,6 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
 // Hygienic renaming
 // ---------------------------------------------------------------------------
 
-/// Rename a template-introduced identifier for hygiene. Within a single
-/// macro invocation (identified by `scope`), the same original name always
-/// maps to the same gensym, ensuring internal references stay consistent
-/// while avoiding capture of user bindings.
-fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Value {
-    if (types.isSymbol(template)) {
-        const name = types.symbolName(template);
-        for (bindings) |b| {
-            if (std.mem.eql(u8, b.name, name)) return b.value;
-        }
-        return template;
-    }
-    if (!types.isPair(template)) return template;
-    const new_car = try substitutePatternVarsOnly(gc, types.car(template), bindings);
-    var car_root = new_car;
-    gc.pushRoot(&car_root);
-    const new_cdr = try substitutePatternVarsOnly(gc, types.cdr(template), bindings);
-    gc.popRoot();
-    return gc.allocPair(car_root, new_cdr);
-}
-
 fn scopeTableContains(scope: u32, name: []const u8) bool {
     for (expander.scope_table[0..expander.scope_table_count]) |entry| {
         if (entry.scope == scope and std.mem.eql(u8, entry.original_name, name)) return true;
@@ -777,6 +756,10 @@ fn scopeTableContains(scope: u32, name: []const u8) bool {
     return false;
 }
 
+/// Rename a template-introduced identifier for hygiene. Within a single
+/// macro invocation (identified by `scope`), the same original name always
+/// maps to the same gensym, ensuring internal references stay consistent
+/// while avoiding capture of user bindings.
 pub fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
     // Already renamed by an enclosing expansion: macro-generating macros
     // bake __hyg_ names into the inner macro's stored template. Gensyms are

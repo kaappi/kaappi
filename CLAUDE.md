@@ -281,7 +281,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 `Fiber` (`fiber.zig`) predates this split and follows neither convention:
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 
-### Compiler & IR (10 files)
+### Compiler & IR (11 files)
 
 | File | Responsibility |
 |------|---------------|

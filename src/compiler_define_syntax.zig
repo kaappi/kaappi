@@ -160,6 +160,12 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     defer tx_vals.deinit(self.gc.allocator);
     tx_vals.ensureTotalCapacity(self.gc.allocator, bind_count) catch return CompileError.OutOfMemory;
     var roots_pushed: usize = 0;
+    // Registered before the binding loop so a mid-loop InvalidSyntax (or a
+    // failing resolveTransformerSpec) pops what earlier iterations pushed —
+    // the pops run before tx_vals.deinit, which the roots point into
+    // (PR #1853 review). LIFO-safe: each iteration's push is balanced by
+    // exactly one pop here, and nothing after the loop pushes.
+    defer for (0..roots_pushed) |_| self.gc.popRoot();
 
     var binding_list = bindings;
     while (binding_list != types.NIL) {
@@ -183,7 +189,6 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         kw_names.appendAssumeCapacity(types.symbolName(keyword));
         binding_list = types.cdr(binding_list);
     }
-    defer for (0..roots_pushed) |_| self.gc.popRoot();
 
     // Build peer snapshot: each keyword's outer macro value (NIL = unbound).
     // Duped per transformer so each owns its own copy.
