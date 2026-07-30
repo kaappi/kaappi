@@ -388,9 +388,13 @@ fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []c
         // S-expression (kaappi#1803); walk them like any other expression
         // tree, or a capture inside one is invisible and the closure tiers
         // emit the name as a global lookup — #1799's exact failure mode.
-        // Every other passthrough shape still declines the enclosing scope
-        // upstream (sexprNeedsEvalFallback), so it never reaches a native
-        // body and reports none.
+        // A `(define (f …) …)` shorthand is the one other passthrough shape that
+        // reaches a native body — `define` is not an eval-fallback keyword — and
+        // it introduces no free reference of its own. It declines the enclosing
+        // scope from emitPassthrough instead, which is where the lexical scope
+        // is known (#1861); reporting it here as well changes nothing, and was
+        // measured to emit byte-identical IR. Every remaining shape declines
+        // upstream via sexprNeedsEvalFallback and never gets here.
         .passthrough => {
             if (isApplyForm(node.data.passthrough))
                 return sexprHasFreeVars(self, node.data.passthrough, params);

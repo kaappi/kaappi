@@ -99,6 +99,22 @@ check internal-define-local \
 '1
 100' 0
 
+# 5b. The procedure shorthand of case 5, which stayed broken for another six
+#     years of issue numbers (#1861): `ir.lowerDefine` turns a pair target into a
+#     passthrough, so it never reached the internal-define path case 5 exercises
+#     and defined a global instead. Reaching for the let-local in its body makes
+#     the pre-fix failure loud — the global function it compiled to looked `x` up
+#     as a global and the binary died with "undefined variable 'x'".
+#     tests/scheme/compile/native-shorthand-internal-define-scope-1861.sh covers
+#     the shape in depth; this is the direct pairing with case 5.
+check internal-define-shorthand-local \
+'(define (z) 100)
+(let ((x 1)) (define (z) x) (display (z)) (newline))
+(display (z))
+(newline)' \
+'1
+100' 0
+
 # 6. set! on a nested let-local inside a natively compiled function body.
 check set-nested-let \
 '(define (f x)

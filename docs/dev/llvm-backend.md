@@ -226,8 +226,27 @@ Rooting these slots cannot interact with `musttail` (kaappi#1499): `mustTailSafe
 already requires `self.locals == null`, which is never true inside a `let` body.
 
 The procedure shorthand `(define (f …) …)` is a different path — `ir.lowerDefine`
-turns it into a `passthrough`, so it never reaches `emitDefine` and still defines
-a global.
+turns it into a `passthrough`, so it never reaches `emitDefine` and none of the
+above applies to it. `emitPassthrough` **declines it whenever a lexical scope is
+active** (kaappi#1861), which is the only place that decision can be made: both
+of its paths define a global (`kaappi_define_global` when the body compiles
+natively, and otherwise an `emitEvalExpr` that runs in the global environment).
+The enclosing scope then goes to the interpreter whole — a `let` body abandons
+via `emitLet`, and a function body fails `emitLambdaFunction`, so the whole
+`define` falls back. Until that fix an internal `(define (g) …)` overwrote a
+same-named global (the interpreter merely shadows it), and one referencing an
+enclosing binding compiled to a global function whose body looked that binding
+up as a global — `(let ((a 3)) (define (h n) (* n a)) (h 5))` died with
+`undefined variable 'a'` in a binary the interpreter runs fine.
+
+Declining also **drops the name from `native_fns`/`rebound_globals` first**.
+This interpreter rebinds a body define that is *not* at the head of its body as
+a global, and a later call site that kept its direct call to the top-level
+function of the same name cannot observe that. Compiling the shorthand as a
+native local binding instead — the fuller fix — would need the closure value in
+a rooted slot (the kaappi#1854 machinery extended to a lambda-valued define)
+plus a way to keep the inner name out of the module-wide `native_fns` map, where
+it would capture direct call sites outside the scope that defined it.
 
 ## Compile-Time Processing
 
