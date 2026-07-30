@@ -481,17 +481,21 @@ alternative here: it aliases across activations, and it permanently clobbers a
 same-named global. Declining the frame is what keeps the interpreter's own
 lexical scope authoritative.
 
-It also cannot reach a `let`-local, which lives in an alloca it has no name for
-— so it refuses outright when `self.locals != null` (kaappi#1862), rather than
-emitting an eval that silently cannot see one. Until that gate existed, the
-mid-emission escape hatch below violated the very rule it implements: an inner
-`let` that abandoned inside an enclosing one was evaluated in the global
-environment, dying with `undefined variable` on the outer binding, or — with a
-same-named global in scope — quietly reading that instead. Refusing sends the
-error up to the enclosing scope's own abandon path, which re-evaluates that whole
-scope as one unit and so keeps the bindings. Publishing the locals was the other
-option and is worse: a boxed local hits the same by-location problem as a boxed
-param (kaappi#1422), and both weaknesses above would extend to let-locals.
+`bindParamsAsGlobals` also cannot reach a `let`-local, which lives in an alloca
+it has no name for, so it refuses outright when `self.locals != null`
+(kaappi#1862) rather than emit an eval that silently cannot see one. Until that
+gate existed, `emitLet`'s own mid-emission escape hatch
+(`abandonLetForFallback`, reached on the triggers no up-front scan can pre-empt
+— more than 32 bindings, more head defines than the scope roots, an
+`ir.lowerSingleExpr`/`emitNode` failure) broke the very rule this section
+describes: an inner `let` abandoning inside an enclosing one was evaluated in
+the global environment, dying with `undefined variable` on the outer binding —
+or, with a same-named global in scope, quietly reading that instead. Refusing
+sends the error up to the enclosing scope's own abandon path, which
+re-evaluates that whole scope as one unit and so keeps the bindings. Publishing
+the locals was the other option and is worse: a boxed local hits the same
+by-location problem as a boxed param (kaappi#1422), and both weaknesses above
+would extend to let-locals.
 
 ### Native `apply` (kaappi#1803)
 
