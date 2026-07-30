@@ -290,7 +290,6 @@ losing the VM costs the message, not the diagnosis:
 | the `overApplied`-style arity helpers (SRFI 181/254/258/260) | `ArityMismatch` |
 | `primitives_fiber.reraiseFiberError` | `ExceptionRaised` |
 | `primitives_io`'s `waitPortFd` / `raisePortClosedDuringIo` | `InvalidArgument` |
-| `primitives.bootstrapStub` (its own tag is `TypeError`) | `TypeError` |
 
 A `gc_instance` guard in an allocating function is the same rule at scale: no
 GC means the allocation the function exists to perform cannot happen, so
@@ -316,6 +315,17 @@ drifted sites had:
   as deliberate. That synthesized-detail trap is the whole reason the CI
   `format` job rejects an unannotated bare `return PrimitiveError.TypeError`
   (kaappi#1868/#1871); `// bare-ok: <reason>` is for Rule 1 sites only.
+
+**Rule 1 vets the guard against its function — it does not vet the function.**
+`primitives.bootstrapStub` sat in the Rule 1 table until #1876, with a
+`bare-ok` on each of its two lines. The guard did mirror the function, so the
+rule passed it; what nobody re-read was the function, which was reporting
+"`vm_bootstrap.install()` never ran" — a Rule 2 condition if there ever was
+one — as a caller type error. Both lines are `InvalidBytecode` now, and both
+annotations are gone with them. So when a Rule 1 site keeps surfacing in the
+kaappi#1874 grep, check what the function itself returns before recording the
+site as settled: a correct guard on a wrongly-tagged function looks exactly
+like a site the rule has already cleared.
 
 Guards in functions that do not return an error union (`orelse return 0`,
 `null`, `false`, or a bare `return`) have no tag to settle and are outside

@@ -113,7 +113,10 @@ Use `primitives.typeError(proc, expected, got)` for type checks — it produces
 rejects **any** bare `return PrimitiveError.TypeError` that lacks a
 `// bare-ok: <reason>` comment, so adding one fails the build; the annotation is
 only for infrastructure guards with no procedure context to report *and* whose
-function returns `TypeError` anyway (`typeError` itself, `bootstrapStub`).
+function returns `TypeError` anyway (`typeError` itself is the canonical one).
+Check that second half before reaching for the annotation: `bootstrapStub`
+carried it until #1876 on the strength of the first half alone, while its
+function was reporting a mis-initialized VM as a caller type error.
 
 A bare return is not silent — `vm_calls.mapNativeError` fills in
 `type error in '<primitive>': got <args[0]>` — so it looks deliberate while
