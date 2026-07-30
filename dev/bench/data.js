@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785352838761,
+  "lastUpdate": 1785388111011,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ad7435469bf7c5368eeae99820b7d62dec6fad1b",
-          "message": "Remove the duplicate install script (#1683)\n\n* Remove the duplicate install script\n\ninstall.sh in this repo was served by nothing: no build step, no workflow,\nno release artifact referenced it. The only copy anyone runs is\ndocs/install.sh in kaappi.github.io, served at kaappi-lang.org/install.sh,\nwhich is also what the post-release workflow curls and tests.\n\nKeeping a second copy was not free. The two had drifted — the served copy\nwas three hardening commits ahead (KAAPPI_VERSION/KAAPPI_NO_VERIFY, redirect\nbased tag discovery that avoids the API rate limit, a safe stdlib swap) —\nso \"fix install.sh\" in this repo shipped nothing to users, which is exactly\nhow the missing libkaappi_rt.a install went unnoticed. A stale pointer in\ndocs is a wrong sentence; a stale script is a wrong executable that looks\nauthoritative.\n\ndocs/dev/porting.md's Stage 6 now says where the installer lives and what a\nnew platform needs from it — it never mentioned the installer at all, which\nis how the uname-vs-artifact name mismatches (NetBSD's kernel port, the BSDs'\namd64, Linux's ppc64le) keep having to be rediscovered. docs/dev/netbsd.md's\nporting-surface table points at the real path.\n\nThe post-release workflow now asserts the full chain after each release —\narchive present, doctor clean, and a compiled binary that runs — so the\ninstaller regressing to interpreter-only cannot pass CI again. It needs a\nZig step: the runner's cc is GCC, which cannot consume the IR the backend\nemits, and cc_search_order picks it ahead of the preinstalled clang.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Run the install-script check on every hosted OS/arch\n\nThe installer's platform detection is where its bugs have historically\nlived — NetBSD's uname reporting the kernel port, the BSDs' amd64, Linux's\nppc64le against the artifacts' powerpc64le — and it was only ever exercised\non ubuntu-latest. macOS additionally resolves the exe path through\n_NSGetExecutablePath + realpath rather than /proc/self/exe, which is what\nthe new libkaappi_rt.a assertions depend on to find <exe>/../lib.\n\nriscv64, s390x and ppc64le are left out: no hosted runner executes them\nnatively, and they are interpreter-tier, so there is no archive to assert.\n\nfail-fast is off so one platform's failure does not mask another's.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Record in CLAUDE.md that install.sh lives in the docs repo\n\nNothing in this repo pointed at the installer after its stale duplicate was\ndeleted, so the next session to be asked about it would rediscover the same\ntrap. Names the real path, why no copy lives here, and what CI checks it.\n\nAlso states the other half explicitly in the native-backend section: the\nruntime archive search does not include ~/.kaappi/lib, so an archive placed\nthere is invisible to kaappi compile. That is exactly the wrong conclusion\nthe search-order list invites, and it is what the Windows install docs got\nwrong until this branch.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T16:07:26Z",
-          "tree_id": "2627b5cfdb4a0152c757aac26ef0f02713a15ddb",
-          "url": "https://github.com/kaappi/kaappi/commit/ad7435469bf7c5368eeae99820b7d62dec6fad1b"
-        },
-        "date": 1784565747189,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.993642,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.871761,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.915373,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.438947,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006752,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053816,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506911,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06904,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.301267,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.970286,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.530925,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.47666,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.713081,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.796586,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045251,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045322,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65743ab14c4cf2aec12de89182ebb9b45d38ea61",
+          "message": "Split six oversized source files along their natural seams (#1853)\n\n* Split six oversized source files along their natural seams\n\nmemory.zig (2112 lines), expander.zig (1982), llvm_emit.zig (1710),\nvm_library.zig (1573), compiler_macro.zig (1530), and gc_collect.zig\n(1512) had all grown past the 1500-line file size policy through\ntangled coupling rather than breadth, so each is split at the seam\nwhere two domains shared one file:\n\n- memory.zig keeps the GC machinery (lifecycle, rooting, write\n  barrier, quarantine); the 61 allocXxx constructors move to\n  gc_alloc.zig, aliased back into GC so gc.allocXxx(...) call sites\n  are untouched (the existing gc_collect/gc_deep_copy precedent).\n- expander.zig keeps macro-use entry points, pattern matching, and the\n  hygiene-strip walks; template instantiation + renameForHygiene move\n  to expander_instantiate.zig, sharing the threadlocal expansion\n  context through qualified references.\n- llvm_emit.zig keeps the emitter core; the special-form and\n  eval-fallback emitters join the existing cond/case/do satellite\n  llvm_emit_forms.zig, aliased back into LLVMEmitter.\n- vm_library.zig keeps library definition/loading/SRFI 261/features;\n  the import-set algebra (only/except/prefix/rename) moves to\n  vm_imports.zig and is re-exported under its old names.\n- compiler_macro.zig keeps the macro-use path; the macro-defining\n  forms, SRFI 147 transformer-spec resolution, and syntax-rules\n  parsing move to compiler_define_syntax.zig, re-exported through the\n  same names so compiler_forms dispatch is unchanged.\n- gc_collect.zig keeps orchestration/marking/weak refs; the sweep\n  phase with the objectSize and freeObject per-tag switches moves to\n  gc_sweep.zig.\n\nPure code motion — no behavior change; same-name aliases keep every\ninternal and external call site compiling as-is. CLAUDE.md tables, the\nheap-type checklist, docs/dev (architecture, adding-features, harness),\nand the gc-safety rule globs (now src/gc_*.zig and src/expander*.zig)\nupdated to match. Remaining >1500-line files are the policy-exempt\nkinds: primitives_* and tests_* breadth, and generated unicode_tables.\n\nVerified: zig build test, full tests/scheme/run-all.sh (2013 pass,\n0 fail), and x86_64-linux / aarch64-windows / wasm cross-compiles.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1853 review findings\n\nThe one reachable bug: compileLetSyntax registered its root-stack\ncleanup defer only after the binding loop, so a mid-loop InvalidSyntax\n(malformed later binding) or a failing resolveTransformerSpec returned\nwith earlier iterations' roots still pushed — permanently, since\nnothing resets the root stack on compile errors. The defer now\nregisters before the loop (still after tx_vals's deinit defer, so the\npops keep running first). Regression test fails without the fix.\n\nAlso from review: substitutePatternVarsOnly was caller-less (already\ndead before the split) and is removed, with the renameForHygiene doc\ncomment it had swallowed moved to the function it describes; gc_collect\ndrops the imports and type aliases only the moved sweep code used;\nstale gc_collect attributions in gc_alloc.zig/memory.zig comments now\nsay gc_sweep; the compiler table heading says 11 files (it had been\noff by one since before this PR); adding-features.md gains the\ntypes.zig typeName step.\n\nThe remaining review findings are deliberately not fixed here: the\nthree expander_instantiate push/pop sites are OutOfMemory-unwind-only\n(every user-reachable ExpandError path unwinds balanced) and match the\ndocumented canonical pattern used codebase-wide, and the native-backend\ninternal-define rooting question predates the split byte-for-byte —\nboth filed as issues instead.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T10:00:34+05:30",
+          "tree_id": "d03d5c0fbf275c546dc0c8a575f244c9413a3bf4",
+          "url": "https://github.com/kaappi/kaappi/commit/65743ab14c4cf2aec12de89182ebb9b45d38ea61"
+        },
+        "date": 1785388109052,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.255285,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.606989,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561826,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.967353,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004648,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04594,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309985,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056846,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.619017,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.217186,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.58321,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282746,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.776658,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.646559,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04271,
             "unit": "seconds"
           }
         ]
