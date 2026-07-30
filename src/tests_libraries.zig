@@ -1165,3 +1165,77 @@ test "restricted environment does not leak globals to a non-tail call (#1831)" {
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("caught", types.symbolName(result));
 }
+
+// Regression for #1860, #1831's residual: the vm.globals fallback above was
+// gated on a flag every library-body form's *outer* function carried and no
+// closure inside it did, because compileExpressionInEnv derived it from the
+// compile-time restricted_env. So the fallback was off exactly at a library
+// body's own top level: the same reference resolved from inside a lambda and
+// raised "undefined variable" as a top-level define's initializer — the
+// position-dependence #1831 set out to remove, one level up.
+test "library resolves a non-imported global at its own top level (#1860)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Same premise as the #1831 test: `cadar` is (scheme cxr), so it lives in
+    // vm.globals and not in this library's lib_env. Every form here is
+    // evaluated as the library body loads, not inside a procedure.
+    _ = try vm.eval(
+        \\(define-library (test cxr-toplevel)
+        \\  (import (scheme base))
+        \\  (export from-define from-begin from-nested-let in-lambda)
+        \\  (begin
+        \\    (define from-define (cadar '((1 2) 3)))
+        \\    (define from-begin 0)
+        \\    (set! from-begin (car (cadar '((1 (9)) 3))))
+        \\    (define from-nested-let (let ((v '((4 5) 6))) (cadar v)))
+        \\    (define (in-lambda) (cadar '((7 8) 9)))))
+    );
+    _ = try vm.eval("(import (test cxr-toplevel))");
+
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("from-define")));
+    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(try vm.eval("from-begin")));
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(try vm.eval("from-nested-let")));
+    // The case that already worked, kept alongside: both must agree.
+    try std.testing.expectEqual(@as(i64, 8), types.toFixnum(try vm.eval("(in-lambda)")));
+}
+
+// The mirror of the above, and why #1860 could not be fixed by flipping the
+// flag: the same per-function derivation left restricted_globals *off* for
+// closures compiled inside a restricted environment, so `(environment ...)`
+// withheld a name from its top level and handed it over through one lambda.
+// Both directions now follow the environment rather than the nesting depth.
+test "restricted environment does not leak globals into a closure (#1860)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `car` is not in the environment; the reference sits in the body of a
+    // lambda the eval'd expression immediately applies.
+    const from_closure = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (eval '((lambda () (car '(1)))) (environment '(only (scheme base) list))))
+    );
+    try std.testing.expect(types.isSymbol(from_closure));
+    try std.testing.expectEqualStrings("caught", types.symbolName(from_closure));
+
+    // Two levels deep, and via a named local procedure, to pin that the
+    // restriction is inherited down the whole chain rather than one level.
+    const from_nested = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (eval '(let ((f (lambda () (lambda () (car '(1))))))
+        \\           ((f)))
+        \\        (environment '(only (scheme base) list))))
+    );
+    try std.testing.expect(types.isSymbol(from_nested));
+    try std.testing.expectEqualStrings("caught", types.symbolName(from_nested));
+
+    // The environment's own imports still resolve from inside a closure —
+    // the restriction withholds vm.globals, it does not break the env.
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval(
+        \\(car (eval '((lambda () (list 3))) (environment '(only (scheme base) list))))
+    )));
+}

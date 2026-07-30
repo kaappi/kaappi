@@ -406,6 +406,13 @@ pub const Function = struct {
     cache_version: u32 = 0,
     env: ?*std.StringHashMap(Value) = null,
     env_val: Value = NIL,
+    // `env` is authoritative: a name missing from it must not fall back to
+    // vm.globals. Set for an R7RS restricted environment ((environment ...),
+    // null-environment, (eval expr env)) and *not* for a library body, whose
+    // env is only what it imported — see compiler.EnvKind. A property of the
+    // environment, so every function compiled inside one inherits it
+    // (Compiler.initChild); deriving it per-function made the same reference
+    // resolve or not by syntactic position (kaappi#1860).
     restricted_globals: bool = false,
     profile_instrs: u64 = 0,
     profile_calls: u64 = 0,

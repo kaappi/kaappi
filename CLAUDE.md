@@ -450,9 +450,17 @@ tail position only, because `get_global` carried the vm.globals fallback
 and the `call_global` superinstruction the compiler emits for every
 non-tail call did not. Ordinary (non-`%`) names looked unaffected only
 because `(scheme base)` puts them in lib_env; all three global-reference
-opcodes now resolve through one helper in `vm_dispatch.zig`. Declaring
-the import explicitly is still the better style, but it is no longer
-load-bearing.
+opcodes now resolve through one helper in `vm_dispatch.zig`. That fix left
+one residual, closed in kaappi#1860: the fallback is gated on
+`Function.restricted_globals`, which was derived per-function, so it was
+off for the outer function of each library-body form and on for every
+closure inside it — the same reference resolved from inside a `lambda` and
+raised `undefined variable` as a library-body *top-level* `define`'s
+initializer. It is now a property of the environment
+(`compiler.EnvKind`, inherited by `Compiler.initChild`), which also stops
+a restricted `(environment ...)` from leaking vm.globals through a
+closure. Declaring the import explicitly is still the better style, but it
+is no longer load-bearing.
 SRFI 57 (Records, with inheritance via "schemes" -- a named, reusable field-
 label list a type or another scheme can extend, with multiple schemes
 mergeable at once via left-to-right append + delete-duplicates) is portable
