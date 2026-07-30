@@ -25,13 +25,20 @@ fn myProc(args: []const Value) PrimitiveError!Value {
 .{ .name = "my-proc", .func = &myProc, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
 ```
 
-An **internal helper** — a `%`-prefixed name only compiler-generated code or
-a portable `.sld` calls — takes `.libs = primitives.INTERNAL` instead:
-registered in `vm.globals`, exported by nothing, so it doesn't reserve the
-name against every user library that imports `(scheme base)` (kaappi#1856; a
-comptime check rejects a `%` name tagged `scheme.*`). Synthesize *references*
-to one with `Compiler.trueBuiltinRefOrSymbol` /
-`globals_mod.baseBindingSymbol`, never a bare `allocSymbol("%foo")`.
+An **internal helper** — a `%`-prefixed name no user program should have to
+avoid — never takes a `scheme.*` tag, which reserves the name against every
+user library that imports it (kaappi#1856; a comptime check rejects this).
+Two cases:
+
+- Only compiler-generated code names it: `.libs = primitives.INTERNAL` —
+  registered in `vm.globals`, exported by nothing.
+- A portable `.sld` names it in its own Scheme source:
+  `.libs = primitives.INTERNAL_PUBLIC`, which adds `(kaappi primitives)` so
+  the `.sld` can import it (`lib/srfi/27.sld` and the record SRFIs do).
+
+Synthesize *references* to either with `Compiler.trueBuiltinRefOrSymbol` /
+`globals_mod.baseBindingSymbol`, never a bare `allocSymbol("%foo")` — that
+picks up a user binding of the same name.
 See `docs/dev/adding-features.md`.
 
 3. **Add a test** in `src/vm.zig` test section:

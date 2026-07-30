@@ -988,17 +988,18 @@ map.deinit();  // no allocator arg needed
    }
    ```
 
-2. Register in the file's `registerXxx` function:
+2. Add one entry to the file's `specs` table — name, function, arity, and the
+   libraries that export it. `registerAll` walks `all_specs` and
+   `library.zig` derives every export set from the same tags, so this is the
+   whole registration; there is no second list and no manual `reg()` call:
 
    ```zig
-   try primitives.reg(vm, "my-proc", &myProc, .{ .exact = 1 });
+   .{ .name = "my-proc", .func = &myProc, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
    ```
 
    Arity: `.{ .exact = N }` for fixed, `.{ .variadic = N }` for N minimum args.
 
-3. Add to the file's `specs` table with the exporting libraries in `.libs`
-   (`library.zig` derives every export set from these tags — there is no
-   second list). An internal helper — a `%`-prefixed name only
+3. An internal helper — a `%`-prefixed name only
    compiler-generated code or a portable `.sld` calls — takes
    `primitives.INTERNAL` instead: registered in `vm.globals`, exported by
    nothing, so it doesn't reserve the name against user libraries
