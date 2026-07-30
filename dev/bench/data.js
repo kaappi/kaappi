@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785415060952,
+  "lastUpdate": 1785418075476,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bf764591cd2d569965d4c08434fd6b552c3b6ec6",
-          "message": "Document 16 excluded final SRFIs with rationale (#1707)\n\n* Document 16 excluded final SRFIs with rationale\n\nRecord which final SRFIs are excluded from implementation and why,\nso the decision isn't relitigated. Two categories: 7 meta/ecosystem\nSRFIs already covered by existing Kaappi features, and 9 non-standard\nreader syntax SRFIs that would fundamentally alter the parser.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n* Reference SRFI exclusions doc and roadmap from CLAUDE.md\n\nAdd a summary line at the end of the SRFI libraries section pointing to\ndocs/dev/srfi-exclusions.md and the implementation roadmap (issues\n#1691–#1706, four milestones).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-21T02:05:21+05:30",
-          "tree_id": "db82600c4cad0cca4a536a1a7351df2218a780a4",
-          "url": "https://github.com/kaappi/kaappi/commit/bf764591cd2d569965d4c08434fd6b552c3b6ec6"
-        },
-        "date": 1784582816832,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.987622,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.336411,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.917399,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.360712,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006742,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053185,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507099,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068073,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.287931,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.965493,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514985,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.472276,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.754872,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.748405,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044849,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045795,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "053282aeda7cb7f0e80a6ebd9765434bafd0dba7",
+          "message": "Free the fiber scheduler when its setup allocation fails (#1869)\n\nensureScheduler takes the FiberScheduler from the raw allocator, then runs\ntwo more fallible steps — the main fiber's allocFiber and addFiber — before\nvm.scheduler is assigned. Until that assignment nothing owns the struct, so\na failure in either step returned with it neither destroyed nor stored,\nleaking both the struct and the managed waiter_index map init() built inside\nit. The reactor block directly below already cleaned up after itself; this\nmakes the scheduler block symmetric with its own neighbour.\n\nThe errdefer is block-scoped deliberately. It is discarded when the block\nexits normally, so it cannot fire for a later failure in the reactor block —\nby then vm.scheduler owns the pointer and freeing it would be a double free\nrather than a leak.\n\nSeverity is low on its own (a real OOM during the first spawn, one struct),\nbut the leak blocked writing any OOM-sweep test that reaches a fiber path:\nthe leak check aborts the test before its own assertions run.\n\nTwo regression tests. The first fails the allocation deterministically —\nthe scheduler comes from the raw allocator, which the injector does not\ncount, so oom_countdown 0 lands exactly on the main fiber's allocFiber — and\npins the bug in every build config. The second is the end-to-end sweep over\nthe first spawn; it asserts successes as well as failures, so a future spawn\nthat allocates more fails the test loudly instead of quietly sweeping past\nthe ensureScheduler window and going vacuous.\n\nFixes #1864\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T18:18:37+05:30",
+          "tree_id": "c933b3d2ccee9d42b10d35247abf12ba73904592",
+          "url": "https://github.com/kaappi/kaappi/commit/053282aeda7cb7f0e80a6ebd9765434bafd0dba7"
+        },
+        "date": 1785418072826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.21046,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.86628,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583619,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.982115,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004665,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04628,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316775,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057317,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.64402,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.225685,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596481,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.2746,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.785316,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.56789,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045434,
             "unit": "seconds"
           }
         ]
