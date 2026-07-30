@@ -126,8 +126,15 @@ check() {
             # them must open with the OUTER let, proving the abandon propagated
             # out to it instead of stopping at the inner let. These sources hold
             # no quote or backslash, so internString emits them verbatim.
+            #
+            # ERE, deliberately: `\?` and `\|` are GNU BRE extensions that
+            # OpenBSD's grep does not accept, and there they matched nothing at
+            # all — every case here failed its routing check while still agreeing
+            # with the interpreter on output. In ERE `?` needs no backslash, and
+            # `let\*?` (an optional literal `*`) covers `let` and `let*` in one
+            # branch, so the alternation goes away too.
             local binder="${routing#whole-scope:}"
-            if ! grep -q "constant \[.*c\"(let\* \?((${binder} \|constant \[.*c\"(let \?((${binder} " "$DIR/$name.ll"; then
+            if ! grep -Eq "constant \\[.*c\"\\(let\\*? ?\\(\\(${binder} " "$DIR/$name.ll"; then
                 echo "FAIL: $name — no eval of the enclosing '($binder ...)' scope; the inner form fell back alone" >&2
                 fail=1
             fi
