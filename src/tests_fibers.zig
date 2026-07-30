@@ -4,6 +4,8 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const fiber_mod = @import("fiber.zig");
+const reactor_mod = @import("reactor.zig");
+const platform = @import("platform.zig");
 
 // Regression tests for the fiber scheduler give-up path (#kaappi-book):
 // runSchedulerUntil used to silently return VOID when no fiber was runnable
@@ -462,4 +464,73 @@ test "spawning a fiber leaks nothing when an allocation fails" {
     // instead of failing.
     try std.testing.expect(failures > 0);
     try std.testing.expect(successes > 0);
+}
+
+// ---------------------------------------------------------------------------
+// A timeout popped by the dispatch tick must not be followed by an unbounded
+// park (#1870)
+// ---------------------------------------------------------------------------
+//
+// runSchedulerStep's loop guard reads `me.timed_out` *before* calling
+// scheduleForDispatch(), whose own runReactorTick() then pops expired timers.
+// When that tick pops this fiber's own deadline, wakeReadyFiber sets
+// `timed_out` and the entry leaves the timer heap — and the pre-tick guard is
+// already spent. Pre-fix the idle branch went straight into parkOnReactor with
+// nothing left to bound reactor.poll(): the fiber's own shared_waiters entry
+// keeps hasRunnableFibers() true, so the "nothing can ever happen" early
+// return is skipped and the poll blocks until an unrelated cross-thread notify
+// arrives. That is the SRFI-120 flake: a 30 ms timer task that never ran until
+// the caller's own timer-cancel! message woke the thread seconds later.
+//
+// The watchdog is a safety net, not the mechanism under test: it rings the
+// notifier so a pre-fix build finishes the wait instead of hanging the suite
+// forever, and the elapsed-time assertion is what actually fails there.
+
+const WaitForever = struct {
+    pub fn isDone(_: WaitForever) bool {
+        return false;
+    }
+};
+
+fn ringAfter(flag: *std.atomic.Value(bool), n: *reactor_mod.ThreadNotifier) void {
+    var waited: u64 = 0;
+    while (!flag.load(.acquire) and waited < 3_000_000_000) : (waited += 5_000_000) {
+        platform.sleepNs(5_000_000);
+    }
+    n.notify();
+}
+
+test "an expired timer popped by the dispatch tick ends the wait instead of parking unbounded" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const me = ctx.sched.fibers.items[ctx.sched.current_idx].?;
+
+    // The state a timed channel-receive on a promoted channel parks in, with
+    // the deadline already past so scheduleForDispatch()'s tick — not
+    // parkOnReactor's own poll — is what pops it.
+    me.status = .waiting;
+    me.timed_out = false;
+    me.deadline_ns = fiber_mod.clockNs();
+    try ctx.reactor.addTimer(me.deadline_ns.?, me);
+    try ctx.sched.enrollSharedWaiter(me);
+    defer ctx.sched.removeSharedWaiter(me);
+
+    var done = std.atomic.Value(bool).init(false);
+    const watchdog = try std.Thread.spawn(.{}, ringAfter, .{ &done, ctx.reactor.notifier });
+
+    const started = fiber_mod.clockNs();
+    _ = try fiber_mod.runSchedulerStep(WaitForever, .{}, vm, ctx.sched, me);
+    const elapsed = fiber_mod.clockNs() - started;
+
+    done.store(true, .release);
+    watchdog.join();
+
+    // The wait must come back on its own timeout, promptly. Pre-fix it comes
+    // back only when the watchdog rings, ~3 s later.
+    try std.testing.expect(me.timed_out);
+    try std.testing.expect(elapsed < 1_000_000_000);
 }
