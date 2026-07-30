@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785403555813,
+  "lastUpdate": 1785406537682,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a1d1b2d04b09d4ec816ae426eff697d9f219ff18",
-          "message": "Root test locals held across never-collecting allocations (#1682 follow-up) (#1686)\n\nExhaustive audit of every unit-test file for the silent variant of the\n#1682 use-after-free (an unrooted heap local swept under -Dgc-stress=true,\nthen aliased by the next same-size allocation so shape-only assertions\nstill pass): no live instance exists. The #1401 campaign plus the rooting\ndiscipline in the newer test files already cover every collecting-call\nsite; the seeming hits fall to gc.enabled = false (tests_srfi254,\ntests_srfi258) or to allocation paths that never call maybeCollect.\n\nTwo sites do hold a heap value across an allocating call that merely\n*happens* never to collect, the situation PR #1685 roots `body` for:\n\n- \"bignum compare\" holds `a` across a second parseBignumString, which\n  builds its Bignum via raw create+trackObject with no maybeCollect.\n- The bytecode-cache mid-run-GC test holds f0/f1 across further\n  makeReturnConstFunc calls, safe only because allocFunction never\n  collects.\n\nRoot both per that convention so neither silently breaks if those paths\never gain a collection point. Verified with the full unit suite and with\n-Dgc-stress=true filtered to the two files (Debug and ReleaseSafe).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T18:34:29Z",
-          "tree_id": "5debc6630ed28765c29e9c0974110b9fb7d8ae10",
-          "url": "https://github.com/kaappi/kaappi/commit/a1d1b2d04b09d4ec816ae426eff697d9f219ff18"
-        },
-        "date": 1784574419444,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.980452,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.79294,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.911932,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.443658,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006713,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053142,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508113,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067543,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.307188,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.971421,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.530153,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.469229,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.703887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.614534,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044519,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043186,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed5255ec942b95fe3601dc043e00e1249ad3b244",
+          "message": "Unwind the GC root stack when an error escapes the pipeline (#1858)\n\nThe canonical pushRoot/try/popRoot rooting pattern leaks its root when the\n*protected* allocation is the one that fails: the error unwinds past the\npopRoot, and nothing else ever lowers root_count. The stack was left holding\nthe address of a local in a frame that no longer exists, which the next\ncollection dereferences — usually a garbage flonum under NaN-boxing,\noccasionally a plausible heap pointer. The extra entry also shifts the stack,\nso every `defer popRoot()` still to fire on the unwind path removes the wrong\nentry.\n\nThis is a property of the pattern, not of any one function, so fix it once at\nthe boundaries that hand a pipeline error back to a caller which keeps\nrunning: the four compileExpression* entry points, vm_eval.eval, and\nvm_calls.execute snapshot gc.root_count on entry and truncate back to it on\nerror. execute truncates inside its error branch rather than by errdefer\nalone, because that branch runs pending dynamic-wind after-thunks — which\nallocate — before returning. Per-site errdefers were the alternative: ~340\nedits of exactly the defer-near-a-loop LIFO footgun gc-safety.md warns about,\nwhich is how the compileLetSyntax bug fixed in #1853 happened.\n\nTruncation only ever shrinks. A depth below the snapshot is an over-pop, and\nre-rooting those slots would resurrect pointers into frames that have since\nreturned — the very bug this removes.\n\nReaching these sites needed a new test lever. gc.memory_limit is an absolute\nwatermark that only trips once a form *retains* more than its headroom, so it\nfails within the first few allocations and never reaches the expander (46\nfailures over 12,500 tries, zero leaks); FailingAllocator has its own\ndocumented deep-pipeline limitation. gc.oom_countdown fails the n-th\nallocation instead, gated on builtin.is_test so it compiles out everywhere\nelse. Sweeping it found the leak in exactly the two expander_instantiate.zig\nellipsis sites flagged in the #1853 review — 10 of 54 and 12 of 48 injected\nfailures — while every other shape swept (records, libraries, let-syntax,\nquasiquote, guard-caught primitive errors, dynamic-wind unwinding, call/cc)\nwas already balanced. Post-fix all are zero, and 3 of the 6 new tests fail\nwithout the fix.\n\nRecovery within a still-running form stays uncovered at primitive\ngranularity: snapshotting per native call would load the interpreter's\nhottest path for a hazard no primitive currently has. Documented in\ngc-safety.md and docs/dev/gc-safety-and-error-handling.md so a future\nunbalanced primitive is recognized as a real hazard.\n\nCloses #1855\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T09:35:31Z",
+          "tree_id": "01b0d834ac52bd7e7e2f696144c97487e325ba9c",
+          "url": "https://github.com/kaappi/kaappi/commit/ed5255ec942b95fe3601dc043e00e1249ad3b244"
+        },
+        "date": 1785406535845,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.940655,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.439171,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561309,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.848459,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004935,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044399,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.296764,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054947,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.293547,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.166536,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.507953,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30455,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.721641,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.63592,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044514,
             "unit": "seconds"
           }
         ]
