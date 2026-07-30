@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785418075476,
+  "lastUpdate": 1785422174558,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8209892aee9952a2d62b473d73610ac8322d0f38",
-          "message": "Add CLAUDE.md for docs/dev/ directory (#1708)\n\nGives Claude Code quick orientation when working inside developer\ndocumentation — directory layout, key documents by task, and conventions\nfor adding or editing docs.\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-21T02:12:50+05:30",
-          "tree_id": "c6aefe127bb375451489ec36e51018b1239ac38b",
-          "url": "https://github.com/kaappi/kaappi/commit/8209892aee9952a2d62b473d73610ac8322d0f38"
-        },
-        "date": 1784584016627,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.98823,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.024997,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.913726,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.409326,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006751,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052579,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50679,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068049,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.286511,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.962409,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.517688,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.472067,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.706647,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.825647,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045377,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045434,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5400229c25e5e0e0a864e9aeeb0e02bea3f0ad24",
+          "message": "Hand the whole enclosing scope to the interpreter when a nested let abandons (#1862) (#1867)\n\n* Hand the whole enclosing scope to the interpreter when a nested let abandons (#1862)\n\nA `let` nested in another `let` that gave up on native compilation\nmid-emission was handed to `kaappi_eval` on its own. That eval resolves\nnames in the global environment, so the outer `let`'s bindings were\ninvisible: the compiled binary died with `undefined variable` on code the\ninterpreter runs fine, or — with a same-named global in scope — silently\nread that global instead, which is worse.\n\n#827 already fixed this class for anything an up-front syntactic scan can\nsee, by declining native compilation of the whole enclosing scope. The\ntriggers here are only discoverable mid-emission and no scan can pre-empt\nthem: more than 32 bindings, more head defines than the scope roots, or an\n`ir.lowerSingleExpr`/`emitNode` failure on a binding initializer or body\nform. #1854 added the last of those, which is what surfaced this.\n\n`bindParamsAsGlobals` is the one chokepoint every whole-form eval fallback\ngoes through, and params, the rest parameter, and upvalues are the whole of\nwhat it can reach — a `let`-local lives in an `alloca` it has no name for.\nIt now refuses when `self.locals != null`, the way it already refuses a\nboxed param it cannot honestly publish. The error abandons the enclosing\n`let` in turn, so the interpreter gets that whole lexical scope in one\npiece. Publishing the locals instead was the other option and is worse: a\nboxed local hits the same by-location problem as a boxed param (#1422), and\nboth of that helper's documented weaknesses — it aliases across\nactivations, and it permanently clobbers a same-named global — would extend\nto let-locals.\n\n`emitLambdaViaEval`'s own locals check is now that same gate one line\nlater, so it is dropped rather than duplicated.\n\nVerified against a pre-fix binary: 11 of the new test's 13 cases diverge\nwithout this and pass with it. The two that pass either way are the\ncoverage guard (a fallback inside a plain lambda frame, where params *are*\npublishable, must still compile the lambda natively — its emitted IR is\nbyte-identical) and the shadow-stack balance check. A 34-program sweep over\nthe shapes this touches moved 7 cases from diverging to agreeing with the\ninterpreter, regressed none, and changed no program's eval-fallback or\nnative-function count: the eval widens from the inner let to the enclosing\nscope rather than replacing native code.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix a stale cross-reference in the #1862 backend note\n\nThe paragraph pointed at \"the mid-emission escape hatch below\", but the\nabandon path is not described further down this document — name\n`abandonLetForFallback` and its triggers directly instead.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T14:01:29Z",
+          "tree_id": "8ad26633e9cbbfc5d395b6974f558abaf4149d81",
+          "url": "https://github.com/kaappi/kaappi/commit/5400229c25e5e0e0a864e9aeeb0e02bea3f0ad24"
+        },
+        "date": 1785422173386,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.946785,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.537929,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.584867,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.852584,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004924,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044643,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.294229,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054633,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.280049,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.163007,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.503969,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307724,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.696324,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.798772,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04564,
             "unit": "seconds"
           }
         ]
