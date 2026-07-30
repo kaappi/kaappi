@@ -1157,13 +1157,31 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
 // Convenience functions
 // ---------------------------------------------------------------------------
 
+// The `compileExpression*` entry points below are the pipeline's compile
+// boundary: every caller that keeps running after a compile error goes
+// through one of them (the REPL and `main`'s file loop, `kaappi check`, the
+// LSP, `pipeline`'s stage dumps, `native_compiler`, the `eval` and `load`
+// primitives, library-body compilation). Each snapshots the GC root-stack
+// depth alongside its existing `extra_roots` watermark and truncates back to
+// it when the compile fails (#1855).
+//
+// A failed compile unwinds through `try`s that sit between a `pushRoot` and
+// its `popRoot` — `expander_instantiate`'s ellipsis instantiation is the
+// confirmed case — so without this the root stack keeps pointing into frames
+// that no longer exist, and the leaked entry also misaligns every
+// `defer popRoot()` still to fire above it. Truncating here, once, is what
+// `GC.truncateRoots` documents; per-site errdefers would be ~340 edits of
+// exactly the pattern gc-safety.md warns about. Ordered first in the defer
+// block so nothing that runs after it can collect with dead roots live.
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
     syntax_error_detail_len = 0;
     resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
+    const root_depth = gc.root_count;
     var ok = false;
     defer {
+        if (!ok) gc.truncateRoots(root_depth);
         gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
@@ -1182,11 +1200,13 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
+    const root_depth = gc.root_count;
     c.globals = vm_globals;
     c.func.source_line = source_line;
     c.func.source_name = source_name;
     var ok = false;
     defer {
+        if (!ok) gc.truncateRoots(root_depth); // #1855, see compileExpression
         gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
@@ -1209,12 +1229,14 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     resetCompileErrorSpan();
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
+    const root_depth = gc.root_count;
     c.globals = env;
     c.lib_env = env;
     c.lib_env_val = env_val;
     c.restricted_env = true;
     var ok = false;
     defer {
+        if (!ok) gc.truncateRoots(root_depth); // #1855, see compileExpression
         gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
@@ -1237,8 +1259,10 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
 
 pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.Function {
     var c = try Compiler.init(gc);
+    const root_depth = gc.root_count;
     var ok = false;
     defer {
+        if (!ok) gc.truncateRoots(root_depth); // #1855, see compileExpression
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }

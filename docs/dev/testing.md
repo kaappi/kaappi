@@ -111,6 +111,32 @@ modes that let #1682 pass twelve nightly stress runs. Plain Debug builds
 stamp and check the sentinel too (best-effort, without the quarantine);
 release builds compile both features out.
 
+### Injecting an out-of-memory failure
+
+`gc.oom_countdown` fails a chosen heap allocation: set it to `n` and the
+next `n` allocations succeed while the one after returns `OutOfMemory`.
+Sweeping `n` over a range therefore walks the failure across every
+allocation a form performs, which is how `tests_gc_root_boundary.zig`
+reaches error paths deep inside the expander and compiler (#1855):
+
+```zig
+var n: usize = 0;
+while (n <= 200) : (n += 1) {
+    ctx.gc.oom_countdown = n;
+    _ = ctx.vm.eval(source) catch {};
+    ctx.gc.oom_countdown = null;
+    // ...assert whatever must hold after a failed allocation
+}
+```
+
+Prefer it over the two alternatives for anything past the first few
+allocations. `std.testing.FailingAllocator` has a documented deep-pipeline
+limitation, and `gc.memory_limit` is an absolute watermark that only trips
+once one form *retains* more than its headroom — in practice it fails within
+the first handful of allocations and never reaches the expander at all.
+`oom_countdown` is gated on `builtin.is_test`, so it compiles out of every
+non-test build.
+
 ---
 
 ## Scheme Integration Tests

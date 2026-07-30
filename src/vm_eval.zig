@@ -32,6 +32,16 @@ fn runTopLevelFunction(vm: *VM, func: *types.Function) VMError!Value {
 
 pub fn eval(vm: *VM, source: []const u8) VMError!Value {
     vm_mod.setVMInstance(vm);
+    // Outermost boundary for a source string (#1855): unwind the GC root
+    // stack if the error escapes. The compile boundary
+    // (compileExpression*) covers everything reached through the compiler;
+    // this covers the rest — the reader and the top-level-only handlers
+    // (import/define-library/define-record-type/...), which push roots of
+    // their own. Registered before the per-form `defer popRoot()`s below, so
+    // it fires last and has the final say on the depth even when an earlier
+    // leak made those pops remove the wrong entries.
+    const root_depth = vm.gc.root_count;
+    errdefer vm.gc.truncateRoots(root_depth);
     const reader_mod = @import("reader.zig");
     var reader = reader_mod.Reader.init(vm.gc, source);
     defer reader.deinit();

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The GC root stack is now unwound when an error escapes the compile/eval
+  pipeline (#1855). The canonical `pushRoot` / `try` / `popRoot` rooting
+  pattern leaks its root when the *protected* allocation is the one that
+  fails: the error unwinds past the `popRoot`, leaving the root stack holding
+  the address of a local in a frame that no longer exists for the next
+  collection to dereference — and shifting the stack so that every pending
+  `defer popRoot()` above it removes the wrong entry. The four
+  `compileExpression*` entry points, `vm_eval.eval`, and `vm_calls.execute`
+  now snapshot the root depth on entry and truncate back to it when an error
+  escapes, rather than adding an errdefer to each of ~340 push sites. Only
+  reachable under out-of-memory; the confirmed leak sites were in
+  `syntax-rules` ellipsis instantiation.
+
 ## [0.22.0] - 2026-07-30
 
 ### Added
