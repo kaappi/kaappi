@@ -153,10 +153,13 @@ matter inside each rule file (not in `settings.json`).
 
 ### `gc-safety.md`
 
-**Globs:** `src/primitives_*.zig`, `src/memory.zig`, `src/vm*.zig`
+**Globs:** `src/primitives_*.zig`, `src/memory.zig`, `src/gc_*.zig`,
+`src/vm*.zig`, `src/compiler*.zig`, `src/expander*.zig`
 
-Loaded when editing GC-sensitive code (all 21 primitives files, the GC
-allocator, and all 8 VM files). Enforces three rules:
+Loaded when editing GC-sensitive code (the primitives files, the GC core and
+its gc_alloc/gc_collect/gc_sweep/gc_deep_copy satellites, the VM files, and
+the compiler/expander files, which do GC-sensitive rooting directly).
+Enforces three rules:
 
 1. **Write barrier required** — call `gc.writeBarrier(container, new_val)`
    after storing a Value into a heap object field. Missing barriers corrupt the

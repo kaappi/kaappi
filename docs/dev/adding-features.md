@@ -223,7 +223,10 @@ recover the struct with `Object.as()`, never a direct cast (#1618).
 
 ### 3. Add the allocator
 
-In `src/memory.zig`, add an `allocMyType` function:
+In `src/gc_alloc.zig`, add an `allocMyType` function, and alias it into the
+`GC` struct next to the other allocator aliases in `src/memory.zig`
+(`pub const allocMyType = gc_alloc.allocMyType;`) so call sites can use
+`gc.allocMyType(...)`:
 
 ```zig
 pub fn allocMyType(self: *GC, data: i64, name: []const u8) !*types.MyType {
@@ -236,32 +239,38 @@ pub fn allocMyType(self: *GC, data: i64, name: []const u8) !*types.MyType {
 
 ### 4. Handle in GC mark phase
 
-In `memory.zig`'s `markValue` function, add a case for tracing any contained
-Values (so their referents are not collected):
+In `src/gc_collect.zig`, add a case for tracing any contained Values (so
+their referents are not collected) to **both** marking switches —
+`markObjectContents` and `markValueInner`'s worklist switch — plus the
+`referencesYoung` remembered-set switch:
 
 ```zig
 .my_type => {
     const mt = obj.as(types.MyType);
     // Mark any Value fields:
-    // self.markValue(mt.some_value);
+    // markValue(gc, mt.some_value);
 },
 ```
 
-If your type contains no Value fields, you can skip this (but still add the
-case for completeness).
+If your type contains no Value fields, add a no-op `{}` case — the switches
+are exhaustive, so Zig forces one either way.
 
 ### 5. Handle in GC free phase
 
-In `memory.zig`'s `freeObject` function, add a case to free any owned memory:
+In `src/gc_sweep.zig`, add cases to `freeObject` (free any owned memory) and
+`objectSize` (GC stats accounting):
 
 ```zig
 .my_type => {
     const mt = obj.as(types.MyType);
     // Free any heap-allocated fields:
-    // self.allocator.free(mt.name);
-    self.allocator.destroy(mt);
+    // gc.allocator.free(mt.name);
+    poisonAndDestroy(gc, types.MyType, mt);
 },
 ```
+
+Also add the new tag to `types.zig`'s `typeName` switch so type-error
+messages can name it.
 
 ### 6. Add display support
 

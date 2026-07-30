@@ -1,5 +1,5 @@
 ---
-globs: ["src/primitives_*.zig", "src/memory.zig", "src/vm*.zig", "src/compiler*.zig", "src/expander.zig"]
+globs: ["src/primitives_*.zig", "src/memory.zig", "src/gc_*.zig", "src/vm*.zig", "src/compiler*.zig", "src/expander*.zig"]
 description: GC safety requirements for heap-mutating code
 ---
 
@@ -52,7 +52,8 @@ string-set!, record field mutation):
   any call that itself might push a root (e.g. rooting a second value
   right after), pop *immediately and explicitly* right after the specific
   allocating call you're protecting — never `defer` across a stretch of
-  code that itself calls `pushRoot`. A real instance: `compiler_macro.zig`
+  code that itself calls `pushRoot`. A real instance: `compiler_define_syntax.zig`
+  (compiler_macro.zig at the time)
   rooted a resolved macro transformer-spec (SRFI 147) via
   `pushRoot`+`defer popRoot()` inside `compileLetSyntax`'s per-binding
   loop; the same loop iteration then pushed a second, unrelated root for

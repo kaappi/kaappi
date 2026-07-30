@@ -1940,3 +1940,24 @@ test "SRFI 213: define-property in a body scope is rejected" {
     );
     try std.testing.expectError(error.CompileError, result);
 }
+
+test "let-syntax malformed later binding leaves no leaked GC roots" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // compileLetSyntax pushes one root per resolved binding; a malformed
+    // second binding aborts the loop with InvalidSyntax after the first
+    // push, so the pop cleanup must already be registered (PR #1853 review).
+    const before = gc.root_count;
+    const result = vm.eval("(let-syntax ((a (syntax-rules () ((_) 1))) 42) 1)");
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expectEqual(before, gc.root_count);
+
+    // Same shape through letrec-syntax.
+    const before2 = gc.root_count;
+    const result2 = vm.eval("(letrec-syntax ((a (syntax-rules () ((_) 1))) (b)) 1)");
+    try std.testing.expectError(error.CompileError, result2);
+    try std.testing.expectEqual(before2, gc.root_count);
+}

@@ -43,11 +43,15 @@ Source code
 | File | ~Lines | Responsibility |
 |------|--------|---------------|
 | `types.zig` | 1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates; re-export hub for 11 `types_*.zig` heap-type domain files (`types_ffi.zig`, `types_port.zig`, `types_continuation.zig`, ... — see `CLAUDE.md`'s File organization table) |
-| `memory.zig` | 650 | GC allocator, alloc/mark/free for all heap types |
+| `memory.zig` | 850 | GC struct, lifecycle, write barrier, rooting, quarantine |
+| `gc_alloc.zig` | 1400 | All `allocXxx` heap-object constructors (aliased into `GC`) |
+| `gc_collect.zig` | 1000 | Collection orchestration, remembered set, marking, weak refs |
+| `gc_sweep.zig` | 600 | Sweep phase, `objectSize`, `freeObject` |
 | `reader.zig` | 700 | S-expression parser, Unicode lexing (core) |
 | `reader_tokens.zig` | 550 | Tokenizer / lexer (numbers, strings, identifiers) |
 | `reader_datum.zig` | 220 | Datum parsing, datum labels |
-| `expander.zig` | 320 | Macro expansion engine (syntax-rules) |
+| `expander.zig` | 1000 | Macro-use expansion, syntax-rules pattern matching, hygiene-strip walks |
+| `expander_instantiate.zig` | 1000 | Template instantiation, hygienic renaming (scope table) |
 | `printer.zig` | 300 | Value-to-string (write mode and display mode) |
 
 ### Compiler & IR (7 files)
