@@ -178,10 +178,56 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `define` | Function definitions compiled to a native LLVM function (see Lambda Strategy). A fixed-arity one's global value is a native closure over that entry (`kaappi_create_native_closure`, #1500); a variadic one's value stays `kaappi_eval_cached`. Non-lambda values: `call @kaappi_define_global(...)` (compound values via `kaappi_eval_cached`) |
 | `set!` | Store to the resolved lexical slot (local/param/upvalue) or `call @kaappi_set_global(...)` |
 | `lambda` | Compiled to a native LLVM function + closure, or cached eval fallback (see Lambda Strategy) |
-| `let`, `let*` | Native `alloca`s with shadow-stack rooting; falls back to `kaappi_eval_cached` for forms it cannot lower in scope (`src/llvm_emit_let.zig`) |
+| `let`, `let*` | Native `alloca`s with shadow-stack rooting, for the bindings and the body's head internal defines alike (see [Internal defines in a `let` body](#internal-defines-in-a-let-body)); falls back to `kaappi_eval_cached` for forms it cannot lower in scope (`src/llvm_emit_let.zig`) |
 | `cond`, `case`, `do` | Native `if`-style block/`phi` chains (`cond`/`case`) and a self-branching `alloca` loop (`do`) when every sub-form is emittable in the current lexical scope; otherwise a whole-form `kaappi_eval_cached` fallback (`src/llvm_emit_forms.zig`, kaappi#1496) |
 | `letrec`, `letrec*`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
 | `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
+
+### Internal defines in a `let` body
+
+An internal `(define <symbol> <expr>)` in a natively emitted `let` body is a
+lexical binding, not a global (kaappi#819) — it lives in an `alloca` registered
+in the emitter's `locals` map, so it shadows any same-named global for the rest
+of the body. `emitLet` is the only tier that sets up such a scope; the closure
+and lambda tiers decline a body containing an internal define outright, so this
+path is reachable only from the top-level body and the lets nested inside it.
+
+The slots are **minted, rooted, and counted by `emitLet`, not by `emitDefine`**
+(kaappi#1854). Before emitting the body, `emitLet` walks the leading run of
+`(define <symbol> <expr>)` forms — R7RS's position for internal definitions —
+and for each mints an `alloca`, stores `VOID` into it, pushes it on the shadow
+stack, registers it in `locals`, and adds it to the same `binding_root_count`
+the bindings use. `emitDefine`'s internal path then only evaluates the
+initializer and stores into that slot; `LLVMEmitter.scope_define_names` is how
+it recognizes one.
+
+Two things make this the right owner:
+
+- **Rooting.** `emitDefine` used to mint the slot itself and never push it, so
+  the binding held the only reference to a freshly allocated value across every
+  later allocation in the body. A collection freed it and the memory was
+  recycled into whatever came next — a wrong answer with no crash:
+  `(let ((a 1)) (define xs (list 11 22 33)) <allocate> (car xs))` returned a
+  loop counter.
+- **A static push count.** The scope pops a fixed `n` at exit, so every push it
+  counts has to execute exactly once. Pushes emitted at the head of the body
+  dominate it; one emitted at a define nested inside an `if` would not. Those
+  defines are exactly the ones `scope_define_names` omits, and `emitDefine`
+  answers `error.UnsupportedNodeType` for them, so the enclosing `let` abandons
+  and the interpreter — which binds a non-head define correctly — takes the
+  whole form.
+
+Pre-creating every slot before any initializer runs is also letrec* semantics,
+which is what a body of internal definitions means: a forward or self reference
+reads `VOID` (bound but not yet assigned) rather than the uninitialized `alloca`
+it read before.
+
+Rooting these slots cannot interact with `musttail` (kaappi#1499): `mustTailSafe`
+already requires `self.locals == null`, which is never true inside a `let` body.
+
+The procedure shorthand `(define (f …) …)` is a different path — `ir.lowerDefine`
+turns it into a `passthrough`, so it never reaches `emitDefine` and still defines
+a global.
 
 ## Compile-Time Processing
 

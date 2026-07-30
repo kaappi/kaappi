@@ -262,13 +262,21 @@ pub fn emitDo(self: *LLVMEmitter, args: Value, is_tail: bool) EmitError![]const 
 
     // Phase 2: bind all loop variables at once (parallel, not sequential).
     const saved_locals = self.locals;
+    const saved_define_names = self.scope_define_names;
     self.locals = if (saved_locals) |existing|
         existing.clone() catch return error.OutOfMemory
     else
         std.StringHashMap(llvm_emit.LocalBinding).init(self.allocator());
+    // A do body is its own scope, so it must not inherit the enclosing let's
+    // internal-define slots: those are rooted against that let's pop count, and
+    // a define reaching this body would otherwise store into one of them (#1854).
+    // `doArgsEmittable` rejects `define` outright, so nothing here can define at
+    // all — this keeps that from being load-bearing.
+    self.scope_define_names = &.{};
     defer {
         self.locals.?.deinit();
         self.locals = saved_locals;
+        self.scope_define_names = saved_define_names;
     }
     for (0..n) |i| self.locals.?.put(var_names[i], .{ .slot = allocas[i] }) catch return error.OutOfMemory;
 
@@ -1026,17 +1034,28 @@ pub fn emitDefine(self: *LLVMEmitter, data: ir.DefineData) EmitError![]const u8 
     // Internal define inside a natively compiled lexical scope (a `let`
     // body). self.locals is only populated while emitLet emits a body, so
     // top-level and lambda-body defines fall through to the global path.
-    // Create a fresh local binding so the define shadows any global of the
-    // same name for the rest of the body, instead of overwriting it (#819).
+    // The local binding shadows any global of the same name for the rest of the
+    // body instead of overwriting it (#819).
     if (self.locals != null) {
-        const alloca = try self.freshTemp();
-        try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-        // Register before emitting the value so a self/mutual reference in
-        // the initializer resolves to this binding (letrec*-style).
-        self.locals.?.put(name, .{ .slot = alloca }) catch return error.OutOfMemory;
-        const val = try self.emitScopedValue(data.value);
-        try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
-        return self.emitVoid();
+        // emitLet minted this slot, stored VOID into it, pushed it on the shadow
+        // stack, and counted it into its own pop before emitting the body
+        // (#1854), so the value stored below survives a collection triggered
+        // anywhere later in that body — which the slot this path used to mint for
+        // itself, never rooted, did not. It is registered in `locals` from the
+        // same place, which is what makes a self/mutual reference in the
+        // initializer resolve here (letrec*-style) rather than to a global.
+        if (self.definePreslot(name)) |slot| {
+            const val = try self.emitScopedValue(data.value);
+            try self.print("  store i64 {s}, ptr {s}\n", .{ val, slot });
+            return self.emitVoid();
+        }
+        // A define the enclosing scope never modelled, i.e. not at the head of
+        // its body where R7RS requires internal definitions — inside an `if`
+        // branch, say. Minting a slot here leaves it unrooted, and rooting one
+        // would push on a path the scope's fixed pop count cannot match. Decline
+        // instead: the enclosing scope abandons to the interpreter, which binds
+        // it correctly.
+        return error.UnsupportedNodeType;
     }
 
     const sym_name = try self.internSymbol(name);
