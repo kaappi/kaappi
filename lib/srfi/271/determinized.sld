@@ -6,8 +6,12 @@
 ;; suitable for reproducible testing. The port's state can be captured,
 ;; compared, and used to construct a fresh port at that same state.
 (define-library (srfi 271 determinized)
+  ;; (kaappi primitives): the internal %-prefixed helpers this file calls
+  ;; below. They used to arrive with (scheme base), which reserved their
+  ;; names against every user library (kaappi#1856).
   (import (scheme base)
-          (scheme case-lambda))
+          (scheme case-lambda)
+          (kaappi primitives))
   (export make-random-port
           random-port?
           random-port-state

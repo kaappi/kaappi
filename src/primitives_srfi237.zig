@@ -64,18 +64,21 @@ const SRFI237 = LS.initOne(.srfi_237_primitives);
 // %record-split-args are referenced directly by vm_records.zig's R6RS
 // desugarer's GENERATED code, exactly like the original R7RS %make-record/
 // %record?/%record-ref/%record-set! already are -- so they need the same
-// unconditional `.scheme_base` visibility those have (core_specs in
-// primitives.zig), not the `.srfi_237_primitives` sub-library tag, which
-// only gates what `lib/srfi/237/base.sld`'s own procedural-layer Scheme
-// code can `(import (srfi 237 primitives))`.
-const BASE = LS.initOne(.scheme_base);
+// import-free visibility those have (core_specs in primitives.zig), not the
+// `.srfi_237_primitives` sub-library tag, which only gates what
+// `lib/srfi/237/base.sld`'s own procedural-layer Scheme code can
+// `(import (srfi 237 primitives))`. That visibility is `.internal` --
+// registered in vm.globals, exported by no library -- and NOT
+// `.scheme_base`, which would reserve these names against every user
+// library that imports it (kaappi#1856).
+const INTERNAL = primitives.INTERNAL;
 
 pub const specs = [_]primitives.PrimSpec{
     .{ .name = "%make-record-type-descriptor", .func = &makeRecordTypeDescriptorFn, .arity = .{ .exact = 6 }, .libs = SRFI237 },
-    .{ .name = "%record?/inherit", .func = &recordCheckInheritFn, .arity = .{ .exact = 2 }, .libs = BASE },
-    .{ .name = "%record-ref/inherit", .func = &recordRefInheritFn, .arity = .{ .exact = 3 }, .libs = BASE },
-    .{ .name = "%record-set!/inherit", .func = &recordSetInheritFn, .arity = .{ .exact = 4 }, .libs = BASE },
-    .{ .name = "%record-split-args", .func = &recordSplitArgsFn, .arity = .{ .exact = 2 }, .libs = BASE },
+    .{ .name = "%record?/inherit", .func = &recordCheckInheritFn, .arity = .{ .exact = 2 }, .libs = INTERNAL },
+    .{ .name = "%record-ref/inherit", .func = &recordRefInheritFn, .arity = .{ .exact = 3 }, .libs = INTERNAL },
+    .{ .name = "%record-set!/inherit", .func = &recordSetInheritFn, .arity = .{ .exact = 4 }, .libs = INTERNAL },
+    .{ .name = "%record-split-args", .func = &recordSplitArgsFn, .arity = .{ .exact = 2 }, .libs = INTERNAL },
     .{ .name = "%record?/any", .func = &recordCheckAnyFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
     .{ .name = "%record-rtd", .func = &recordRtdFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
     .{ .name = "%record-type-name", .func = &recordTypeNameFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },

@@ -207,6 +207,21 @@ pub fn baseBindingSymbolName(buf: []u8, name: []const u8) []const u8 {
     return std.fmt.bufPrint(buf, "{s}{s}", .{ base_binding_prefix, name }) catch name;
 }
 
+/// Allocate the `base_binding_prefix`-marked symbol for `name`: a
+/// compiler-synthesized reference that must always mean the standard
+/// procedure, or the internal primitive (#1856), rather than whatever the
+/// program being compiled has bound that name to. Returns the plain symbol
+/// unprefixed only if the name is longer than the fixed buffer, matching
+/// `baseBindingSymbolName`'s own overflow behavior.
+///
+/// Lives here rather than on `Compiler` (which has
+/// `trueBuiltinRefOrSymbol`, a thin wrapper over this) so `vm_records.zig`'s
+/// `define-record-type` desugarer can use it from its `VMError` paths too.
+pub fn baseBindingSymbol(gc: *@import("memory.zig").GC, name: []const u8) !Value {
+    var buf: [96]u8 = undefined;
+    return gc.allocSymbol(baseBindingSymbolName(&buf, name));
+}
+
 /// If `name` carries `base_binding_prefix`, return the unprefixed suffix;
 /// otherwise return null.
 pub fn stripBaseBindingPrefix(name: []const u8) ?[]const u8 {

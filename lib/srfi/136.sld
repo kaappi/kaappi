@@ -49,7 +49,9 @@
   ;; (srfi 237 primitives) imported explicitly for the same reason as
   ;; lib/srfi/131.sld: relying on ambient visibility of %-prefixed
   ;; primitives without a declared import proved unreliable in testing.
-  (import (scheme base) (srfi 237) (srfi 237 primitives))
+  ;; (kaappi primitives) supplies %make-record/%make-record-type/%record?,
+  ;; which used to arrive via (scheme base) and no longer do (kaappi#1856).
+  (import (scheme base) (srfi 237) (srfi 237 primitives) (kaappi primitives))
   (export define-record-type record? record-type-descriptor? record-type-descriptor
           record-type-predicate record-type-name record-type-parent record-type-fields
           make-record-type-descriptor make-record)

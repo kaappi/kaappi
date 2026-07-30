@@ -30,11 +30,13 @@
 ;;; same top-level-only limitation (library bodies not yet supported).
 (define-library (srfi 131)
   ;; (srfi 237 primitives) imported explicitly for %record-type-total-
-  ;; field-count/%make-record (used by %named-constructor/%absolute-index
-  ;; below) -- relying on their being ambiently visible without a
-  ;; declared import proved unreliable in testing for this file, unlike
-  ;; some other %-prefixed primitives elsewhere in this codebase.
-  (import (scheme base) (srfi 237) (srfi 237 primitives))
+  ;; field-count (used by %named-constructor/%absolute-index below) --
+  ;; relying on its being ambiently visible without a declared import
+  ;; proved unreliable in testing for this file. (kaappi primitives) is
+  ;; the same story for %make-record, and is now mandatory rather than
+  ;; merely good practice: it moved out of (scheme base), where it was
+  ;; reserving the name against every user library (kaappi#1856).
+  (import (scheme base) (srfi 237) (srfi 237 primitives) (kaappi primitives))
   (export define-record-type)
   (begin
 

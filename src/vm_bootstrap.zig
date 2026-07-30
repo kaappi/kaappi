@@ -42,7 +42,13 @@ pub fn install(vm: *VM) VMError!void {
     vm.global_version +%= 1;
 }
 
-const internal_helpers = [_][]const u8{
+/// The `.internal` specs that must not merely be unexported but unreachable:
+/// removed from vm.globals by `install()` above. Every other `.internal`
+/// spec stays in globals on purpose — compiler-generated code and portable
+/// `.sld` bodies reach those by name (see `primitives.Lib.internal`). Public
+/// so `tests_libraries.zig`'s drift guard tests that distinction instead of
+/// assuming the two sets coincide.
+pub const internal_helpers = [_][]const u8{
     "%push-wind",
     "%pop-wind",
     "%promise-forced?",

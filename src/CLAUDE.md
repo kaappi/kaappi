@@ -62,10 +62,17 @@ Then add the re-export in `compiler_forms.zig` (thin hub — don't add logic the
 
 ## Primitives files
 
-Each `primitives_*.zig` has a `registerXxx` function that calls `primitives.reg()`
-for every procedure. These files are intentionally broad (many independent
-functions) — don't split them further. See `.claude/rules/gc-safety.md` for
-write-barrier and rooting requirements when adding primitives that allocate.
+Each `primitives_*.zig` exports a `specs` table — one entry per procedure,
+carrying its name, function, arity, and the `.libs` set that exports it.
+`primitives.all_specs` concatenates them; `registerAll` and `library.zig`
+both walk that, so an entry is the whole registration. A `%`-prefixed
+internal helper takes `.libs = primitives.INTERNAL` (or `INTERNAL_PUBLIC`
+when a portable `.sld` names it) — never a `scheme.*` tag, which reserves
+the name against user libraries and is rejected at comptime (kaappi#1856).
+
+These files are intentionally broad (many independent functions) — don't
+split them further. See `.claude/rules/gc-safety.md` for write-barrier and
+rooting requirements when adding primitives that allocate.
 
 ## File size
 

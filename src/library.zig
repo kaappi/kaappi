@@ -56,11 +56,28 @@ pub const LibraryRegistry = struct {
     /// outlive the library (escaping via import into vm.globals), so a
     /// replaced env must stay alive until the registry is torn down (#820).
     retired_envs: std.ArrayList(*std.StringHashMap(Value)) = .empty,
+    /// Pristine values of the `.internal` primitives (`primitives.Lib.internal`),
+    /// captured at startup from vm.globals and never written again — the same
+    /// "snapshot before any user code runs" role `scheme.base`'s export table
+    /// plays for `lookupBaseBinding` (#1715). Compiler-synthesized references
+    /// resolve through it via `Compiler.trueBuiltinRefOrSymbol`, so
+    /// `define-record-type`, `case-lambda`, `parameterize`, and `delay` keep
+    /// working in a scope that binds `%record-ref` (or any other helper name)
+    /// to something of its own (#1856).
+    ///
+    /// A separate table rather than one more `Library` because the two answer
+    /// different questions: a `Library` is what `import` hands to a program,
+    /// this is what the compiler resolves against. Some of these names *are*
+    /// also exported, by `(kaappi primitives)`, for the portable `.sld`s that
+    /// call them from Scheme source — that export is the program-facing half
+    /// and has nothing to do with this snapshot.
+    internal_bindings: std.StringHashMap(Value),
 
     pub fn init(allocator: std.mem.Allocator) LibraryRegistry {
         return .{
             .allocator = allocator,
             .libraries = std.StringHashMap(Library).init(allocator),
+            .internal_bindings = std.StringHashMap(Value).init(allocator),
         };
     }
 
@@ -70,6 +87,7 @@ pub const LibraryRegistry = struct {
             lib.deinit();
         }
         self.libraries.deinit();
+        self.internal_bindings.deinit();
         for (self.retired_envs.items) |env| {
             env.deinit();
             self.allocator.destroy(env);
@@ -143,6 +161,20 @@ fn addExportsForLib(library: *Library, lib: Lib, globals: *std.StringHashMap(Val
 /// hence safe under `--sandbox` and on WASM.
 pub const extra_std_libraries = [_][]const u8{ "scheme.case-lambda", "srfi.9" };
 
+/// Snapshot the `.internal` primitives into `registry.internal_bindings` —
+/// see that field for why they live outside `libraries` (#1856). Runs from
+/// both registrars, since compiler-synthesized code needs these under
+/// `--sandbox` too; `registerSandboxed` only puts `spec.sandbox` primitives
+/// in globals, so a sandbox-excluded one is simply absent here as well.
+fn snapshotInternalBindings(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
+    for (&primitives_mod.all_specs) |spec| {
+        if (!spec.libs.contains(.internal)) continue;
+        if (globals.get(spec.name)) |val| {
+            try registry.internal_bindings.put(spec.name, val);
+        }
+    }
+}
+
 /// Register the standard R7RS libraries by deriving exports from spec tables.
 pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
     const allocator = registry.allocator;
@@ -159,6 +191,8 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     for (extra_std_libraries) |name| {
         try registry.register(Library.init(allocator, name));
     }
+
+    try snapshotInternalBindings(registry, globals);
 }
 
 pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
@@ -177,6 +211,8 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
     for (extra_std_libraries) |name| {
         try registry.register(Library.init(allocator, name));
     }
+
+    try snapshotInternalBindings(registry, globals);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

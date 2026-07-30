@@ -79,6 +79,7 @@ fn abandonLetForFallback(self: *LLVMEmitter, args: Value, sequential: bool, save
     self.buf.shrinkRetainingCapacity(checkpoint.buf_len);
     self.current_block = checkpoint.block;
     self.body_scope_roots = checkpoint.body_scope_roots;
+    self.scope_define_names = checkpoint.scope_define_names;
     self.locals.?.deinit();
     self.locals = saved_locals;
     return emitLetFallback(self, args, sequential);
@@ -91,7 +92,28 @@ const Checkpoint = struct {
     buf_len: usize,
     block: []const u8,
     body_scope_roots: usize,
+    scope_define_names: []const []const u8,
 };
+
+// The bound name of a `(define <symbol> <expr>)` body form, or null for
+// anything else — including `(define (f …) …)`, which `lowerDefine` turns into a
+// passthrough that defines a global and so never reaches emitDefine's internal
+// path (#1854).
+fn headDefineName(form: Value) ?[]const u8 {
+    if (!types.isPair(form)) return null;
+    const head = types.car(form);
+    if (!types.isSymbol(head) or !std.mem.eql(u8, types.symbolName(head), "define")) return null;
+    const rest = types.cdr(form);
+    if (!types.isPair(rest)) return null;
+    const target = types.car(rest);
+    if (!types.isSymbol(target)) return null;
+    if (!types.isPair(types.cdr(rest))) return null;
+    return types.symbolName(target);
+}
+
+// Same ceiling as this file's binding arrays: a body with more head defines than
+// this abandons to the interpreter rather than leaving the extras unrooted.
+const max_head_defines = 32;
 
 pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
     const bindings = types.car(args);
@@ -105,6 +127,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         .buf_len = self.buf.items.len,
         .block = self.current_block,
         .body_scope_roots = self.body_scope_roots,
+        .scope_define_names = self.scope_define_names,
     };
 
     // #827: If the let form (bindings or body) contains sub-expressions
@@ -262,6 +285,57 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
         }
     }
 
+    // R7RS internal defines at the head of the body are letrec* bindings, so
+    // mint and root every slot here — before any initializer runs — and hand the
+    // set to emitDefine, whose internal path then stores into an already-rooted
+    // slot instead of minting one of its own (#1854). The slot it used to mint
+    // was never pushed on the shadow stack, so an allocation later in the body
+    // could collect the value out from under the binding: `(let ((a 1)) (define
+    // xs (list 11 22 33)) <allocate a lot> (car xs))` returned whatever had been
+    // built in xs's recycled memory, silently, in a compiled binary.
+    //
+    // Rooting from this one place is also what keeps the push count static: these
+    // pushes dominate the whole body, unlike one emitted at a define nested
+    // inside an `if`, which would run on one path only while the pop count below
+    // is fixed. Those defines are exactly the ones absent from this set, and
+    // emitDefine declines them so the body loop's abandon hands the whole form to
+    // the interpreter (which binds a non-head define correctly).
+    var define_names: [max_head_defines][]const u8 = undefined;
+    var define_count: usize = 0;
+    {
+        var be = body_list;
+        head_defines: while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
+            const dname = headDefineName(types.car(be)) orelse break;
+            if (define_count >= max_head_defines) {
+                return abandonLetForFallback(self, args, sequential, saved_locals, checkpoint);
+            }
+            // A redefinition of the same name reuses the first slot: every store
+            // and every read resolves through `locals`, so one rooted slot per
+            // name is exactly right, and a second would only be dead weight.
+            for (define_names[0..define_count]) |n| {
+                if (std.mem.eql(u8, n, dname)) continue :head_defines;
+            }
+            const alloca = try self.freshTemp();
+            try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+            // The slot is rooted before its own initializer runs, so it has to
+            // hold a scannable Value from the start. VOID is how this backend
+            // spells letrec*'s bound-but-not-yet-assigned, and it also replaces
+            // the uninitialized load a self-reference in the initializer used to
+            // get from the freshly minted alloca.
+            try self.print("  store i64 {d}, ptr {s}\n", .{ @as(i64, @bitCast(types.VOID)), alloca });
+            try self.emitRootPushAlloca(alloca);
+            binding_root_count += 1;
+            self.locals.?.put(dname, .{ .slot = alloca }) catch return error.OutOfMemory;
+            define_names[define_count] = dname;
+            define_count += 1;
+        }
+    }
+    // On the emitter's arena, not this frame's stack: the slice is read from
+    // arbitrarily deep inside body emission and is restored on both exits below,
+    // but an arena slice stays valid even if some future exit path forgets to.
+    self.scope_define_names = self.allocator().dupe([]const u8, define_names[0..define_count]) catch
+        return error.OutOfMemory;
+
     // #1585: while the body is lowered in tail position, the binding roots must
     // be released before every tail transfer — a `ret` through an in-body tail
     // call and a self-tail call's branch-back to the loop header alike.
@@ -292,6 +366,7 @@ pub fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool)
     }
 
     self.body_scope_roots = checkpoint.body_scope_roots;
+    self.scope_define_names = checkpoint.scope_define_names;
     try self.emitPopRoots(binding_root_count);
     self.locals.?.deinit();
     self.locals = saved_locals;

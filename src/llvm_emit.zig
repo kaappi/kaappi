@@ -193,6 +193,20 @@ pub const LLVMEmitter = struct {
     // shadows any same-named outer binding — including a boxed one: box-ness
     // is a per-binding attribute, never a name-level one (#1584).
     locals: ?std.StringHashMap(LocalBinding) = null,
+    // Names of the internal defines at the head of the CURRENT innermost native
+    // scope's body, whose slots that scope minted, rooted, and counted into its
+    // own pop before emitting the body (emitLet, #1854). emitDefine's internal
+    // path stores into one of these instead of minting a slot of its own, which
+    // it never rooted — so an allocation later in the body could collect the
+    // value the binding held, silently, in a compiled binary. A define whose
+    // name is absent here is one the scope's fixed pop count cannot account for
+    // (it is not at the head of the body — e.g. inside an `if` — so a root push
+    // emitted at it would run on only some paths): emitDefine declines it and
+    // the enclosing scope abandons to the interpreter, which binds it correctly.
+    // Scoped, never inherited: every scope that installs `locals` sets its own
+    // list (empty when it has no head defines) and restores the previous one on
+    // exit, so an inner body can never store into an outer scope's slot.
+    scope_define_names: []const []const u8 = &.{},
     // Frame-level boxed bindings (assignment conversion, #1497): boxed fixed
     // params and, inside a native closure, the mirrored boxed captures — name
     // -> the alloca that holds the box POINTER. Reads go through
@@ -260,6 +274,7 @@ pub const LLVMEmitter = struct {
         rest_param_alloca: ?[]const u8,
         rest_param_name: ?[]const u8,
         locals: ?std.StringHashMap(LocalBinding),
+        scope_define_names: []const []const u8,
         boxes: ?std.StringHashMap([]const u8),
         frame_entry_roots: usize,
         body_scope_roots: usize,
@@ -280,6 +295,7 @@ pub const LLVMEmitter = struct {
             .rest_param_alloca = self.rest_param_alloca,
             .rest_param_name = self.rest_param_name,
             .locals = self.locals,
+            .scope_define_names = self.scope_define_names,
             .boxes = self.boxes,
             .frame_entry_roots = self.frame_entry_roots,
             .body_scope_roots = self.body_scope_roots,
@@ -300,6 +316,7 @@ pub const LLVMEmitter = struct {
         self.rest_param_alloca = s.rest_param_alloca;
         self.rest_param_name = s.rest_param_name;
         self.locals = s.locals;
+        self.scope_define_names = s.scope_define_names;
         self.boxes = s.boxes;
         self.frame_entry_roots = s.frame_entry_roots;
         self.body_scope_roots = s.body_scope_roots;
@@ -811,6 +828,20 @@ pub const LLVMEmitter = struct {
     pub fn inLexicalScope(self: *LLVMEmitter) bool {
         return self.params != null or self.locals != null or
             self.rest_param_name != null or self.upvalues != null;
+    }
+
+    // The already-rooted slot the current scope minted for an internal define
+    // at the head of its body, or null when this scope never modelled `name`
+    // (#1854 — see scope_define_names). The name lookup goes through `locals`
+    // so the slot found is the one every read of that name resolves to.
+    pub fn definePreslot(self: *LLVMEmitter, name: []const u8) ?[]const u8 {
+        const locals = self.locals orelse return null;
+        for (self.scope_define_names) |n| {
+            if (!std.mem.eql(u8, n, name)) continue;
+            const binding = locals.get(name) orelse return null;
+            return binding.slot;
+        }
+        return null;
     }
 
     // Emit a value expression, resolving variable references against the

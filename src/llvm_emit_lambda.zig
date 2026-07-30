@@ -240,8 +240,11 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         self.current_block = "entry";
         // The enclosing function's let-locals and rest parameter are not in
         // scope inside this closure's body; leaking them would misresolve
-        // names against the wrong frame's allocas.
+        // names against the wrong frame's allocas. The enclosing scope's
+        // internal-define slots go with them (#1854): they live in that frame's
+        // stack, and its pop count — not this one's — accounts for their roots.
         self.locals = null;
+        self.scope_define_names = &.{};
         self.rest_param_name = null;
         self.rest_param_alloca = null;
 
@@ -603,6 +606,9 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         self.tmp_counter = 0;
         self.label_counter = 0;
         self.locals = null;
+        // Likewise the enclosing scope's internal-define slots (#1854) — they
+        // are that frame's allocas, rooted against that frame's pop count.
+        self.scope_define_names = &.{};
         // This function is closed — it receives null for %upvalues at run
         // time — so an upvalue map inherited from the enclosing emission
         // scope must not leak into body emission or bindParamsAsGlobals.

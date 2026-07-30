@@ -31,6 +31,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const ir_mod = @import("ir.zig");
+const globals_mod = @import("globals.zig");
 const diagnostics = @import("diagnostics.zig");
 
 const Value = types.Value;
@@ -139,6 +140,19 @@ fn walk(ctx: *Context, ir: *IR, node: *Node, fallback: types.Span) void {
     }
 }
 
+/// A reference a desugaring built, not one the user wrote: `let-values`'s
+/// `list`/`apply`/`call-with-values`, `case-lambda`'s `length`,
+/// `define-record-type`'s `%make-record`/`%record-ref`/…, marked with
+/// `globals_mod.base_binding_prefix` so they resolve against the pristine
+/// startup snapshot rather than vm.globals (#1715, #1856). They resolve by a
+/// path `ir.globals` cannot see, so judging them against it produced a
+/// spurious KP4001 on any file using one of those forms — and they are not
+/// the user's source text, exactly like the hygienic-prefix case above.
+fn isCompilerSynthesized(name: []const u8) bool {
+    return globals_mod.stripBaseBindingPrefix(name) != null or
+        globals_mod.parseDefEnvBindingSymbolName(name) != null;
+}
+
 // ── Unbound top-level variable (KP4001, warning) ───────────────────────────
 
 /// A free reference to a global that is neither a built-in, an imported binding,
@@ -151,6 +165,7 @@ fn checkGlobalRef(ctx: *Context, ir: *IR, node: *Node, fallback: types.Span) voi
 
     // Macro-introduced identifiers are not the user's source text.
     if (!std.mem.eql(u8, name, types.stripHygienicPrefix(name))) return;
+    if (isCompilerSynthesized(name)) return;
 
     // A lexical binding shadows the global — not a top-level reference at all.
     if (ir.compiler) |c| {
@@ -186,6 +201,7 @@ fn checkCall(ctx: *Context, ir: *IR, node: *Node) void {
     // Skip macro-introduced operators and any name the user rebinds: a lexical
     // shadow, a set! target, or a top-level (re)definition of the name.
     if (!std.mem.eql(u8, name, types.stripHygienicPrefix(name))) return;
+    if (isCompilerSynthesized(name)) return;
     if (ir.isRedefined(name)) return;
     if (ctx.user_defined.contains(name)) return;
 
