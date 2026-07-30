@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785403180022,
+  "lastUpdate": 1785403555813,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e5b9049e4d141660b016e805267ee887066dbe50",
-          "message": "Root heap locals in prettyPrint tests against gc-stress sweeps (#1685)\n\nThe fuzz workflow's gc-stress variant crashed in \"prettyPrint clause form\nindentation\" (run 29720271494, issue #1682): the test held clause1 in an\nunrooted Zig local while the next makeList allocated, and under\n-Dgc-stress=true that allocation's collection swept clause1's pairs. The\nfinal makeList then slice-rooted the dangling value and markValueInner\nsegfaulted reading the freed header.\n\nThe bug usually hides: the freed Pair slot is typically reused by the very\nnext same-size allocation, so the dangling clause1 aliases clause2 and the\noutput silently becomes (cond (#f 2) (#f 2)) — which the old startsWith\nassertion accepted. That is why twelve prior scheduled fuzz runs passed.\nThe assertion is now an exact string compare, so under gc-stress the\nunrooted variant fails in both failure modes (content mismatch or crash).\n\nAlso root `body` in the neighboring body-form test, which stayed safe only\nbecause allocSymbol happens never to collect.\n\nFixes #1682\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T23:14:17+05:30",
-          "tree_id": "4350531545ce8405a9cb6531c72320f45ff8a665",
-          "url": "https://github.com/kaappi/kaappi/commit/e5b9049e4d141660b016e805267ee887066dbe50"
-        },
-        "date": 1784571330341,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.956971,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.649937,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.933151,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.577101,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006388,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05478,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507972,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069799,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.613269,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.008713,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.601928,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430574,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.851179,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.64506,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043299,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044747,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ac7369522e55d0bf4d5269079d1ab488548069d",
+          "message": "Stop (scheme base) from exporting %-prefixed internals (#1859)\n\n* Stop (scheme base) from exporting %-prefixed internals\n\n`(scheme base)` exported 22 `%`-prefixed internal primitives. Since v0.22.0\nalso began enforcing R7RS 5.2 (#1726), any user library that defined one of\nthose names and imported `(scheme base)` failed to load outright — the\ndocumented C-extension walkthrough, whose example exported `%length`, was\none such casualty. `%` is this codebase's own private-helper marker, so\nuser code has good reason to treat that namespace as its own.\n\nThe 22 names move off the `scheme.base` tag, and a comptime check in\nprimitives.zig now rejects any `%` name tagged with a `scheme.*` library.\nWhere they went depends on who names them:\n\n  - Only Zig-generated code names them (`%make-promise-lazy`,\n    `%parameter-set!`, `%parameter-convert`, the record substrate and its\n    `/inherit` variants): `.internal` — registered in vm.globals, exported\n    by nothing.\n  - A portable `.sld` names them in its own Scheme source (SRFI 27's\n    random-source accessors, SRFI 74's endianness probe, SRFI 271's random\n    ports, the record substrate SRFI 57/131/136/150/237 build on): also\n    `.internal`, plus a new `(kaappi primitives)` library those `.sld`s\n    import, so each declares the dependency it actually has.\n\nUnexporting them alone would have converted a loud error into a silent\nwrong answer: a library defining its own `%record-ref` would load, and its\n`define-record-type` accessors would then call it. Compiler-synthesized\nreferences therefore go through `Compiler.trueBuiltinRefOrSymbol` /\n`globals_mod.baseBindingSymbol`, resolving against a pristine startup\nsnapshot (`LibraryRegistry.internal_bindings`) rather than vm.globals —\nthe mechanism #1715 already used for let-values.\n\n`%length` is deleted rather than relocated: case-lambda's arity dispatch\nnow references `length`'s pristine `(scheme base)` binding directly, which\nis what the alias existed to approximate (#1714) and is strictly stronger,\nsince a top-level `(define (%length x) ...)` could overwrite the alias but\ncannot touch the export table.\n\nTwo adjacent fixes fall out:\n\n  - `kaappi check` no longer reports KP4001 on base-binding-prefixed\n    references. This was already wrong for let-values' synthesized\n    `call-with-values`; case-lambda, define-record-type, parameterize and\n    delay would have made it common.\n  - The globals drift guard now tests the invariant it meant to\n    (`vm_bootstrap.internal_helpers` are purged) instead of assuming every\n    `.internal` spec is purged, which only held while the two sets\n    coincided.\n\nFull suite: 2014 Scheme tests pass, 0 fail; unit suite green; sandbox,\nWASM, and x86_64-linux cross-compile verified.\n\nCloses #1856\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix stale primitive-registration docs (CodeRabbit)\n\n`reg()` has had no caller outside `registerAll`/`registerSandboxed` looping\nover `all_specs` for some time, but CLAUDE.md and src/CLAUDE.md still told\ncontributors to call it from a `registerXxx` function — which, after the\nprevious commit added the spec-table step beside it, left CLAUDE.md\ndescribing two registration workflows, one of which does not exist.\nBoth now describe the spec table alone.\n\nThe /add-builtin skill only mentioned `INTERNAL`; it now distinguishes it\nfrom `INTERNAL_PUBLIC` the way CLAUDE.md and docs/dev/adding-features.md\nalready do.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T14:10:13+05:30",
+          "tree_id": "2c48981d86056b3b6c5e5f355dff2deaf3da8be4",
+          "url": "https://github.com/kaappi/kaappi/commit/5ac7369522e55d0bf4d5269079d1ab488548069d"
+        },
+        "date": 1785403553400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.227755,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.265657,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.599782,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.984523,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004969,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04676,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311196,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057363,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.654206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.223407,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.586201,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.290857,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.809233,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.59505,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043186,
             "unit": "seconds"
           }
         ]
