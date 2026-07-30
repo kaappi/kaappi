@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   see, now applied to the mid-emission escape hatch as well. A fallback inside a
   plain lambda frame, where the params *are* publishable, still compiles the
   lambda natively and is unaffected.
+- **A library body could not reference a global it had not imported from its
+  own top level** (#1860) — the identical reference from inside a `lambda` in
+  the same body worked, so a name like `cadar` or a `%`-prefixed internal
+  primitive resolved or raised `undefined variable` depending only on where in
+  the body it was written. #1831 gave the three global-reference opcodes one
+  resolver with a `vm.globals` fallback for library code, but gated it on a
+  flag derived per-function: it landed on the outer function of each
+  library-body form and on none of the closures inside it. The flag is now a
+  property of the environment, set from a `library`-vs-`restricted` distinction
+  at the one compile entry point that has it and inherited by every nested
+  function. This also closes the same gap in the other direction: a restricted
+  `(environment ...)` withheld a name from the expression's own top level and
+  handed it over through a `lambda`, and now withholds it from both.
+
 - **Native backend: an internal `define` in a `let` body could be collected**
   (#1854). The LLVM backend gave the binding an `alloca` but never pushed it on
   the GC shadow stack, so a collection triggered anywhere later in the body

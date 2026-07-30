@@ -5,7 +5,7 @@ This file covers patterns specific to working in this directory.
 
 ## Test files (`tests_*.zig`)
 
-20 test files, one per feature area. Use helpers from `testing_helpers.zig`:
+44 test files, one per feature area. Use helpers from `testing_helpers.zig`:
 
 ```zig
 const th = @import("testing_helpers.zig");

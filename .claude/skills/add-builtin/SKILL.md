@@ -4,18 +4,29 @@ description: Pattern for adding a new built-in Scheme procedure to Kaappi
 
 # Add a Built-in Procedure
 
+Checklist. `docs/dev/adding-features.md` ("Adding a Built-in Procedure") is the
+detailed reference — read it for anything this doesn't cover.
+
 ## Steps
 
-1. **Define the function** in `src/primitives.zig`:
+1. **Define the function** in the `src/primitives_*.zig` file matching its
+   domain (arithmetic, string, vector, I/O, …). There are 30 of those;
+   `primitives.zig` itself is the registration hub plus core list/pair ops, so
+   a new procedure rarely belongs there:
 
 ```zig
 fn myProc(args: []const Value) PrimitiveError!Value {
-    // Validate arg types
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    // Validate arg types — typeError names the procedure and the bad value
+    if (!types.isFixnum(args[0]))
+        return primitives.typeError("my-proc", "exact integer", args[0]);
     // Compute result
-    return types.makeFixnum(result);
+    const n = types.toFixnum(args[0]);
+    return types.makeFixnum(n + 1);
 }
 ```
+
+The signature is always `fn([]const Value) PrimitiveError!Value`; arity is
+already checked by the dispatch layer.
 
 2. **Add a spec entry** to the file's `specs` table. One entry carries the
    name, function, arity, and the libraries that export it — `library.zig`
@@ -39,22 +50,24 @@ Two cases:
 Synthesize *references* to either with `Compiler.trueBuiltinRefOrSymbol` /
 `globals_mod.baseBindingSymbol`, never a bare `allocSymbol("%foo")` — that
 picks up a user binding of the same name.
-See `docs/dev/adding-features.md`.
 
-3. **Add a test** in `src/vm.zig` test section:
+3. **Add a test** in the matching `src/tests_*.zig` file (44 of them, one per
+   feature area — a new file only for a genuinely new area). Not in
+   `src/vm.zig`: its single `test` block only imports sibling modules into the
+   test build and holds no assertions. Use the `testing_helpers.zig` helpers:
 
 ```zig
-test "eval my-proc" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(my-proc 42)");
-    try std.testing.expectEqual(@as(i64, expected), types.toFixnum(result));
+const th = @import("testing_helpers.zig");
+
+test "my-proc increments" {
+    try th.expectEval("(my-proc 42)", 43);
 }
 ```
 
-4. **Update STATUS.md** — add the procedure to the "Implemented" list.
+`th.expectEvalTrue` / `expectEvalBool` / `expectEvalVoid` cover other result
+shapes; `th.TestContext` is for multiple evals or inspecting the result value.
+Add a Scheme test under `tests/scheme/` when the behavior deserves an
+end-to-end check — and a bug fix always needs a regression test.
 
 ## Arity options
 
@@ -63,13 +76,40 @@ test "eval my-proc" {
 
 ## Heap allocation in primitives
 
-If the procedure needs to allocate (cons, list, string operations), use the global GC instance:
+To allocate (cons, list, string operations), take the threadlocal GC instance
+from `memory.zig` — `primitives.zig` does not re-export it:
 
 ```zig
-const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 return gc.allocPair(a, b) catch return PrimitiveError.OutOfMemory;
 ```
 
+Read `.claude/rules/gc-safety.md` before allocating more than once: values held
+in Zig locals across a second allocation need rooting, and mutating a heap
+object's fields needs a write barrier.
+
+## Calling back into Scheme
+
+```zig
+const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+return vm.callWithArgs(proc, call_args);
+```
+
+Let the callee's error propagate — `PrimitiveError` and `VMError` are both
+aliases of `errors.KaappiError`, so a raise inside the Scheme procedure returns
+out of your primitive with its detail intact.
+
 ## Error handling
 
-Return `PrimitiveError.TypeError` for type errors, `PrimitiveError.DivisionByZero`, etc.
+Use `primitives.typeError(proc, expected, got)` for type checks — it produces
+`type error in 'my-proc': expected exact integer, got #t` instead of an
+anonymous `TypeError`. The `format` CI job ratchets against new bare
+`return PrimitiveError.TypeError`, so adding one fails the build; only
+infrastructure guards with no procedure context to report opt out, with
+`// bare-ok: <reason>`.
+
+`expectFixnum` / `expectString` / `expectChar` / `expectPair` / `expectVector` /
+`expectPort` validate and unwrap in one step, and `indexError(proc, index, len)`
+covers out-of-range access — prefer it over returning `IndexOutOfBounds` bare,
+for the same reason. Error tags with no detail to attach (`DivisionByZero`,
+`OutOfMemory`, …) are returned directly.

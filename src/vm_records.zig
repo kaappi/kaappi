@@ -102,7 +102,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
         defer no_macros.deinit();
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false, .library) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
@@ -140,7 +140,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
         defer no_macros.deinit();
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false, .library) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
@@ -180,7 +180,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
             defer no_macros.deinit();
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false, .library) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
@@ -219,7 +219,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
             defer no_macros.deinit();
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false, .library) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
@@ -322,7 +322,7 @@ fn compileAndRunDefine(vm: *VM, define_expr_in: Value) VMError!void {
     var no_macros = std.StringHashMap(Value).init(vm.gc.allocator);
     defer no_macros.deinit();
     const func = if (vm.current_lib_env) |env|
-        compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false) catch return VMError.CompileError
+        compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &no_macros, env, types.NIL, false, .library) catch return VMError.CompileError
     else
         compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
     define_expr = types.makePointer(&func.header);
