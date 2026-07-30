@@ -181,6 +181,34 @@ allocation a form performs. `FailingAllocator` cannot reach these sites, and
 and never reaches the expander. `oom_countdown` is compiled out entirely
 outside test binaries (`builtin.is_test`).
 
+### Raw-allocator ownership is still local (#1864)
+
+The boundary reset above unwinds the **GC root stack** and nothing else. A
+struct taken from `gc.allocator` is owned by whichever field is eventually
+assigned it, so every fallible step between the `create` and that assignment
+still needs its own local `errdefer`:
+
+```zig
+const sched = vm.gc.allocator.create(FiberScheduler) catch return VMError.OutOfMemory;
+sched.* = FiberScheduler.init(vm);
+errdefer {                       // nothing owns `sched` until vm.scheduler is set
+    sched.deinit(vm.gc.allocator);
+    vm.gc.allocator.destroy(sched);
+}
+```
+
+`fiber.ensureScheduler` was missing exactly this: an OOM in the main fiber's
+`allocFiber` or in `addFiber` returned with the scheduler neither destroyed
+nor stored, leaking both the struct and the managed `waiter_index` map inside
+it. This is not the LIFO footgun of rule 2 — an `errdefer` that undoes a
+*specific* allocation it names is always safe; only the shared, positional
+root stack makes `defer popRoot()` order-dependent.
+
+Note the scoping: an `errdefer` inside a block is discarded when that block
+exits normally, so the one above cannot fire for a later failure in the
+reactor block that follows it — which matters, because by then `vm.scheduler`
+owns the pointer and freeing it would be a double free.
+
 ### Where to look
 
 The `reverse` function in `primitives.zig` is a clean reference

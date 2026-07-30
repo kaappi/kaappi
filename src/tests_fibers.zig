@@ -3,6 +3,7 @@ const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
+const fiber_mod = @import("fiber.zig");
 
 // Regression tests for the fiber scheduler give-up path (#kaappi-book):
 // runSchedulerUntil used to silently return VOID when no fiber was runnable
@@ -395,4 +396,70 @@ test "rendezvous channel: parked timed senders pair under a nested main receive"
     const ok = std.mem.eql(u8, s, "(a sent-a tb empty)") or
         std.mem.eql(u8, s, "(b ta sent-b empty)");
     try std.testing.expect(ok);
+}
+
+// ---------------------------------------------------------------------------
+// ensureScheduler cleanup on a failed allocation (#1864)
+// ---------------------------------------------------------------------------
+//
+// ensureScheduler creates the FiberScheduler with the *raw* allocator and then
+// runs two more fallible steps — the main fiber's allocFiber, and addFiber's
+// append. Without an errdefer, a failure in either returns with `sched`
+// neither destroyed nor stored in `vm.scheduler`, so nothing owns it: the
+// struct and the managed `waiter_index` map inside it both leak. (The reactor
+// block immediately below it always cleaned up after itself; these tests pin
+// the scheduler block to the same contract.)
+//
+// The leak also blocked writing *any* OOM sweep that reaches a fiber path: the
+// leak check aborts the test before its own assertions run.
+
+test "ensureScheduler frees the scheduler when the main fiber allocation fails" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The scheduler struct comes from the raw allocator, which the injector
+    // does not count, so the main fiber is ensureScheduler's first *heap*
+    // allocation — countdown 0 fails exactly that one.
+    gc.oom_countdown = 0;
+    try std.testing.expectError(vm_mod.VMError.OutOfMemory, fiber_mod.ensureScheduler(vm));
+    gc.oom_countdown = null;
+    try std.testing.expect(vm.scheduler == null);
+    try std.testing.expect(vm.current_fiber == null);
+
+    // Not sticky: a later call still builds a usable scheduler, and the VM
+    // owns that one, so std.testing.allocator sees exactly one of each.
+    const ready = try fiber_mod.ensureScheduler(vm);
+    try std.testing.expect(vm.scheduler == ready.sched);
+    try std.testing.expect(vm.current_fiber != null);
+}
+
+test "spawning a fiber leaks nothing when an allocation fails" {
+    // End-to-end sweep over the whole first `spawn` — the one call that
+    // constructs the scheduler, and so the only point in the sweep that can
+    // reach the leaking path. Fails pre-fix with one leaked allocation
+    // attributed to spawnFn's `try ensureScheduler`.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var failures: usize = 0;
+    var successes: usize = 0;
+    var n: usize = 0;
+    while (n <= 400) : (n += 1) {
+        ctx.gc.oom_countdown = n;
+        const result = ctx.vm.eval("(let ((f (spawn (lambda () (list 1 2 3))))) (fiber-join f))");
+        ctx.gc.oom_countdown = null;
+        if (result) |_| successes += 1 else |_| failures += 1;
+        ctx.gc.collect();
+    }
+    // Both halves matter. `failures` proves the injector fired at all;
+    // `successes` proves the bound ran past the *whole* allocation profile of
+    // the first spawn — the run that builds the scheduler. Without that second
+    // assertion a future spawn that allocates more would push the
+    // ensureScheduler window past 400 and quietly make this test vacuous
+    // instead of failing.
+    try std.testing.expect(failures > 0);
+    try std.testing.expect(successes > 0);
 }
