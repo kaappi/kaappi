@@ -1331,7 +1331,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             use_local_macros = true;
                             break :mt &local_macros;
                         };
-                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, macro_target, se.env, self.registers[abs_base + 1], true) catch return VMError.CompileError;
+                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, macro_target, se.env, self.registers[abs_base + 1], true, .restricted) catch return VMError.CompileError;
                     }
                     break :blk compiler_mod.compileExpressionWithMacrosAt(self.gc, expr_val, &self.macros, self.globals, 0, null, true) catch return VMError.CompileError;
                 };
@@ -1442,6 +1442,14 @@ noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
 /// primitive) worked in tail position, where the compiler emits get_global plus
 /// a plain tail_call, and raised "undefined variable" in every other position,
 /// where it emits call_global (kaappi#1831).
+///
+/// `restricted_globals` had the same defect one level up: it was derived
+/// per-function, so it landed on the outer function of a form and on none of
+/// the closures inside it. A library body — which must *not* be restricted —
+/// therefore failed at its own top level and worked inside a lambda, while a
+/// restricted environment — which must be — blocked its top level and leaked
+/// through one. It is now a property of the environment, set by
+/// compiler.EnvKind and inherited by every nested function (kaappi#1860).
 inline fn lookupGlobalLocked(self: *VM, func: *types.Function, name: []const u8) ?Value {
     const env: *std.StringHashMap(Value) = func.env orelse self.globals;
     if (vm_mod.globals_mod.stripBaseBindingPrefix(name)) |base_name| {

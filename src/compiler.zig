@@ -111,7 +111,16 @@ pub const Compiler = struct {
     globals: ?*std.StringHashMap(Value) = null,
     lib_env: ?*std.StringHashMap(Value) = null,
     lib_env_val: Value = types.NIL,
-    restricted_env: bool = false, // true for restricted environments (null-environment, environment)
+    // True whenever `globals` is a partial environment map rather than
+    // vm.globals — a library's lib_env, or a restricted (environment ...) —
+    // so a name's *absence* from it proves nothing about what that name will
+    // resolve to at run time. Read only by IR.isRedefined, which then declines
+    // to treat the name as a known primitive: a compile-time optimization
+    // gate, nothing more. Whether the run-time lookup may fall back to
+    // vm.globals is the separate Function.restricted_globals, which
+    // compileExpressionInEnv sets from its EnvKind and not from this
+    // (kaappi#1860).
+    restricted_env: bool = false,
     // Names that are `set!` somewhere in the top-level form being compiled.
     // Owned by the top-level compile() frame and inherited by child compilers
     // so nested lambda bodies see the same suppression set. Consulted by the
@@ -177,6 +186,10 @@ pub const Compiler = struct {
         const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
         func.env = parent.lib_env;
         func.env_val = parent.lib_env_val;
+        // Inherited with `env`, which it qualifies: whether a name missing
+        // from that env may fall back to vm.globals is a property of the
+        // environment, not of how deeply nested the reference happens to be.
+        func.restricted_globals = parent.func.restricted_globals;
         func.source_line = parent.func.source_line;
         func.source_name = parent.func.source_name;
         parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(&func.header)) catch return CompileError.OutOfMemory;
@@ -1222,7 +1235,26 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     return c.func;
 }
 
-pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value, is_tail: bool) CompileError!*types.Function {
+/// Which kind of non-vm.globals environment `compileExpressionInEnv` is
+/// compiling against. Its two callers hand it structurally identical `env`
+/// maps and want opposite things from a name the map doesn't hold, so the
+/// distinction cannot be recovered from the map itself (kaappi#1860).
+pub const EnvKind = enum {
+    /// A `define-library` body — its `begin` blocks, and the
+    /// `define-record-type` boilerplate they expand to. `lib_env` holds only
+    /// what this library imported or defined, so a reference to anything else
+    /// (a `(scheme cxr)` name, a `%`-prefixed internal primitive) has to keep
+    /// reaching vm.globals, exactly as it does from inside a closure in the
+    /// same body.
+    library,
+    /// An R7RS restricted environment: `(environment ...)`,
+    /// `null-environment`, or the env argument of `eval`/`load`. Withholding
+    /// vm.globals is the entire point — only what the environment imported may
+    /// resolve (kaappi#1253).
+    restricted,
+};
+
+pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value, is_tail: bool, kind: EnvKind) CompileError!*types.Function {
     syntax_error_detail_len = 0;
     resetCompileErrorSpan();
     var c = try Compiler.init(gc);
@@ -1232,6 +1264,10 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     c.lib_env = env;
     c.lib_env_val = env_val;
     c.restricted_env = true;
+    // Before compile(), not after: initChild copies it onto every nested
+    // function as that compile runs. Nothing in the compiler reads it — only
+    // vm_dispatch.lookupGlobalLocked does, at run time.
+    c.func.restricted_globals = kind == .restricted;
     var ok = false;
     defer {
         if (!ok) gc.truncateRoots(root_depth); // #1855, see compileExpression
@@ -1246,7 +1282,6 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     try c.compile(expr, is_tail);
     c.func.env = env;
     c.func.env_val = env_val;
-    c.func.restricted_globals = c.restricted_env;
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;

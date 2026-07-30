@@ -198,6 +198,10 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             // library-scoped imports don't live, so the child raised
             // "undefined variable" for a name that worked at top level.
             new_func.env = func.env;
+            // Carried with `env`, which it qualifies: a copy that kept the
+            // env but dropped the restriction would resolve names in the
+            // child thread that the original refuses in the parent.
+            new_func.restricted_globals = func.restricted_globals;
             // env_val (the eval/immutability Environment *object*) is a GC
             // Value; leave it NIL rather than share a parent-heap object into
             // the child heap. Runtime name resolution uses `env` (above), not
