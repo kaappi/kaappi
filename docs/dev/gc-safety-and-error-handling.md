@@ -34,7 +34,7 @@ not scan), it looks unreachable and gets freed.
 
 ```zig
 var val1 = try gc.allocString("hello");
-try gc.pushRoot(&val1);
+gc.pushRoot(&val1);
 defer gc.popRoot();
 const pair = try gc.allocPair(val1, types.NIL);  // val1 is protected
 ```
@@ -49,15 +49,20 @@ keeps it alive.
    call two `alloc*` functions and the first result is used by or after
    the second, root it.
 
-2. **Always pair `pushRoot` with `defer popRoot()`.** This ensures
-   balanced rooting even on error returns.
+2. **Pair `pushRoot` with `defer popRoot()` where the whole scope is
+   `pushRoot`-free.** `popRoot` removes whatever is on top of the shared
+   stack, not "your" entry, so a deferred pop is only correct when nothing
+   between the push and the deferred call can push its own root. Inside a
+   loop body, or right before rooting a second value, pop explicitly
+   immediately after the specific call being protected instead. See the
+   `compileLetSyntax` incident in `.claude/rules/gc-safety.md`.
 
 3. **Root the accumulator in loops.** When building a list or vector
    via repeated `allocPair`/`allocVector`, root the accumulating result:
 
    ```zig
    var result: Value = types.NIL;
-   try gc.pushRoot(&result);
+   gc.pushRoot(&result);
    defer gc.popRoot();
    for (items) |item| {
        result = try gc.allocPair(item, result);
@@ -121,6 +126,60 @@ GC's id) or silently aliasing a live object recycled into the same slot —
 the two escape modes that let the #1682 dangling-local bug survive twelve
 nightly stress runs. Release builds compile out both the stamp/check and
 the quarantine.
+
+### Unwinding the root stack on error (#1855)
+
+Rooting around a fallible call has a hole the rules above cannot close:
+
+```zig
+var a = try gc.allocSomething(...);
+gc.pushRoot(&a);
+const result = try gc.allocOther(a, ...);  // if THIS fails...
+gc.popRoot();                              // ...this never runs
+```
+
+When the protected call is the one that fails, the error unwinds past the
+`popRoot`. `root_count` is only ever moved by `pushRoot`/`popRoot`, so
+nothing put it back: the root stack was left holding the address of a local
+in a frame that no longer exists, and the next collection dereferences it.
+Under NaN-boxing that usually reads as a garbage flonum (harmless by luck)
+and occasionally as a plausible heap pointer (UB). Worse, the extra entry
+shifts the whole stack, so every `defer popRoot()` still to fire on the way
+out removes the wrong entry.
+
+Switching to `errdefer` at each of the ~340 push sites is not the fix — a
+`defer`/`errdefer` near a loop is the LIFO footgun of rule 2, so the cure
+reintroduces the disease. Instead the **pipeline boundaries** snapshot
+`gc.root_count` on entry and call `gc.truncateRoots(depth)` when an error
+escapes:
+
+| Boundary | Covers |
+|----------|--------|
+| `compileExpression`, `compileExpressionWithMacrosAt`, `compileExpressionInEnv`, `compileProgram` (`compiler.zig`) | Reader, expander, IR and bytecode emission — for every caller: REPL, `main`'s file loop, `kaappi check`, the LSP, `pipeline`'s stage dumps, `native_compiler`, the `eval`/`load` primitives, library-body compilation |
+| `vm_eval.eval` | The top-level-only handlers that bypass the compiler (`import`, `define-library`, `define-record-type`, …) and the reader |
+| `vm_calls.execute` | The running program. Truncated inside the error branch, *before* it runs pending `dynamic-wind` after-thunks — those allocate, so a leaked root would otherwise still be live when they collect |
+
+Two invariants follow. Roots never outlive the boundary that saw them
+pushed, so nothing may `pushRoot` expecting a caller across a boundary to
+pop it. And truncation only ever shrinks: a depth *below* the snapshot is an
+over-pop, which re-rooting cannot repair — the resurrected slots may already
+belong to a returned frame — so the boundary leaves it alone.
+
+What is deliberately not covered: recovery *within* a running form. A root
+leaked by a primitive whose error a Scheme `guard` catches survives until
+the enclosing `execute` returns, because snapshotting per native call would
+put a load on the interpreter's hottest path for a hazard no primitive
+currently has. The sweeps in `src/tests_gc_root_boundary.zig` find leaks
+only in the expander; keep primitive error paths balanced so that stays
+true.
+
+To reproduce a failure this deep, use `gc.oom_countdown` — `n` allocations
+succeed, the next fails. Sweeping `n` walks the failure across every
+allocation a form performs. `FailingAllocator` cannot reach these sites, and
+`gc.memory_limit` is an absolute watermark that only trips once a form
+*retains* more than the headroom, so it fails in the first few allocations
+and never reaches the expander. `oom_countdown` is compiled out entirely
+outside test binaries (`builtin.is_test`).
 
 ### Where to look
 

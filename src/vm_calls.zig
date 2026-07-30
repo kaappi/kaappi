@@ -152,6 +152,15 @@ pub fn profileTailCall(vm: *VM, new_func: *types.Function) void {
 
 pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     vm_mod.setVMInstance(vm);
+    // Runtime half of the #1855 boundary reset. The `run` error branch below
+    // truncates explicitly rather than relying on this errdefer, because that
+    // branch runs pending dynamic-wind after-thunks *before* returning: those
+    // allocate, so a root leaked deep in the failed run — `fiber.zig`'s spawn
+    // path pushes a root around a bare `try`, the runtime code with this
+    // shape — would otherwise still be live when they collect. The errdefer
+    // covers the other error returns out of this function.
+    const root_depth = vm.gc.root_count;
+    errdefer vm.gc.truncateRoots(root_depth);
     vm.resetExecutionState();
     // Clear the diagnostic code at entry (not in resetExecutionState, which also
     // runs on the error-exit path *after* noteUncaughtException has recorded the
@@ -196,6 +205,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     }
 
     const result = run(vm) catch |err| {
+        vm.gc.truncateRoots(root_depth);
         vm.last_stack_trace_len = vm.getStackTrace(&vm.last_stack_trace);
         if (vm.profile_mode) {
             vm.profile_time_depth = 0;

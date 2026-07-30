@@ -196,6 +196,21 @@ pub const GC = struct {
     no_collect: u32 = 0,
     bytes_allocated: usize = 0,
     memory_limit: ?usize = null,
+    /// Test-only OOM injector: when set, the next `oom_countdown` heap
+    /// allocations succeed and the one after that fails with OutOfMemory.
+    /// Counted per `maybeCollect` call, so the few allocators that skip it
+    /// (`allocFunction`) are not injectable — which is also why a compile
+    /// with no macro use in it never fails here: bytecode, IR and constant
+    /// pools all use the raw allocator.
+    /// Sweeping it over 0..N drives a failure at every allocation the
+    /// pipeline performs, which is what reaches the deep expander/compiler
+    /// push/pop sites (#1855). `memory_limit` cannot: it is an absolute
+    /// watermark that only trips once one form *retains* more than the
+    /// headroom, so it only ever fails within the first few allocations, and
+    /// FailingAllocator has its own documented deep-pipeline limitation.
+    /// Compiled out entirely outside test binaries (`builtin.is_test` is
+    /// comptime), so the allocation path pays nothing for it.
+    oom_countdown: ?usize = null,
     profile_alloc_target: ?*u64 = null,
     root_marker: ?*const fn (*GC) void = null,
     source_spans: std.AutoHashMap(Value, types.Span) = undefined,
@@ -433,6 +448,12 @@ pub const GC = struct {
 
     // pub for gc_alloc.zig; not part of the public GC API.
     pub fn maybeCollect(self: *GC) !void {
+        if (comptime builtin.is_test) {
+            if (self.oom_countdown) |n| {
+                if (n == 0) return error.OutOfMemory;
+                self.oom_countdown = n - 1;
+            }
+        }
         // Stress mode only changes *when* a collection is due (every call
         // instead of at the threshold); the no_collect and memory_limit
         // semantics must match the normal path, or stress builds would
@@ -482,6 +503,34 @@ pub const GC = struct {
 
     pub fn popRoot(self: *GC) void {
         self.root_count -= 1;
+    }
+
+    /// Unwind the root stack back to a depth snapshotted from `root_count`
+    /// on entry to a pipeline boundary (#1855).
+    ///
+    /// The canonical `pushRoot` / `try` / `popRoot` pattern leaks its root
+    /// when the protected call fails: the error unwinds past the `popRoot`,
+    /// leaving the stack holding a pointer into a frame that no longer
+    /// exists. Nothing else ever lowers `root_count`, so the next collection
+    /// dereferences it, and the leaked entry also misaligns LIFO pairing for
+    /// every `defer popRoot()` still to fire above it. The boundaries that
+    /// hand a pipeline error back to a caller which keeps running — the
+    /// `compileExpression*` entry points (compiler.zig), `vm_eval.eval`, and
+    /// `vm_calls.execute` — therefore snapshot the depth and truncate to it,
+    /// instead of an errdefer at each of the ~340 push sites, where `defer`
+    /// near a loop is itself the LIFO footgun gc-safety.md warns about.
+    /// Recovery *within* a running form (a primitive error a Scheme `guard`
+    /// catches) is deliberately not covered at that granularity: see
+    /// docs/dev/gc-safety-and-error-handling.md.
+    ///
+    /// Only ever shrinks. `root_count` *below* the snapshot means an
+    /// over-pop, which re-rooting cannot repair: those slots may already
+    /// have been overwritten by an inner frame that has since returned, so
+    /// restoring them would re-root exactly the kind of dangling pointer
+    /// this is meant to eliminate. Leave the depth alone and let the
+    /// over-pop surface on its own terms.
+    pub fn truncateRoots(self: *GC, depth: u32) void {
+        if (self.root_count > depth) self.root_count = depth;
     }
 
     // -- #1687 free-quarantine (see the `quarantine` field) --

@@ -108,6 +108,42 @@ const b = try gc.allocPair(a, z);
 gc.popRoot();
 ```
 
+- **The pattern above still leaks its root when the protected call is the one
+  that fails** — the `try` unwinds past `popRoot`, and nothing else ever
+  lowers `root_count`. You do **not** need an `errdefer` for that: the
+  pipeline boundaries snapshot `gc.root_count` on entry and call
+  `gc.truncateRoots(depth)` when an error escapes them (#1855). The
+  boundaries are the four `compileExpression*` entry points in
+  `compiler.zig`, `vm_eval.eval`, and `vm_calls.execute` — between them every
+  caller that keeps running after a pipeline error (REPL, `main`'s file loop,
+  `kaappi check`, the LSP, `pipeline`'s stage dumps, `native_compiler`, the
+  `eval`/`load` primitives, library-body compilation) is covered. Adding an
+  `errdefer gc.popRoot()` per site would be ~340 edits of exactly the LIFO
+  footgun above, which is why this is done once at the boundary instead.
+
+  Two consequences worth knowing. **Never `pushRoot` expecting a caller to
+  pop it across one of those boundaries** — roots do not outlive the boundary
+  that saw them pushed. And truncation only ever *shrinks*: a `root_count`
+  below the snapshot means an over-pop, which re-rooting cannot repair (the
+  slots would point into frames that have since returned), so the boundary
+  leaves it alone.
+
+  Recovery *within* a still-running form is not covered at primitive
+  granularity: a leak from a primitive whose error a Scheme `guard` catches
+  stays on the stack until the enclosing `execute` returns. No primitive with
+  that shape is known — the `oom_countdown` sweeps in
+  `src/tests_gc_root_boundary.zig` find leaks only in the expander — but a
+  new one would be a real hazard, so keep primitive error paths balanced.
+
+- **To test an OOM deep in the pipeline, use `gc.oom_countdown`**, not
+  `FailingAllocator` (documented deep-pipeline limitation) and not
+  `gc.memory_limit` (an absolute watermark that only trips once a form
+  *retains* more than the headroom, so it fails within the first few
+  allocations and never reaches the expander). Setting it to `n` lets the
+  next `n` heap allocations through and fails the one after. Sweeping `n`
+  over a range drives a failure at every allocation a form performs. It is
+  compiled out entirely outside test binaries (`builtin.is_test`).
+
 Stress-test with `-Dgc-stress=true` to force collection on every allocation.
 In Debug builds, freed objects are poisoned with `0xAA` to catch use-after-free.
 Debug and gc-stress builds additionally stamp freed headers with the
