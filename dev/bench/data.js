@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785413944785,
+  "lastUpdate": 1785415060952,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f72e5479d527c4f84e567657d15ab09fb0925512",
-          "message": "Fuzz report: file pre-fuzz unit-test failures per variant with the failing test names (#1689)\n\n* Report fuzz-job unit-test failures under per-variant titles with test names\n\nFollow-up to #1682, closes #1688. When the fuzz job failed without a\ncrash marker, the report job filed everything under the shared \"Fuzz CI:\ninfrastructure or build failure\" issue, even though fuzz-run.log already\nnamed the crashing test — triage started from \"toolchain download, apt\nflake, runner OOM?\" when the answer was in the downloaded artifact.\n\nThe report job's fuzz routing is now three-way: crash marker → finding\nissue (unchanged); no marker but the log's test summary counts a\nfailed/crashed/leaked test → a dedicated deduped issue per variant\n(\"Fuzz CI: unit-test failure (gc-stress variant)\") with the failing test\nnames extracted from the error lines and panic-trace frames, plus the\ntargeted hint that a gc-stress-only crash usually means a GC rooting bug\n(.claude/rules/gc-safety.md, #1401, #1682); anything else keeps the\nshared infra issue. The variant comes from the failed build command\nechoed at the end of the log, not the artifact directory name, which the\nsingle-artifact download layout makes unreliable (#1584, #1620). Both\nmatrix variants classify independently when both fail.\n\nThe log excerpt is also anchored by pattern now instead of tail -c 2000:\nthe #1682 crash trace only made the excerpt because it happened to sit\nat the end of the log. The excerpt starts at the first test-failure\nreport, compile diagnostic, or Build Summary line (raw tail as\nfallback), bounded head+tail when the failure section is long.\n\nValidated with a local harness: the filing script extracted from the\nYAML, a stubbed gh, and nine synthetic artifacts/ layouts (flattened and\nper-name, both variants, marker present, dedup-append, mixed\nunit-test+flake, oversized section, missing artifacts, diff-job\nregression).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Classify the other variant's log even when one variant crashed\n\nReview follow-up (CodeRabbit on #1689): the crash-marker branch ran\nexclusively, so when variant A found a fuzz crash while variant B\nindependently failed (unit-test failure or flake), B's failure was\nsilently dropped — neither filed nor collected for the infra issue.\n\nThe crash finding is still filed first, but every uploaded fuzz-run.log\nis now classified; only logs sitting next to a crash marker (that\nvariant IS the finding already filed) are skipped, which also stops a\nsecond crashing variant's log from being misread as a unit-test\nfailure. A crash with no other logs files exactly the finding issue, as\nbefore. The residual gap — a variant that died before uploading any\nartifact while the other crashed — is not detectable from artifacts\nalone, since the aggregate needs.fuzz.result does not say which matrix\nlegs failed.\n\nHarness gains the two scenarios: crash + other-variant unit-test\nfailure files both issues; crash + other-variant flake files the\nfinding plus the infra issue with the flake log excerpted.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-20T20:00:25Z",
-          "tree_id": "5908be958937441d9fbf441f8a851863fbee2da5",
-          "url": "https://github.com/kaappi/kaappi/commit/f72e5479d527c4f84e567657d15ab09fb0925512"
-        },
-        "date": 1784579646009,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.28008,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.910464,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.966686,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.461132,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006416,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054339,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.531623,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07109,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.596127,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.996885,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574359,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432686,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.811318,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.637871,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043671,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043665,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c8480beb583d5e2ec155224bb533fb5e3d76f45",
+          "message": "Let a library body reference an unimported global from its top level (#1866)\n\n#1831 gave get_global, call_global, and tail_call_global one resolver\ncarrying a vm.globals fallback, so a library body can reach a global that\nlives there but not in its own lib_env. The fallback is gated on\nFunction.restricted_globals, which compileExpressionInEnv derived from the\ncompile-time restricted_env flag it sets for both of its callers -- and it\nset it on the outer function of the form only, leaving every closure inside\nwith the field's false default.\n\nSo the same reference still resolved by syntactic position, one level up\nfrom what #1831 fixed: a library's (define v (cadar ...)) raised \"undefined\nvariable\" while the identical reference inside a lambda in the same body\nworked. It had the mirror hole too, which is why the flag could not simply\nbe flipped: for a restricted (environment ...), where withholding\nvm.globals is the point, those nested closures got false as well, so the\nrestriction held at the eval'd expression's top level and leaked through a\nlambda.\n\nMake it a property of the environment instead. compileExpressionInEnv takes\nan EnvKind naming which caller it serves -- a library body, which must keep\nthe fallback, or an R7RS restricted environment, which must not; the two\nhand it structurally identical env maps, so the distinction is not\nrecoverable from the map itself -- sets the flag before compiling, and\ninitChild copies it onto every nested function alongside the env it\nqualifies. gc_deep_copy carries it too, so a closure crossing a thread\nboundary is no leakier than the original.\n\nCompiler.restricted_env keeps its separate, compile-time-only meaning:\nglobals is a partial map, so IR.isRedefined must not read a missing name as\na known primitive. True for both kinds -- its comment claimed otherwise,\nwhich had been wrong since library bodies started setting it.\n\nCloses #1860.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T17:15:11+05:30",
+          "tree_id": "41068b345a7918405ec9615ba5fbaa1d42ea33f0",
+          "url": "https://github.com/kaappi/kaappi/commit/5c8480beb583d5e2ec155224bb533fb5e3d76f45"
+        },
+        "date": 1785415059004,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.276233,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.768727,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.617116,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.020453,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004994,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0475,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.319253,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057818,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.695021,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.223145,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.630102,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.289365,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.848658,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.688833,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045795,
             "unit": "seconds"
           }
         ]
