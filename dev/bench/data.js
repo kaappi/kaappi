@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785429662807,
+  "lastUpdate": 1785431276393,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "46d0a57f280a4bacf5a81ea60b345941e1128a62",
-          "message": "Extend fuzzing beyond x86_64 to ARM64 and big-endian targets (#1710)\n\n* Extend fuzzing beyond x86_64 to ARM64 and big-endian targets\n\nThe Fuzz workflow ran only on x86_64 Linux, so two bug classes had no\nfuzz coverage: aarch64 code generation in the LLVM native backend, and\nbyte-order bugs — the .sbc codec's littleToNative conversions are no-ops\non little-endian, so an endian bug there is invisible until a big-endian\nmachine runs it.\n\n- fuzz, native-diff, and oracle-diff now run natively on x86_64 AND arm64\n  (ubuntu-24.04-arm). The arm64 native-diff leg is the only fuzz coverage\n  of aarch64 codegen; the arm64 fuzz legs re-exercise the NaN-box pointer\n  assumptions and GC write barriers on ARM's memory model.\n\n- New cross-diff job (tests/fuzz/cross-diff.sh) diffs the same Kaappi build\n  on the host vs a foreign arch under QEMU (s390x/riscv64/ppc64le). Zig\n  0.16's fuzzer cannot instrument a cross-compiled target (\"no fuzz tests\n  found\"), so a black-box host-vs-target differential is the portable\n  substitute — and because both sides are the same interpreter on the\n  deterministic portable subset, any output difference is definitively an\n  architecture bug. s390x is the big-endian canary.\n\n- The report job files one finding issue per platform/arch, attributed\n  from a file each job plants in its artifact (fuzz-platform.txt/arch.txt)\n  rather than the artifact directory name, which download-artifact erases\n  for single-artifact runs. It loops over every marker so a crash on one\n  arch never swallows another's.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Attribute fuzz findings by variant, not just platform\n\nAddresses the CodeRabbit review on #1710. The fuzz job planted\nfuzz-platform.txt but never the variant, so two downstream problems in the\nreport job:\n\n- The crash title used only the platform, so a default-variant crash and a\n  gc-stress crash on the same platform collapsed into one issue thread.\n- report_unit_test_failure recovered the variant by grepping fuzz-run.log\n  for -Dgc-stress=true — coupled to zig's failure-output format.\n\nPlant fuzz-variant.txt alongside fuzz-platform.txt (matrix.variant is right\nthere), upload it, and add a variant_of() helper mirroring platform_of().\nThe crash title and job id now include the variant, and report_unit_test_\nfailure reads the planted file. variant_of keeps the log grep as a fallback\nfor artifacts predating the planted file — verified that zig does echo the\nfailing build command (with -Dgc-stress=true), so the fallback is real, not\njust defensive.\n\nReport-classifier scenario suite extended to 13 cases: same-platform\nboth-variant crashes now file two distinct issues, and the gc-stress\nlog-fallback path is covered.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-21T16:35:49+05:30",
-          "tree_id": "52f847817b68f84886d875be8f6d871f67dccc73",
-          "url": "https://github.com/kaappi/kaappi/commit/46d0a57f280a4bacf5a81ea60b345941e1128a62"
-        },
-        "date": 1784634164737,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.296237,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.093734,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.997295,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.614108,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006408,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055847,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.552726,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071375,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.51794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.120786,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.599706,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.432685,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.843847,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.651352,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04434,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043959,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eed2ea6fc8eb9a42f7209d7f2531af66a30e61f2",
+          "message": "End a timed wait whose deadline the dispatch tick already popped (#1870) (#1873)\n\n`runSchedulerStep` evaluates `!ctx.isDone() and !me.timed_out`, then calls\n`scheduleForDispatch()`, whose own per-tick `runReactorTick()` pops expired\ntimers. When that tick pops *this* fiber's deadline, `wakeReadyFiber` sets\n`me.timed_out` and the entry leaves the timer heap — but the loop guard has\nalready been spent on the pre-tick state, so the idle branch went straight\ninto `parkOnReactor` with nothing left to bound `reactor.poll()`. The\nfiber's own `shared_waiters` entry keeps `hasRunnableFibers()` true, so the\n\"nothing can ever happen\" early return is skipped too, and the poll blocks\nuntil some unrelated cross-thread notify arrives. The loop guard never gets\nits turn, because the park never returns.\n\nThat is the srfi120.scm flake: a timer thread parked on its control channel\nfor a 30 ms task would sleep indefinitely and only wake when the caller's\nown `timer-cancel!` message rang its notifier seconds later — by which point\ndelivery-wins hands it the `stop` message and the task never runs at all.\nWindows is where it showed up because `WaitForMultipleObjects` returns\nspuriously often enough (an auto-reset notify event left signalled by an\nearlier `SetEvent`) to put a loop iteration exactly where it needs to be:\npast the guard, with the deadline expiring during the tick.\n\nMeasured on the Windows ARM64 reference VM, one `(srfi 120)` timer per\niteration: 4 wedges in 13,500 iterations before, 0 in 9,000 after. macOS\nnever reproduced it in 7,000.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-30T21:52:14+05:30",
+          "tree_id": "71c991a9c4b1e000442a702a133f95ee60802fb9",
+          "url": "https://github.com/kaappi/kaappi/commit/eed2ea6fc8eb9a42f7209d7f2531af66a30e61f2"
+        },
+        "date": 1785431274194,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.036862,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.295983,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.433564,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.249385,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003781,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034661,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.227601,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042621,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.853378,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.885467,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.178073,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.233648,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.301973,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.365367,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035083,
             "unit": "seconds"
           }
         ]
