@@ -1364,8 +1364,19 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
 
     while (!ctx.isDone() and !me.timed_out) {
         const next_idx = sched.scheduleForDispatch() orelse {
-            // Nothing dispatchable. Before blocking in the reactor, a wait
-            // that opted in gives up instead when an ancestor drive's
+            // Nothing dispatchable — but scheduleForDispatch's own per-tick
+            // runReactorTick may have just resolved *this* wait, after the
+            // loop guard above already read the pre-tick state. A popped
+            // timer is the dangerous case (#1870): wakeReadyFiber sets
+            // `me.timed_out` and the entry is gone from the timer heap, so
+            // the park below has nothing left to bound it — with this
+            // fiber's own shared_waiters entry keeping hasRunnableFibers()
+            // true, parkOnReactor blocks in an unbounded reactor.poll()
+            // that only an unrelated cross-thread notify can release. Re-
+            // check here rather than one `continue` later: the loop guard
+            // never gets its turn because the park never returns.
+            if (me.timed_out or ctx.isDone()) break;
+            // A wait that opted in gives up instead when an ancestor drive's
             // condition has already resolved: that ancestor can only
             // proceed once we unwind, and blocking here — for I/O waits,
             // on this fiber's own fd with no bound — would pin it forever
