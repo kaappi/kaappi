@@ -135,6 +135,19 @@ gc.popRoot();
   `src/tests_gc_root_boundary.zig` find leaks only in the expander — but a
   new one would be a real hazard, so keep primitive error paths balanced.
 
+- **Tag a `gc_instance`/`vm_instance` guard by what the function was going to
+  return anyway** (#1874). A guard in an allocating function returns
+  `OutOfMemory` — no GC means the allocation cannot happen, so that *is* its
+  error. A guard in an error-message helper returns that helper's own tag
+  (`typeError` → `TypeError`, `indexError` → `IndexOutOfBounds`,
+  `argError` → `InvalidArgument`): losing the VM costs the detail, not the
+  diagnosis. Everything else — most `vm_instance` guards — returns
+  `PrimitiveError.InvalidBytecode` (→ KP9001 "internal error", i.e. "report
+  this"), never `OutOfMemory` (not an allocation failure) and never a bare
+  `TypeError`, which `mapNativeError` dresses up as `type error in '<proc>':
+  got <args[0]>` and so blames a real argument. Full rationale in
+  `docs/dev/gc-safety-and-error-handling.md`.
+
 - **To test an OOM deep in the pipeline, use `gc.oom_countdown`**, not
   `FailingAllocator` (documented deep-pipeline limitation) and not
   `gc.memory_limit` (an absolute watermark that only trips once a form

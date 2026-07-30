@@ -215,7 +215,7 @@ pub const specs = [_]primitives.PrimSpec{
 };
 
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();

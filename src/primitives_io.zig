@@ -86,7 +86,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitiv
         if (!port.is_open) return primitives.typeError(proc, "open output port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = currentOutputPortValue(vm);
     if (!types.isPort(port_val)) return primitives.typeError(proc, "port", port_val);
     return types.toObject(port_val).as(types.Port);
@@ -101,7 +101,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
         if (!port.is_open) return primitives.typeError(proc, "open input port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = currentInputPortValue(vm);
     if (!types.isPort(port_val)) return primitives.typeError(proc, "port", port_val);
     return types.toObject(port_val).as(types.Port);
@@ -499,7 +499,7 @@ fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
 /// codepoint count and converts the returned character count back to a
 /// byte offset to advance by.
 fn writeBytesToCustomPort(port: *types.Port, cb: *types.CustomBacking, bytes: []const u8) PrimitiveError!void {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     // Shouldn't normally happen: an input-only custom port's write_proc is
     // #f, but portWriteBytes is only ever reached via getOutputPort's own
     // is_output check first. Reject explicitly rather than silently
@@ -688,7 +688,7 @@ fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
 }
 
 fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();
@@ -985,7 +985,7 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
 /// object" case is available directly from get-position for code that
 /// calls it itself; it just isn't threaded through port-position.
 fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (cb.get_position_proc == types.FALSE) {
         vm.setErrorDetail("port-position: port does not support positioning", .{});
         return PrimitiveError.InvalidArgument;
@@ -1002,7 +1002,7 @@ fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
 /// describes bytes at the old position, meaningless once set-position!
 /// jumps elsewhere.
 fn setPortPositionOnCustomPort(port: *types.Port, cb: *types.CustomBacking, pos: i64) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (cb.set_position_proc == types.FALSE) {
         vm.setErrorDetail("set-port-position!: port does not support positioning", .{});
         return PrimitiveError.InvalidArgument;
@@ -1171,7 +1171,7 @@ fn raiseCustomPortBadReturn(vm: *vm_mod.VM, proc: []const u8) PrimitiveError {
 
 fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) PrimitiveError!?u8 {
     if (cb.read_proc == types.FALSE) return null; // output-only custom port
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var buf: Value = if (port.is_binary) blk: {
@@ -1223,7 +1223,7 @@ fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) Primit
 /// wrapped_port) calls bypass that boundary entirely.
 fn raiseWrappedPortClosed() PrimitiveError {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString("transcoded port: the underlying port has been closed") catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();
@@ -1249,7 +1249,7 @@ fn raiseWrappedPortClosed() PrimitiveError {
 /// push/pop pair.
 fn handleInvalidUtf8(ts: *types.TranscodeState, msg: []const u8) PrimitiveError!?u21 {
     if (ts.error_mode == .replace) return 0xFFFD;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const srfi18 = @import("primitives_srfi18.zig");
     var condition = try srfi18.makeErrorWithType(.io_decoding, msg, types.NIL);
@@ -1818,7 +1818,7 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 fn flushOutputPort(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 0, "flush-output-port");
     if (port.custom_backend) |cb| {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         try flushCustomPortIfNeeded(vm, cb);
         return types.VOID;
     }
@@ -1864,7 +1864,7 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
 
 /// (call-with-input-file string proc)
 fn callWithInputFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     // Open file
     const port_val = try openInputFile(&[_]Value{args[0]});
     // Call proc with port
@@ -1880,7 +1880,7 @@ fn callWithInputFile(args: []const Value) PrimitiveError!Value {
 
 /// (call-with-output-file string proc)
 fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = try openOutputFile(&[_]Value{args[0]});
     const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
         _ = closePort(&[_]Value{port_val}) catch {};
@@ -1893,7 +1893,7 @@ fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
 /// (call-with-port port proc)
 fn callWithPort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("call-with-port", "port", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const result = vm.callWithArgs(args[1], &[_]Value{args[0]}) catch |err| {
         _ = closePort(&[_]Value{args[0]}) catch {};
         return err;
@@ -1904,7 +1904,7 @@ fn callWithPort(args: []const Value) PrimitiveError!Value {
 
 /// (with-input-from-file string thunk)
 fn withInputFromFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = try openInputFile(&[_]Value{args[0]});
     const saved = currentInputPortValue(vm);
     setCurrentPort(vm, vm.current_input_port_param, port_val);
@@ -1920,7 +1920,7 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
 
 /// (with-output-to-file string thunk)
 fn withOutputToFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = try openOutputFile(&[_]Value{args[0]});
     const saved = currentOutputPortValue(vm);
     setCurrentPort(vm, vm.current_output_port_param, port_val);

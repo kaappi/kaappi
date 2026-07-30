@@ -101,7 +101,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
         return types.toChar(pred) == cp;
     }
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const char_val = types.makeChar(cp);
 
     // If pred is a procedure, call it directly
@@ -453,7 +453,7 @@ fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return vm.callWithArgs(proc, call_args) catch |err| return err;
 }
 

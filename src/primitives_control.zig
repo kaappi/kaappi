@@ -47,14 +47,18 @@ pub const specs = [_]primitives.PrimSpec{
 // ---------------------------------------------------------------------------
 
 pub fn raiseFn(args: []const Value) PrimitiveError!Value {
+    // No VM means there is no handler stack to raise into: print what we can
+    // and give up. Every exit from this block reports the same condition, so
+    // they all carry the internal-invariant tag — including the print failure,
+    // which changes what we could say, not what went wrong.
     const vm = vm_mod.vm_instance orelse {
-        const gc = memory.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
+        const gc = memory.gc_instance orelse return PrimitiveError.InvalidBytecode;
         primitives_io.writeStderr("Error: unhandled exception: ");
-        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError; // bare-ok: print failed
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.InvalidBytecode;
         defer gc.allocator.free(s);
         primitives_io.writeStderr(s);
         primitives_io.writeStderr("\n");
-        return PrimitiveError.TypeError; // bare-ok: no VM for raise
+        return PrimitiveError.InvalidBytecode;
     };
     // SRFI 248: a sticky (unwind) handler catches raise the same way it
     // catches raise-continuable — invoked in place so the handler can capture
@@ -101,14 +105,15 @@ fn dispatchStickyUnwind(vm: *vm_mod.VM, obj: Value, continuable: bool) Primitive
 }
 
 fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
+    // Same no-VM fallback as raiseFn — see the note there.
     const vm = vm_mod.vm_instance orelse {
-        const gc = memory.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
+        const gc = memory.gc_instance orelse return PrimitiveError.InvalidBytecode;
         primitives_io.writeStderr("Error: unhandled exception: ");
-        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError; // bare-ok: print failed
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.InvalidBytecode;
         defer gc.allocator.free(s);
         primitives_io.writeStderr(s);
         primitives_io.writeStderr("\n");
-        return PrimitiveError.TypeError; // bare-ok: no VM for raise
+        return PrimitiveError.InvalidBytecode;
     };
     return raiseContinuable(vm, args[0]);
 }
@@ -163,7 +168,7 @@ fn nativeErrorToErrorObject(vm: *vm_mod.VM, gc: *memory.GC, err: anyerror) Primi
 }
 
 fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const handler = args[0];
     const thunk = args[1];
 
@@ -232,7 +237,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
 /// we catch it here, turn it into a coded error object, and hand it to the
 /// handler with an empty delimited continuation (the stack has already unwound).
 fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const handler = args[0];
     const thunk = args[1];
 
@@ -281,7 +286,7 @@ fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
 /// is empty (the raise was in tail context of the guarded thunk). Backs
 /// empty-continuation?.
 fn unwindRaiseEmptyFn(_: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return if (vm.pending_raise_empty) types.TRUE else types.FALSE;
 }
 
@@ -293,7 +298,7 @@ fn unwindRaiseEmptyFn(_: []const Value) PrimitiveError!Value {
 /// re-enter the same sticky handler and loop. No-op if the top handler is not
 /// sticky, so it can never disturb an ordinary handler.
 fn popUnwindHandlerFn(_: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (vm.handler_count > 0 and vm.handler_stack[vm.handler_count - 1].sticky) {
         vm.handler_count -= 1;
     }
@@ -383,7 +388,7 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const proc = args[0];
     if (!types.isProcedure(proc)) return primitives.typeError("call/cc", "procedure", args[0]);
 
@@ -419,7 +424,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 /// is O(1): no register/frame snapshot is taken. Invoking the continuation
 /// outside its extent raises an error.
 fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const proc = args[0];
     if (!types.isProcedure(proc)) return primitives.typeError("call/ec", "procedure", args[0]);
 
@@ -456,7 +461,7 @@ fn valuesFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const producer = args[0];
     const consumer = args[1];
 
@@ -490,7 +495,7 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn pushWindFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (!types.isProcedure(args[0])) return primitives.typeError("%push-wind", "procedure", args[0]);
     if (!types.isProcedure(args[1])) return primitives.typeError("%push-wind", "procedure", args[1]);
     if (vm.wind_count >= vm_mod.MAX_WINDS) return PrimitiveError.OutOfMemory;
@@ -500,7 +505,7 @@ fn pushWindFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn popWindFn(_: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (vm.wind_count == 0) return PrimitiveError.TypeError; // bare-ok: underflow
     vm.wind_count -= 1;
     return types.VOID;

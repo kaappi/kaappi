@@ -94,7 +94,7 @@ fn generateSymbol(args: []const Value) PrimitiveError!Value {
 /// The OS CSPRNG failed, so an unpredictable name cannot be produced. Raise a
 /// catchable general error rather than hand back a predictable symbol.
 fn raiseEntropyUnavailable(gc: *memory.GC) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString("generate-symbol: OS entropy source unavailable") catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();

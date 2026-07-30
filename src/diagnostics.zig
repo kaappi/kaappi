@@ -533,11 +533,15 @@ pub const table = [_]Diagnostic{
     .{
         .code = .internal_error,
         .name = "internal-error",
-        .template = "internal compiler error",
+        // Not "internal compiler error": KP9xxx is stage `.internal`, and this
+        // code is reachable from the runtime too (an uninitialized VM or GC —
+        // kaappi#1874), not only from the compiler.
+        .template = "internal error",
         .explanation =
         \\Kaappi hit a condition that should not be reachable — a corrupt bytecode
-        \\stream or an internal limit. This indicates a bug in Kaappi itself;
-        \\please report it with the program that triggered it.
+        \\stream, an internal limit, or a runtime whose VM/GC was never
+        \\initialized. This indicates a bug in Kaappi itself; please report it
+        \\with the program that triggered it.
         ,
         // No user-reachable trigger by design — correct input never produces
         // this; it signals a bug in Kaappi.

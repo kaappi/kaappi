@@ -178,7 +178,7 @@ fn equalForTable(proc: []const u8, ht: *HashTable, a: Value, b: Value) Primitive
             break :blk char_mod.foldCompareStrings(sa, sb) == .eq;
         },
         .custom => blk: {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             const call_args = [2]Value{ a, b };
             const result = vm.callWithArgs(ht.equiv_fn, &call_args) catch |err| {
                 return err;
@@ -235,7 +235,7 @@ fn hashForTable(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!usi
             break :blk stringCiContentHash(data);
         },
         .custom => blk: {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             const call_args = [1]Value{key};
             const result = vm.callWithArgs(ht.hash_fn, &call_args) catch |err| {
                 return err;
@@ -468,7 +468,7 @@ fn growIfNeeded(proc: []const u8, ht: *HashTable) PrimitiveError!void {
 // (make-hash-table) or (make-hash-table equal-proc [hash-proc])
 fn makeHashTableFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ht_val = gc.allocHashTable(8) catch return PrimitiveError.OutOfMemory;
     const ht = types.toHashTable(ht_val);
     configureHashTable(ht, ht_val, gc, vm, args);
@@ -489,7 +489,7 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
     // Key not found — call thunk if provided
     if (args.len > 2) {
         if (types.isProcedure(args[2])) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             return vm.callWithArgs(args[2], &[_]Value{}) catch |err| {
                 return err;
             };
@@ -573,7 +573,7 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-walk ht proc) — call (proc key value) for each entry
 fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-walk", args[0]);
     const proc = args[1];
@@ -623,7 +623,7 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
 // (alist->hash-table alist) or (alist->hash-table alist equal-proc [hash-proc])
 fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var current = args[0];
 
     // Count entries first
@@ -677,7 +677,7 @@ fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-update! ht key function [thunk])
 fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ht = try getHashTable("hash-table-update!", args[0]);
     const key = args[1];
     const proc = args[2];
@@ -714,7 +714,7 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-update!/default ht key proc default)
 fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ht = try getHashTable("hash-table-update!/default", args[0]);
     const key = args[1];
     const proc = args[2];
@@ -830,7 +830,7 @@ fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-fold ht f init) — fold over hash table entries
 fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-fold", args[0]);
     const proc = args[1];
@@ -889,13 +889,13 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
 fn hashTableEquivFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-equivalence-function", args[0]);
     if (ht.equiv_fn != 0) return ht.equiv_fn;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return lookupGlobal(vm, "equal?");
 }
 
 fn hashTableHashFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-hash-function", args[0]);
     if (ht.hash_fn != 0) return ht.hash_fn;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return lookupGlobal(vm, "hash");
 }

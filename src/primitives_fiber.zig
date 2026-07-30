@@ -37,7 +37,7 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(proc))
         return primitives.typeError("spawn", "procedure", proc);
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ctx = try fiber_mod.ensureScheduler(vm);
 
     const fiber = ctx.sched.spawnFiber(proc) catch return PrimitiveError.OutOfMemory;
@@ -45,7 +45,7 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn yieldFn(_: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const sched = vm.scheduler orelse return types.VOID;
     // Yield is advisory: it may only arm the Yielded unwind when the signal
     // can reach a scheduler dispatch loop. Under a re-entrant native frame
@@ -78,7 +78,7 @@ fn fiberJoinFn(args: []const Value) PrimitiveError!Value {
     // args[0] after that point would be a use-after-free.
     const target_val = args[0];
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ctx = try fiber_mod.ensureScheduler(vm);
     const my_idx = ctx.sched.current_idx;
     const me = ctx.sched.fibers.items[my_idx].?;
@@ -298,7 +298,7 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         try enqueueChannel(gc, ch, ch_val, payload);
         return types.VOID;
     };
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     // §6 (amended, #1602): capacity 0 is a rendezvous channel — the bound is
     // the committed receiver demand, so a send is admitted exactly when a
     // receiver is parked waiting (and completes the handoff through the
@@ -496,7 +496,7 @@ fn sharedWakeupPossible(sc: *shared_channel.SharedChannel) bool {
 /// `me.deadline_ns == null`), never re-armed on a later loop iteration or
 /// redispatch of the same call.
 fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: Value, deadline_ns: ?u64, has_timeout_val: bool, timeout_val: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ctx = try fiber_mod.ensureScheduler(vm);
     const my_idx = ctx.sched.current_idx;
     const me = ctx.sched.fibers.items[my_idx].?;
@@ -729,7 +729,7 @@ fn channelSendShared(sc: *shared_channel.SharedChannel, payload: Value, ch_val: 
 /// fiber's redispatch cannot simply re-parse `deadline_ns` from Scheme
 /// arguments.
 fn channelReceiveShared(sc: *shared_channel.SharedChannel, gc: *memory.GC, ch_val: Value, deadline_ns: ?u64, has_timeout_val: bool, timeout_val: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ctx = try fiber_mod.ensureScheduler(vm);
     const my_idx = ctx.sched.current_idx;
     const me = ctx.sched.fibers.items[my_idx].?;
@@ -1046,7 +1046,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
 
     if (ch.shared) |raw| {
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
@@ -1297,7 +1297,7 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
 /// function name never reaches the user, only `msg` does.
 fn raiseFiberError(msg: []const u8) PrimitiveError {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
     var msg_root = message;
     gc.pushRoot(&msg_root);

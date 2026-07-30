@@ -36,7 +36,7 @@ pub const specs = [_]primitives.PrimSpec{
 /// `load`ed/imported file).
 fn scriptPath(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = vm.script_path orelse return types.FALSE;
     return gc.allocString(path) catch return PrimitiveError.OutOfMemory;
@@ -52,7 +52,7 @@ fn scriptPath(args: []const Value) PrimitiveError!Value {
 /// this library's established #f-for-inapplicable convention.
 fn currentLibDir(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const dir = vm.current_lib_dir orelse return types.FALSE;
     return gc.allocString(dir) catch return PrimitiveError.OutOfMemory;

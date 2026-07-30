@@ -214,7 +214,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Prim
         if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = if (vm.current_input_port_param != types.VOID)
         vm.getParameterValue(types.toParameter(vm.current_input_port_param))
     else
@@ -231,7 +231,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
         if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const port_val = if (vm.current_output_port_param != types.VOID)
         vm.getParameterValue(types.toParameter(vm.current_output_port_param))
     else

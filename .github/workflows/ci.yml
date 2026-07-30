@@ -39,7 +39,9 @@ jobs:
             echo "a bare return reaches the user as vm_calls.mapNativeError's fallback,"
             echo "which names the primitive but reports args[0] as the offending value."
             echo "Only add '// bare-ok: <reason>' for infrastructure guards that have no"
-            echo "procedure context to report (e.g. a 'vm_instance orelse' with no VM)."
+            echo "procedure context to report, and only when TypeError is the tag the"
+            echo "function returns anyway -- a 'vm_instance orelse' whose function has no"
+            echo "natural tag is InvalidBytecode (kaappi#1874), not an annotated TypeError."
             exit 1
           fi
           echo "No unannotated bare TypeErrors."

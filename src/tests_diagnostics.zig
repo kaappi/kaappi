@@ -116,6 +116,12 @@ test "runtime errors map to runtime-stage codes" {
     try std.testing.expectEqual(Code.not_a_procedure, diagnostics.runtimeErrorCode(error.NotAProcedure));
     try std.testing.expectEqual(Code.index_out_of_bounds, diagnostics.runtimeErrorCode(error.IndexOutOfBounds));
     try std.testing.expectEqual(Code.uncaught_exception, diagnostics.runtimeErrorCode(error.ExceptionRaised));
+    // The settled tag for a `vm_instance`/`gc_instance` guard whose function has
+    // no natural error of its own (kaappi#1874). ~80 sites report through this
+    // mapping and set no detail, so KP9001's registry template is the entire
+    // message the user sees — losing this arm would silently downgrade all of
+    // them to the `uncategorized` catch-all.
+    try std.testing.expectEqual(Code.internal_error, diagnostics.runtimeErrorCode(error.InvalidBytecode));
     // Control-flow signals are not diagnostics — they must never surface a
     // stage-specific code.
     try std.testing.expectEqual(Code.uncategorized, diagnostics.runtimeErrorCode(error.Yielded));

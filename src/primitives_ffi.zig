@@ -174,7 +174,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (diag.realErr()) |err| {
         // A candidate exists on disk but refused to load — report its
         // error, prefixed with the path when the platform's dlerror text
@@ -238,7 +238,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
 
     const symbol = platform.dlSym(handle, cname) orelse {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         if (platform.dlError()) |err_msg| {
             const msg = std.mem.span(err_msg);
             vm.setErrorDetail("ffi-fn: {s}", .{msg});
@@ -255,7 +255,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     while (param_list != types.NIL) {
         if (!types.isPair(param_list)) return primitives.typeError("ffi-fn", "proper list of types", args[2]);
         if (param_count >= 16) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             vm.setErrorDetail("ffi-fn: too many parameters (max 16)", .{});
             return PrimitiveError.TypeError; // bare-ok: detail set above
         }
@@ -312,13 +312,13 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
     const ret_type = parseType(args[2]) orelse return primitives.typeError("ffi-callback", "valid FFI type symbol", args[2]);
 
     const sig = matchCallbackSig(param_types[0..param_count], ret_type) orelse {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         vm.setErrorDetail("ffi-callback: unsupported callback signature", .{});
         return PrimitiveError.TypeError; // bare-ok: detail set above
     };
 
     const slot = ffi_callback.allocSlot(proc, sig) orelse {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         vm.setErrorDetail("ffi-callback: no free callback slots (max 32)", .{});
         return PrimitiveError.OutOfMemory;
     };

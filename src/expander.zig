@@ -430,7 +430,7 @@ fn mapProcCallError(err: anyerror) ExpandError {
 /// their renamings"): symbols rename, pairs/vectors rebuild with renamed
 /// leaves, everything else passes through.
 fn erRenameFn(args: []const Value) anyerror!Value {
-    const gc = memory.gc_instance orelse return error.TypeError;
+    const gc = memory.gc_instance orelse return error.InvalidBytecode; // no GC: internal invariant
     return erRenameDatum(gc, args[0]);
 }
 
