@@ -1011,11 +1011,25 @@ map.deinit();  // no allocator arg needed
    ```
 
    Report type errors with `primitives.typeError(proc, expected, got)`, never a
-   bare `return PrimitiveError.TypeError` — it names the procedure and the
-   offending value in the message, and the `format` CI job ratchets against new
-   bare returns. `expectFixnum`/`expectString`/`expectPair`/… validate and
-   unwrap in one step. Infrastructure guards with no procedure context to
-   report opt out with `// bare-ok: <reason>`.
+   bare `return PrimitiveError.TypeError` — it names the expected type and the
+   offending value, and the `format` CI job rejects any unannotated bare return
+   (the count-based ratchet was retired at 0 by kaappi#1868).
+   `expectFixnum`/`expectString`/`expectPair`/… validate and unwrap in one step.
+   Infrastructure guards with no procedure context to report opt out with
+   `// bare-ok: <reason>`.
+
+   A bare return is not silent — `vm_calls.mapNativeError` synthesizes
+   `type error in '<primitive>': got <args[0]>` when no detail was set — which
+   is exactly what makes it dangerous: the procedure name survives, so the
+   message looks deliberate while omitting the expected type and, when the
+   offending value is not the first argument, naming the wrong one.
+
+   Use the sibling helpers for failures that are not type errors, rather than
+   stretching `typeError` over them: `indexError(proc, index, len)`
+   (`IndexOutOfBounds`, KP3006) and `argError(proc, fmt, args)`
+   (`InvalidArgument`, KP3007 — for a value of acceptable type that the
+   procedure rejects anyway, e.g. a sealed parent rtd). See
+   `docs/dev/adding-features.md`.
 
 2. Add one entry to the file's `specs` table — name, function, arity, and the
    libraries that export it. `registerAll` walks `all_specs` and
@@ -1368,6 +1382,7 @@ workspace-level `.claude/settings.json` when working from the multi-repo workspa
 | Session context | SessionStart hook | `.claude/hooks/session-start.sh` |
 | Zig formatting | PostToolUse hook + git pre-commit | `.claude/hooks/zig-fmt-post.sh`, `.githooks/pre-commit` |
 | Markdown structure | CI `format` job (markdownlint) | `.markdownlint-cli2.jsonc`, `.github/workflows/ci.yml` |
+| No bare `PrimitiveError.TypeError` | CI `format` job (grep, zero allowed) | `.github/workflows/ci.yml` |
 | No destructive commands | Deny permissions + PreToolUse hook | `.claude/settings.json`, `.claude/hooks/bash-guard-pre.sh` |
 | Tests pass before stop | Stop hook | `.claude/hooks/test-on-stop.sh` |
 | GC safety checklist | Path-scoped rule (auto-loaded) | `.claude/rules/gc-safety.md` |

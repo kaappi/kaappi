@@ -411,7 +411,7 @@ pub fn bootstrapStub(comptime name: []const u8) types.NativeFnType {
             _ = args;
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             vm.setErrorDetail("'{s}' is implemented in Scheme (src/vm_bootstrap.zig) but vm_bootstrap.install() has not run for this VM", .{name});
-            return PrimitiveError.TypeError;
+            return PrimitiveError.TypeError; // bare-ok: detail set on the line above
         }
     };
     return &S.call;
@@ -473,7 +473,7 @@ pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveEr
     var buf: [128]u8 = undefined;
     const s = safeValueDescription(&buf, got);
     vm.setErrorDetail("type error in '{s}': expected {s}, got {s}", .{ proc, expected, s });
-    return PrimitiveError.TypeError;
+    return PrimitiveError.TypeError; // bare-ok: this is typeError itself
 }
 
 pub fn expectPair(proc: []const u8, v: Value) PrimitiveError!*types.Pair {
@@ -511,6 +511,16 @@ pub fn indexError(proc: []const u8, index: i64, len: usize) PrimitiveError {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.IndexOutOfBounds;
     vm.setErrorDetail("{s}: index {d} out of range for length {d}", .{ proc, index, len });
     return PrimitiveError.IndexOutOfBounds;
+}
+
+/// The `typeError`/`indexError` sibling for a constraint that is about neither
+/// type nor range: the argument's type is acceptable and the procedure still
+/// rejects it (R6RS's "parent is sealed", a uid whose field specs disagree).
+/// `explanation` says what the procedure requires, in the caller's own words.
+pub fn argError(proc: []const u8, comptime explanation: []const u8, fmt_args: anytype) PrimitiveError {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    vm.setErrorDetail("{s}: " ++ explanation, .{proc} ++ fmt_args);
+    return PrimitiveError.InvalidArgument;
 }
 
 pub const Range = struct { start: usize, end: usize };

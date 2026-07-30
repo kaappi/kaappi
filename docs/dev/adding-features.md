@@ -37,17 +37,40 @@ dispatch layer.
 a bare `return PrimitiveError.TypeError`. `typeError` attaches the procedure
 name, the expected type, and a description of what actually arrived to the
 error detail, so the user sees `type error in 'my-proc': expected exact
-integer, got #t` instead of an anonymous `TypeError`. The `format` CI job
-enforces this with a ratchet on the count of unannotated bare returns
+integer, got #t`. The `format` CI job rejects any unannotated bare return
 (`.github/workflows/ci.yml`), so adding one fails the build. Only
 infrastructure guards that have no procedure context to report -- the
 `vm_instance orelse` fallbacks, for example -- take a bare return, and those
-carry a `// bare-ok: <reason>` comment to opt out of the ratchet.
+carry a `// bare-ok: <reason>` comment to opt out.
+
+A bare return is not silent, which is what made the backlog kaappi#1868 cleared
+easy to underestimate: `vm_calls.mapNativeError` synthesizes `type error in
+'<primitive>': got <args[0]>` for any primitive that set no detail. So the
+procedure name survives -- what is lost is the *expected* type, and, whenever
+the offending value is not the first argument, the report names the wrong one.
+A string-keyed hash table given a bad key used to blame the table itself.
 
 For the common checks there are wrappers that validate and unwrap in one step,
 each taking the procedure name for the same error detail: `expectFixnum`,
-`expectString`, `expectChar`, `expectPair`, `expectVector`, `expectPort`, plus
-`indexError(proc, index, len)` for out-of-range access.
+`expectString`, `expectChar`, `expectPair`, `expectVector`, `expectPort`.
+
+`typeError` has two siblings for the conditions that are not type errors, so
+that reaching for it never becomes the reflex for every rejection:
+
+| Helper | Tag | Use for |
+|--------|-----|---------|
+| `typeError(proc, expected, got)` | `TypeError` (KP3002) | the value is of the wrong type |
+| `indexError(proc, index, len)` | `IndexOutOfBounds` (KP3006) | an index outside `0..len` |
+| `argError(proc, fmt, args)` | `InvalidArgument` (KP3007) | the type is fine and the procedure rejects the value anyway |
+
+`argError` takes a comptime format string and its arguments, and prefixes the
+procedure name itself: `argError("%make-record-type-descriptor", "record type
+'{s}' is sealed and cannot be a parent", .{p.name})`. Prefer it whenever
+"expected X, got Y" would misdescribe the failure -- a symbol that is not one of
+three accepted symbols, an rtd that refuses to be extended, a uid already
+claimed. It also sidesteps a limit of `typeError`: `safeValueDescription`
+deliberately does not dereference heap payloads, so `got` renders every symbol
+as a bare `#<symbol>`, and `argError`'s own format string can name it.
 
 ### 2. Register the procedure and its libraries
 

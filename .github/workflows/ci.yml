@@ -27,20 +27,22 @@ jobs:
       - name: Format check
         run: zig fmt --check src/
 
-      # Ratchet: lower the baseline whenever the count drops, so the guard keeps
-      # its bite. Was 91 when introduced; the remaining 20 are in
-      # primitives{,_hashtable,_parallel,_srfi18,_srfi237}.zig.
+      # This was a ratchet (91 at introduction, then 20) while a backlog of
+      # anonymous TypeErrors was worked off. kaappi#1868 cleared the last of
+      # them, so the baseline is now 0 and there is no number to keep in step
+      # with the source -- every bare return must carry a `bare-ok` reason.
       - name: Check bare TypeError regression
         run: |
-          count=$(grep -r 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok' | wc -l | tr -d ' ')
-          echo "Unannotated bare TypeErrors: $count (baseline: 20)"
-          if [ "$count" -gt 20 ]; then
-            echo "::error::New bare PrimitiveError.TypeError without 'bare-ok' annotation."
-            echo "Use primitives.typeError(proc, expected, got) for type checks."
-            echo "Only add '// bare-ok: <reason>' for infrastructure guards."
-            grep -rn 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok'
+          if grep -rn 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok'; then
+            echo "::error::Bare PrimitiveError.TypeError without a 'bare-ok' annotation (listed above)."
+            echo "Use primitives.typeError(proc, expected, got) for type checks --"
+            echo "a bare return reaches the user as vm_calls.mapNativeError's fallback,"
+            echo "which names the primitive but reports args[0] as the offending value."
+            echo "Only add '// bare-ok: <reason>' for infrastructure guards that have no"
+            echo "procedure context to report (e.g. a 'vm_instance orelse' with no VM)."
             exit 1
           fi
+          echo "No unannotated bare TypeErrors."
 
       # Globs, ignores, and the rule set all live in .markdownlint-cli2.jsonc,
       # so `npx markdownlint-cli2` locally lints exactly what this step does.
