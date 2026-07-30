@@ -22,10 +22,12 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 const types = @import("types.zig");
+const printer = @import("printer.zig");
 
 const llvm_emit = @import("llvm_emit.zig");
 const LLVMEmitter = llvm_emit.LLVMEmitter;
 const EmitError = llvm_emit.EmitError;
+const NativeLambda = llvm_emit.NativeLambda;
 
 const Value = types.Value;
 
@@ -549,4 +551,538 @@ fn doArgsEmittable(self: *LLVMEmitter, args: Value) bool {
     if (!exprNativeEmittable(self, types.car(test_clause))) return false;
     if (!bodyEmittable(self, types.cdr(test_clause))) return false; // result exprs
     return bodyEmittable(self, types.cdr(rest)); // commands
+}
+
+// ---------------------------------------------------------------------------
+// Special-form / eval-fallback emitters moved out of llvm_emit.zig (file size
+// policy). Each is aliased back into LLVMEmitter, so `self.emitXxx(...)`
+// call sites in emitNode and the other satellites are unchanged.
+// ---------------------------------------------------------------------------
+
+pub fn emitBegin(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
+    var last: []const u8 = "";
+    for (exprs) |expr| {
+        last = try self.emitNode(expr);
+    }
+    return last;
+}
+
+pub fn emitIf(self: *LLVMEmitter, data: ir.IfData) EmitError![]const u8 {
+    const test_val = try self.emitNode(data.test_expr);
+
+    const false_val: i64 = @bitCast(types.FALSE);
+    const cmp = try self.freshTemp();
+    try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, test_val, false_val });
+
+    const label_id = self.label_counter;
+    self.label_counter += 1;
+
+    const then_label = try std.fmt.allocPrint(self.allocator(), "then{d}", .{label_id});
+    const else_label = try std.fmt.allocPrint(self.allocator(), "else{d}", .{label_id});
+    const merge_label = try std.fmt.allocPrint(self.allocator(), "merge{d}", .{label_id});
+    const pre_label = try std.fmt.allocPrint(self.allocator(), "pre{d}", .{label_id});
+
+    // Name the current block so phi can reference it
+    try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
+    self.current_block = pre_label;
+
+    if (data.alternate != null) {
+        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, then_label, else_label });
+    } else {
+        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, then_label, merge_label });
+    }
+
+    try self.startBlock(then_label);
+    const then_val = try self.emitNode(data.consequent);
+    const then_end_block = self.current_block;
+    try self.print("  br label %{s}\n", .{merge_label});
+
+    if (data.alternate) |alt| {
+        try self.startBlock(else_label);
+        const else_val = try self.emitNode(alt);
+        const else_end_block = self.current_block;
+        try self.print("  br label %{s}\n", .{merge_label});
+
+        try self.startBlock(merge_label);
+        const result = try self.freshTemp();
+        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {s}, %{s} ]\n", .{ result, then_val, then_end_block, else_val, else_end_block });
+        return result;
+    } else {
+        const void_val: i64 = @bitCast(types.VOID);
+        try self.startBlock(merge_label);
+        const result = try self.freshTemp();
+        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, then_val, then_end_block, void_val, pre_label });
+        return result;
+    }
+}
+
+pub fn emitAnd(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
+    if (exprs.len == 0) return self.emitImm(@bitCast(types.TRUE));
+    if (exprs.len == 1) return try self.emitNode(exprs[0]);
+
+    const false_val: i64 = @bitCast(types.FALSE);
+    const label_id = self.label_counter;
+    self.label_counter += 1;
+    const merge_label = try std.fmt.allocPrint(self.allocator(), "and_merge{d}", .{label_id});
+
+    var prev_val = try self.emitNode(exprs[0]);
+    for (exprs[1..], 0..) |expr, i| {
+        const next_label = try std.fmt.allocPrint(self.allocator(), "and_next{d}_{d}", .{ label_id, i });
+        const cmp = try self.freshTemp();
+        try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, prev_val, false_val });
+        const short_label = try std.fmt.allocPrint(self.allocator(), "and_short{d}_{d}", .{ label_id, i });
+        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, next_label, short_label });
+        try self.print("{s}:\n", .{short_label});
+        try self.print("  br label %{s}\n", .{merge_label});
+        try self.print("{s}:\n", .{next_label});
+        prev_val = try self.emitNode(expr);
+    }
+    const last_next = try std.fmt.allocPrint(self.allocator(), "and_done{d}", .{label_id});
+    try self.print("  br label %{s}\n{s}:\n", .{ last_next, last_next });
+    try self.print("  br label %{s}\n", .{merge_label});
+    try self.startBlock(merge_label);
+
+    const result = try self.freshTemp();
+    try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, prev_val, last_next });
+    for (0..exprs.len - 1) |i| {
+        try self.print(", [ {d}, %and_short{d}_{d} ]", .{ false_val, label_id, i });
+    }
+    try self.write("\n");
+    return result;
+}
+
+pub fn emitOr(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
+    if (exprs.len == 0) return self.emitImm(@bitCast(types.FALSE));
+    if (exprs.len == 1) return try self.emitNode(exprs[0]);
+
+    const false_val: i64 = @bitCast(types.FALSE);
+    const label_id = self.label_counter;
+    self.label_counter += 1;
+    const merge_label = try std.fmt.allocPrint(self.allocator(), "or_merge{d}", .{label_id});
+
+    const branch_count = exprs.len - 1;
+    const vals = self.allocator().alloc([]const u8, branch_count) catch return error.OutOfMemory;
+    const or_labels = self.allocator().alloc([]const u8, branch_count) catch return error.OutOfMemory;
+    var count: usize = 0;
+
+    for (exprs[0 .. exprs.len - 1], 0..) |expr, i| {
+        const val = try self.emitNode(expr);
+        vals[count] = val;
+        or_labels[count] = try std.fmt.allocPrint(self.allocator(), "or_check{d}_{d}", .{ label_id, i });
+        count += 1;
+        const next_label = try std.fmt.allocPrint(self.allocator(), "or_next{d}_{d}", .{ label_id, i });
+        const pre_label = or_labels[count - 1];
+        try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
+        const cmp = try self.freshTemp();
+        try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, val, false_val });
+        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, merge_label, next_label });
+        try self.print("{s}:\n", .{next_label});
+    }
+
+    const last_val = try self.emitNode(exprs[exprs.len - 1]);
+    const last_label = try std.fmt.allocPrint(self.allocator(), "or_last{d}", .{label_id});
+    try self.print("  br label %{s}\n{s}:\n", .{ last_label, last_label });
+    try self.print("  br label %{s}\n", .{merge_label});
+    try self.startBlock(merge_label);
+
+    const result = try self.freshTemp();
+    try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, last_val, last_label });
+    for (0..count) |i| {
+        try self.print(", [ {s}, %{s} ]", .{ vals[i], or_labels[i] });
+    }
+    try self.write("\n");
+    return result;
+}
+
+pub fn emitWhen(self: *LLVMEmitter, data: ir.CondBodyData) EmitError![]const u8 {
+    const test_val = try self.emitNode(data.test_expr);
+    const false_val: i64 = @bitCast(types.FALSE);
+    const cmp = try self.freshTemp();
+    try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, test_val, false_val });
+
+    const label_id = self.label_counter;
+    self.label_counter += 1;
+    const body_label = try std.fmt.allocPrint(self.allocator(), "when_body{d}", .{label_id});
+    const merge_label = try std.fmt.allocPrint(self.allocator(), "when_merge{d}", .{label_id});
+    const pre_label = try std.fmt.allocPrint(self.allocator(), "when_pre{d}", .{label_id});
+
+    try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
+    try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
+    try self.startBlock(body_label);
+
+    var last: []const u8 = "";
+    for (data.body) |expr| {
+        last = try self.emitNode(expr);
+    }
+    const body_end_block = self.current_block;
+    try self.print("  br label %{s}\n", .{merge_label});
+    try self.startBlock(merge_label);
+
+    const void_val: i64 = @bitCast(types.VOID);
+    const result = try self.freshTemp();
+    try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_end_block, void_val, pre_label });
+    return result;
+}
+
+pub fn emitUnless(self: *LLVMEmitter, data: ir.CondBodyData) EmitError![]const u8 {
+    const test_val = try self.emitNode(data.test_expr);
+    const false_val: i64 = @bitCast(types.FALSE);
+    const cmp = try self.freshTemp();
+    try self.print("  {s} = icmp eq i64 {s}, {d}\n", .{ cmp, test_val, false_val });
+
+    const label_id = self.label_counter;
+    self.label_counter += 1;
+    const body_label = try std.fmt.allocPrint(self.allocator(), "unless_body{d}", .{label_id});
+    const merge_label = try std.fmt.allocPrint(self.allocator(), "unless_merge{d}", .{label_id});
+    const pre_label = try std.fmt.allocPrint(self.allocator(), "unless_pre{d}", .{label_id});
+
+    try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
+    try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
+    try self.startBlock(body_label);
+
+    var last: []const u8 = "";
+    for (data.body) |expr| {
+        last = try self.emitNode(expr);
+    }
+    const body_end_block = self.current_block;
+    try self.print("  br label %{s}\n", .{merge_label});
+    try self.startBlock(merge_label);
+
+    const void_val: i64 = @bitCast(types.VOID);
+    const result = try self.freshTemp();
+    try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_end_block, void_val, pre_label });
+    return result;
+}
+
+pub fn emitSet(self: *LLVMEmitter, data: ir.SetData) EmitError![]const u8 {
+    if (!types.isSymbol(data.name)) return error.UnsupportedNodeType;
+    const name = types.symbolName(data.name);
+    // Evaluate the new value with lexical scope respected, then store it
+    // into whichever slot `name` resolves to (local alloca, parameter,
+    // rest parameter, upvalue, or global). The old code always evaluated
+    // the value in the global environment and rebound a global (#819).
+    const val = try self.emitScopedValue(data.value);
+    try self.emitStoreToVariable(name, val);
+
+    // When set! targets a global, invalidate the native_fns entry so
+    // later call sites fall back to kaappi_global_lookup (#822).
+    if (!self.isNameShadowed(name)) {
+        _ = self.native_fns.fetchRemove(name);
+        self.rebound_globals.put(name, {}) catch {};
+    }
+
+    return self.emitVoid();
+}
+
+pub fn emitSexprEval(self: *LLVMEmitter, node: *const ir.Node) EmitError![]const u8 {
+    if (node.tag != .sexpr_form) return error.UnsupportedNodeType;
+    const sf = node.data.sexpr_form;
+    // cond/case/do are lowered natively when every sub-form is emittable in
+    // the current lexical scope; otherwise they fall back like any other
+    // sexpr form (#1496). The dispatch is here so nested occurrences reached
+    // via emitNode take the same path.
+    switch (sf.form) {
+        .cond => return emitCond(self, sf.args, node.ann.is_tail),
+        .case_form => return emitCase(self, sf.args, node.ann.is_tail),
+        .do_form => return emitDo(self, sf.args, node.ann.is_tail),
+        else => {},
+    }
+    return self.emitFormEval(sf.args, sf.form.keyword());
+}
+
+pub fn emitLetEvalFallback(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
+    return self.emitFormEval(args, form_name);
+}
+
+pub fn emitFormEval(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
+    try lambda.bindParamsAsGlobals(self);
+
+    var source_buf: std.ArrayList(u8) = .empty;
+    defer source_buf.deinit(self.backing_alloc);
+    source_buf.appendSlice(self.backing_alloc, "(") catch return error.OutOfMemory;
+    source_buf.appendSlice(self.backing_alloc, form_name) catch return error.OutOfMemory;
+
+    var current = args;
+    while (current != types.NIL and types.isPair(current)) {
+        source_buf.append(self.backing_alloc, ' ') catch return error.OutOfMemory;
+        const elem = types.car(current);
+        const elem_str = printer.valueToString(self.backing_alloc, elem, .write) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(elem_str);
+        source_buf.appendSlice(self.backing_alloc, elem_str) catch return error.OutOfMemory;
+        current = types.cdr(current);
+    }
+    source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
+
+    return self.emitCachedEval(source_buf.items);
+}
+
+pub fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![]const u8 {
+    if (types.isPair(expr)) {
+        const head = types.car(expr);
+        // (apply …) lowers natively inside a lexical scope (kaappi#1803):
+        // the pre-#1803 whole-form eval fallback runs in the GLOBAL
+        // environment and would lose the frame's bindings (#1799). At top
+        // level the eval fallback below stays the right choice — it is the
+        // global environment, and whole-form eval keeps macro uses in
+        // operand position expanding correctly.
+        if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply") and
+            self.inLexicalScope())
+        {
+            return self.emitApplyForm(expr, is_tail);
+        }
+        if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "define")) {
+            const rest = types.cdr(expr);
+            if (rest != types.NIL and types.isPair(rest)) {
+                const target = types.car(rest);
+                if (types.isPair(target) and types.isSymbol(types.car(target))) {
+                    const fn_name = types.symbolName(types.car(target));
+                    const formals = types.cdr(target);
+                    const body = types.cdr(rest);
+                    _ = self.native_fns.fetchRemove(fn_name);
+                    self.rebound_globals.put(fn_name, {}) catch {};
+                    if (self.tryCompileDefineFunction(fn_name, formals, body) != null) {
+                        _ = self.rebound_globals.fetchRemove(fn_name);
+                        // #1500: bind the global to a native closure over the
+                        // compiled entry instead of eval'ing the whole define
+                        // form. Fixed-arity, and not when the body reaches a
+                        // code eval fallback (its bindParamsAsGlobals aliases
+                        // across activations — see NativeLambda.has_eval_fallback);
+                        // both keep the eval path, and `@f` still serves direct
+                        // call sites.
+                        if (self.native_fns.get(fn_name)) |info| {
+                            if (!info.is_variadic and !info.has_eval_fallback) {
+                                const val = try self.emitNativeFnClosureValue(info, fn_name);
+                                const sym = try self.internSymbol(fn_name);
+                                try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, fn_name.len, val });
+                                return self.emitVoid();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return self.emitEvalExpr(expr);
+}
+
+// Native lowering of an `(apply f arg… lst)` passthrough inside a lexical
+// scope (kaappi#1803), mirroring the interpreter's own dispatch
+// (compiler.zig / compileApplyTail) case for case:
+//
+//   - tail + unshadowed + ≥2 operands → structural apply with built-in
+//     semantics (the interpreter's tail_apply opcode ignores a top-level
+//     rebinding of `apply`, so the fast path must too): @kaappi_apply
+//     splices the final operand at run time.
+//   - tail + unshadowed + <2 operands → the interpreter's compileApplyTail
+//     raises InvalidSyntax at compile time; abandoning native compilation
+//     routes the enclosing form to that exact error.
+//   - everything else — lexically shadowed `apply` (any shape), or a
+//     non-tail form that is rebound/natively redefined or has <2 operands
+//     — is an ordinary indirect call through whatever `apply` resolves to
+//     in scope (emitGlobalRef's lexical order), matching the interpreter's
+//     plain call: a shadowed binding IS the callee, and the built-in's own
+//     arity check raises the interpreter's exact runtime error for the
+//     too-few-operands shapes.
+//
+// A malformed (improper) operand list abandons native compilation of the
+// enclosing scope — the eval fallback would run in the global environment
+// and lose the frame's bindings (#1799) — so the interpreter reports the
+// syntax error for the whole enclosing form.
+pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![]const u8 {
+    var operands: std.ArrayList(Value) = .empty;
+    defer operands.deinit(self.backing_alloc);
+    var cur = types.cdr(expr);
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        operands.append(self.backing_alloc, types.car(cur)) catch return error.OutOfMemory;
+    }
+    if (cur != types.NIL) return error.UnsupportedNodeType;
+
+    const shadowed = self.isNameShadowed("apply");
+    const rebound = self.rebound_globals.contains("apply") or
+        self.native_fns.contains("apply");
+
+    if (!shadowed and is_tail and operands.items.len < 2)
+        return error.UnsupportedNodeType;
+
+    const is_builtin_apply = !shadowed and (is_tail or !rebound);
+
+    if (is_builtin_apply and operands.items.len >= 2) {
+        const n_fixed = operands.items.len - 2;
+        const callee = try self.emitScopedOperand(operands.items[0]);
+        // Root the callee and every fixed argument across the remaining
+        // operand emissions (each can allocate). The final list operand
+        // needs no root: nothing allocates between its value and the call
+        // (emitCallNode's discipline for its own last argument).
+        var root_count: usize = 1;
+        try self.emitRootPush(callee);
+        const fixed_tmps = self.allocator().alloc([]const u8, n_fixed) catch return error.OutOfMemory;
+        for (0..n_fixed) |i| {
+            fixed_tmps[i] = try self.emitScopedOperand(operands.items[1 + i]);
+            try self.emitRootPush(fixed_tmps[i]);
+            root_count += 1;
+        }
+        const list_tmp = try self.emitScopedOperand(operands.items[operands.items.len - 1]);
+        try self.emitPopRoots(root_count);
+
+        const result = try self.freshTemp();
+        if (n_fixed == 0) {
+            const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
+            try self.print("  {s} = {s} i64 @kaappi_apply(ptr %vm, i64 {s}, ptr null, i64 0, i64 {s})\n", .{ result, call_prefix, callee, list_tmp });
+        } else {
+            const args_alloca = try self.freshTemp();
+            try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, n_fixed });
+            for (0..n_fixed) |i| {
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+                try self.print("  store i64 {s}, ptr {s}\n", .{ fixed_tmps[i], gep });
+            }
+            try self.print("  {s} = call i64 @kaappi_apply(ptr %vm, i64 {s}, ptr {s}, i64 {d}, i64 {s})\n", .{ result, callee, args_alloca, n_fixed, list_tmp });
+        }
+
+        if (is_tail) {
+            // Balance the frame-entry GC roots and any live let-binding
+            // roots before returning through this tail call, exactly as
+            // emitCallNode does (#1498/#1585) — a deep apply-driven loop
+            // must not leak one root set per iteration.
+            try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
+            try self.print("  ret i64 {s}\n", .{result});
+            try self.emitOrphanAfterTail();
+        }
+        return result;
+    }
+
+    // Generic path: resolve `apply` like any variable reference (a
+    // parameter, local, upvalue, or the current global binding) and call
+    // it with the operands — emitCallNode's indirect-call tail, inlined.
+    const callee = try self.emitGlobalRef(types.car(expr));
+    const nargs = operands.items.len;
+    var root_count: usize = 0;
+    if (nargs > 0) {
+        try self.emitRootPush(callee);
+        root_count += 1;
+    }
+    const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
+    for (operands.items, 0..) |operand, i| {
+        arg_tmps[i] = try self.emitScopedOperand(operand);
+        if (i + 1 < nargs) {
+            try self.emitRootPush(arg_tmps[i]);
+            root_count += 1;
+        }
+    }
+    try self.emitPopRoots(root_count);
+
+    const result = try self.freshTemp();
+    if (nargs == 0) {
+        const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
+        try self.print("  {s} = {s} i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr null, i64 0)\n", .{ result, call_prefix, callee });
+    } else {
+        const args_alloca = try self.freshTemp();
+        try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, nargs });
+        for (0..nargs) |i| {
+            const gep = try self.freshTemp();
+            try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+            try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
+        }
+        try self.print("  {s} = call i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr {s}, i64 {d})\n", .{ result, callee, args_alloca, nargs });
+    }
+    if (is_tail) {
+        try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
+        try self.print("  ret i64 {s}\n", .{result});
+        try self.emitOrphanAfterTail();
+    }
+    return result;
+}
+
+// Lower one raw apply operand to IR and emit it in the current lexical
+// scope. Operands are never in tail position. A lowering failure (a
+// resource limit or malformed leaf) abandons native compilation of the
+// enclosing scope — emitScopedValue's emitEvalExpr fallback would run the
+// operand in the global environment, the exact #1799 failure mode.
+pub fn emitScopedOperand(self: *LLVMEmitter, operand: Value) EmitError![]const u8 {
+    const node = ir.lowerSingleExpr(self.allocator(), self.gc, operand) catch return error.UnsupportedNodeType;
+    return self.emitNode(node);
+}
+
+// Build the runtime Value for a natively-compiled top-level function as a
+// native closure over its uniform C-ABI entry (#1500). A value use of the
+// name — passing it to `map`/`apply`, `(eq? f f)`, returning it — then runs
+// the native `@f` instead of an interpreter closure, and startup no longer
+// parses and compiles the lambda through the eval fallback. Valid only for a
+// fixed-arity function: `callNativeClosure` dispatches native closures by
+// exact arity, so a variadic entry keeps the eval-fallback value. Referencing
+// the entry here also takes its address, which keeps LLVM from dropping the
+// `internal` fast-entry trampoline it would otherwise discard (#1499).
+pub fn emitNativeFnClosureValue(self: *LLVMEmitter, info: NativeLambda, name: []const u8) EmitError![]const u8 {
+    const name_str = try self.internString(name);
+    const result = try self.freshTemp();
+    try self.print("  {s} = call i64 @kaappi_create_native_closure(ptr %vm, ptr {s}, ptr null, i64 0, i64 {d}, ptr {s}, i64 {d})\n", .{ result, info.llvm_name, info.arity, name_str, name.len });
+    return result;
+}
+
+pub fn emitDefine(self: *LLVMEmitter, data: ir.DefineData) EmitError![]const u8 {
+    if (!types.isSymbol(data.name)) return error.UnsupportedNodeType;
+    const name = types.symbolName(data.name);
+
+    // Internal define inside a natively compiled lexical scope (a `let`
+    // body). self.locals is only populated while emitLet emits a body, so
+    // top-level and lambda-body defines fall through to the global path.
+    // Create a fresh local binding so the define shadows any global of the
+    // same name for the rest of the body, instead of overwriting it (#819).
+    if (self.locals != null) {
+        const alloca = try self.freshTemp();
+        try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+        // Register before emitting the value so a self/mutual reference in
+        // the initializer resolves to this binding (letrec*-style).
+        self.locals.?.put(name, .{ .slot = alloca }) catch return error.OutOfMemory;
+        const val = try self.emitScopedValue(data.value);
+        try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+        return self.emitVoid();
+    }
+
+    const sym_name = try self.internSymbol(name);
+
+    // Remove any stale native_fns entry before attempting native
+    // compilation; tryCompileLambdaNative re-registers if it succeeds.
+    // Mark the name rebound so inline primitive dispatch is suppressed
+    // for later call sites (#822).
+    _ = self.native_fns.fetchRemove(name);
+    self.rebound_globals.put(name, {}) catch {};
+
+    if (types.isPair(data.value)) {
+        const head = types.car(data.value);
+        if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "lambda")) {
+            const lambda_data = ir.LambdaData{ .args = types.cdr(data.value), .name = name };
+            if (self.tryCompileLambdaNative(lambda_data) != null) {
+                _ = self.rebound_globals.fetchRemove(name);
+            }
+        }
+    }
+
+    const val = blk: {
+        // #1500: the value compiled to a native function — bind the global
+        // to a native closure over its uniform entry instead of eval'ing the
+        // lambda source. Fixed-arity, and not when the body reaches a code
+        // eval fallback (its bindParamsAsGlobals aliases across activations;
+        // see NativeLambda.has_eval_fallback and emitNativeFnClosureValue).
+        if (self.native_fns.get(name)) |info| {
+            if (!info.is_variadic and !info.has_eval_fallback)
+                break :blk try self.emitNativeFnClosureValue(info, name);
+        }
+        break :blk if (types.isPair(data.value))
+            try self.emitEvalExpr(data.value)
+        else if (types.isSymbol(data.value))
+            try self.emitGlobalRef(data.value)
+        else
+            try self.emitConstant(data.value);
+    };
+
+    try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
+
+    return self.emitVoid();
+}
+
+const lambda = @import("llvm_emit_lambda.zig");
+
+pub fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+    return lambda.emitLambda(self, data);
 }

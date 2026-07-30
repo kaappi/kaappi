@@ -41,7 +41,8 @@ Forms are split by semantic domain. Add new forms to the right file:
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
-| `compiler_macro.zig` | define-syntax, let-syntax, letrec-syntax, macro expansion, syntax-rules parsing, hygiene free-ref collection |
+| `compiler_macro.zig` | Macro-use path: expandAndCompileMacroUse, hygiene injection, free-ref collection |
+| `compiler_define_syntax.zig` | define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution, syntax-rules parsing |
 
 Then add the re-export in `compiler_forms.zig` (thin hub — don't add logic there).
 
@@ -53,7 +54,8 @@ Then add the re-export in `compiler_forms.zig` (thin hub — don't add logic the
 | `vm_calls.zig` | yes | callValue, callClosure, execute |
 | `vm.zig` | no | State, init/deinit, error helpers |
 | `vm_eval.zig` | no | eval, top-level form dispatch |
-| `vm_library.zig` | no | import, define-library, .sld loading |
+| `vm_library.zig` | no | define-library, .sld loading, SRFI 261, cond-expand features |
+| `vm_imports.zig` | no | import-set algebra (only/except/prefix/rename) |
 | `vm_records.zig` | no | define-record-type desugaring |
 | `vm_continuations.zig` | no | call/cc, dynamic-wind |
 | `vm_debug.zig` | no | Stepping debugger |
