@@ -16,7 +16,7 @@ var eval_depth_observed: usize = 0;
 // count reflects the depth accumulated by the surrounding recursion.
 fn recordEvalDepth(args: []const Value) primitives.PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return primitives.PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return primitives.PrimitiveError.InvalidBytecode; // no VM: internal invariant
     eval_depth_observed = vm.frame_count;
     return types.VOID;
 }

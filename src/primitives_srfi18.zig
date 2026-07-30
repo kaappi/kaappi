@@ -168,7 +168,7 @@ var child_registry: ChildRegistry = .{
 /// the scheduler (KEP-0001 Phase 2) — the actual setup logic lives in one
 /// place instead of being duplicated per call site.
 fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return fiber_mod.ensureScheduler(vm);
 }
 
@@ -266,7 +266,7 @@ pub fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u
 /// typed-error-object construction.
 pub fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
     const err_val = try makeErrorWithType(error_type, msg, reason);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     vm.current_exception = err_val;
     return PrimitiveError.ExceptionRaised;
 }
@@ -385,7 +385,7 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("thread-start!", "new thread", args[0]);
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
 
     // KEP-0002 Phase 2: copy the thunk into an envelope on THIS (the owning)
     // thread, before ever spawning the child. This closes the old
@@ -552,7 +552,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const sched = vm.scheduler orelse {
         std.Thread.yield() catch {};
         return types.VOID;

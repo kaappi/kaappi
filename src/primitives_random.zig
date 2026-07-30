@@ -91,7 +91,7 @@ fn getRS(proc: []const u8, v: Value) PrimitiveError!*types.RandomSource {
 
 fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
     ensureDefaultRS();
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const rs = try getRS("random-integer", vm.default_random_source);
     return randomBelow("random-integer", rs, args[0]);
 }
@@ -99,7 +99,7 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     ensureDefaultRS();
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const rs = try getRS("random-real", vm.default_random_source);
     return types.makeFlonum(openUnitReal(rs));
 }
@@ -107,7 +107,7 @@ fn randomRealFn(args: []const Value) PrimitiveError!Value {
 fn defaultRandomSourceFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     ensureDefaultRS();
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return vm.default_random_source;
 }
 

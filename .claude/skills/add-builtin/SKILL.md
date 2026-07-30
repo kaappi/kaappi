@@ -91,9 +91,16 @@ object's fields needs a write barrier.
 ## Calling back into Scheme
 
 ```zig
-const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
 return vm.callWithArgs(proc, call_args);
 ```
+
+`InvalidBytecode` (→ KP9001 "internal error") is the settled tag for a
+threadlocal guard whose function has no natural error of its own — a null
+`vm_instance` is an implementation-invariant violation, not an allocation
+failure. The `gc_instance` guard above keeps `OutOfMemory` because for an
+allocating function that *is* its natural error. See
+`docs/dev/gc-safety-and-error-handling.md`.
 
 Let the callee's error propagate — `PrimitiveError` and `VMError` are both
 aliases of `errors.KaappiError`, so a raise inside the Scheme procedure returns
@@ -105,8 +112,8 @@ Use `primitives.typeError(proc, expected, got)` for type checks — it produces
 `type error in 'my-proc': expected exact integer, got #t`. The `format` CI job
 rejects **any** bare `return PrimitiveError.TypeError` that lacks a
 `// bare-ok: <reason>` comment, so adding one fails the build; the annotation is
-only for infrastructure guards with no procedure context to report (a
-`vm_instance orelse` with no VM, say).
+only for infrastructure guards with no procedure context to report *and* whose
+function returns `TypeError` anyway (`typeError` itself, `bootstrapStub`).
 
 A bare return is not silent — `vm_calls.mapNativeError` fills in
 `type error in '<primitive>': got <args[0]>` — so it looks deliberate while

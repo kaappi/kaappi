@@ -59,7 +59,7 @@ The leading digit tells an agent which pipeline stage a diagnostic came from:
 | `KP2xxx` | Expand / compile | `expander.zig`, `compiler*.zig`, `ir.zig` |
 | `KP3xxx` | Runtime | `vm*.zig`, `primitives*.zig` |
 | `KP4xxx` | Static analysis / lint | `kaappi check` — see [check.md](check.md) ([#1511](https://github.com/kaappi/kaappi/issues/1511)) |
-| `KP9xxx` | Internal / resource | internal-compiler-error and out-of-memory paths |
+| `KP9xxx` | Internal / resource | internal-error and out-of-memory paths |
 
 Ranges are deliberately sparse (1000 codes per stage). Granularity target: **one
 code per user-distinguishable condition** — finer than the internal `KaappiError`

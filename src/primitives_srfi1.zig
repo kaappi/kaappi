@@ -87,7 +87,7 @@ pub const specs = [_]primitives.PrimSpec{
 // ---------------------------------------------------------------------------
 
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return vm.callWithArgs(proc, call_args) catch |err| {
         return err;
     };

@@ -90,7 +90,7 @@ fn jiffiesPerSecond(args: []const Value) PrimitiveError!Value {
 fn commandLine(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
 
     var result: Value = types.NIL;
     gc.pushRoot(&result);
@@ -205,7 +205,7 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn evalFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const expr = args[0];
 
@@ -255,7 +255,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
 fn environmentFn(args: []const Value) PrimitiveError!Value {
     // (environment import-set ...) — R7RS 6.12
     // Create a new environment containing bindings from the given import sets.
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
@@ -279,7 +279,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
 
 fn loadFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("load", "string", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -395,7 +395,7 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&val);
     defer gc.popRoot();
     if (converter != types.NIL) {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         val = vm.callWithArgs(converter, &[_]Value{init}) catch |err| {
             return err;
         };
@@ -419,7 +419,7 @@ fn parameterConvertFn(args: []const Value) PrimitiveError!Value {
     if (!types.isParameter(args[0])) return primitives.typeError("%parameter-convert", "parameter", args[0]);
     const param = types.toObject(args[0]).as(types.ParameterObject);
     if (param.converter == types.NIL) return args[1];
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return vm.callWithArgs(param.converter, &[_]Value{args[1]}) catch |err| return err;
 }
 
@@ -429,7 +429,7 @@ fn parameterConvertFn(args: []const Value) PrimitiveError!Value {
 
 fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocEnvironment(vm.globals, false, false) catch return PrimitiveError.OutOfMemory;
 }
@@ -449,7 +449,7 @@ fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("scheme-report-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return primitives.typeError("scheme-report-environment", "5 or 7", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;

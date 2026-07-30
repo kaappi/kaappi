@@ -175,7 +175,7 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     // resolves to the same RTD object for a given uid, so pointer equality
     // already captures parent equivalence.
     if (uid) |u| {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         if (vm.record_uid_registry.get(u)) |existing| {
             const existing_rt = asRecordType(existing);
             if (existing_rt.parent == parent and
@@ -206,7 +206,7 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
     };
 
     if (uid) |u| {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         // Root across put(): a Value reachable only from this local isn't
         // yet visible to markVMRoots' registry scan until the insert lands.
         gc.pushRoot(&new_val);
@@ -383,7 +383,7 @@ fn recordTypeTotalFieldCountFn(args: []const Value) PrimitiveError!Value {
 
 fn recordUidToRtdFn(args: []const Value) PrimitiveError!Value {
     const uid = try expectString("%record-uid->rtd", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (vm.record_uid_registry.get(uid)) |rt_val| return rt_val;
     return types.FALSE;
 }

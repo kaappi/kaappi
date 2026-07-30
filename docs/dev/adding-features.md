@@ -39,9 +39,13 @@ name, the expected type, and a description of what actually arrived to the
 error detail, so the user sees `type error in 'my-proc': expected exact
 integer, got #t`. The `format` CI job rejects any unannotated bare return
 (`.github/workflows/ci.yml`), so adding one fails the build. Only
-infrastructure guards that have no procedure context to report -- the
-`vm_instance orelse` fallbacks, for example -- take a bare return, and those
-carry a `// bare-ok: <reason>` comment to opt out.
+infrastructure guards that have no procedure context to report take a bare
+return, and those carry a `// bare-ok: <reason>` comment to opt out -- and
+only when `TypeError` is the tag the function returns anyway (`typeError`
+itself, for instance). A `vm_instance`/`gc_instance` guard in a function with
+no natural tag is `InvalidBytecode`, not an annotated `TypeError`; see
+"Tagging the `vm_instance` / `gc_instance` guards" in
+`gc-safety-and-error-handling.md`.
 
 A bare return is not silent, which is what made the backlog kaappi#1868 cleared
 easy to underestimate: `vm_calls.mapNativeError` synthesizes `type error in
@@ -158,10 +162,18 @@ primitives file already uses for that module:
 
 ```zig
 fn myHigherOrder(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     return vm.callWithArgs(args[0], args[1..]);
 }
 ```
+
+`InvalidBytecode` is the settled tag for a threadlocal guard whose function
+has no natural error of its own: a null `vm_instance` is an
+implementation-invariant violation, and that is the one `KaappiError` variant
+that means so (it reports as KP9001 "internal error", which tells the user to
+file a bug rather than to shrink their heap). The `gc_instance` guard above
+keeps `OutOfMemory` because for an allocating function that *is* its natural
+error. Both rules are spelled out in `gc-safety-and-error-handling.md`.
 
 `callWithArgs(proc, args)` is the entry point that takes a Value slice.
 (`vm_calls.callValue` is a different, register-based call used by the dispatch

@@ -150,7 +150,7 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("member", "proper list", current);
         if (has_compare) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             const call_args = [2]Value{ args[0], types.car(current) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
                 return err;
@@ -259,7 +259,7 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
         const pair = types.car(current);
         if (!types.isPair(pair)) return primitives.typeError("assoc", "pair", pair);
         if (has_compare) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
             const call_args = [2]Value{ args[0], types.car(pair) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
                 return err;

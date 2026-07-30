@@ -261,6 +261,77 @@ Primitives return `PrimitiveError!Value`. The VM translates these to
    - Debug info (source line tracking, line tables)
    - Error-path recovery where the primary error takes precedence
 
+### Tagging the `vm_instance` / `gc_instance` guards (#1874)
+
+Roughly 450 sites open with one of:
+
+```zig
+const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode;
+```
+
+Both threadlocals are set during VM init (`vm_mod.setVMInstance` runs before
+`registerAll`), so neither guard fires in a working build. That makes the tag
+a *readability* decision, not a behavioral one — and left undecided it drifted
+into a 46/34 `TypeError`/`OutOfMemory` split with nothing explaining either
+side. Two rules settle it.
+
+**Rule 1 — a guard returns the tag the function was going to return anyway,
+just without the formatted detail.** These helpers fetch the VM only to
+*attach a message* to an error they were already committed to raising, so
+losing the VM costs the message, not the diagnosis:
+
+| Helper | Tag |
+|---|---|
+| `primitives.typeError` | `TypeError` |
+| `primitives.indexError` | `IndexOutOfBounds` |
+| `primitives.argError`, `primitives_string_ext`'s cursor guard | `InvalidArgument` |
+| `primitives_arithmetic.raiseDivByZero` | `DivisionByZero` |
+| the `overApplied`-style arity helpers (SRFI 181/254/258/260) | `ArityMismatch` |
+| `primitives_fiber.reraiseFiberError` | `ExceptionRaised` |
+| `primitives_io`'s `waitPortFd` / `raisePortClosedDuringIo` | `InvalidArgument` |
+| `primitives.bootstrapStub` (its own tag is `TypeError`) | `TypeError` |
+
+A `gc_instance` guard in an allocating function is the same rule at scale: no
+GC means the allocation the function exists to perform cannot happen, so
+`OutOfMemory` *is* what it was going to return. That is 348 of the 354
+`gc_instance` sites and stays as it is.
+
+**Rule 2 — with no natural tag, use `InvalidBytecode`.** A null threadlocal is
+an implementation-invariant violation, and `InvalidBytecode` is the only
+`KaappiError` variant that means that. `diagnostics.runtimeErrorCode` maps it
+to `.internal_error` (KP9001), whose registry template — the message the user
+actually sees, since these guards set no detail — is "internal error" plus
+"please report it with the program that triggered it". That is the correct
+instruction for a condition no program can cause.
+
+The two rejected alternatives are worth naming, because both are what the
+drifted sites had:
+
+- `OutOfMemory` prints "out of memory" and sends the reader after heap size
+  for something that is not an allocation failure.
+- `TypeError` is worse still: `vm_calls.mapNativeError` fills in a detail when
+  none was set, so a bare `TypeError` surfaces as `type error in '<proc>': got
+  <args[0]>` — a message that names a real argument as the culprit and reads
+  as deliberate. That synthesized-detail trap is the whole reason the CI
+  `format` job rejects an unannotated bare `return PrimitiveError.TypeError`
+  (kaappi#1868/#1871); `// bare-ok: <reason>` is for Rule 1 sites only.
+
+Guards in functions that do not return an error union (`orelse return 0`,
+`null`, `false`, or a bare `return`) have no tag to settle and are outside
+both rules.
+
+One seam the two rules leave visible, so it does not read as fresh drift: the
+`raise*` helpers that build a condition object and end in `return
+PrimitiveError.ExceptionRaised` split across both. `reraiseFiberError` and
+`raisePortClosedDuringIo` already carried a tag of their own and keep it under
+Rule 1; `raiseFiberError`, `raiseWrappedPortClosed` and
+`raiseEntropyUnavailable` carried `OutOfMemory`, which is not what they return,
+so Rule 2 moved them to `InvalidBytecode`. Reading Rule 1 strictly would send
+all five the same way — but `ExceptionRaised` is the one tag a guard cannot
+honestly borrow, since it promises `vm.current_exception` was set and the guard
+fired precisely because there is no VM to set it on.
+
 ### Sandbox enforcement
 
 Sandbox restrictions operate at two levels:
