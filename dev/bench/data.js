@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785519953918,
+  "lastUpdate": 1785520130043,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f0ac6759c0c2c9a20422d556d583176d8da7fad8",
-          "message": "Ship lib/kaappi/ in the release library tarball (#1759)\n\nThe \"Bundle portable libraries\" release step enumerated lib/srfi/ and\nlib/chibi/ -- a list that predates lib/kaappi/ -- so every release from\nv0.18.0 through v0.21.0 shipped a kaappi-lib.tar.gz without\nlib/kaappi/parallel.sld, and (import (kaappi parallel)) failed with\n\"library not found\" on any stock install even though the library is\ndocumented, correct in the tree, and embedded in the binary for\n--sandbox/WASM. Pack the whole lib/ tree instead of an enumerated\nsubset so a future subdirectory cannot be silently dropped.\n\nThe acceptance suite never caught this because it only imported\nbuilt-in libraries (srfi 1/69), which resolve with no libraries\ninstalled at all -- and it runs from the repo checkout, where\ncwd-relative ./lib and the binary's <exe>/../lib fallback both resolve\nthe full source tree, masking any tarball gap. Add one disk-loaded\nimport per shipped lib/ subdirectory, run from a neutral directory\nwith a copied binary so only the installed ~/.kaappi/lib can satisfy\nthem; the (kaappi parallel) test reproduces the exact #1741 failure\nagainst a pre-fix tarball and passes with the fixed one.\n\nFixes #1741\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T09:15:50Z",
-          "tree_id": "f79b683b5e354b05183cc33208a64dc0a87d1702",
-          "url": "https://github.com/kaappi/kaappi/commit/f0ac6759c0c2c9a20422d556d583176d8da7fad8"
-        },
-        "date": 1785059334032,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.272342,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.775122,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.919443,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.396947,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006451,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053764,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50264,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069423,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.543474,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.932813,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580197,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441576,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805693,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.661727,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045113,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045189,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c6b02f3115b2b4f910a0bcdf8ee1a59142b5fb3",
+          "message": "Stop three diagnostics from misdescribing what they are about (#1958)\n\nEach of these sent a reader looking at the wrong thing.\n\nAn integral flonum rendered without its `.0`, so a type error on 1.0 read\n\"expected exact integer, got 1\" -- and 1 is an exact integer, so the message\nargued against itself. `safeValueDescription` formatted flonums with a bare\n`{d}` instead of the printer, so this affected every type error in the\ncodebase, not just the numeric-vector ones it was found in. It now goes\nthrough `printer.formatFlonum`, which is safe in this deliberately-defensive\nhelper: a flonum is inline under NaN-boxing, so nothing heap-shaped is read.\n\nA multi-limb bignum handed to a (srfi 160) constructor was reported as\n\"expected exact integer, got #<bignum>\". It is an exact integer; its only\nfault is not fitting s8..u64. `magnitudeAndSign` returned a plain `?MagSign`,\nwhich gave \"too wide\" and \"not an integer at all\" the same answer. Splitting\nthem into `ExactMag.too_wide` / `.not_exact` lets an out-of-range bignum say\n\"in-range\", matching what an out-of-range fixnum has always said -- and say\n\"non-negative\" instead when it is negative, since then the sign is the real\ncomplaint.\n\n`%record?` and `%transcoded-port` reported their errors as `record?` and\n`transcoded-port`. Those are not cosmetic truncations: both are real,\ndifferent procedures, exported by (srfi 237) and (srfi 181), with different\nargument lists -- `(record? 5 5)` is an arity error, not a type error. Both\nnow use the shared-constant convention primitives_srfi237.zig's MAKE_RTD\nalready documented for exactly this reason, so the name cannot drift again.\n\nThe audit that found these (#1890, Phase 2.1) had already written the\nassertions and commented them out as known failures; they are enabled here,\nalongside their original controls and three cases the audit did not cover\n(a negative multi-limb bignum, a signed-kind overflow, and a genuine\nnon-integer, which is what keeps \"in-range everywhere\" from passing). One\nof the four could not be enabled as written: `(not (has-substring? msg\n\"got 1\"))` cannot pass whatever the code does, since \"got 1\" is a prefix of\nthe correct \"got 1.0\" -- it is stated positively instead, which is fully\ndiscriminating because the buggy message was exactly \"got 1\".\n\nMutation-tested: reverting each of the three fixes in turn fails exactly the\nassertions belonging to it and no others.\n\nFixes #1916\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T22:47:11+05:30",
+          "tree_id": "4e4667e4a449d0e129efd701cdcc4272bc647d0f",
+          "url": "https://github.com/kaappi/kaappi/commit/1c6b02f3115b2b4f910a0bcdf8ee1a59142b5fb3"
+        },
+        "date": 1785520126466,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.115725,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.261311,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.443981,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.183069,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004164,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035738,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.225216,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041166,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.147257,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.96069,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.211298,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.23357,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.281543,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.81746,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04029,
             "unit": "seconds"
           }
         ]
