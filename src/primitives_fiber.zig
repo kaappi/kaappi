@@ -274,7 +274,7 @@ fn clearRvWaitDeadline(vm: *vm_mod.VM) void {
 /// a freed slot (for a rendezvous channel: unmatched receiver demand) or
 /// the channel becoming closed (channel-close! wakes both waiter roles via
 /// the same wakeChannelWaiters call).
-const ChannelSendWait = struct {
+pub const ChannelSendWait = struct {
     ch: *types.Channel,
     pub fn isDone(self: ChannelSendWait) bool {
         const cap = self.ch.capacity orelse return true;
@@ -414,14 +414,14 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         "channel-send: deadlock — channel is full and no fibers can receive"));
 }
 
-const ChannelWait = struct {
+pub const ChannelWait = struct {
     ch: *types.Channel,
     pub fn isDone(self: ChannelWait) bool {
         return self.ch.head != types.NIL;
     }
 };
 
-const SharedChannelWait = struct {
+pub const SharedChannelWait = struct {
     me: *fiber_mod.Fiber,
     pub fn isDone(self: SharedChannelWait) bool {
         return self.me.status != .waiting;
@@ -434,7 +434,7 @@ const SharedChannelWait = struct {
 /// still live on the Zig stack. Isolating this into its own Ctx type keeps
 /// that invariant visually obvious at every call site: nothing here sets
 /// `me.status`, unlike SharedChannelWait/ChannelWait's actual park.
-const SharedChannelPoll = struct {
+pub const SharedChannelPoll = struct {
     sc: *shared_channel.SharedChannel,
     pub fn isDone(self: SharedChannelPoll) bool {
         return self.sc.peekReady();
@@ -446,7 +446,7 @@ const SharedChannelPoll = struct {
 /// unbounded, or it became closed (a closed channel's send() call raises
 /// immediately rather than parking, which is exactly what driving toward
 /// here is meant to unblock).
-const SharedChannelSendPoll = struct {
+pub const SharedChannelSendPoll = struct {
     sc: *shared_channel.SharedChannel,
     pub fn isDone(self: SharedChannelSendPoll) bool {
         return self.sc.peekSendReady();
