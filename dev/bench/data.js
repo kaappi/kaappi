@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785509661303,
+  "lastUpdate": 1785509667302,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04f15e672efc71b160e0a10446f5be84c0f1d938",
-          "message": "Add SRFI 231 bulk combinators and conversions (#1694 array family, phase 4) (#1753)\n\n* Add SRFI 231 bulk combinators and conversions (#1694 array family, phase 4)\n\nFifth of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld for the overall\nroadmap. This slice adds array-map/for-each/fold-left/fold-right/\nreduce/any/every, array-outer-product/inner-product, and the 8 flat and\nnested list/vector conversion procedures (array->list, list->array,\narray->list*, list*->array, array->vector, vector->array,\narray->vector*, vector*->array) -- 17 bindings in total.\n\narray-map/for-each/fold-left/fold-right/any/every are all variadic over\narrays, requiring exact domain equality (interval=, not just matching\nshape) across every argument array. array-reduce is the one exception:\nfixed 2-arg, single array only, and hard-errors on an empty array with\nno safety-flag opt-out, using a private sentinel object rather than a\nseed value (there is no safe placeholder that couldn't collide with a\nreal element).\n\narray-fold-left calls its operator as (operator acc e0 e1 ...);\narray-fold-right calls it as (operator e0 e1 ... acc) -- accumulator\nLAST, not first. Confirmed via the spec's own formal reference\ndefinition that elements are always passed as separate positional\narguments, never packed into one list argument, and verified the\ndivergence is real (not just notational) against the spec's own\nworked examples: (array-fold-left - 0 a) and (array-fold-right - 0 a)\ngive different results for the same non-associative operator.\n\narray-inner-product's compositional definition (curry + permute + copy\n+ outer-product + map + reduce) needed care in two places the spec's\nown prose pseudocode gets subtly wrong, both confirmed only by reading\nthe reference implementation directly: it omits the required second\nargument to array-curry on its second call, and its stated\npreconditions don't mention that the shared axis's width must be\nnonzero (needed because the inner reduction would otherwise call\narray-reduce on an empty array).\n\nlist*->array/array->list*/vector*->array/array->vector* infer or\nproduce a per-dimension shape from nested-list/vector structure\n(recursion depth = target dimension, sibling lengths at each level\nmust match -- a ragged structure is rejected). The empty-collection\nedge cases are genuinely undomesticable by intuition alone and were\nverified by hand-tracing all four of the spec's own worked examples\nagainst the actual algorithm: (list*->array 0 '()) yields a RANK-0,\nvolume-1 array whose single element IS the empty list, while\n(list*->array 1 '()) yields a genuinely EMPTY rank-1 array -- these\nlook superficially similar but are entirely different shapes.\nvector*->array/array->vector* delegate to the list* versions via a\nstructure-preserving nested-vector<->nested-list conversion rather\nthan duplicating the whole shape-inference algorithm in vector form.\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Validate vector*->array's nested-vector shape; drop dead helper\n\nCodeRabbit finding: %nested-vector->nested-list (which vector*->array\ndelegates to) had no vector?/depth check before calling vector->list,\nunlike the list path (%check-nested-list validates via list? at every\nrecursion level and raises a domain-specific \"not the right shape\"\nerror). A malformed nested vector would instead crash with a raw\nvector->list type error. Fixed by validating vector? at each recursion\nlevel before delegating, matching the list path's error message and\nirritants -- rectangularity itself is still validated for free once\n%check-nested-list runs on the converted result.\n\nAlso removed %vector-every, defined but never called anywhere in this\nfile (a leftover from the same helper pattern used in sibling files\nwhere it IS needed).\n\n1 new regression assertion (55 -> 56).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T06:25:43+05:30",
-          "tree_id": "a945ea0e6cf5da2ec5246e63003206fac4083d70",
-          "url": "https://github.com/kaappi/kaappi/commit/04f15e672efc71b160e0a10446f5be84c0f1d938"
-        },
-        "date": 1785029658317,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.345456,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.094976,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.91286,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.460183,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006373,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054464,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505166,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072741,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.530366,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.961158,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.590876,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438201,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.833703,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.682412,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046079,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044957,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbbf0f94087cbaa7a6d1055f2cbb12fec58bff12",
+          "message": "Phase 1B: delimiter sweep — 494 cells, 382 splits, and a guard that has never executed (#1931)\n\n* Sweep trailing-delimiter checking across every numeric prefix\n\nR7RS 7.1.1 requires a number to end at a <delimiter> or end of input.\n`Reader.readNumber` (src/reader.zig:366) enforces that, but only for\nun-prefixed decimals: `readNumberPrefixed` (src/reader_tokens.zig:481)\ncalls the unguarded `reader_tokens.*` functions directly, so any `#`\nprefix at all disables the check and one token silently reads as two\ndatums.\n\nThe systematic 19x26 sweep (19 prefix spellings x 26 trailing characters)\nsplits 382 of 494 cells; all 26 un-prefixed cells are correct, which is\nthe control axis. `string->number` rejects every failing cell, so each\ndisabled assertion is paired with an enabled oracle assertion. Chibi 0.12\nand Guile 3 raise on all of them too.\n\n148 assertions pass; 58 are disabled (55 under #1892, 3 under TBD for two\nnon-delimiter reader/string->number divergences the same sweep surfaced).\nThe enabled groups also pin the syntax a fix must not regress: SRFI 270\nhex floats, SRFI 169 digit separators, rationals, complex tails, and hex\n`e`/`d` as digits rather than exponent markers.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point delimiter FAIL markers at #1929\n\n#1892 reported the radix-prefix case; the sweep showed one bypassed call\nsite produces all 382 failing cells across every prefix spelling, so the\nmarkers name the wider issue that a fix will actually close.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T19:40:15+05:30",
+          "tree_id": "f355651720339ada74bc4939f6ba72a5663ff21d",
+          "url": "https://github.com/kaappi/kaappi/commit/cbbf0f94087cbaa7a6d1055f2cbb12fec58bff12"
+        },
+        "date": 1785509664474,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.358727,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.57382,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.5796,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.009405,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004694,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047051,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.319169,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057043,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.636414,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.230923,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.61636,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276379,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.804693,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.58907,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042981,
             "unit": "seconds"
           }
         ]
