@@ -117,12 +117,94 @@ fn isOrDescendsFrom(start: *RecordType, target: *RecordType) bool {
 
 /// Same field names, in the same order, with the same mutability -- used
 /// to check R6RS's nongenerative-uid equivalence requirement.
-pub fn fieldsEquivalent(existing: *RecordType, names: []const []const u8, mutable: []const bool) bool {
+fn fieldsEquivalent(existing: *RecordType, names: []const []const u8, mutable: []const bool) bool {
     if (existing.own_field_names.len != names.len) return false;
     for (existing.own_field_names, existing.own_field_mutable, names, mutable) |en, em, n, m| {
         if (em != m or !std.mem.eql(u8, en, n)) return false;
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Shared with the syntactic path (vm_records.handleDefineRecordTypeR6RS)
+//
+// R6RS rejects a sealed parent and a mismatched `nongenerative` uid, and both
+// `define-record-type` and `make-record-type-descriptor` have to enforce it.
+// Keeping the rule and its wording here means the two paths cannot drift into
+// disagreeing about what R6RS requires or into reporting it differently --
+// which they did until kaappi#1880: the procedural path said exactly what was
+// wrong while the syntactic one raised a bare, message-less KP3002.
+//
+// Neither condition is a *type* error. Both arguments are of a perfectly good
+// type and the procedure rejects them anyway, which is what KP3007
+// (invalid-argument) is for -- so both report through `argError`.
+// ---------------------------------------------------------------------------
+
+/// The parts of a record-type definition R6RS compares for `nongenerative`
+/// equivalence: "equal fields, equally sealed and opaque, and their parents
+/// ... are equivalent".
+pub const RtdShape = struct {
+    parent: ?*RecordType,
+    sealed: bool,
+    is_opaque: bool,
+    field_names: []const []const u8,
+    field_mutable: []const bool,
+};
+
+/// R6RS: "An exception ... is raised if `parent` is sealed" -- a sealed type
+/// must never become an ancestor of another record type.
+pub fn sealedParentError(proc: []const u8, parent: *RecordType) PrimitiveError {
+    return argError(proc, "record type '{s}' is sealed and cannot be a parent", .{parent.name});
+}
+
+/// `GC.allocRecordTypeExtended` caps a record type at 255 fields *including*
+/// inherited ones, since `RecordType.num_fields` is a u8. Only the inherited
+/// total can trip it here -- both parsers already cap a type's own fields --
+/// so the message has to name the parent's contribution or it reads as a lie
+/// about a definition with 100 fields in front of the caller.
+///
+/// This one is not in kaappi#1880's census of 35: the grep matches a bare
+/// `VMError.TypeError` return statement, and both sites spell it as a
+/// `return switch` arm instead (a fourth blind spot, on top of the path and
+/// spelling ones). It is the same defect as the two that are -- a condition
+/// that is not a type error reporting as a message-less KP3002 -- found by reading
+/// the functions the census pointed at. The procedural half was arguably worse
+/// than the syntactic one: a bare `TypeError` out of a primitive is not
+/// anonymous, `mapNativeError` fills in `type error in '<proc>': got <args[0]>`
+/// from the *first argument*, so it blamed the type's name for a limit the
+/// field list broke.
+pub fn tooManyFieldsError(proc: []const u8, own: usize, parent: ?*RecordType) PrimitiveError {
+    const inherited: usize = if (parent) |p| p.num_fields else 0;
+    return argError(
+        proc,
+        "record type would have {d} fields ({d} of its own plus {d} inherited), but the limit is 255",
+        .{ own + inherited, own, inherited },
+    );
+}
+
+/// Resolve a `nongenerative` uid that is already claimed: R6RS reuses the
+/// registered rtd when this definition is equivalent to it, and raises
+/// otherwise. `existing` is the registry's rtd for `uid`.
+///
+/// A parent is compared by identity: a parent that is itself nongenerative
+/// always resolves to the same RTD object for a given uid, so pointer
+/// equality already captures parent equivalence.
+pub fn reuseNongenerativeRtd(proc: []const u8, uid: []const u8, existing: Value, want: RtdShape) PrimitiveError!Value {
+    const existing_rt = asRecordType(existing);
+    // Checked in R6RS's own order, and reported as the single axis that
+    // actually differs -- a list of every axis it might have been tells the
+    // caller nothing they didn't already know.
+    const differs: []const u8 = if (existing_rt.parent != want.parent)
+        "parent"
+    else if (existing_rt.sealed != want.sealed)
+        "sealed flag"
+    else if (existing_rt.is_opaque != want.is_opaque)
+        "opaque flag"
+    else if (!fieldsEquivalent(existing_rt, want.field_names, want.field_mutable))
+        "field set"
+    else
+        return existing;
+    return argError(proc, "uid \"{s}\" is already bound to a record type with a different {s}", .{ uid, differs });
 }
 
 fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
@@ -137,11 +219,7 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         if (!types.isRecordType(args[1])) return typeError(MAKE_RTD, "record-type", args[1]);
         break :blk asRecordType(args[1]);
     };
-    // R6RS: "An exception ... is raised if parent is sealed". Not a type error:
-    // a sealed rtd is a perfectly good record type, it just refuses to be
-    // extended -- so this reports as `invalid-argument` (KP3007).
-    if (parent) |p| if (p.sealed)
-        return argError(MAKE_RTD, "record type '{s}' is sealed and cannot be a parent", .{p.name});
+    if (parent) |p| if (p.sealed) return sealedParentError(MAKE_RTD, p);
 
     const uid: ?[]const u8 = if (args[2] == types.FALSE)
         null
@@ -168,27 +246,17 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
 
     // nongenerative: reuse an existing RTD registered under this uid rather
     // than allocating a new, non-interoperable one -- but only when it's
-    // actually equivalent (R6RS: "the record-type definitions should be
-    // equivalent, in the sense that they specify ... equal fields, equally
-    // sealed and opaque, and their parents ... are equivalent"). A parent
-    // is compared by identity: a parent that is itself nongenerative always
-    // resolves to the same RTD object for a given uid, so pointer equality
-    // already captures parent equivalence.
+    // actually equivalent.
     if (uid) |u| {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         if (vm.record_uid_registry.get(u)) |existing| {
-            const existing_rt = asRecordType(existing);
-            if (existing_rt.parent == parent and
-                existing_rt.sealed == sealed and
-                existing_rt.is_opaque == is_opaque and
-                fieldsEquivalent(existing_rt, field_names_buf[0..field_count], field_mutable_buf[0..field_count]))
-            {
-                return existing;
-            }
-            // Also not a type error: the uid is a fine string, it is just
-            // already claimed by a type this call does not match.
-            return argError(MAKE_RTD, "uid \"{s}\" is already bound to a record type with a " ++
-                "different parent, sealed/opaque flag, or field set", .{u});
+            return reuseNongenerativeRtd(MAKE_RTD, u, existing, .{
+                .parent = parent,
+                .sealed = sealed,
+                .is_opaque = is_opaque,
+                .field_names = field_names_buf[0..field_count],
+                .field_mutable = field_mutable_buf[0..field_count],
+            });
         }
     }
 
@@ -201,7 +269,7 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         sealed,
         is_opaque,
     ) catch |err| return switch (err) {
-        error.TooManyFields => PrimitiveError.TypeError,
+        error.TooManyFields => tooManyFieldsError(MAKE_RTD, field_count, parent),
         else => PrimitiveError.OutOfMemory,
     };
 

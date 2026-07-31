@@ -566,10 +566,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const ffi_mod = @import("ffi.zig");
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc, self) catch |err| {
-                        if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
-                        return VMError.TypeError;
-                    };
+                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc, self) catch |err|
+                        return vm_calls.mapFfiError(self, err, ffi_fn);
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
@@ -638,7 +636,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 while (rest != types.NIL) {
                     if (!types.isPair(rest)) {
                         self.setErrorDetail("apply: last argument must be a list", .{});
-                        return VMError.TypeError;
+                        return VMError.TypeError; // bare-ok: detail set above
                     }
                     if (count >= 255) return VMError.StackOverflow;
                     flat_args[count] = types.car(rest);
@@ -747,10 +745,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc, self) catch |err| {
-                        if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
-                        return VMError.TypeError;
-                    };
+                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc, self) catch |err|
+                        return vm_calls.mapFfiError(self, err, ffi_fn);
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
@@ -1319,7 +1315,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const s = p.valueToString(self.gc.allocator, self.registers[abs_base + 1], .write) catch "";
                             defer if (s.len > 0) self.gc.allocator.free(s);
                             self.setErrorDetail("type error in 'eval': expected environment, got {s}", .{if (s.len > 0) s else "?"});
-                            return VMError.TypeError;
+                            return VMError.TypeError; // bare-ok: detail set above
                         }
                         const se = types.toEnvironment(self.registers[abs_base + 1]);
                         const macro_target: *std.StringHashMap(Value) = if (se.env == self.globals) &self.macros else mt: {
