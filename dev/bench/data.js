@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785540561420,
+  "lastUpdate": 1785540839831,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "281e135c480862edf2a01eaf1e36e5cb8b20f10d",
-          "message": "Refuse kaappi compile when an import can't resolve at runtime (#1743) (#1770)\n\nThe compiled binary's own runtime starts a fresh VM with no library\nsearch path, and the native backend never bundles .sld sources into\nthe binary the way --compile/-Dbundle-src does. So any import the\ncompiling VM resolves from a file — a third-party package or one of\nthe 159 portable SRFIs, not just kaappi-json — compiled cleanly but\ndied at runtime with \"library not found\" despite kaappi compile\nreporting success and exiting 0.\n\nemitLlvmFile now detects this by reusing the .sbc bundler's own\nfile-collection hook (populated only when a library is resolved from\ndisk, never for built-ins) and refuses to emit anything, naming the\nunresolvable library file(s) and pointing at the interpreter or\nzig build -Dbundle-src as working alternatives. Covers both\nkaappi compile and --emit-llvm, with no false positives for built-in\nlibraries or self-contained define-library files.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T08:05:49+05:30",
-          "tree_id": "31727b22fbac02b7bcb61f25c539e58142e355df",
-          "url": "https://github.com/kaappi/kaappi/commit/281e135c480862edf2a01eaf1e36e5cb8b20f10d"
-        },
-        "date": 1785123634432,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.32826,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.386337,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.902162,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.43885,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006334,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05401,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508503,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069434,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.536588,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.002797,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574674,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.422828,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.812384,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.617504,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043845,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044987,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c3e05be76342221dc8c933c78d5c00ddd2504a6e",
+          "message": "Phase 6D: LSP end-to-end — 152 assertions for a 942-line server with no prior integration test (#1987)\n\n* Audit 6D: drive the language server end-to-end, 152 assertions\n\nkaappi_lsp.zig was 942 lines with 6 inline unit tests and no integration\ntest of any kind — the largest wholly-untested subsystem in the tree. It\nneeds no editor to test: it is JSON-RPC over stdio with Content-Length\nframing, so a shell driver can write framed requests to the real binary's\nstdin and assert on the framed replies.\n\ntests/scheme/lsp/lsp.sh pins the advertised capability set, exact framing\n(a lone shutdown is exactly 60 bytes on the wire), id correlation, a full\ninitialize -> initialized -> didOpen -> hover/definition/references/\ndocumentSymbol/completion -> shutdown -> exit session, and cross-checks\nevery published diagnostic against `kaappi check --diagnostics=json`,\nwhich shares the serializer in src/lsp_diagnostic.zig.\n\nCross-checking is where the value is. On read and compile errors the two\nsurfaces agree exactly on code, severity and start line. They diverge in\nfour ways, all reproduced with a discriminating control and left as\ndisabled assertions:\n\n  * a `define-syntax` in one open document leaks through the shared\n    vm.macros table into every other document's diagnostics, so\n    byte-identical text is diagnosed clean and then KP2001 purely\n    because an unrelated file was opened; closing it does not retract\n    the macros, and a plain `define` of the same name does not leak.\n  * `hasMore() catch false` discards every reader error raised while\n    skipping intertoken space, so an unterminated `#|` comment hides\n    the whole file — no diagnostic and an empty documentSymbol list —\n    while check reports KP1001.\n  * runDiagnostics breaks at the first bad form, so a two-error file\n    publishes one diagnostic where check reports two; and no KP4xxx\n    lint runs at all, so check's arity error exits 1 on a file the\n    editor shows as clean.\n  * the range is always a whole-line 0..999 sentinel, never the real\n    span check pinpoints.\n\nProtocol edges account for the rest: a malformed *body* is skipped and\nthe session continues, but a malformed *header* silently ends it and\ndrops every later message; a request whose params are missing gets no\nreply at all, so a client blocks on that id forever; shutdown is answered\nbefore initialize and requests are still served after it; exit without a\nprior shutdown returns 0 where LSP requires 1; and a column past\nend-of-line resolves a symbol on a later line.\n\nNo hangs found. Deeply nested input, recursive macros, prose, and\nunopened URIs all degrade cleanly. Runtime 3.4s, deterministic over 5\nruns. Discovery only — no server code changed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point LSP FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T04:12:23+05:30",
+          "tree_id": "303ce149ce4fb5fe469b145f4bb3d4ce26d7b6a5",
+          "url": "https://github.com/kaappi/kaappi/commit/c3e05be76342221dc8c933c78d5c00ddd2504a6e"
+        },
+        "date": 1785540837603,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.184053,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.125663,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.275183,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.513863,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.002861,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.02383,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.145922,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.02752,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.243178,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.586527,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.810014,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.19347,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.883137,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.189009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025018,
             "unit": "seconds"
           }
         ]
