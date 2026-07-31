@@ -405,14 +405,14 @@
            (on-grandchild (lambda () (set-car! probe-container 7)))
            (car probe-container)))
 
-;; FAIL: TBD (symbol identity breaks at thread depth >= 2: a grandchild's
+;; FAIL: #1935 (symbol identity breaks at thread depth >= 2: a grandchild's
 ;; string->symbol does not dedupe against the process intern table, so
 ;; (eq? 'alpha (string->symbol "alpha")) is #f there -- an R7RS violation
 ;; independent of memory safety)
 ;; (test-assert "depth 2: a global symbol is eq? to a grandchild's own interning"
 ;;   (on-grandchild (lambda () (eq? shared-symbol (string->symbol "alpha")))))
 
-;; FAIL: TBD (same root cause: a grandchild's symbol is owned by the CHILD
+;; FAIL: #1935 (same root cause: a grandchild's symbol is owned by the CHILD
 ;; heap, so it dangles once the child is joined -- the depth-1 soundness in
 ;; section 2 does not extend)
 ;; (test-equal "depth 2: a symbol written by a grandchild survives"
@@ -429,7 +429,7 @@
 (test-equal "a child may read a parent-heap object through a top-level binding"
   '(1 2 3) (on-thread (lambda () (list (car shared-list) (cadr shared-list) (caddr shared-list)))))
 
-;; FAIL: TBD (the parent's collector reclaims an object that a LIVE child
+;; FAIL: #1933 (the parent's collector reclaims an object that a LIVE child
 ;; still references: markVMRoots returns early unless `vm.gc == gc`, so the
 ;; child's registers are invisible to the parent's root marker. No mutation
 ;; and no thread-join! is involved -- this is the opposite direction from
@@ -510,7 +510,7 @@
           (thread-join! g)
           'reached)))))) ; unreachable when the copy is refused
 
-;; FAIL: TBD (gc_deep_copy.zig's `.channel` arm skips the ownership check
+;; FAIL: #1934 (gc_deep_copy.zig's `.channel` arm skips the ownership check
 ;; entirely for an ALREADY-PROMOTED channel, so the identical program
 ;; above SUCCEEDS once any earlier thread has promoted the channel: a
 ;; grandchild that only ever reached it through a shared global gets a
@@ -607,7 +607,7 @@
   (let ((r (on-thread (lambda () (make-upt 1)))))
     (and (upt? r) (= 1 (upt-x r)))))
 
-;; FAIL: TBD (a PLAIN R7RS record constructed by a child and returned
+;; FAIL: #1932 (a PLAIN R7RS record constructed by a child and returned
 ;; through thread-join! arrives as an instance of a DIFFERENT record type:
 ;; `pt?` answers #f and every accessor raises "type error in '%record-ref':
 ;; expected <pt>, got #<record_instance>", even though it prints as
@@ -619,7 +619,7 @@
 ;;   (let ((r (on-thread (lambda () (make-pt 1 2)))))
 ;;     (and (pt? r) (= 1 (pt-x r)) (= 2 (pt-y r)))))
 
-;; FAIL: TBD (same root cause, reached from the other side: a record
+;; FAIL: #1932 (same root cause, reached from the other side: a record
 ;; accessor/mutator/predicate LEXICALLY CAPTURED by a thunk is copied
 ;; together with a fresh copy of its record type, so applying it to a
 ;; parent-heap instance fails -- the predicate answers #f for a genuine
@@ -629,7 +629,7 @@
 ;;     (set! probe-container b)
 ;;     (on-thread (let ((p abox?)) (lambda () (p probe-container))))))
 
-;; FAIL: TBD (a continuation reached through a global is invoked by a child
+;; FAIL: #1936 (a continuation reached through a global is invoked by a child
 ;; with no check: the parent's continuation is NOT resumed, and
 ;; thread-join! hands back a value that satisfies no type predicate at all
 ;; -- not null?, pair?, symbol?, procedure?, eof-object?, boolean?,
