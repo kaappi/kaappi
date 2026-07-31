@@ -853,3 +853,79 @@ test "profile: JSON report includes functions promoted to the old generation" {
     defer std.testing.allocator.free(contents);
     try std.testing.expect(std.mem.indexOf(u8, contents, "profile-oldgen-json-fn") != null);
 }
+
+// ---------------------------------------------------------------------------
+// The `vm_instance orelse` guards report a missing VM as an internal error
+// (kaappi#1874 Rule 2, applied to the four sites #1878 found still on
+// `TypeError`). None of these fire in a working build -- `setVMInstance` runs
+// before `registerAll` -- so they are tripwires for a new embedding or entry
+// point, and the tag is the whole diagnosis such an embedder gets. Nulling the
+// threadlocal is how a test reaches them at all; each guard is the first line
+// of its function, so nothing allocates while it is null.
+// ---------------------------------------------------------------------------
+
+const vm_mod = @import("vm.zig");
+const globals_mod = @import("globals.zig");
+const diagnostics = @import("diagnostics.zig");
+const primitives_mod = @import("primitives.zig");
+
+test "apply's no-VM guard is an internal error, not a caller type error (#1878)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const apply_fn = for (&primitives_mod.all_specs) |spec| {
+        if (std.mem.eql(u8, spec.name, "apply")) break spec.func;
+    } else return error.TestSetupApplySpecMissing;
+
+    // `(apply + '())` -- a call that succeeds with 0 when the VM is there, so
+    // the arguments are not what the failure below is about. `apply` does
+    // raise real type errors (non-procedure, improper final list), which is
+    // exactly why this site read `TypeError` until #1878.
+    const call_args = [_]types.Value{ ctx.vm.globals.get("+").?, types.NIL };
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(try apply_fn(&call_args)));
+
+    const saved = vm_mod.vm_instance;
+    vm_mod.vm_instance = null;
+    const result = apply_fn(&call_args);
+    vm_mod.vm_instance = saved;
+
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, result);
+
+    // The tag is only half of it: what a tool reads is the code. `apply` is a
+    // primitive, so this error really does reach `--diagnostics=json`, the LSP
+    // and `error-object-code` -- as KP3002 "you passed a bad argument type"
+    // until #1878, now as KP9001 "internal error ... please report it".
+    const err = if (result) |_| unreachable else |e| e;
+    try std.testing.expectEqual(diagnostics.Code.internal_error, diagnostics.runtimeErrorCode(err));
+}
+
+test "the macro-expansion VM hooks report a missing VM as an internal error (#1878)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Registered by setVMInstance, which th.makeTestVM has already run.
+    const eval_fn = globals_mod.eval_datum_for_macro.?;
+    const call_fn = globals_mod.call_proc_for_macro.?;
+    const set_fn = globals_mod.syntax_property_set.?;
+
+    const saved = vm_mod.vm_instance;
+    vm_mod.vm_instance = null;
+    const eval_res = eval_fn(types.NIL);
+    const call_res = call_fn(types.NIL, &.{});
+    const set_res = set_fn("id", "key", types.NIL);
+    vm_mod.vm_instance = saved;
+
+    // These three return `anyerror`, so unlike `apply` above there is no tag
+    // they were going to return anyway -- squarely Rule 2. No code assertion
+    // to match: their callers in compiler_define_syntax.zig and expander.zig
+    // collapse everything but `OutOfMemory` into `InvalidSyntax` /
+    // `TransformerFailed`, so the tag is read by the next maintainer rather
+    // than by a diagnostic. That is what makes it worth pinning here -- an
+    // unpinned readability-only tag is precisely what drifted in the first
+    // place.
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, eval_res);
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, call_res);
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, set_res);
+}

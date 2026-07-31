@@ -50,7 +50,7 @@ pub fn setVMInstance(vm: *VM) void {
 /// lisp-transformer, or a define-property value expression). Same
 /// compile-and-run discipline as primitives_r7rs.evalFn's plain path.
 fn evalDatumForMacro(expr: Value) anyerror!Value {
-    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    const vm = vm_instance orelse return VMError.InvalidBytecode;
     const gc = vm.gc;
     var expr_root = expr;
     gc.pushRoot(&expr_root);
@@ -76,7 +76,7 @@ fn evalDatumForMacro(expr: Value) anyerror!Value {
 /// (e.g. `(car 7)`) already sets last_error_detail itself and is unaffected
 /// (noteUncaughtException no-ops for anything other than ExceptionRaised).
 fn callProcForMacro(proc: Value, args: []const Value) anyerror!Value {
-    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    const vm = vm_instance orelse return VMError.InvalidBytecode;
     return vm.callWithArgs(proc, args) catch |err| {
         vm.noteUncaughtException(err);
         return err;
@@ -97,7 +97,7 @@ fn errorDetailForMacro() []const u8 {
 /// "<id>\x1f<key>". Overwriting an existing property replaces its value
 /// (the SRFI's post-finalization note on repeated definition).
 fn syntaxPropertySet(id: []const u8, key: []const u8, val: Value) anyerror!void {
-    const vm = vm_instance orelse return VMError.TypeError; // bare-ok: no VM
+    const vm = vm_instance orelse return VMError.InvalidBytecode;
     const gpa = vm.gc.allocator;
     const composite = try std.fmt.allocPrint(gpa, "{s}\x1f{s}", .{ id, key });
     const gop = try vm.syntax_properties.getOrPut(composite);

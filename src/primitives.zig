@@ -975,8 +975,17 @@ fn symbolToString(args: []const Value) PrimitiveError!Value {
 // Misc
 // ---------------------------------------------------------------------------
 
+/// The `vm_instance` guard is `InvalidBytecode` (-> KP9001 "internal error")
+/// even though `apply` raises real `typeError`s a few lines down, for a
+/// non-procedure and for an improper final list (#1878). Those report what the
+/// caller passed; the guard reports that `apply` cannot run at all, because it
+/// fetches the VM in order to *call* the procedure rather than to attach a
+/// message to an error it was already raising. The `gc_instance` line below is
+/// the other case and keeps `OutOfMemory`: the allocations it protects return
+/// exactly that. See "Tagging the vm_instance / gc_instance guards" in
+/// `docs/dev/gc-safety-and-error-handling.md`.
 fn applyFn(args: []const Value) PrimitiveError!Value {
-    const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.InvalidBytecode;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return typeError("apply", "procedure", proc);

@@ -342,6 +342,40 @@ all five the same way — but `ExceptionRaised` is the one tag a guard cannot
 honestly borrow, since it promises `vm.current_exception` was set and the guard
 fired precisely because there is no VM to set it on.
 
+A second seam, settled by #1878, is the one place a guard sits in a function
+that genuinely raises `TypeError` elsewhere. `primitives.applyFn` does — for a
+non-procedure first argument, and for an improper final list — so at a glance
+its `vm_instance` guard reads as Rule 1. It is not: Rule 1 covers a helper that
+fetches the VM only to *attach a message* to an error it was already committed
+to raising, and `apply` fetches the VM in order to *call the procedure*. A null
+threadlocal means `apply` cannot run at all, so it is `InvalidBytecode`, while
+the `gc_instance` line directly under it keeps `OutOfMemory`. Two adjacent
+guards, two different tags, one per rule — that shape is the rules working, not
+drift.
+
+The same fix covered `vm.zig`'s three macro-expansion hooks —
+`evalDatumForMacro`, `callProcForMacro`, `syntaxPropertySet`. Those are the
+easy half (they return `anyerror`, so there was never a tag to borrow), but
+they are worth knowing about for scope: **these rules are not confined to
+`primitives*.zig`.** Nothing mechanical would have found them. The `format`
+job's bare-`TypeError` grep has two independent blind spots, and the `vm.zig`
+sites fell through both at once:
+
+- **Path** — it scans only `src/primitives*.zig`, so `vm.zig` is never read.
+- **Spelling** — it matches only `return PrimitiveError.TypeError`, and those
+  sites write `VMError.TypeError`. Fixing the path alone would still miss them.
+
+There are in fact three spellings of the same error in `src/`, since
+`PrimitiveError` and `VMError` are both aliases of `errors.KaappiError` and
+`ffi.zig` declares inline `error{TypeError}` sets instead of using either. A
+grep covering all three outside `primitives*.zig` returns 35 sites: 27 in
+`ffi.zig` (all the bare `return error.TypeError` spelling), 4 in
+`vm_dispatch.zig`, 2 each in `vm_records.zig` and `vm_calls.zig`. Those are
+real error conditions — an unsupported FFI signature, a sealed parent rtd —
+not threadlocal guards, so widening the gate means triaging them first rather
+than turning it on. Until someone does, read the gate as covering the
+primitives layer it was written for, not the rules as a whole.
+
 ### Sandbox enforcement
 
 Sandbox restrictions operate at two levels:
