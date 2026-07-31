@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785506434882,
+  "lastUpdate": 1785507143448,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3a570b4bc48aceb873e7294500c924da3fb5d42c",
-          "message": "Add SRFI 231 storage classes (#1694 array family, phase 1b) (#1750)\n\n* Add SRFI 231 storage classes (#1694 array family, phase 1b)\n\nSecond of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld (phase 1a,\nmerged) for the overall roadmap. This slice adds the storage-class\nabstraction: a 9-field record (getter, setter, checker, maker, copier,\nlength, default, data?, data->body) managing a specialized array's\nbacking store, plus all 17 required storage-class global variables.\n\nlib/srfi/231/storage-classes.sld: 14 of the 17 map directly onto this\ncodebase's existing infrastructure with zero new engine work -- 11\nnumeric kinds (s8/s16/s32/s64/u16/u32/u64/f32/f64/c64/c128) reuse the\nalready-shipped (srfi 160 <tag>) procedures, u8 reuses plain R7RS\nbytevector procedures (matching u8's bytevector-alias treatment\nthroughout this codebase), and generic/char reuse native vector/string\ndirectly via the spec's own verbatim reference definitions. The\nremaining 3 (u1, f8, f16) have no Kaappi-native representation and are\nbound to #f, matching the spec's explicit \"shall define... to #f\"\npermission for implementations lacking the underlying type -- the\nreference implementation itself does the same for f8.\n\nEvery checker predicate encodes the exact range/type rule for its kind\n(e.g. s8: exact integer in [-128,127]), confirmed against the same\nper-kind rules already established for SRFI 63's kind-dispatch table.\n\nAlso confirmed (test-writing detail worth recording): reading a\ncomplex number back from a c64/c128 NumericVector always produces a\ngenuinely complex-tagged value, even with a zero imaginary part --\nunlike make-rectangular at the Scheme level, which collapses eagerly.\nThis is a pre-existing Kaappi representation characteristic, not a bug;\nthe test suite uses numeric equality (=) rather than equal? where this\nmatters.\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Exercise storage-class-copier in the shared test helper\n\nCodeRabbit finding: the test helper covered 8 of the 9 storage-class\nfields but never called storage-class-copier, so a wrong copy\nprocedure would have passed every existing assertion undetected. Adds\na copy-then-verify step to the shared helper, exercised across all 14\nreal storage classes (14 new assertions, 123 -> 137).\n\nDeclined a second finding (import (scheme complex) for\nmake-rectangular): verified against Kaappi's own primitives table\n(src/primitives_numeric.zig) that make-rectangular/real-part/imag-part\nare registered as members of .scheme_base directly, alongside\n.scheme_complex and .scheme_r5rs -- unlike strict R7RS, where they are\n(scheme complex)-only, this implementation already exposes them from\n(scheme base), so no import is missing.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-25T22:12:03+05:30",
-          "tree_id": "ec2f912bd9bd9989c325f78e4683b8a9dba2d2ad",
-          "url": "https://github.com/kaappi/kaappi/commit/3a570b4bc48aceb873e7294500c924da3fb5d42c"
-        },
-        "date": 1784999728009,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.28029,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.349681,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.884297,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.40641,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006354,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053663,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.4973,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069169,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.534873,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.927574,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.588197,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434712,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.80321,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.653315,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043899,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044207,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3dbd0b5bcdcca2f412e0a75e7d67556e74f082b3",
+          "message": "Make (srfi 14) a character set, not a multiset that stops at z (#1895) (#1928)\n\nThe library was three defects at once, and the third made the first two\nworse: `(char-set #\\a #\\a #\\b)` kept the duplicate, `char-set:full` was\ncode points 0-127 so `#\\λ` was not in it, and 23 of the SRFI's 64 names\nwere exported -- while `(cond-expand (srfi-14 ...))` answered yes, so\nportable code was told the library was there and then handed a multiset.\n\nA char set is now an inversion list: a sorted, disjoint, non-adjacent list\nof `(lo . hi)` code-point pairs. That is what makes it a set structurally\nrather than by filtering -- duplicates cannot be represented -- and what\nmakes `char-set:full` and `char-set-complement` two pairs instead of 1.1\nmillion list cells. `equal?` on two canonical range lists decides\n`char-set=` outright, which `char-set-hash` then rides on. All 64 spec\nnames are implemented; none is omitted.\n\nThe standard `char-set:*` constants come from generated Unicode general-\ncategory tables rather than from a scan over `(scheme char)`'s predicates.\nScanning was the obvious approach and two things ruled it out. It costs\n~0.14s per predicate, which is too much at every import; and making it\nlazy and memoised is unsafe in this engine, not merely inelegant. Globals\nare shared between SRFI-18 threads by pointer while heaps are per-thread,\nso a child thread forcing a memo writes a child-heap value into a\nparent-heap record, and the parent reads freed memory after the join.\nThat reproduces with no char sets involved -- a record box, `set!` from a\nchild, read from the main thread -- and a field holding a fixnum survives\nwhere one holding a fresh pair does not. So nothing here is ever mutated\nafter construction, and the tests pin that a constant read first from a\nchild thread is still sound in the parent.\n\nDeriving from categories is also what the SRFI asks for, but it means two\nvisible disagreements with `(scheme char)`, both intentional and both\ntested: `char-set:letter` is L* while `char-alphabetic?` answers for the\nbroader Alphabetic property, and `char-set:digit` is all 680 of Nd while\n`char-numeric?`'s hand-written 36-entry table covers only the 370 in the\nBMP. Each predicate is right for its own spec except the last, which is a\nseparate bug in `isUnicodeNumeric`.\n\nThe suite is written against the spec rather than the implementation: on\nthe pre-#1895 library it reports 17 passes and 144 failures. Beyond the\nspec's own worked examples it property-checks every range operation\nagainst a brute-force list-of-code-points model over a 121-character\nalphabet, which is what catches the overlap and adjacency cases hand-\nwritten tests reach only by luck -- four of five seeded mutations in the\nrange algebra are caught, the fifth being an equivalent mutant.\n\n`tools/gen_srfi115_charsets.py` becomes `tools/gen_srfi_charsets.py` with\na `--target {115,14}` selector, since it now feeds both libraries.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T18:38:58+05:30",
+          "tree_id": "c194d0a1470722fc624ecafce71616e0468a0922",
+          "url": "https://github.com/kaappi/kaappi/commit/3dbd0b5bcdcca2f412e0a75e7d67556e74f082b3"
+        },
+        "date": 1785507139505,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.962166,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.328717,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.559231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.835603,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00494,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044587,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.29722,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055244,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.298687,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.158115,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.510861,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.298699,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.690756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.763706,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044462,
             "unit": "seconds"
           }
         ]
