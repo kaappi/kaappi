@@ -11,13 +11,24 @@
 | `srfi/` | SRFI library conformance | yes |
 | `ffi/` | C FFI integration | yes |
 | `audit/` | Auto-generated primitives audit tests | yes |
-| `r7rs/` | Full R7RS suite (1,391 tests, `chibi test`) | yes (special) |
+| `r7rs/` | Full R7RS suite (1,395 tests, `chibi test`) | yes (special) |
 | `errors/` | Error message format, exit code, and reader error regression tests | yes |
 | `bench/` | Micro-benchmarks (no assertions, timing only) | no |
 | `compile/` | Native compiler regression tests | yes |
+| `test-runner/` | `kaappi test` runner (`--json`, `--seed`, `--changed`, `--lib-path`) | yes |
+| `pipeline/` | `kaappi ast`/`expand`/`ir` stage dumps | yes |
+| `doctor/` | `kaappi doctor` self-check | yes |
+| `fmt/` | `kaappi fmt` formatter | yes |
+| `cache/` | `.sbc` bytecode cache transparency | yes |
+| `timings/` | `--timings` stage reporting | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
-| `robustness/` | Stress tests | no |
-| `sandbox/` | Sandbox isolation tests | no |
+| `robustness/` | Stress tests | no (CI runs it separately) |
+| `sandbox/` | Sandbox isolation tests | no (CI runs it separately) |
+
+**The globs in `run-all.sh` are non-recursive** (`tests/scheme/srfi/*.scm`,
+not `**`). A test placed in a subdirectory of a suite is silently never run —
+`tests/scheme/srfi/slow/` is exactly that today (kaappi#1900). Put new files
+directly in a suite directory, or wire the subdirectory up explicitly.
 
 ## Adding a test
 
@@ -67,7 +78,18 @@ KAAPPI_TEST_TIMEOUT=120 bash tests/scheme/run-all.sh
 
 # Skip specific files (space-separated basenames)
 KAAPPI_TEST_SKIP="callcc-bench.scm" bash tests/scheme/run-all.sh
+
+# Run .scm files N at a time (default: one per CPU; 1 = strictly sequential)
+KAAPPI_TEST_JOBS=1 bash tests/scheme/run-all.sh
 ```
+
+The `.scm` suites run concurrently because each file is a fresh interpreter with
+no shared state (see Quirks below). Shell suites (`*.sh`) always run one at a
+time: several call `ensure_runtime_lib`, which builds into the shared
+`zig-out/lib`.
+
+Results are reported in sorted file order regardless of the job count, so a
+transcript diff between two runs stays meaningful.
 
 ## Shell test scripts (`*.sh`)
 
@@ -114,3 +136,8 @@ Conventions:
 - Some older tests use manual pass/fail counters instead of SRFI-64. Prefer
   SRFI-64 for new tests.
 - Tests run independently with no shared state. Each file is a fresh interpreter.
+  `run-all.sh` relies on this to run them in parallel, so it is now a
+  correctness requirement, not just a description: a new test must not depend on
+  a fixed path, port, or file that another test also touches. Give temporary
+  files a name unique to the test (or `mktemp` them) — a fixed `/tmp` path used
+  by two files will flake under concurrency and pass when run alone.

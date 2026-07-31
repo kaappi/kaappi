@@ -364,16 +364,21 @@ Specifies `#nA(...)` reader syntax for n-dimensional arrays, e.g. `#2A((1
 of the same idea (no non-zero lower bounds, no explicit bounds, no
 element-type tag).
 
-**Why excluded:** Same two blockers as SRFI 163, since this is the
-earlier, smaller version of the same feature. First, there is no typed
-or general n-dimensional array heap type to construct — SRFI 4 in this
-codebase is a purely portable wrapper over ordinary bytevectors/vectors
-(`lib/srfi/4.sld`), and SRFI 160 has no implementation at all, so `#nA(...)`
-would have nothing to build. Second, the syntax itself is a bare digit
+**Why excluded:** One blocker, down from two. The syntax is a bare digit
 immediately after `#` (`#2A(...)`), which the reader already uses for
 datum labels (`#N=`/`#N#`, `reader_tokens.zig`'s digit arm in `readHash`)
 — disambiguating the two would need lookahead past the digits for `A`
 specifically, not just a new dispatch arm.
+
+**The second blocker no longer holds** (corrected 2026-07-31). This entry
+used to say there was "no typed or general n-dimensional array heap type
+to construct", that SRFI 4 was "a purely portable wrapper over ordinary
+bytevectors/vectors", and that "SRFI 160 has no implementation at all".
+All three are now false: SRFI 160 ships a native `types.NumericVector`
+heap type, SRFI 4 is a thin re-export over `(srfi 160 <tag>)`, and SRFI
+25, 164, 63 and 231 all ship real array systems. There is now plenty for
+`#nA(...)` to build. **SRFI 58 is therefore genuinely re-considerable** —
+the only remaining question is the reader ambiguity above.
 
 **Scope of change:** New heap type(s) for n-dimensional arrays (or
 building on typed vectors from SRFI 4/160, if those get genuine engine
@@ -389,14 +394,20 @@ literals, extending Common Lisp's `#NA(...)` syntax to support non-zero
 lower bounds, explicit bounds, and uniform element types compatible with
 SRFI 4. Originally implemented in Guile and Kawa.
 
-**Why excluded:** Two blockers. First, the reader syntax (`#2a(...)`,
-`#f64(...)`, etc.) adds a family of new dispatch sequences to the `#`
-reader, each parameterized by dimension count and element type — a
-combinatorial addition to `reader_tokens.zig`. Second, the syntax is
-meaningless without the underlying typed array infrastructure (SRFI 4,
-SRFI 25, SRFI 160, SRFI 164), which is itself a large engine-change
-project tracked separately. If the array SRFIs are implemented in the
-future, this reader syntax can be reconsidered as a follow-up.
+**Why excluded:** One blocker, down from two. The reader syntax
+(`#2a(...)`, `#f64(...)`, etc.) adds a family of new dispatch sequences to
+the `#` reader, each parameterized by dimension count and element type — a
+combinatorial addition to `reader_tokens.zig`.
+
+**The second blocker no longer holds** (corrected 2026-07-31). This entry
+used to say the syntax was "meaningless without the underlying typed array
+infrastructure (SRFI 4, SRFI 25, SRFI 160, SRFI 164), which is itself a
+large engine-change project tracked separately", and that the syntax could
+be reconsidered "if the array SRFIs are implemented in the future". They
+have been: 4, 25, 63, 160, 164 and 231 all ship, on a native
+`types.NumericVector` heap type. That follow-up condition is met, so
+**SRFI 163 is genuinely re-considerable** on the reader-cost question
+alone.
 
 **Scope of change:** Parameterized `#` dispatch in `reader_tokens.zig`,
 array construction in `reader.zig`, depends on typed array heap types

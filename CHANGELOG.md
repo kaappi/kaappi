@@ -7,19 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
-  The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
-  Past that, `with-exception-handler` relabelled the overflow as
-  out-of-memory and converted it into an ordinary Scheme error object — so
-  the *enclosing* `guard` caught it, its `(#t ...)` clause returned a
-  plausible value, and the program exited 0. A recursive procedure that
-  wrapped its own recursive call in `guard` was silently incorrect rather
-  than failing: a case that must return 0 at every depth returned `(0 1 37)`
-  for depths 63/64/100. `with-exception-handler` had it worse — the overflow
-  was invisible, the handler simply receiving a bare `#<error "error">`.
-  `dynamic-wind` nested past 64 failed the same way.
+- **`kaappi test -j` / `--jobs <n>`** runs test files concurrently, defaulting
+  to one job per CPU (#1887). Every file was already an isolated worker
+  process, so this is a scheduling change only: verdicts, per-file output and
+  its ordering, and the summary counts are identical at any job count — worker
+  threads claim files from a shared counter while the main thread reports the
+  completed prefix in file order. `--jobs 1` keeps the old strictly-sequential
+  behaviour. Windows runs one job regardless, because there the worker's emit
+  path still reaches the child through the inherited parent environment.
+  Measured on 4 cores, `kaappi test tests/scheme/srfi` went from 18.5s to 4.6s.
 
 ### Changed
 
@@ -46,6 +44,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runaway recursion. It now says `apply: too many arguments (limit 255)`. It
   is an ordinary argument fault rather than a VM limit, so it stays catchable:
   it is also the bound that stops `apply` walking a circular argument list.
+
+### Fixed
+
+- **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
+  The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
+  Past that, `with-exception-handler` relabelled the overflow as
+  out-of-memory and converted it into an ordinary Scheme error object — so
+  the *enclosing* `guard` caught it, its `(#t ...)` clause returned a
+  plausible value, and the program exited 0. A recursive procedure that
+  wrapped its own recursive call in `guard` was silently incorrect rather
+  than failing: a case that must return 0 at every depth returned `(0 1 37)`
+  for depths 63/64/100. `with-exception-handler` had it worse — the overflow
+  was invisible, the handler simply receiving a bare `#<error "error">`.
+  `dynamic-wind` nested past 64 failed the same way.
+- **`kaappi test` could have lost a file's results once it ran more than one
+  worker at a time** (#1887). The path each worker writes its JSON to was
+  published by setting `KAAPPI_TEST_EMIT` on the *parent* before each fork — a
+  single mutable global shared by every in-flight worker, so two concurrent
+  spawns would have sent both children to the same path. It now travels in the
+  child's own `envp`. Not reachable before `--jobs` existed, since spawns were
+  serialised.
 
 ## [0.22.1] - 2026-07-31
 

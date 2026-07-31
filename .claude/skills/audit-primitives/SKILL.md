@@ -10,10 +10,23 @@ Systematically audit one `src/primitives_*.zig` file at a time. The argument is 
 
 ### Step 1: Extract procedures
 
-Read `src/<file>` and list every procedure registered with `try reg(vm, ...)`:
+Read `src/<file>` and list every entry in its `specs` table (the single
+registration point — `registerAll` walks `all_specs`, and `library.zig` derives
+every export set from the same tags, so there is no second list):
 
-- Scheme name, Zig function name, arity (exact N or variadic N)
-- Note which procedures call back into the VM (use `callWithArgs`, `callVM`)
+```zig
+.{ .name = "my-proc", .func = &myProc, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+```
+
+Record for each: Scheme name, Zig function, arity (`.exact = N` / `.variadic = N`),
+and `libs`. Note which procedures call back into the VM (`callWithArgs`, `callVM`).
+
+**Do not skip the `%`-prefixed entries.** `.libs = primitives.INTERNAL` means
+registered in `vm.globals` and exported by nothing — but still callable from a
+plain top-level script with no import, and therefore still a reachable surface
+that must reject bad input catchably. `INTERNAL_PUBLIC` additionally exports from
+`(kaappi primitives)`. Across the tree these are the least-tested procedures
+there are.
 
 ### Step 2: Identify what to test
 
@@ -38,6 +51,36 @@ For each procedure, check these categories against the R7RS spec:
 - Are continuations handled? What if the callback invokes `call/cc`?
 
 **Optional arguments** — if variadic, does each optional arg actually work?
+
+**Error taxonomy** — is the *right kind* of error raised? The three helpers are
+not interchangeable, and each carries a distinct code:
+
+- `primitives.typeError(proc, expected, got)` → `TypeError`, KP3002 — wrong type
+- `primitives.indexError(proc, index, len)` → `IndexOutOfBounds`, KP3006 — carries
+  the offending index and the length
+- `primitives.argError(proc, fmt, args)` → `InvalidArgument`, KP3007 — a value of
+  acceptable type the procedure rejects anyway (e.g. a sealed parent rtd)
+
+A bare `return PrimitiveError.TypeError` is a bug, not a shortcut: `mapNativeError`
+synthesizes `type error in '<proc>': got <args[0]>`, so the message *looks*
+deliberate while omitting the expected type and — when the offending value is not
+the first argument — naming the wrong one. CI's `format` job rejects unannotated
+bare returns. A raw `return PrimitiveError.IndexOutOfBounds` has the same defect
+one level down: KP3006 with no index and no length.
+
+**Registration-table invariants** — a pure table-vs-body check needing no runtime:
+does the declared `arity` match the highest `args[N]` the body actually indexes?
+Do the `libs` tags match the SRFI's own export list?
+
+**Re-entrancy and parking** — if the procedure takes a callback, may that callback
+block (channel receive, port I/O, `thread-sleep!`)? If it must not, is the
+rejection catchable rather than a native-stack overflow?
+
+**Cross-thread deep copy** — if the file introduces or returns a heap type, does it
+round-trip both SRFI-18 thread boundaries, or fail cleanly with a clear error?
+
+**Sandbox and WASM degradation** — under `--sandbox`, is the procedure gated
+consistently with its siblings? Per-name gates drift.
 
 **GC safety** — does the procedure root values before allocating? Look for patterns like:
 
@@ -163,33 +206,44 @@ return PrimitiveError.TypeError; // misses bignum!
 
 ## File Reference
 
-| File | Procedures | Domain |
-|------|-----------|--------|
-| `primitives_arithmetic.zig` | +, -, *, /, comparisons, trig, complex | Arithmetic |
-| `primitives_numeric.zig` | rounding, exactness, conversion | Numeric |
-| `primitives_string.zig` | string ops, mutation, higher-order | Strings |
-| `primitives_io.zig` | ports, file I/O, read/write | I/O |
-| `primitives_control.zig` | raise, guard, call/cc, dynamic-wind | Control |
-| `primitives_hashtable.zig` | SRFI-69 hash tables | Hash tables |
-| `primitives_string_ext.zig` | SRFI-13 string library | Strings ext |
-| `primitives_vector.zig` | vectors, SRFI-133 | Vectors |
-| `primitives_bytevector.zig` | bytevectors, binary I/O | Bytevectors |
-| `primitives_list.zig` | list operations | Lists |
-| `primitives_char.zig` | char classification, case | Characters |
-| `primitives_r7rs.zig` | eval, load, parameters, time | R7RS misc |
-| `primitives_srfi1.zig` | SRFI-1 list library | Lists ext |
-| `primitives_srfi18.zig` | SRFI-18 threads | Threads |
-| `primitives_random.zig` | SRFI-27 random | Random |
-| `primitives_filesystem.zig` | SRFI-170 filesystem | Filesystem |
-| `primitives_lazy.zig` | delay, force, promises | Lazy |
-| `primitives_ffi.zig` | C FFI | FFI |
+31 files. The table in `CLAUDE.md § Primitives (split into 31 files)` is the
+authoritative list of what each one covers; don't duplicate it here, it drifts.
+What matters for auditing is which files have an audit test:
+
+**Has an audit test** (`tests/scheme/audit/<basename>-audit.scm`) — 21 files:
+arithmetic, bytevector, char, control, core (`primitives.zig`), cxr, ffi, fiber,
+filesystem, hashtable, io, lazy, list, numeric, r7rs, random, srfi1, srfi18,
+string, string_ext, vector.
+
+**No audit test** — 10 files, all of which postdate the v1 campaign:
+`primitives_srfi160.zig`, `srfi181.zig`, `srfi211.zig`, `srfi237.zig`,
+`srfi254.zig`, `srfi258.zig`, `srfi260.zig`, `parallel.zig`,
+`random_port.zig`, `sysinfo.zig`.
+
+Having an audit test is not the same as being covered: several date from
+2026-07-05 and have not grown with their file. `primitives_io.zig` gained ~1,100
+lines against a 112-line audit test; `primitives_fiber.zig` gained ~1,240 against
+135 lines.
 
 ## Audit Priority
 
-Start with files that have the highest bug density risk (complex type dispatch, many optional args):
+Two orderings, depending on why you're here.
 
-1. `primitives_arithmetic.zig` — most complex type dispatch
-2. `primitives_numeric.zig` — exact/inexact conversion edge cases
-3. `primitives_string.zig` — UTF-8 + mutation
-4. `primitives_io.zig` — error propagation in callbacks
-5. Then proceed through the rest in any order
+**Filling gaps** — the 10 files with no audit test, hardest first:
+`srfi237` (inheritance, sealed/opaque), `srfi160` (11-way element-kind dispatch
+over raw bytes), `srfi181` (custom-port callback re-entrancy), `srfi254`
+(GC-integrated weak refs), then the small batch (`parallel`, `sysinfo`,
+`random_port`, `srfi258`, `srfi260`, `srfi211`).
+
+**Re-auditing** — files whose growth has outrun their test, by churn:
+`io`, `fiber`, `srfi18`, `vector`, `hashtable`, `filesystem`.
+
+Cross-cutting and higher-yield per minute than any single file: the
+`%`-prefixed internal-primitive surface (Step 1), which spans every file and has
+close to zero test mention.
+
+## During an audit campaign
+
+`docs/audit-strategy.md` may be running a campaign that **overrides Step 4**:
+file GitHub issues instead of fixing in place, so discovery stays separate from
+fixing. Check that document's status line before you start fixing anything.

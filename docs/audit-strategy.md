@@ -1,672 +1,665 @@
-# Systematic R7RS Conformance and SRFI Audit Strategy
+# Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress · **Last updated:** 2026-07-05 · **Tracking issue:** [#1137](https://github.com/kaappi/kaappi/issues/1137)
+**Status:** in progress (2 of 53 units — Phase 0 complete) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+· **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
-## The Core Problem
+## Why a second campaign
 
-Kaappi is a ~39k-line R7RS Scheme implementation with 578 built-in procedures,
-21 primitives files, and 72 SRFIs. A naive "scan everything at once" approach
-will either exhaust AI context windows or produce shallow, low-quality findings.
-This strategy is **thorough**, **incremental**, and **agent-efficient** — and
-designed for parallel execution across multiple Claude Code sessions.
+The v1 campaign audited a ~39k-line interpreter with 578 procedures, 21
+primitives files, and 72 SRFIs. It closed cleanly: `grep -rn ';; FAIL:' tests/`
+returns **0** — every disabled regression test it left behind has been
+re-enabled.
 
-Every unit of work below is sized for one focused session (or one parallel
-subagent). Each session reads this document's **Session protocol**, does one
-unit, and checks it off in the **Progress tracker**. The document is
-self-maintaining: the tracker is the single source of truth for what's done.
+The codebase it audited no longer exists. Since the v1 base commit
+(`f13e806`, 2026-07-06): **417 commits, +66,978/−8,347 lines across 192 source
+files, and 60+ entirely new `src/` files.**
 
-## Key Principles
+| | v1 (2026-07-05) | now (2026-07-31) | growth |
+|---|---:|---:|---|
+| `src/*.zig` lines | ~39,000 | 116,415 | 3.0× |
+| Registered procedures | 578 | 687 | 1.2× |
+| `primitives_*.zig` files | 21 | 31 | +10, **none audited** |
+| SRFIs | 72 | 178 | 2.5× |
+| `lib/srfi/*.sld` | 64 | 162 | 132 postdate v1 |
+| Scheme test files | ~380 | ~660 | 166 of 200 SRFI tests postdate v1 |
+| Zig unit tests | 473 | 1,114 | 2.4× |
+| R7RS suite assertions | 988 | 1,395 | — |
+| Open issues | 2 | 3 | — |
 
-- **Divide by domain, not by file count** — group related files so each agent
-  has coherent context (spec section + implementation + tests)
-- **Test-first discovery** — run existing tests to find failures *before*
-  reading source code; failures are free discoveries that need zero agent time
-- **Separate discovery from fixing** — file GitHub issues now, fix later.
-  This deliberately **overrides Step 4 of the `/audit-primitives` skill**
-  (which says fix bugs in place); during this campaign, file instead of fix
-- **Reuse existing infrastructure** — the project has `(chibi test)`,
-  the `/audit-primitives` skill, coverage tests, and a bug report template
-- **Each agent session is self-contained** — one domain, one report,
-  one set of issues, one PR
-- **Parallelize by independence** — phases 1–3 can run concurrently across
-  sessions since they touch non-overlapping files
+**The suite is green.** A full `run-all.sh` on 2026-07-31 at `261fde5f`:
+
+```text
+Scheme files: 624 pass, 0 fail, 0 timeout, 0 skipped
+R7RS suite:   1395 pass, 0 fail
+Total:        2019 pass, 0 fail
+```
+
+The reconnaissance pass below found **13 reproduced bugs anyway** — including an
+exactness prefix that returns `+inf.0`, a formatter that silently rewrites every
+line ending in a file, and a character-set library that is a multiset. That gap
+between "2,019 assertions pass" and "13 bugs in an afternoon" is the entire case
+for this campaign: the suite is green because it does not ask these questions,
+not because the answers are right.
+
+**The v1 campaign covered roughly a fifth of today's surface.** For most of
+this codebase, v2 is a *first* audit, not a re-audit.
+
+Whole subsystems postdate v1 entirely: the LLVM native backend (split across 6
+`llvm_emit_*` files), the fiber I/O reactor (KEP-0001) and cross-thread
+channels (KEP-0002), the Windows/FreeBSD/OpenBSD/NetBSD/s390x/ppc64le ports,
+the WASM target, the `.sbc` bytecode cache, the entire "machine legibility"
+CLI epic (#1503 — `check`, `fmt`, `doctor`, `cache`, `test`, `features`,
+`explain`, pipeline dumps, `--timings`, `--diagnostics=json`), procedural
+macros (SRFI 147/148/211/213), and 10 new `primitives_srfi*.zig` files.
+
+## What this campaign is for — and what it is not
+
+**This is the part that changed most since v1.** The project now runs nightly
+coverage-guided fuzzing (`.github/workflows/fuzz.yml`, `src/tests_fuzz.zig`,
+`tests/fuzz/*.sh`) with seven targets including three differential oracles:
+IR-opt vs no-opt (#1394), bytecode VM vs LLVM native (#1395), and Kaappi vs
+Chibi (#1396). v1 had none of this.
+
+Do not rebuild what the fuzzers already do. Divide the work by what each is
+structurally capable of finding:
+
+| | Fuzzers own | This audit owns |
+|---|---|---|
+| **Finds** | crashes, panics, leaks, sanitizer hits, tier divergence | wrong-but-stable answers, missing procedures, spec deviations, stale docs |
+| **Over** | a *generated subset* — `fuzz_gen*.zig` never emits filesystem, FFI, network, thread, or most SRFI forms | the full breadth: 178 SRFIs, 687 procedures, the CLI, the library loader |
+| **Oracle** | self-consistency across tiers, or Chibi | the R7RS text and each SRFI's own spec |
+| **Blind to** | anything all tiers get equally wrong; anything outside the grammar | anything needing millions of random inputs |
+
+A concrete illustration from the reconnaissance below: **SRFI 14 is a multiset
+that claims to be a character set, exports 23 of ~60 names, and is ASCII-only
+while `(cond-expand (srfi-14 ...))` answers yes.** No fuzzer will ever find
+that — every tier agrees, nothing crashes, and the generator does not emit
+`char-set` forms. Conversely, no auditor would have found the divergences the
+nightly oracles catch. The two programs are complements.
+
+**Corollary for prioritisation:** prefer units where the oracle is a *document*
+(a spec section, a SRFI page, a `docs/dev/*.md` guarantee) over units where the
+oracle is *the implementation's own other half*. The latter is the fuzzers' job.
 
 ---
 
-## Session Protocol (read this before every session)
+## Reconnaissance findings (2026-07-31)
 
-Every audit session follows the same mechanical steps. The phase sections
-below only specify *what* to audit; this section specifies *how*.
+A seven-agent reconnaissance pass ran before this document was written. It
+produced **13 reproduced findings**, listed here so Phase 0 can file them
+immediately rather than rediscovering them. Every row marked **[R]** was
+reproduced a second time by the orchestrating session against
+`zig-out/bin/kaappi` v0.22.1 (build `261fde5f`, macOS aarch64, ReleaseSafe);
+rows marked **[A]** were single-source agent reports at the time of writing.
 
-1. **Branch.** `git checkout -b audit/<unit-name>` from a fresh `main`.
-   If other audit sessions are running concurrently in this checkout, use a
-   git worktree instead (`git worktree add ../kaappi-audit-<unit> main`) —
-   concurrent `zig build` runs in one directory race on `zig-out/`.
-2. **Rebuild.** `zig build` — never trust an existing `zig-out/bin/kaappi`.
-   A stale binary built with debug flags has produced phantom "regressions"
-   before. If behavior looks globally insane (everything failing), check
-   `zig-out/bin/kaappi --version` and rerun `--gc-stats` on a trivial program
-   before believing any result.
-3. **Run existing tests for the domain first.** Failures found here cost
-   nothing — capture them before reading any source.
-4. **Write new tests** per the phase's prompt. Follow existing conventions:
-   `(srfi 64)` with the exit-on-fail epilogue (see `tests/scheme/CLAUDE.md`)
-   for `tests/scheme/audit/`, `compliance/`, and `tests/scheme/srfi/`
-   (naming: `srfiNNN.scm`, extensions as `srfiNNN-ext.scm`).
-5. **Verify each failure before filing** (false-positive filter):
-   - Reproduce on the fresh build from step 2.
-   - Re-read the exact spec text; quote it in the issue. Do not trust memory
-     of what R7RS or a SRFI requires.
-   - Check `README.md § Known limitations` — e.g. continuations captured
-     inside native higher-order calls (`map`, `for-each`, `dynamic-wind`)
-     cannot be resumed after the native frame returns, and fibers can't park
-     inside native callbacks. These are documented, not bugs.
-   - For crashes or nondeterministic failures, retry with a
-     `zig build -Dgc-stress=true` binary and note whether behavior changes
-     (include this in the issue — it localizes GC bugs).
-   - Search for duplicates: `gh issue list --state all --search "<proc-name>"`.
-6. **File one issue per distinct bug** using the template in
-   *GitHub Issue Workflow* below. Related failures with one obvious root
-   cause (e.g. "bignum dispatch missing in 5 comparison procedures") get
-   **one** issue listing all affected procedures.
-7. **Commit tests so the suite stays green.** `run-all.sh` must pass on your
-   branch. Tests that pass: commit enabled. Tests that fail (bug found):
-   comment out the failing assertion with a marker line directly above it —
+**All 13 are now filed** (Phase 0A, 2026-07-31) as
+[#1891](https://github.com/kaappi/kaappi/issues/1891)–[#1903](https://github.com/kaappi/kaappi/issues/1903),
+tracked from [#1890](https://github.com/kaappi/kaappi/issues/1890). Twelve
+issues rather than thirteen: F1 and F2 share one root cause, and this document
+mandates one issue per root cause. Both `[A]` rows were reproduced before
+filing, and reproducing F12 corrected it — a *flat* cdr-cycle prints its label
+correctly; only a **car-nested** cycle past the depth limit loses it. Keep the
+table below for the repro recipes and controls; the issues carry the fixes.
 
-   ```scheme
-   ;; FAIL: #1234 (exact->inexact truncates rationals)
-   ;; (test 0.3333333333333333 (exact->inexact 1/3))
+| # | Finding | Repro | Severity |
+|--:|---|---|---|
+| F1 **[R]** | `#e1e19` reads as **inexact** `1e19`; `#e1e18` is correctly exact. R7RS §7.1.1 requires `#e` to yield an exact number. Cliff is exactly the i64 range — the overflow path in `reader_tokens.zig` falls back to `parseFloat` and drops the prefix. | `(exact? #e1e19)` ⟹ `#f` | wrong-result |
+| F2 **[R]** | `#e1e400` ⟹ **`+inf.0`** — an exactness prefix producing an infinity. Same root cause as F1; should be a bignum. | `#e1e400` ⟹ `+inf.0` | wrong-result |
+| F3 **[R]** | Radix-prefixed integers have **no trailing-delimiter check**, so one token silently reads as two datums. The `#t`/`#f` path does check. | `'(#b1p4)` ⟹ `(1 p4)`; `'(#o1e3)` ⟹ `(1 e3)` | wrong-result |
+| F4 **[R]** | **The 4 KB reader bug is still live** (first seen 2026-07-19, never filed). A string literal straddling the port read-buffer refill boundary raises a spurious `KP3000: read error`. Discriminating control: an otherwise byte-identical file with a bare symbol in place of the string reads all 1024 datums. Needs `(read p)` on an `open-input-file` port — string ports and whole-file loading read into memory first and cannot hit it. | see `docs/dev/` note added in Phase 0 | wrong-result |
+| F5 **[R]** | `kaappi expand` **violates the round-trip guarantee** documented at `docs/dev/observing-the-pipeline.md:90`. A `let-syntax` body is expanded with the *outer* macro, then the unapplied inner binding is re-emitted. 10 corpus files affected. | direct run `99`; expand→rerun `42` (4-line repro) | wrong-result |
+| F6 **[R]** | **SRFI 14 is not a set.** `(char-set #\a #\a #\b)` ⟹ `(#\a #\a #\b)`; `char-set:letter` and even `char-set:full` are ASCII-only (`#\λ` ∉ `char-set:full`); 23 of ~60 spec names exported. `(cond-expand (srfi-14 ...))` answers yes, so portable code trusts it. | `(char-set-contains? char-set:full #\λ)` ⟹ `#f` | missing-feature + wrong-result |
+| F7 **[R]** | `isRejectedFormHead` (`llvm_emit_forms.zig:400`) is a **hand-maintained 32-name list** parallel to the comptime-derived `ir.eval_fallback_form_names`, and is missing **`define-property`**. CLAUDE.md's stated hazard has *moved*, not closed: the derived list is complete and self-maintaining; this one is neither. | list diff; `--emit-llvm` defers the form to runtime | latent miscompilation |
+| F8 **[R]** | `kaappi fmt` **silently converts CRLF→LF**, and `fmt --check` exits 1 on a canonical CRLF file. Windows is a supported platform; `docs/dev/fmt.md` never mentions line endings. The `equal?` round-trip safety net cannot see it. | 28-byte CRLF file → 26 bytes | data-modifying |
+| F9 **[R]** | **`-Dgc-stress=true` never runs on a PR.** It appears 0 times in `ci.yml` and 13 times in the scheduled `fuzz.yml`. Neither TSan nor valgrind appears anywhere. | `grep -c gc-stress .github/workflows/ci.yml` ⟹ 0 | process gap |
+| F10 **[R]** | Type errors **drop the value's identity** for heap types: a fixnum renders as `42`, a symbol as `#<symbol>`. Affects ~700 error sites via `safeValueDescription`. | `(vector-ref (vector 1 2) 'x)` ⟹ `got #<symbol>` | diagnostic quality |
+| F11 **[R]** | `run-all.sh`'s globs are **non-recursive**, so `tests/scheme/srfi/slow/` (2 files, the full SRFI 257 + 257-rx reference suites) is referenced by nothing and never runs. `kaappi test` does pick them up. | `ls tests/scheme/srfi/slow/` | coverage gap |
+| F12 **[A]** | `printer.zig`'s fixed 1024-entry `MAX_SHARED`/`MAX_PRINT_DEPTH` arrays **silently truncate**: `write` of a 1100-deep nest emits unreadable output with no error, and `write-shared` drops *all* labels past ~1000 shared cells, silently losing sharing. | agent-reported | wrong-result |
+| F13 **[A]** | `kaappi test` and `run-all.sh` **disagree** on `tests/scheme/srfi/srfi150.scm` (exit 1 vs 0), with a self-contradictory summary (`21 passed, 0 failed, 4 expected-fail` beside `1 errored`). Blocks `kaappi test` from replacing the legacy runner. | agent-reported | tooling correctness |
+
+### Documentation-truth findings
+
+Five separately-verified claims that **CLAUDE.md and `docs/dev/` describe a
+codebase that no longer exists**. An auditor trusting them wastes sessions
+chasing fixed bugs — which makes Phase 0's truth pass the highest-leverage
+half-hour in the campaign.
+
+| Claim in the docs | Reality |
+|---|---|
+| Expander limitations #1800, #1801, #1791, the `(let-syntax … (define-syntax …))` failure, and the library-body `define-record-type` shadowing gap are open | **All five are fixed and do not reproduce.** Only #1832 (SRFI 150's 4 expected failures) is genuinely live — and its cited issue is *closed*, so either the fix is incomplete or the annotation is stale |
+| SRFI 148: "134 pass, 8 `test-expect-fail` citing #1800/#1801" | **142 pass, zero `test-expect-fail`**; the header's issue citations are dead comments |
+| A keyword missing from `eval_fallback_form_names` is a silent miscompilation | That list is now **comptime-derived and self-maintaining**. The hazard lives in `isRejectedFormHead` — see F7 |
+| SRFI 120 timers cause nondeterministic **memory corruption** from a second thread ("not root-caused", the most alarming open bug in the tree) | **Did not reproduce.** Both documented entry paths now fail cleanly with precise errors, and the named mechanism (multi-hop nested-channel promotion) survived ~4,000 round trips and 20 soak processes. `<timer>` holds a Fiber, which `gc_deep_copy` rejects as structurally uncopyable — the constraint is now *engine-enforced*. Scope this as **validate-or-retire**, not root-cause |
+| `docs/dev/srfi-exclusions.md` excludes SRFI 58 and 163 partly because "SRFI 160 has no implementation at all" / "SRFI 4 is a purely portable wrapper" | **Both statements are now false.** Only the reader `#N=` datum-label ambiguity still stands; 58 and 163 become genuinely re-considerable |
+
+---
+
+## Key principles
+
+- **Prefer a documentary oracle.** Audit against a spec sentence, a SRFI page,
+  or a `docs/dev/*.md` guarantee you can quote. Where the only oracle is the
+  implementation's other half, that is fuzzer territory — see the table above.
+- **Reproduce before filing.** The reconnaissance pass produced two
+  false negatives (the 4 KB bug reported fixed when it is live; the SRFI 120
+  corruption reported live when it is not) and several false positives from
+  harness artefacts. Both directions cost real time. One independent re-run,
+  with a *discriminating control*, is the cheapest insurance in this document.
+- **Separate discovery from fixing.** File issues; do not fix. This overrides
+  Step 4 of the `/audit-primitives` skill for the duration of the campaign.
+- **Divide by domain, not by file count** — spec section + implementation +
+  tests in one agent's context.
+- **Test-first discovery** — run the existing tests for your domain before
+  reading any source. Failures found there are free.
+- **A stale doc is a finding.** Five of the six documented expander
+  limitations were fixed without the docs being updated. File those too.
+- **Each session is self-contained** — one domain, one report, one set of
+  issues, one PR.
+
+---
+
+## Session protocol
+
+Read this before every session. The phase sections say *what*; this says *how*.
+
+1. **Worktree.** `git worktree add ../kaappi-audit-<unit> main`. Concurrent
+   `zig build` in one checkout races on `zig-out/`. (This is now mandatory,
+   not advisory — the reconnaissance pass hit it.)
+2. **Rebuild.** `zig build`. Never trust an existing binary. If behaviour looks
+   globally insane, check `zig-out/bin/kaappi --version` first.
+3. **Clear the bytecode cache after every rebuild you intend to A/B against.**
+
+   ```bash
+   kaappi cache clear
    ```
 
-   The fix PR for #1234 re-enables the test — it's a ready-made regression test.
-8. **Open a PR** with the new test files, update your checkbox in the
-   Progress tracker below (include issue numbers), and post a one-line
-   summary on the tracking issue.
+   The cache key folds in the git build id, which for uncommitted work is the
+   commit hash plus a bare `-dirty` flag — **not** a hash of the changes. Two
+   different uncommitted edits at the same base commit alias to the same id and
+   share entries. This has cost multiple sessions, presenting as nondeterminism.
+   See `docs/dev/cache.md`.
+4. **Run the existing tests for your domain first.**
+
+   ```bash
+   kaappi test tests/scheme/srfi          # SRFI-64 suites, aggregated
+   kaappi test --json tests/scheme/audit  # machine-readable
+   bash tests/scheme/run-all.sh           # everything, incl. shell suites
+   ```
+
+   `kaappi test` is the first-class runner (`docs/dev/test-runner.md`) and is
+   what v2 uses by default; `run-all.sh` remains the only thing that drives the
+   chibi-test R7RS suite and the shell suites. **They currently disagree on at
+   least one file (F13)** — if your domain's counts differ between them, that is
+   itself a finding.
+5. **Write new tests** per your phase, as `(srfi 64)` with the exit-on-fail
+   epilogue (grab the runner *before* `test-end`). See `tests/scheme/CLAUDE.md`
+   — but note its directory table is stale (Phase 0 fixes it).
+6. **Verify each failure before filing:**
+   - Reproduce on the fresh build from step 2, with the cache cleared.
+   - Re-read the exact spec text and quote it. Do not trust memory of what
+     R7RS or a SRFI requires.
+   - **Construct a discriminating control** — a near-identical input that
+     *should* behave differently. F4's symbol-vs-string control is the model:
+     it converts "this errors" into "this errors *because of the string path*".
+   - Check `README.md § Known limitations` and `CONFORMANCE.md` — documented
+     deviations (SRFI 248 handler timing, continuations under native drivers,
+     fibers in native-driver callbacks) are not bugs.
+   - Check whether the docs merely *claim* it is broken. Five such claims were
+     stale as of 2026-07-31.
+   - For crashes or nondeterminism, retry under `zig build -Dgc-stress=true`
+     and say whether behaviour changes — it localises GC bugs.
+   - Dedup: `gh issue list --state all --search "<proc-name>"`.
+7. **Commit tests so the suite stays green.** Passing tests: enabled. Failing
+   tests: comment out with a marker directly above —
+
+   ```scheme
+   ;; FAIL: #1234 (#e1e19 reads as inexact)
+   ;; (test-assert (exact? #e1e19))
+   ```
+
+   The fix PR re-enables it. **Prefer this to `test-expect-fail`** when the
+   failure is a raise rather than a wrong value: a top-level error inside an
+   expected-fail case sets `error=true` in `kaappi test` even as the legacy
+   runner reports the file green — exactly the F13 divergence.
+8. **Open a PR**, tick your box in the tracker, post one line on the tracking
+   issue.
 
 ### Footguns
 
-- **`(chibi test)` never exits non-zero.** Only `r7rs-tests.scm` still uses
-  the shim (audit/compliance/srfi files were migrated to SRFI-64 with an
-  exit-on-fail epilogue, #1313). For the R7RS suite, read the printed
-  `N pass, M fail` counts rather than trusting the exit code.
-- **Stale `.sbc` bytecode caches** are keyed on source hash only — a rebuilt
-  *binary* does not invalidate them. Delete any `.sbc` next to a `.scm` you
-  are re-running after an interpreter change (mainly a Phase 4 concern).
-- **Stay on ReleaseSafe** (the default). Debug builds are ~500x slower on
-  allocation-heavy tests and mask use-after-free differently.
-- **Use timeouts** when running thread/fiber/continuation tests individually:
-  `timeout 30 zig-out/bin/kaappi <file>`. A hang is a finding — file it.
-  **Stock macOS has no `timeout`** — use the `run_timeout` helper pattern
-  from `tests/scheme/audit-baseline.sh` (falls back to `gtimeout`, then
-  `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`).
-- **PDF reading:** the R7RS spec (`docs/errata-corrected-r7rs.pdf`) is ~88
-  pages; the Read tool takes page ranges (max 20/request). Read the table of
-  contents first, then only your domain's pages. Never read the whole spec.
+- **`timeout` does not exist on stock macOS.** Use the `run_timeout` helper in
+  `tests/scheme/audit-baseline.sh` (tries `timeout`, then `gtimeout`, then
+  `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`). A hang is a finding.
+- **Run expanded/reformatted files in the original's directory.** A
+  round-trip harness that runs the output from a different cwd breaks relative
+  `include` and `--lib-path` resolution and produces pure false positives —
+  6 of 8 in the reconnaissance sweep.
+- **`(chibi test)` never exits non-zero.** Only `r7rs-tests.scm` still uses the
+  shim; `run-all.sh` parses its counts specially.
+- **Stay on ReleaseSafe.** Debug is ~500× slower on allocation-heavy tests.
+- **PDF reading:** `docs/errata-corrected-r7rs.pdf` is ~88 pages; the Read tool
+  takes ≤20 pages per request. Read the table of contents, then only your
+  domain's pages. Never the whole spec.
+- **Do not run `kaappi cache clear` against your real `$KAAPPI_HOME`** when
+  probing cache behaviour — export an isolated one, as `run-all.sh` does.
 
 ---
 
-## Progress Tracker
+## Progress tracker
 
-Check off each unit when its PR is open and issues are filed. Add the date
-and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
+Tick when the PR is open and issues are filed; add date and issue numbers.
 
-**Phase 0 — Baseline**
+**Phase 0 — Baseline and documentation truth**
 
-- [x] 0: Baseline run, tracking issue, labels created, `audit-baseline.sh` committed (2026-07-05, #1137; baseline fully green at b2317e8 — 0 failures across all suites, no issues filed)
+- [x] 0A: Baseline run, tracking issue, labels, file F1–F13 (2026-07-31, [#1890](https://github.com/kaappi/kaappi/issues/1890) tracking; baseline fully green at `261fde5f` — 624/624 Scheme files, 1395/1395 R7RS assertions, 0 fail; all 13 reconnaissance findings filed as 12 issues [#1891](https://github.com/kaappi/kaappi/issues/1891)–[#1903](https://github.com/kaappi/kaappi/issues/1903) — `#e1e19`/`#e1e400` merged as one root cause; labels `tier-divergence`, `tooling`, `doc-truth` created)
+- [x] 0B: Documentation-truth pass (2026-07-31, [#1901](https://github.com/kaappi/kaappi/issues/1901); all 6 items corrected — every claim re-verified against v0.22.1 first, which corrected two of the reconnaissance findings in turn: `srfi148.scm`'s header is accurate rather than stale, and there are 6 `test-expect-fail` calls repo-wide (4 in `srfi150.scm`), not 7/6)
 
-**Phase 1 — R7RS spec gap analysis** (independent; run in parallel)
+**Phase 1 — Reader, printer, numeric tower** (independent)
 
-- [x] 1A: Expressions & syntax (4.1–4.3) + Libraries (5.6–5.7) (2026-07-05, #1139–#1142; 34 new gap tests, 3 disabled pending fixes; libraries 5.6 fully green)
-- [x] 1B: Equivalence, numbers, booleans, lists, symbols (6.1–6.5) (2026-07-05, no bugs found — 40 gap tests all pass, incl. circular equal? termination and numeric I/O round-trips)
-- [x] 1C: Characters, strings, vectors, bytevectors (6.6–6.9) (2026-07-05, #1145; 43 gap tests, 4 disabled — char classification derives from case mappings; full string casing, UTF-8 slicing, overlap copies all conform)
-- [x] 1D: Control, exceptions, eval, I/O, system (6.10–6.14) (2026-07-05, #1147; 30 gap tests, 2 disabled — immutable environments don't signal on define/set!; cyclic write, CRLF read-line, raise-continuable all conform)
+- [ ] 1A: `#e`/`#i` exactness over the i64 boundary (F1, F2) + `string->number` parity
+- [ ] 1B: Radix-prefix delimiter checking (F3), all radices × invalid trailing chars, without breaking SRFI 169 separators or SRFI 270 hex floats
+- [ ] 1C: Port read-buffer refill (F4) — string, symbol, char, block-comment, and raw-string tokens across the 4096/8192 boundaries
+- [ ] 1D: Printer limits (F12) — `MAX_SHARED`/`MAX_PRINT_DEPTH` cliffs at n=1023/1024/1025, 2000-deep cycles, `write-shared` label exhaustion
 
-**Phase 2 — Primitives audit** (independent; run in parallel; order = risk)
+**Phase 2 — Primitives** (independent; order = risk)
 
-- [x] 2.1: `primitives_srfi18.zig` (threads) (2026-07-05, #1153–#1156; 73 audit tests + 4 disabled — mutex timeout lock-steal, #f-thread owner, native thunks rejected, gc-stress SIGSEGV)
-- [x] 2.2: `primitives_string_ext.zig` (SRFI-13) (2026-07-05, #825/#826 reopened + #1158–#1159; 84 audit tests + 6 disabled — join grammar, Unicode trim, s2 ranges, ignored optional args)
-- [x] 2.3: `primitives_char.zig` (Unicode) (2026-07-05, no new bugs — 59 audit tests; final-sigma, ligatures, Cherokee all conform; classification pending #1145)
-- [x] 2.4: `primitives_io.zig` (ports) (2026-07-05, no bugs — 49 audit tests; closed-port errors, write label semantics, binary ports all conform)
-- [x] 2.5: `primitives_filesystem.zig` (SRFI-170) (2026-07-05, #1161–#1164; 65 audit tests + 3 disabled — group-info-by-name gid=0 via upstream Zig getgrnam misdeclaration, bare-fixnum time objects, missing chown sentinels, SRFI-60 export gap found in passing; covers SRFI-170 for Phase 3.1)
-- [x] 2.6: `primitives_srfi1.zig` (SRFI-1) (2026-07-05, #1166; 105 audit tests + 2 disabled — take-right/drop-right reject dotted lists; fold/unfold/lset/predicate semantics all conform; gc-stress clean)
-- [x] 2.7: `primitives_control.zig` (call/cc, guard) (2026-07-05, #1168–#1169; 33 audit tests + 2 disabled — set! rollback on continuation re-entry (hangs!), multi-value continuation invocation drops values; dynamic-wind spec example conforms)
-- [x] 2.8: `primitives_vector.zig` (2026-07-05, #1171–#1174; 175 audit tests + 7 disabled — vector-skip/-right reject multi-vector form, 9 SRFI-133 procs missing (vector=, folds, in-place ops), vector literals mutable while strings aren't, only/except/rename don't validate names; all R7RS 6.8 + SRFI-133 spec examples conform; gc-stress clean)
-- [x] 2.9: `primitives_list.zig` (2026-07-05, #1176–#1177 + #1173 widened to pairs; 114 audit tests + 5 disabled — map/for-each >256 lists panic uncatchably, (features) disagrees with both cond-expand evaluators (exact-closed/exact-complex); circular-list handling, eqv? consistency, comparator order all conform; gc-stress clean)
-- [x] 2.10: `primitives_bytevector.zig` (2026-07-05, #1178–#1179 + #1173 widened to bytevectors; 116 audit tests + 7 disabled — utf8->string skips validation (corrupt strings break string-ref later), u8-ready? returns #f at EOF (the #280 "fix" inverted the spec); copies/overlaps/ports/ranges all conform; gc-stress clean)
-- [x] 2.11: `primitives_hashtable.zig` (SRFI-69) (2026-07-05, #1180–#1183; 71 audit tests + 8 disabled — bignum/rational/deep keys unfindable (pointer hash vs equal? lookup), walk/fold snapshot use-after-free under gc-stress, hash-table-update! missing, custom comparators silently ignored; core ops/growth/tombstones/merge/copy all conform)
-- [x] 2.12: `primitives_fiber.zig` (2026-07-05, #1184 + #1155 widened to spawn; 31 audit tests + 1 disabled — yield raises contentless error when all 64 slots hold parked fibers; deadlock detection (incl. cyclic join), error re-raise at join, FIFO channels, spawn limit all conform; gc-stress clean)
-- [x] 2.13: `primitives_ffi.zig` (2026-07-05, #1185–#1187; 48 audit tests + 2 disabled — callback errors silently swallowed (last_callback_error write-only), call-time marshaling errors carry no detail; char type fixed in #1186/PR #1309; open/close lifecycle, slot exhaustion+reuse, qsort callbacks, pointer round trips all conform; gc-stress clean)
-- [x] 2.14: `primitives_r7rs.zig` (2026-07-05, #1188–#1190; 41 audit tests + 5 disabled + new errors/exit-wind.sh (8 shell asserts) — eval silently ignores non-environment specifier, environment rejects only/except/prefix/rename import sets, load lacks the optional environment arg; exit/emergency-exit wind semantics, time, env vars, parameters, null/report environments all conform; gc-stress clean)
-- [x] 2.15: `primitives_random.zig` (SRFI-27) (2026-07-05, #1192–#1196; 49 audit tests + 5 disabled — default-random-source is a procedure not a variable, fixnum-only n/i/j, make-reals ignores unit, random-real [0,1) code-inspection, chibi-test shim swallows errored assertions)
-- [x] 2.16: `primitives_lazy.zig` (2026-07-05, #1191; 35 audit tests + 1 disabled — direct re-entrant force panics via GC root stack overflow (general VM nested-native-re-entrancy crash); delay-force chains, memoization, SRFI-45 cycle detection all conform)
-- [x] 2.17: `primitives_cxr.zig` (2026-07-05, no bugs — 41 audit tests; all 24 accessors correct via self-labeling trees, catchable errors on every bad input)
-- [x] 2.18: `primitives.zig` (core) (2026-07-05, #1198–#1199; 196 audit tests + 4 disabled — reverse/append/apply(non-tail) hang on circular lists while length/list?/tail_apply detect or bound them; record accessors/mutators skip the type check, cross-type reads/writes silently succeed; eqv?/equal?/predicates/apply otherwise fully conform incl. circular equal? and width-changing string mutations)
+- [ ] 2.1: The `%`-prefixed internal-primitive surface (~53 procedures reachable from user code, zero test mention) — see dimension D1
+- [ ] 2.2: `primitives_io.zig` (+1108 lines against a 112-line audit test; custom-port and transcode branches are new)
+- [ ] 2.3: `primitives_srfi181.zig` (new, no test) — custom-port callback re-entrancy and the blocking rejection
+- [ ] 2.4: `primitives_srfi160.zig` (new, no test) — 11-way element-kind dispatch over raw bytes, c64/c128 packing
+- [ ] 2.5: `primitives_srfi237.zig` (new, no test) — sealed/opaque/uid, multi-level inheritance
+- [ ] 2.6: `primitives_fiber.zig` (+1241 lines against a 135-line audit test)
+- [ ] 2.7: `primitives_srfi18.zig` (+793/−352) — deep-copy round-trip for every new heap type
+- [ ] 2.8: `primitives_hashtable.zig` (+403, 8 callback sites)
+- [ ] 2.9: `primitives_control.zig` (14 callback sites; SRFI 248 sticky handlers are new)
+- [ ] 2.10: `primitives_srfi254.zig` (new, no test) — GC-integrated; guardians are callable
+- [ ] 2.11: Batch — `parallel`, `sysinfo`, `random_port`, `srfi258`, `srfi260`, `srfi211` (~570 lines, 27 specs, none audited)
+- [ ] 2.12: `primitives_filesystem.zig` — 69 specs and 102 syscalls against a 177-line test
+- [ ] 2.13: Error-taxonomy sweep (D2) + diagnostic fidelity (F10, D3)
 
-**Phase 3 — SRFI conformance**
+**Phase 3 — SRFI breadth** (independent)
 
-- [x] 3.0: Run all 35 existing SRFI test files, capture failures (2026-07-05, no failures — all 35 files pass individually under timeout 30 at 96ce73b: chibi-test files all print 0 fail, SRFI-64 files report 0 unexpected failures (srfi64.scm's 1 "expected failure" is an intentional test-expect-fail), exit-code files all print their OK markers; no hangs, no escaped errors)
-- [x] 3.1: Built-in SRFIs without adequate tests (9, 39, 170) (2026-07-05, #1202–#1203 + #560 reopened; 68 tests + 6 disabled — parameterize installs bindings sequentially (SRFI-39 "1010" example fails), record redefinition retargets old ctors/predicates via call-time __record_type_ lookup, define-record-type still broken in lambda/let bodies (begin was fixed); constructors map fields by name, converters, disjointness, escape-restore all conform; 170 covered by 2.5)
-- [x] 3a: SRFIs 0, 6, 17, 23, 26 (syntax extensions) (2026-07-05, #1205 + #1208; 54 tests + 9 disabled — SRFI-17 is a stub (no generalized set!, no predefined setters), cut/cute hardcoded patterns (cute re-evaluates per call, later slots swallowed, no operator slots, arity cap); cond-expand/string ports/error all conform)
-- [x] 3b: SRFIs 37, 38, 43, 116, 117, 134 (2026-07-05, #1209, #1211–#1213; 125 tests + 12 disabled — SRFI-43 is SRFI-133-in-disguise (no index callbacks, 8 exports missing), args-fold short options/seed threading broken, ideque-filter calls unbound filter, reader drops datum-label refs inside vectors (breaks SRFI-38 vector cycles); queues/ideques/ilists otherwise conform)
-- [x] 3c: SRFIs 41, 42, 45, 143, 144 (2026-07-05, #1207, #1210, #1214–#1217, #1226; 157 tests + 20 disabled — bitwise and/ior/xor wrong for ALL negative operands (SRFI-151 helpers, inherited by 60/143), stream-unfold inverted + append truncates + zip crashes, comprehensions single-qualifier only, lazy/eager missing, flmax/fxmax-class arity caps; core streams/fixnum/flonum surfaces conform)
-- [x] 3d: SRFIs 60, 61, 78, 87, 197, 210, 227 (2026-07-05, #1206, #1218–#1220, #1222, #1224; 91 tests + 14 disabled — SRFI-61 empty stub, chain ignores _ placeholder (nest missing), value returns wrong element + set!-values is a no-op, check-passed? wrong signature, opt*-lambda aliased to opt-lambda; case-=> and positive-operand SRFI-60 conform)
-- [x] 3e: SRFIs 4, 127, 130, 233, 235 (2026-07-05, #1221, #1223, #1225; 122 tests + 8 disabled — SRFI-4 integer kinds are indistinguishable bytevector aliases with unchecked signed ranges, ini-file->alist dead (char-whitespace? unbound), SRFI-235 missing 24/36 exports; lseqs and cursor strings fully conform)
-- [x] 3.4: Upgrade smoke-only SRFIs to behavioral tests (98, 125, 128, 132, 141, 151, 152, 174, 175, 195, 219, 232) (2026-07-05, #1229–#1238; 402 tests + ~60 disabled — SRFI-219 dead on arrival (imported define macro can't shadow the built-in special form, #1237 is a core expander bug), SRFI-232 currying is strictly unary chains, balanced/ aliased to round/, default comparator not a total order (pairs/vectors/cross-type unordered) + eq/eqv comparators unhashable, hash-table-ref/find ignore success/proc-result (125), string-every drops last value (152), ascii-digit-value treats letters as digits (175), copy-bit rejects spec booleans + eqv/bits->list arity (151, beyond #1214), 14 of 22 SRFI-132 exports missing, timespec conversions missing (174); SRFI-98 and 195 fully conform)
+- [ ] 3.1: **SRFI 14 rewrite** (F6) — range/inversion-list rep over the existing Unicode tables, plus the ~37 missing names
+- [ ] 3.2: SRFI 160 sweep A — the generic surface across all 12 element kinds (the test is 87% `s8`)
+- [ ] 3.3: SRFI 160 sweep B — per-type wrappers, c64/c128 packing, the u8-as-bytevector seam
+- [ ] 3.4: SRFI 146 (108 of 161 exports untested)
+- [ ] 3.5: SRFI 166 + `columnar`/`unicode`/`color`/`pretty` sub-libraries (52 of 89 untested)
+- [ ] 3.6: SRFI 158 generators (43 of 55 untested)
+- [ ] 3.7: NO-TEST batch — 2, 8, 11, 16, 28, 31, 34, 111, 145, 222, 229
+- [ ] 3.8: SMOKE-ONLY batch — 23, 46, 98, 112, 139, 149, 188, 190, 236, 244
+- [ ] 3.9: Large-and-thin batch — 113, 225, 178, 152, 240, 189, 35, 27
+- [ ] 3.10: Un-quarantine `tests/scheme/srfi/slow/` (F11) and re-triage SRFI 150's expected failures against closed #1832
 
-**Phase 4 — Compiler & VM edge cases**
+**Phase 4 — Execution-tier divergence**
 
-- [x] 4A: Tail positions in derived forms + thin-coverage forms (2026-07-05, #1240–#1242; 54 tests + 6 disabled — call-with-values consumer, call/cc receiver, and eval are NOT tail-called (§3.5 requires; native re-entry panics at ~1024 via #1191's mechanism), let*-values body is not a tail context (even 1 clause; let-values is fine), force caps promise chains at 100k iterations and mislabels longer legit delay-force chains as circular; apply/cond=>/case-lambda/do/let-syntax and all other §3.5 contexts verified at 1e5–1e6 depth; parameterize/define-values/letrec*/letrec-syntax thin coverage conforms except sequential-binding #1202)
-- [x] 4B: Continuation interactions (2026-07-05, no new issues; 22 tests + 1 disabled (#1169) — R7RS 6.10 connect/talk/disconnect re-entry example exact, multi-shot segments, parameterize captured+restored across re-entry, escape/afters inner-to-outer, guard =>/else/re-raise, raise-continuable resume, handler-return secondary exception, mv through dynamic-wind all conform; state kept global to dodge #1168)
-- [x] 4C: Macro hygiene + define-library import sets (2026-07-05, #1243; 23 tests + 1 disabled — doubled-ellipsis template (x ... ...) produces garbage with a literal ... instead of flattening; be-like-begin/(... ...) escape, custom ellipsis, vector patterns, tail patterns after ellipsis, =>-shadowing (p.24 example!), macro exports through prefix/only/rename/except and only-of-rename, cond-expand library declarations all conform; circular imports cleanly detected with nonzero exit)
+- [ ] 4A: Derive `isRejectedFormHead` from the comptime set (F7) + a test asserting `derived ⊆ rejected ∪ documented-exclusions`
+- [ ] 4B: Ship `tests/scheme/differential/run-differential.sh` — tiers (b) opt-off and (d) cold/warm cache first; both need no build and already run green
+- [ ] 4C: Convert `tests/scheme/compile/*.sh` from golden strings to an interpreter oracle (only 2 of 22 compare tiers today)
+- [ ] 4D: WASM cross-tier — diff the import-free corpus under wasmtime against the interpreter (today: 3 files, exit-code only)
+- [ ] 4E: `.sbc` cache coverage — only 42 of 333 corpus files populate it; `sbc equiv:` covers 6 toy forms
 
-**Phase 5 — Synthesis**
+**Phase 5 — Concurrency**
 
-- [x] 5: Deduplicate, group by root cause, prioritize, update tracking issue (2026-07-05 — 87 findings filed over the campaign, 81 still open, 6 already fixed (#1176 #1178 #1180 #1184 #1185 #1188 — their FAIL markers still need re-enabling); no duplicates found (dedup enforced at filing time); grouped into 9 root-cause clusters with 2 epics filed (native re-entrancy, portable-SRFI quality); priority order + 197-marker inventory posted on #1137; run-all.sh hardened to parse chibi-test/SRFI-64 fail counts so exit-0 failures no longer pass silently)
+- [ ] 5A: **Validate-or-retire** the SRFI 120 corruption claim; deliver either a live repro or a PR rewriting the header plus tests pinning both rejections
+- [ ] 5B: `waitForFd` park-vs-drive protocol — zero tests reference `waitForFd`, `driving_waits`, or `anyAncestorWaitResolved`
+- [ ] 5C: `gc_deep_copy` promoted-stub ownership skip — an already-promoted channel stub bypasses the owner check
+- [ ] 5D: SRFI-18 re-audit (994 → 1435 lines since v1)
+- [ ] 5E: De-flake and arm the timing tests (76 wall-clock lines; `smoke/thread-sleep-876.scm` has no exit path at all)
+- [ ] 5F: gc-stress × concurrency — needs `/do-stress-test` (Linux, hours)
+- [ ] 5G: Reactor backend parity — needs `/do-linux-test` (epoll) and `/vm-test` (kqueue)
 
----
+**Phase 6 — Tooling**
 
-## Current State (verified 2026-07-05)
+- [ ] 6A: `fmt` line-ending policy (F8) — decide preserve-vs-normalise, implement, document, test CRLF/lone-CR/mixed
+- [ ] 6B: Reconcile `kaappi test` with `run-all.sh` (F13)
+- [ ] 6C: Completions ↔ flag-table drift gate (`--no-ir-opt` is missing from all three scripts; `completions.zig` has zero tests)
+- [ ] 6D: LSP end-to-end — 942 lines, 6 inline tests, no integration test at all
+- [ ] 6E: `thottam` — 932 lines, 3 tests; version-constraint parsing, `--locked`, lockfile provenance
+- [ ] 6F: `fmt` adversarial comment placement and a byte-level mutation fuzzer over the corpus
 
-Before planning work, here is what actually exists:
+**Phase 7 — GC and portability**
 
-### Test infrastructure
+- [ ] 7A: Port-satellite tracing invariant — `Port.custom_backend`/`transcode` are hand-traced at 5 sites with no compiler enforcement; unify behind one helper + a mutation test
+- [ ] 7B: `src/tests_gc_tracing.zig` — per-`ObjectTag` reachability under forced collection, the coverage exhaustive switches cannot provide
+- [ ] 7C: s390x endian gap — the big-endian canary runs only unit tests + `r7rs-tests.scm`; every endian-sensitive SRFI test (74, 160, 174) is excluded, and SRFI 74's own native-agreement assertion is tautological
+- [ ] 7D: Cross-endian `.sbc` round-trip in CI; decide whether the cache key should include the target triple
+- [ ] 7E: Add `-Dgc-stress=true` to PR CI in some bounded form (F9)
 
-| Suite | Location | Count | Framework |
-|-------|----------|------:|-----------|
-| R7RS conformance | `tests/scheme/r7rs/r7rs-tests.scm` | 988 assertions | `(chibi test)` |
-| Zig unit tests | `src/tests_*.zig` (21 files) | 473 tests | Zig `test` |
-| Scheme smoke tests | `tests/scheme/smoke/` | 245 files | Exit code |
-| Compliance tests | `tests/scheme/compliance/` | 35 files | Mixed |
-| Continuation tests | `tests/scheme/continuations/` | 13 files | Exit code |
-| Hygiene tests | `tests/scheme/hygiene/` | 12 files | Exit code |
-| SRFI tests | `tests/scheme/srfi/` | 35 files | Exit code |
-| FFI tests | `tests/scheme/ffi/` | 12 files | Exit code |
-| Audit tests | `tests/scheme/audit/` | 3 files | `(chibi test)` |
-| Compiler tests | `tests/scheme/compile/` | 8 shell scripts | Shell |
-| Error tests | `tests/scheme/errors/` | 7 files | Shell |
-| Coverage gap tests | `tests/scheme/coverage/` | 27 files | Exit code |
-| Robustness | `tests/scheme/robustness/` | 1 file | Shell |
-| Sandbox | `tests/scheme/sandbox/` | 1 file | Shell |
+**Phase 8 — Synthesis**
 
-`run-all.sh` executes: smoke, compliance, continuations, hygiene, srfi, ffi,
-audit, errors, compile, and r7rs. It **excludes** bench/ (performance),
-coverage/ (gap-fillers), deferred/ (known-deferred .sbc files), phase1–5/
-(.sbc bytecache tests), robustness/, and sandbox/.
-
-Most Scheme test files use **no formal framework** — they succeed on exit
-code 0 and fail on non-zero. Audit, SRFI, and compliance tests use
-`(srfi 64)` with an exit-on-fail epilogue (migrated from `(chibi test)`
-in #1313); only the R7RS suite still uses the chibi-test shim, and its
-output is parsed specially by `run-all.sh`. See Footguns above.
-
-### Primitives audit status
-
-3 of 21 primitives files have been audited:
-
-| File | Status | Audit test |
-|------|--------|-----------|
-| `primitives_arithmetic.zig` | **Done** | `audit/primitives_arithmetic-audit.scm` |
-| `primitives_numeric.zig` | **Done** | `audit/primitives_numeric-audit.scm` |
-| `primitives_string.zig` | **Done** | `audit/primitives_string-audit.scm` |
-| All other 18 files | Not audited | — |
-
-### SRFI test coverage
-
-| Coverage level | Count |
-|----------------|------:|
-| Conformance-level tests in `tests/scheme/srfi/` | 29 |
-| Smoke-level only (loading + basic use, in `coverage/` or `compliance/`) | 13 |
-| No test at all | 30 |
-
-Note: `srfi_foundation.scm` tests 10 SRFIs in one file (2, 8, 11, 16, 28,
-31, 34, 111, 145, 222). `srfi-loading-coverage.scm` smoke-tests 22 SRFIs
-but only verifies they load and export, not behavioral correctness.
-
-### GitHub state
-
-The `audit`, `r7rs-conformance`, and `srfi` labels **do not exist yet** —
-Phase 0 creates them. The issue tracker is nearly empty (2 open issues,
-both refactoring epics), so duplicate risk is low but grows as parallel
-sessions file findings — hence the mandatory dedup search in the protocol.
+- [ ] 8: Deduplicate, group by root cause, prioritise, update the tracking issue, inventory remaining `;; FAIL:` markers
 
 ---
 
-## Phase 0: Baseline (1 session, ~20 min)
+## New audit dimensions
 
-**Goal:** Establish a known-good baseline of what currently passes/fails.
+The v1 skill checked six bug patterns (type-dispatch gaps, GC safety, UTF-8
+indexing, callback error propagation, boundary conditions, ignored optional
+arguments). All still apply. These seven are new since v1 and belong in every
+Phase 2 session:
+
+| | Dimension | Why it did not exist in v1 |
+|---|---|---|
+| D1 | **Internal-primitive direct-call surface** | The `%`-prefix convention and the `INTERNAL`/`INTERNAL_PUBLIC` split postdate v1 (#1856). ~53 procedures are callable from a plain script with no import and have zero test mention |
+| D2 | **Error-taxonomy correctness** | `typeError`/`indexError`/`argError` now carry distinct codes (KP3002/3006/3007). `indexError` appears in 6 files, `argError` in 3 — bounds failures are likely still reported as type errors elsewhere |
+| D3 | **Diagnostic fidelity** | `safeValueDescription` renders symbols, strings, vectors, bytevectors, rationals and bignums opaquely — see F10 |
+| D4 | **Registration-table invariants** | `specs` arity vs. what the body indexes; `libs` tags vs. the SRFI's export list; the comptime `%`-vs-`scheme.*` check. Pure table-vs-body audit, no runtime needed |
+| D5 | **Re-entrancy and parking discipline** | Fibers, the reactor, custom-port callbacks and guardian invocation are all post-v1. Which callbacks may block, and does the rejection stay catchable? |
+| D6 | **Cross-heap deep-copy closure** | Every new heap type must round-trip both SRFI-18 boundaries or fail cleanly |
+| D7 | **`--sandbox` / WASM degradation consistency** | A per-name gate that nobody has reviewed as a set — e.g. `%kaappi-lib-dir` is gated under `--sandbox` while `%os-name` is not |
+
+---
+
+## Phase details
+
+### Phase 0 — Baseline and documentation truth (2 sessions)
+
+**0A.** Run the baseline, create labels, open the tracking issue, and file
+F1–F13 (reproducing the two `[A]` rows first).
 
 ```bash
-zig build test                                           # Zig unit tests (473 tests)
-zig build run -- tests/scheme/r7rs/r7rs-tests.scm        # R7RS suite (988 assertions)
-bash tests/scheme/run-all.sh                             # All Scheme suites
+zig build test
+kaappi test tests
+bash tests/scheme/run-all.sh
+bash tests/scheme/audit-baseline.sh /tmp/audit-v2-baseline
 ```
 
-Save the R7RS test output — it reports pass/fail/error counts per section
-(6.1 Equivalence, 6.2 Numbers, etc.). This becomes the "before" snapshot.
-Any existing failures are **free bug discoveries** that need no agent time.
+The 2026-07-31 baseline (`261fde5f`, macOS aarch64, ReleaseSafe) was **624/624
+Scheme files and 1395/1395 R7RS assertions, zero failures** — so unlike v1's
+Phase 0, expect no free discoveries here. Its value is the "before" snapshot and
+the confirmation that any red you see later is yours.
 
-**Deliverables for this session:**
+Note that a full `run-all.sh` now takes considerably longer than in v1 — over an
+hour on a laptop with other work running, because the shell suites drive real
+native compiles.
 
-1. **Create the labels** (see GitHub Issue Workflow below for the full list).
-2. **Create the tracking issue** and record its number at the top of this doc:
+**0B.** The documentation-truth pass. Work through the table in
+*Reconnaissance findings* above; for each claim, verify against the binary and
+either delete, re-scope, or convert it into a filed issue. This is the highest
+leverage half-hour in the campaign: it stops every later session from chasing
+bugs that were fixed months ago.
 
-   ```bash
-   gh issue create --title "Tracking: R7RS conformance and SRFI audit" \
-     --label audit
-   ```
+Also refresh the two stale support artefacts:
 
-   Include section-by-section R7RS pass/fail counts in the issue body, plus a
-   checklist mirroring the Progress tracker above.
-3. **Commit the baseline script** as `tests/scheme/audit-baseline.sh` so every
-   later session can rerun it. _Done — see the committed script._ It runs
-   unit tests, the R7RS suite, `run-all.sh`, and each SRFI file individually
-   (with a portable timeout helper — see Footguns), teeing each stage to
-   `$OUT/*.log` and ending with a grep summary of FAIL/ERROR/TIMEOUT lines.
-   Usage: `bash tests/scheme/audit-baseline.sh [output-dir]` (default
-   `/tmp/audit-baseline`).
+- `tests/scheme/CLAUDE.md`'s directory table omits `fmt/`, `doctor/`, `cache/`,
+  `pipeline/`, `timings/`, `test-runner/` and `acceptance/` — all of which exist
+  and all of which `run-all.sh` runs.
+- `.claude/skills/audit-primitives/SKILL.md` documents the old
+  `try reg(vm, ...)` registration (it is now a `specs` table) and lists 18 of
+  the 31 primitives files. Every Phase 2 session loads this skill.
 
-4. **File issues for any existing failures** found by the baseline (following
-   the Session protocol's verification steps).
+### Phase 1 — Reader, printer, numeric tower (4 sessions)
 
-Feed only the *failures* to later analysis. This eliminates "running tests"
-time from all subsequent agent sessions.
+The reader is where the reconnaissance found the highest density of real,
+never-filed bugs (F1–F4), which is unsurprising: v1's Phase 1 audited the
+*procedures* R7RS §6.2 defines, not the *lexical syntax* §7.1.1 defines.
 
----
+Read §7.1.1 (external representations) and §6.2.5–6.2.7 (numeric I/O) from
+`docs/errata-corrected-r7rs.pdf`, and use `/r7rs-reader` for the lexical
+reference. Write tests to `tests/scheme/compliance/reader-<topic>-gaps.scm`.
 
-## Phase 1: R7RS Spec-Driven Test Gap Analysis (4 sessions)
+The systematic invariant for 1A–1C is round-trip:
+`(equal? x (read (open-input-string (write-to-string x))))` across every type,
+plus the same via a *file* port for the buffer-boundary cases. Roughly 90 such
+cases already pass; the failures are listed as F1–F4 and F12.
 
-**Goal:** Find R7RS requirements NOT covered by the existing 988-assertion
-test suite.
+### Phase 2 — Primitives (13 units)
 
-The existing `tests/scheme/r7rs/r7rs-tests.scm` is adapted from Chibi's suite.
-It covers most of R7RS but has known gaps. The authoritative spec reference is
-`docs/errata-corrected-r7rs.pdf`.
+10 of 31 primitives files have **no audit test at all**, and every one of those
+10 postdates v1. Six more have v1-era audit tests that are now badly
+undersized relative to their file's growth.
 
-### Domain map
+Use `/audit-primitives`, with two overrides: do **not** fix (file instead), and
+add dimensions D1–D7 to the skill's six patterns.
 
-| Domain | R7RS Sections | Primitives Files | Existing Tests | Session |
-|--------|--------------|-----------------|----------------|:-------:|
-| Expressions & Syntax | 4.1–4.3 | `compiler*.zig`, `expander.zig` | `tests_macros.zig`, `tests_ir.zig`, smoke/macros.scm | 1A |
-| Libraries | 5.6–5.7 | `vm_library.zig`, `library.zig` | smoke/libraries.scm, tests_libraries.zig | 1A |
-| Equivalence | 6.1 | `primitives.zig` | r7rs-tests.scm §6.1 | 1B |
-| Numbers | 6.2 | `primitives_arithmetic.zig`, `primitives_numeric.zig`, `bignum.zig` | r7rs-tests.scm §6.2, audit/*-audit.scm | 1B |
-| Booleans | 6.3 | `primitives.zig` | r7rs-tests.scm §6.3 | 1B |
-| Lists | 6.4 | `primitives.zig`, `primitives_list.zig` | r7rs-tests.scm §6.4 | 1B |
-| Symbols | 6.5 | `primitives.zig` | r7rs-tests.scm §6.5 | 1B |
-| Characters | 6.6 | `primitives_char.zig` | r7rs-tests.scm §6.6, compliance/chars.scm | 1C |
-| Strings | 6.7 | `primitives_string.zig`, `primitives_string_ext.zig` | r7rs-tests.scm §6.7, compliance/strings.scm, audit/ | 1C |
-| Vectors | 6.8 | `primitives_vector.zig` | r7rs-tests.scm §6.8 | 1C |
-| Bytevectors | 6.9 | `primitives_bytevector.zig` | r7rs-tests.scm §6.9 | 1C |
-| Control | 6.10 | `primitives_control.zig`, `vm_continuations.zig` | r7rs-tests.scm §6.10, continuations/ | 1D |
-| Exceptions | 6.11 | `primitives_control.zig`, `vm.zig` | r7rs-tests.scm §6.11, errors/ | 1D |
-| Environments & eval | 6.12 | `primitives_r7rs.zig` | r7rs-tests.scm §6.12 | 1D |
-| I/O (Ports) | 6.13 | `primitives_io.zig` | r7rs-tests.scm §6.13 | 1D |
-| System | 6.14 | `primitives_r7rs.zig`, `primitives_filesystem.zig` | r7rs-tests.scm §6.14 | 1D |
+| File | Lines | Specs | Audit test | Churn since v1 |
+|---|---:|---:|---|---|
+| `primitives_io.zig` | 1941 | 45 | 112 lines | **+1108/−72** |
+| `primitives_fiber.zig` | 1384 | 11 | 135 lines | **+1241/−110** |
+| `primitives_srfi18.zig` | 1435 | 35 | 140 lines | **+793/−352** |
+| `primitives_vector.zig` | 1215 | 42 | 314 lines | +419/−119 |
+| `primitives_hashtable.zig` | 901 | 24 | 268 lines | +403/−55 |
+| `primitives_srfi237.zig` | 457 | 18 | **none** | new |
+| `primitives_srfi160.zig` | 280 | 6 | **none** | new |
+| `primitives_srfi181.zig` | 234 | 10 | **none** | new |
+| `primitives_srfi254.zig` | 159 | 16 | **none** | new |
+| `primitives_random_port.zig` | 123 | 5 | **none** | new |
+| `primitives_parallel.zig` | 122 | 9 | **none** | new |
+| `primitives_sysinfo.zig` | 119 | 7 | **none** | new |
+| `primitives_srfi260.zig` | 104 | 1 | **none** | new |
+| `primitives_srfi258.zig` | 92 | 3 | **none** | new |
+| `primitives_srfi211.zig` | 55 | 2 | **none** | new |
+| `primitives_filesystem.zig` | 1123 | 69 | 177 lines | +162/−80 |
 
-Sessions 1A–1D are independent — run them in parallel.
+### Phase 3 — SRFI breadth (10 units)
 
-### Session prompt (Phase 1)
+**Coverage as measured 2026-07-31:** of 178 SRFIs, 12 have **no test file**
+(2, 8, 11, 14, 16, 28, 31, 34, 111, 145, 222, 229) and ~15 are smoke-only
+(≤12 assertions). More usefully, across the 79 SRFIs with ≥10 exports,
+**1,293 of 3,993 exported names (32%) never appear in their own test file** —
+a metric that survives helper-heavy suites where a raw assertion ratio does not.
 
-```text
-Read docs/audit-strategy.md — follow the Session protocol. Your unit is
-Phase 1, session 1X (domains listed in the Domain map).
+The worst offenders by untested-export count: SRFI 14 (23/23, 100% — see F6),
+160 (640/732), 158 (43/55), 146 (108/161), 166 (52/89), 64 (48/72),
+257 (37/79), 113 (41/113), 178 (35/107), 225 (28/82).
 
-For each domain in your session:
-1. Read the relevant R7RS section from docs/errata-corrected-r7rs.pdf
-   (find pages via the PDF's table of contents; read only those pages).
-2. Read the matching section of tests/scheme/r7rs/r7rs-tests.scm and the
-   listed existing tests.
-3. For each procedure/syntax in the spec section, ask:
-   - Is it tested at all? (grep for its name across tests/)
-   - Are edge cases tested? (empty inputs, type errors, boundary values,
-     exact/inexact and fixnum/bignum boundaries where numeric)
-   - Does the implementation match the spec text exactly?
-4. Write new tests to tests/scheme/compliance/r7rs-<section>-gaps.scm
-   using (srfi 64) with the exit-on-fail epilogue. Run them directly and
-   read the pass/fail counts.
-5. Verify and file issues per the Session protocol; comment out failing
-   assertions with ;; FAIL: #NNN markers.
+Two caveats from the reconnaissance, both worth carrying:
 
-Deliverables: PR with the gap-test files, issues filed, tracker updated.
-```
+- **SRFI 231 is well tested** (122 exports, 417 assertions, 1,040 lines, partly
+  verbatim from the reference implementation). Do not audit it.
+- **A high untested-export count is not itself evidence of bugs.** Spot probes
+  of 11 untested SRFI 160 generics and 18 untested SRFI 158 generators all
+  **passed**. Treat those units as closing a measurement gap, and rank
+  bug-hunting effort toward per-kind range/exactness rejection and the seams
+  (u8-as-bytevector, c64/c128 packing) rather than the generic bodies.
 
-**Why this is agent-efficient:** Each session reads ~3 files per domain
-(spec pages + test section + primitives file), with full domain context.
-
----
-
-## Phase 2: Primitives Audit (18 units, ~1 session each)
-
-**Goal:** Audit every unaudited primitives file for correctness using the
-`/audit-primitives` skill — **except its Step 4**: do not fix; file issues.
-
-3 files are already audited (arithmetic, numeric, string). The remaining 18
-are prioritized by a composite risk score: type-dispatch complexity × GC
-allocation density × concurrency/Unicode surface area.
-
-### Execution order (by risk, highest first)
-
-| Priority | File | Lines | Procs | Risk factors |
-|---------:|------|------:|------:|-------------|
-| 1 | `primitives_srfi18.zig` | 994 | 35 | Thread safety, mutex/condition-var, deep-copy boundaries |
-| 2 | `primitives_string_ext.zig` | 952 | 30 | SRFI-13, Unicode, 99 GC allocs, start/end indexing |
-| 3 | `primitives_char.zig` | 622 | 22 | Unicode classification, case-folding tables |
-| 4 | `primitives_io.zig` | 905 | 40 | Port encoding, GC allocs, 5 callback sites |
-| 5 | `primitives_filesystem.zig` | 1041 | 69 | Largest proc count, OS syscall boundary |
-| 6 | `primitives_srfi1.zig` | 1748 | 71 | 88 GC allocs, 254 error sites, fold/unfold/partition |
-| 7 | `primitives_control.zig` | 348 | 16 | call/cc, dynamic-wind, guard interactions |
-| 8 | `primitives_vector.zig` | 915 | 33 | GC allocs, vector-map/for-each callbacks |
-| 9 | `primitives_list.zig` | 490 | 17 | Improper/circular lists, map/for-each callbacks |
-| 10 | `primitives_bytevector.zig` | 405 | 21 | Endianness, binary I/O, UTF-8 encoding |
-| 11 | `primitives_hashtable.zig` | 553 | 23 | SRFI-69, custom hash/equal callbacks |
-| 12 | `primitives_fiber.zig` | 253 | 8 | Concurrency, fiber scheduling |
-| 13 | `primitives_ffi.zig` | 293 | 7 | FFI boundary, pointer safety |
-| 14 | `primitives_r7rs.zig` | 370 | 17 | values, call-with-values, eval, load |
-| 15 | `primitives_random.zig` | 177 | 12 | SRFI-27, statistical properties |
-| 16 | `primitives_lazy.zig` | 103 | 4 | delay/force re-entrancy |
-| 17 | `primitives_cxr.zig` | 155 | 24 | Low risk: pure accessor combinators |
-| 18 | `primitives.zig` (core) | 862 | 39 | Type predicates, cons/car/cdr, eq/eqv/equal, apply |
-
-Small files can be batched: 2.15–2.17 (random, lazy, cxr) fit in one session.
-
-### Session prompt (Phase 2)
-
-```text
-Read docs/audit-strategy.md — follow the Session protocol. Your unit is
-Phase 2.N: src/primitives_XXX.zig.
-
-Follow the /audit-primitives skill workflow, with one override: do NOT fix
-bugs (skip the skill's Step 4 fixing; this campaign separates discovery
-from fixing). Instead:
-1. Write the audit test file to tests/scheme/audit/primitives_XXX-audit.scm
-   using (srfi 64) with the exit-on-fail epilogue. Cover the skill's 6 bug
-   patterns: type dispatch gaps, GC safety, UTF-8 indexing, error
-   propagation in callbacks, boundary conditions, ignored optional
-   arguments.
-2. Run it DIRECTLY (zig-out/bin/kaappi <file>) and read the pass/fail
-   counts.
-3. Verify and file issues per the Session protocol; comment out failing
-   assertions with ;; FAIL: #NNN markers so run-all.sh stays green.
-
-Deliverables: PR with the audit test file, issues filed, tracker updated.
-```
-
-**Budget:** 15–30 min each. Files 1–6 are independent; run up to 4
-concurrently (in separate worktrees).
-
----
-
-## Phase 3: SRFI Conformance (8 units)
-
-**Goal:** Verify all 72 SRFIs work correctly.
-
-### Current coverage (from Current State above)
-
-- **8 built-in SRFIs** (Zig primitives): 1, 9, 13, 18, 39, 69, 133, 170
-- **64 portable SRFIs** (.sld files in `lib/srfi/`)
-- **29 SRFIs** have conformance-level tests, **13** smoke-only, **30** none
-
-**SRFIs with conformance tests** (29): 1, 2, 8, 11, 13, 14, 16, 18, 19, 27,
-28, 31, 34, 35, 36, 48, 64, 69, 111, 113, 115, 133, 145, 146, 158, 166, 189,
-196, 222
-
-**Smoke-only** (13; loading + exports verified, behavior untested): 98, 125,
-128, 132, 141, 151, 152, 170, 174, 175, 195, 219, 232
-
-**No test at all** (30): built-in **9** (define-record-type) and **39**
-(parameters) — highest risk since they're Zig code — plus portable 0, 4, 6,
-17, 23, 26, 37, 38, 41, 42, 43, 45, 60, 61, 78, 87, 116, 117, 127, 130, 134,
-143, 144, 197, 210, 227, 233, 235.
-
-### Units
-
-**3.0 — Validate existing tests** (1 session): run all 35 existing SRFI test
-files individually with `timeout 30`, read fail counts, file issues. (Phase 0's
-baseline script already does the run; this session analyzes and files.)
-
-**3.1 — Built-in SRFIs without adequate tests** (1 session): SRFI-9 (records;
-only indirectly tested via the R7RS suite), SRFI-39 (parameters; no dedicated
-test), SRFI-170 (filesystem; smoke-only — coordinate with Phase 2.5, which
-audits the same file; whichever runs first covers it, the other skips).
-
-**3a–3e — Portable SRFIs with no test** (5 sessions, groups of 5–7 related
-SRFIs — see Progress tracker for exact groupings). Adapt tests from
+For each SRFI: read `lib/srfi/N.sld`, check
 [srfi-explorations/srfi-test](https://github.com/srfi-explorations/srfi-test)
-(SRFI-64 format) before writing from scratch.
+for an adaptable SRFI-64 suite before writing from scratch, then test the
+spec's own documented examples plus edge cases.
 
-**3.4 — Upgrade smoke-only SRFIs** (1 session): 98, 125, 128, 132, 141, 151,
-152, 174, 175, 195, 219, 232 (170 handled by 3.1/2.5).
+### Phase 4 — Execution-tier divergence (5 units)
 
-### Session prompt (Phase 3)
+The interpreter has an oracle. **No other tier is checked against it.** Native
+coverage is 112 LLVM-IR-*text* assertions plus 22 hand-written golden-value
+shell scripts, only 2 of which compare tiers; WASM has 3 files and asserts only
+an exit code.
+
+The differential harness, `tests/scheme/differential/run-differential.sh`:
 
 ```text
-Read docs/audit-strategy.md — follow the Session protocol. Your unit is
-Phase 3X: SRFIs N1, N2, ... (see the Progress tracker grouping).
-
-For each SRFI:
-1. Read lib/srfi/N.sld to understand the implementation.
-2. Check tests/scheme/srfi/ for existing tests (naming: srfiNNN.scm).
-3. Check github.com/srfi-explorations/srfi-test for an adaptable portable
-   test before writing from scratch.
-4. Read the SRFI spec at srfi.schemers.org/srfi-N — test the documented
-   examples plus edge cases.
-5. Write/extend tests as tests/scheme/srfi/srfiNNN.scm (or srfiNNN-ext.scm
-   if srfiNNN.scm exists). Run each file directly with timeout 30.
-6. Verify and file issues per the Session protocol (labels: bug, srfi,
-   audit); comment out failing assertions with ;; FAIL: #NNN markers.
-
-Deliverables: PR with test files, issues filed, tracker updated.
+for f in corpus:
+  base = kaappi f                       # oracle
+  cmp    kaappi --no-ir-opt f           # tier b — no build needed
+  cmp    kaappi compile f -o x && ./x   # tier c — needs `zig build lib`
+  cmp    cold vs warm $KAAPPI_HOME      # tier d — no build needed
+compare (stdout, normalised stderr, exit code)
 ```
+
+- **Corpus:** `tests/scheme/{smoke,compliance,audit}` (333 files); add
+  `continuations/`, `hygiene/`, `srfi/` for tiers b and d. The native tier must
+  skip anything importing a `.sld` (`kaappi compile` refuses those explicitly).
+- **Exclusions:** gensym counters, `current-time`, hash iteration order,
+  thread/fiber scheduling, `--timings`, absolute paths, `bench/`, `coverage/`.
+- **Normalisation:** strip absolute temp paths and line numbers from stderr —
+  a naive diff surfaces pure harness noise on every file.
+- **Pass criterion:** byte-identical stdout and identical exit code; a mismatch
+  names the tier.
+
+Tiers (b) and (d) already run **green across 333 files** and need no build, so
+land them first as a regression gate — any future diff is signal.
+
+One caveat that shapes 4B: `kaappi ir` and `kaappi ir --no-opt` produce
+**byte-identical output on 40 of 40 smoke files**, because every `define`/
+`lambda` body lowers to an opaque `passthrough` node. The five IR optimisation
+passes only reach top-level expression position, and only constant folding
+visibly fired there. A differential that means anything must use
+**top-level-expression-shaped generated probes**, not the existing corpora —
+which is also why the 333-file green result is a weak negative, not a
+clean bill of health.
+
+### Phase 5 — Concurrency (7 units)
+
+Constraint: **a flaky test is worse than no test.** Prefer deterministic
+invariants and bounded-time assertions to wall-clock timing; put soak runs
+behind a `KAAPPI_SOAK_N` flag defaulting to 1 in CI.
+
+Current state: 138 Zig unit tests across fibers/scheduler/reactor/shared-channel
+and ~60 Scheme files, but `waitForFd`, `driving_waits` and
+`anyAncestorWaitResolved` have **zero direct test references** — the park-vs-drive
+branch is only ever reached incidentally. #1625's unwind has exactly one test.
+There is no deterministic scheduler seed, no soak harness, no TSan, no valgrind,
+and no gc-stress on PRs (F9).
+
+### Phase 6 — Tooling (6 units)
+
+New since v1 and, apart from `compile`, thinly covered. The good news from
+reconnaissance is substantial and worth not re-litigating:
+
+- **`fmt` is genuinely robust.** Across an 847-file corpus it formatted clean,
+  was 100% idempotent on a second pass, and lost no information across line,
+  block and `#;` datum comments, raw strings, the `#\(`/`#\;`/`#\"`/space
+  character literals,
+  piped symbols containing parens, `#e#xFF`, custom ellipsis, and cyclic datum
+  labels. Its one defect is line endings (F8).
+- **The #1517 invariant holds exactly** — `features --json` matches runtime
+  `(features)` element-for-element, and all 174 advertised `(import (srfi N))`
+  succeed.
+- **`explain` is complete** (29/29 codes) and **`check` is sound** on the
+  probes tried (no false positive on a shadowed `car` or a forward reference).
+
+So Phase 6 is mostly about the untested edges: the LSP (942 lines, no
+integration test), `thottam` (932 lines, 3 tests), `completions.zig` (262
+lines, 0 tests), and the two runner/formatter defects F8 and F13.
+
+### Phase 7 — GC and portability (5 units)
+
+All five exhaustive per-tag switches are genuinely exhaustive today — no
+`else` arm in any of `markObjectContents`, `markValueInner`, `referencesYoung`,
+`objectSize`, `freeObject` — and every recently-added Value-bearing field
+(`RecordType.parent`, `Port.custom_backend`, `Port.transcode`,
+`Transformer.proc`) is traced everywhere it must be.
+
+The structural risk is that **exhaustiveness is compiler-enforced but the
+inside of each arm is enforced by nothing.** `Port`'s satellites are hand-traced
+at five sites, and `markValueInner` deliberately duplicates `markPortValues`
+rather than calling it. A third Value-bearing `Port` field would compile
+cleanly while being invisible to the GC in up to five places. 7A unifies this;
+7B adds the per-tag reachability test that the switches cannot provide.
+
+For portability: `.sbc` files *are* endian-portable (every scalar goes through
+`nativeToLittle`/`littleToNative`), but **no test writes on one endianness and
+reads on the other** — the s390x leg builds and runs on s390x only, so a paired
+byte-swap bug would cancel out. Meanwhile the big-endian canary runs only unit
+tests plus `r7rs-tests.scm`, so SRFI 74, 160 and 174 — the actual
+byte-order-sensitive surfaces — never execute there, and SRFI 74's one
+"native accessors agree" assertion is tautological (`blob-u32-native-set!` *is
+defined as* `(blob-u32-set! (endianness native) …)`).
 
 ---
 
-## Phase 4: Compiler & VM Edge Cases (3 sessions)
-
-**Goal:** Test the tricky parts that are hard to catch with procedure-level
-testing. Depends on Phase 1A (spec gap awareness for sections 4.x/5.x) but
-not on Phases 2–3.
-
-### 4A — Tail positions + thin-coverage forms
-
-Proper tail recursion in all positions: `if`, `cond`, `case`, `let`, `begin`,
-`when`, `unless`, `and`, `or`, `do`, `guard`, `case-lambda`, `let-values`,
-`let*-values`. Existing: `tests/scheme/smoke/tail-calls.scm`,
-`src/tests_tail_calls.zig` (12 tests). Known gaps: `do` loop tail positions,
-`case-lambda` clause tails, `guard` handler tails, `let-values` body tails.
-Test method: write loops that stack-overflow without TCO.
-
-Thin-coverage compiler forms (each has ≤1 Zig test and ≤2 Scheme tests):
-
-- `delay` / `delay-force` — missing iterative forcing chains (R7RS 4.2.5)
-- `parameterize` — missing nested parameterize, interaction with dynamic-wind
-- `define-values` — missing wrong-value-count errors and library-body uses
-- `let*-values` — 1 Zig test, no Scheme test
-- `letrec*` — missing ordering guarantees vs `letrec`
-- `letrec-syntax` — missing recursive syntax definitions
-
-### 4B — Continuation interactions
-
-- call/cc + dynamic-wind (wind-in/wind-out ordering)
-- call/cc + guard (re-raise semantics)
-- call/cc + parameterize (parameter value capture)
-- call/cc + multiple values; `values` with 0 arguments; values in non-tail
-  position within `let-values`
-- Multi-shot continuations with parameterize
-
-Existing: `tests/scheme/continuations/` (13 files),
-`src/tests_continuations.zig` (24 tests). **Check README known limitations
-first** — continuations captured under native `map`/`for-each` cannot resume
-after the native frame returns; that's documented, not a bug.
-
-### 4C — Macro hygiene + define-library
-
-- Deeply nested ellipsis patterns, macro-generating macros
-- Shadowing: macro-introduced bindings vs user bindings
-- Library-scoped transformers with `(export (rename ...))`
-- `only`/`except` combined with `rename`/`prefix` import sets
-- `cond-expand` in library declarations; `include` with relative paths
-- Circular library dependencies (error reporting quality)
-
-Existing: `tests/scheme/hygiene/` (12 files), `src/tests_macros.zig`
-(31 tests), `src/tests_libraries.zig` (18 tests).
-
-### Session prompt (Phase 4)
+## Parallelization
 
 ```text
-Read docs/audit-strategy.md — follow the Session protocol. Your unit is
-Phase 4X (see the focus list for your unit).
-
-Read R7RS sections 4.1–4.3 / 5.6–5.7 as relevant, the existing tests named
-in your unit, and for 4A also src/compiler_ir.zig (compileFromNode) and
-src/ir.zig (markTailPositions).
-
-Write tests to tests/scheme/compliance/r7rs-<topic>-gaps.scm. TCO tests
-must be structured to stack-overflow when the optimization is missing.
-Delete stale .sbc files before re-running edited tests. Verify and file
-issues per the Session protocol.
-
-Deliverables: PR with test files, issues filed, tracker updated.
+              Phase 0 (baseline + doc truth)
+                        │
+   ┌────────┬───────────┼───────────┬────────┬────────┐
+   ▼        ▼           ▼           ▼        ▼        ▼
+Phase 1  Phase 2    Phase 3    Phase 4   Phase 5  Phase 6/7
+(reader) (prims)    (SRFI)     (tiers)  (concur)  (tools/GC)
+4 units  13 units   10 units   5 units  7 units   11 units
+   └────────┴───────────┴───────────┴────────┴────────┘
+                        ▼
+                    Phase 8 (synthesis)
 ```
+
+Phase 0B should land before anything else — it prevents every later session
+from chasing five already-fixed expander bugs.
+
+Everything after that is independent. **3–4 concurrent sessions**, each in its
+own worktree; beyond that, issue triage becomes the bottleneck and parallel
+sessions file overlapping findings faster than the dedup search catches them.
+
+Phases 5F, 5G and 7C need machines this laptop is not: `/do-stress-test`
+(gc-stress on Linux, hours), `/do-linux-test` (epoll), `/vm-test` (kqueue on
+the BSD VMs, and the s390x/ppc64le Alpine VMs for the endian work).
+
+### Budget
+
+| Phase | Units | Time each | Wall-clock (4-way) |
+|---|---:|---:|---:|
+| 0: Baseline + doc truth | 2 | 40 min | 40 min |
+| 1: Reader/printer/numeric | 4 | 30 min | 30 min |
+| 2: Primitives | 13 | 30 min | ~100 min |
+| 3: SRFI breadth | 10 | 30 min | ~75 min |
+| 4: Execution tiers | 5 | 40 min | ~50 min |
+| 5: Concurrency | 7 | 40 min | ~70 min + machine time |
+| 6: Tooling | 6 | 30 min | ~45 min |
+| 7: GC/portability | 5 | 40 min | ~50 min |
+| 8: Synthesis | 1 | 30 min | 30 min |
+| **Total** | **53** | **~28 hr serial** | **~8 hr** |
 
 ---
 
-## Phase 5: Cross-Cutting Synthesis (1 session)
+## GitHub issue workflow
 
-**Goal:** Review all issues filed, deduplicate, identify root causes,
-prioritize. Runs after all other phases.
+### Labels
 
-```text
-Read all open GitHub issues with labels "audit", "r7rs-conformance", or "srfi".
-1. Group by root cause (e.g., "bignum dispatch missing in 5 procedures") —
-   close duplicates, link related issues, create epics for systemic problems.
-2. Prioritize: crashes > wrong results > missing features > edge cases.
-3. Update the Phase 0 tracking issue with final counts and the priority order.
-4. Count the ;; FAIL: markers across tests/ — each is a disabled regression
-   test waiting on a fix; list them in the tracking issue.
-```
-
-**Optional hardening (recommended):** once every failing assertion is either
-fixed or commented with a `;; FAIL: #NNN` marker, extend `run-all.sh` to parse
-`N fail` counts from chibi-test output (as it already does for the R7RS suite)
-so future chibi-test failures actually fail the run.
-
----
-
-## Parallelization Plan
-
-```text
-        Phase 0 (baseline)
-              │
-    ┌─────────┼─────────┐
-    ▼         ▼         ▼
- Phase 1   Phase 2   Phase 3
- (spec     (prims    (SRFI
-  gaps)     audit)    tests)
- 4 units   18 units   8 units
-    │         │         │
-    └─────────┼─────────┘
-              ▼
-          Phase 4 (needs 1A only)
-       (compiler/VM, 3 units)
-              │
-              ▼
-          Phase 5
-        (synthesis)
-```
-
-Within each phase, units are also independent. The only cross-phase overlap
-to coordinate: Phase 2.5 and Phase 3.1 both touch SRFI-170/filesystem.
-
-**Mechanics for concurrent sessions:** run each in its own git worktree
-(`git worktree add ../kaappi-audit-<unit> main`) — parallel `zig build` in one
-checkout races on `zig-out/`, and parallel edits to this tracker conflict.
-Merge tracker updates promptly. The units work equally well as separate
-interactive sessions or as parallel subagents launched from one orchestrating
-session with worktree isolation.
-
-**Practical recommendation:** 3–4 concurrent sessions. Beyond that, issue
-triage (dedup, labeling) becomes the bottleneck, and parallel sessions start
-filing overlapping findings faster than the dedup search catches them.
-
-### Session budget estimate
-
-| Phase | Units | Parallelizable | Time each | Wall-clock (4-way) |
-|-------|------:|:--------------:|----------:|-----------:|
-| 0: Baseline | 1 | — | 20 min | 20 min |
-| 1: Spec gap analysis | 4 | 4 | 30 min | 30 min |
-| 2: Primitives audit | 18 (≈16 sessions) | 4 | 20 min | ~80 min |
-| 3: SRFI conformance | 8 | 4 | 25 min | ~50 min |
-| 4: Compiler/VM edges | 3 | 3 | 30 min | 30 min |
-| 5: Synthesis | 1 | — | 20 min | 20 min |
-| **Total** | **~33 sessions** | | **~11 hr serial** | **~4 hr** |
-
----
-
-## GitHub Issue Workflow
-
-### Labels to create (Phase 0)
+The v1 labels (`r7rs-conformance`, `srfi`, `audit`, `numeric-tower`,
+`continuations`, `macros`) already exist. Add:
 
 ```bash
-gh label create "r7rs-conformance" --description "R7RS-small spec conformance issue" --color "B60205"
-gh label create "srfi" --description "SRFI implementation issue" --color "D93F0B"
-gh label create "audit" --description "Found during systematic audit" --color "FBCA04"
-gh label create "numeric-tower" --description "Fixnum/flonum/bignum/rational/complex" --color "0E8A16"
-gh label create "continuations" --description "call/cc, dynamic-wind, guard" --color "1D76DB"
-gh label create "macros" --description "syntax-rules, hygiene" --color "5319E7"
+gh label create "tier-divergence" --description "Interpreter vs native vs WASM vs cache" --color "0052CC"
+gh label create "tooling" --description "CLI subcommands, fmt, check, LSP, thottam" --color "5319E7"
+gh label create "doc-truth" --description "Docs describe behavior that no longer exists" --color "C2E0C6"
 ```
 
-### Before filing — dedup check (mandatory)
+### Before filing — dedup (mandatory)
 
 ```bash
 gh issue list --state all --search "<procedure-name>" --limit 10
 ```
 
-If a match exists, comment on it instead of filing a new issue.
-
-### Issue title conventions
+### Title conventions
 
 ```text
-[R7RS 6.2] exact->inexact: returns wrong value for rationals
-[SRFI-1] filter: does not preserve order for improper lists
-[R7RS 4.2] named-let: not in tail position
-[Compiler] case: missing tail position for last clause
+[R7RS 7.1.1] #e1e19 reads as inexact — exactness prefix dropped on i64 overflow
+[SRFI-14] char-set is a multiset, is ASCII-only, and exports 23 of ~60 names
+[Native] isRejectedFormHead omits define-property — parallel to a derived list
+[Tooling] kaappi fmt silently converts CRLF to LF
+[Doc-truth] CLAUDE.md lists five expander limitations that are fixed
 ```
 
-One issue per root cause — if 5 procedures share one missing dispatch branch,
-file one issue listing all 5.
+One issue per root cause: if five procedures share one missing dispatch branch,
+file one issue listing all five.
 
-### Issue body template
+### Body template
 
 ```markdown
-**Category:** R7RS conformance / SRFI / Compiler / VM
-**Spec reference:** R7RS section 6.2.6, page 38 — quote the exact sentence
-**Severity:** crash / wrong-result / missing-feature / edge-case
+**Category:** R7RS / SRFI / Native / Tooling / GC / Doc-truth
+**Spec reference:** R7RS §7.1.1, page 62 — quote the exact sentence
+**Severity:** crash / wrong-result / missing-feature / edge-case / doc-truth
 
 **Minimal reproduction:**
 \```scheme
-(exact->inexact 1/3)  ;; expected: 0.3333... actual: 0
+(exact? #e1e19)   ;; expected: #t   actual: #f
 \```
 
-**Expected:** 0.3333333333333333
-**Actual:** 0
+**Discriminating control:** `(exact? #e1e18)` ⟹ `#t` — the cliff is the i64 boundary
 
-**Verified:** fresh ReleaseSafe build at <commit>; gc-stress unchanged/changed
-**Source location:** src/primitives_numeric.zig (function name if known)
-**Disabled test:** tests/scheme/audit/<file>.scm (marked ;; FAIL: #this)
+**Verified:** fresh ReleaseSafe build at <commit>, cache cleared; gc-stress unchanged/changed
+**Source location:** src/reader_tokens.zig:447 (parseFloat fallback drops the prefix)
+**Disabled test:** tests/scheme/compliance/<file>.scm (marked ;; FAIL: #this)
 
-**Found by:** Systematic audit, Phase N
+**Found by:** Systematic audit v2, Phase N
 ```
 
 ---
 
-## Community Resources
+## Community resources
 
 | Resource | URL | Purpose |
-|----------|-----|---------|
-| Chibi R7RS tests | [github.com/ashinn/chibi-scheme](https://github.com/ashinn/chibi-scheme/blob/master/tests/r7rs-tests.scm) | De facto R7RS conformance suite (1,225 assertions — ~240 more than our adaptation; diffing the two is a cheap gap-finder for Phase 1) |
-| r7rs-coverage (ecraven) | [github.com/ecraven/r7rs-coverage](https://github.com/ecraven/r7rs-coverage) | Per-procedure coverage matrix across ~14 implementations |
-| r7rs-coverage results | [ecraven.github.io/r7rs-coverage](https://ecraven.github.io/r7rs-coverage/) | Live conformance matrix (compare Kaappi against others) |
-| SRFI portable tests | [github.com/srfi-explorations/srfi-test](https://github.com/srfi-explorations/srfi-test) | Aggregated SRFI tests in SRFI-64 format (dozens of SRFIs) |
-| TaylanUB/scheme-srfis | [github.com/TaylanUB/scheme-srfis](https://github.com/TaylanUB/scheme-srfis) | R7RS SRFI implementations with SRFI-64 tests (SRFIs 0–123) |
-| r7rs-tests (Retropikzel) | [gitea.scheme.org/Retropikzel/r7rs-tests](https://gitea.scheme.org/Retropikzel/r7rs-tests) | Cross-implementation R7RS test runner (low activity) |
-| SRFI-64 | [srfi.schemers.org/srfi-64](https://srfi.schemers.org/srfi-64) | Standard Scheme test framework API |
+|---|---|---|
+| Chibi R7RS tests | [ashinn/chibi-scheme](https://github.com/ashinn/chibi-scheme/blob/master/tests/r7rs-tests.scm) | De facto conformance suite; diffing against our adaptation is a cheap gap-finder. Also the pinned oracle for the nightly `Kaappi vs Chibi` fuzz job |
+| r7rs-coverage | [ecraven.github.io/r7rs-coverage](https://ecraven.github.io/r7rs-coverage/) | Per-procedure coverage matrix across ~14 implementations |
+| SRFI portable tests | [srfi-explorations/srfi-test](https://github.com/srfi-explorations/srfi-test) | Aggregated SRFI tests in SRFI-64 format |
+| TaylanUB/scheme-srfis | [TaylanUB/scheme-srfis](https://github.com/TaylanUB/scheme-srfis) | R7RS SRFI implementations with SRFI-64 tests (SRFIs 0–123) |
+| SRFI-64 | [srfi.schemers.org/srfi-64](https://srfi.schemers.org/srfi-64) | Test framework API |

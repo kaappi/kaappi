@@ -55,7 +55,10 @@ build id, target triple, build mode, compiled-in subsystems (the KEP-0004
 portable SRFIs, and initial VM/GC limits — all derived, no hardcoded second
 list; see `docs/dev/features.md`;
 `kaappi test [paths...]` runs SRFI-64 suites (`--json`, `--seed <n>`,
-`--lib-path`) aggregating from the runner's own counters; `--changed`
+`--lib-path`) aggregating from the runner's own counters; `-j`/`--jobs <n>`
+runs files concurrently (default: one per CPU, Windows always 1) with verdicts
+and output order identical at any job count, since each file was already its own
+worker process; `--changed`
 /`--list-affected` (with `--since <rev>`) select only suites whose R7RS import
 closure changed, falling back to a loud full run when the graph can't be trusted
 — see `docs/dev/test-runner.md`. `kaappi ast|expand|ir <file>` are read-only
@@ -196,9 +199,19 @@ quasiquote, `call/cc`, `call-with-values`, `eval`, …) run through
 environment, any lexical scope containing one (the enclosing `define`/`lambda`
 frame or `let`) declines native compilation as a whole rather than splitting
 itself across the boundary. The keyword set driving that decision is
-`ir.eval_fallback_form_names`; a keyword missing from it is a silent
-miscompilation, not a missed optimization (kaappi#827/#1496/#1799 — see
-`docs/dev/llvm-backend.md`).
+`ir.eval_fallback_form_names` (kaappi#827/#1496/#1799 — see
+`docs/dev/llvm-backend.md`). That set is **comptime-derived** and needs no
+maintenance: it walks `llvm_node_table`, then every `FormKind` field (skipping
+`isNativeLoweredForm`), then `other_special_forms`, so a new `FormKind` joins
+it automatically, and a comptime block enforces one `llvm_node_table` entry per
+`NodeTag`.
+
+The silent-miscompilation hazard is real but lives one file over, in
+`isRejectedFormHead` (`llvm_emit_forms.zig`) — a **hand-maintained** 32-name
+array gating `cond`/`case`/`do` through `exprNativeEmittable`, structurally
+independent of the derived set and already missing `define-property`
+(kaappi#1896). Add a keyword there when you add a form, until that list is
+derived too.
 
 **Always use `zig cc` (not `clang`) for linking native binaries against
 `libkaappi_rt.a`.** The Zig-compiled static library references
@@ -399,17 +412,19 @@ reply channel per call) so the timer thread stays the one place a task-id
 counter needs to live; `timer-cancel!` `thread-join!`s the timer's thread
 before returning, both for correct resource cleanup and because not doing
 so raced process/thread teardown into a nondeterministic crash during
-development. **Single calling thread only** is a hard requirement of this
-implementation, not just a style guideline: calling any of these
-procedures on one timer from a *second*, different thread reproduced
-nondeterministic memory corruption this session (varying panic
-signatures — integer overflow, bad alignment, bus error — across runs),
-even though a bare hand-written two-thread channel round trip with none
-of this library's other moving parts did not reproduce it in isolation.
-This points at a real bug in the interaction between multi-hop channel
-messages and cross-thread deep-copy that was not root-caused and is
-out of scope for a portable-library change — worth its own investigation
-later. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
+development. **Single calling thread only** is a requirement of this
+implementation: its request/reply design assumes it. This header used to
+report that a second thread calling into a timer produced nondeterministic
+memory corruption, blamed on an un-root-caused interaction between
+multi-hop channel messages and cross-thread deep-copy. **That no longer
+reproduces** — re-checked 2026-07-31 at v0.22.1, both documented entry
+paths fail cleanly and deterministically (10/10 runs) with a catchable
+error, because a `<timer>` holds a Fiber and `gc_deep_copy` rejects that
+tag as `error.UncopyableType`, making the constraint engine-enforced. The
+multi-hop mechanism itself survived ~4,000 nested reply-channel round
+trips. Treat single-thread-only as the supported usage, not as a live
+corruption hazard; see `lib/srfi/120.sld`'s header for the caveats on
+that re-check. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
 SRFI 237 (R6RS Records, refined) is the one record-system SRFI needing real
 engine changes: `RecordType` (`types.zig`) gained `parent`/`own_field_names`/
 `own_field_mutable`/`uid`/`sealed`/`is_opaque` fields (`parent` is the only
@@ -437,10 +452,15 @@ before dispatching to the built-in handler (mirroring `compiler.zig`'s
 every *non*-top-level use — see its own comment citing SRFI 219 redefining
 `define`) — without this, no portable library could ever give that name new
 meaning via `define-syntax`, since the top-level dispatch checked for the
-literal name unconditionally. This only closes the gap for top-level use;
-library-body use of a shadowing `define-record-type` (`compiler_lambda.zig`/
-`vm_library.zig`'s separate scanning path) is a documented, un-closed gap —
-same limitation on the R6RS-clause syntax itself. SRFI 137 (Minimal Unique
+literal name unconditionally. Library-body use of a shadowing
+`define-record-type` (`compiler_lambda.zig`/`vm_library.zig`'s separate
+scanning path) was documented here as an un-closed gap; **it works as of
+v0.22.1** — a `.sld` body that shadows the name via `define-syntax` binds
+the shadowed definition, same as at top level. When testing this, bind a
+name that comes from the macro's **pattern**, not one introduced by its
+template: a template-introduced name is hygienically renamed, so the
+binding is invisible from outside and the test looks like a failure for
+an unrelated reason. SRFI 137 (Minimal Unique
 Types) is pure portable Scheme built directly on `(srfi 237)`: a "subtype"
 is exactly SRFI 237's `parent` relation, with every level correctly
 sharing the ROOT type's single payload field (a subtype's own rtd adds
@@ -488,13 +508,15 @@ mergeable at once via left-to-right append + delete-duplicates) is portable
 (`lib/srfi/57.sld`) but deliberately does NOT port its own reference
 implementation's technique: that reference compares field-label identifiers
 at macro-expansion time via the standard `let-syntax`-plus-literals-list
-"if-free=?" trick. A third, previously-undiscovered expander bug surfaced
-while attempting this port: a `let-syntax` anywhere in an expansion chain
-that eventually produces a `define-syntax` form (even many macro layers
-removed) fails to compile outright — reproduced in isolation down to a
-two-line `(let-syntax (...) (define-syntax ...))`, unrelated to the two
-already-documented quirks above. Rather than root-cause that (a separate
-expander investigation), SRFI 57 sidesteps it: field labels become ordinary
+"if-free=?" trick. A third expander bug surfaced while attempting this
+port: a `let-syntax` anywhere in an expansion chain that eventually
+produced a `define-syntax` form failed to compile outright, reproduced
+down to a two-line `(let-syntax (...) (define-syntax ...))`. **That is
+fixed as of v0.22.1** — the two-line repro compiles and runs. SRFI 57's
+design below was chosen while it was live and has not been revisited;
+it remains the better design on its own merits (see the end of this
+paragraph), so this note is history, not a TODO. SRFI 57 sidesteps it:
+field labels become ordinary
 quoted symbols and every list merge/dedup/lookup happens at plain run time
 (`assq`/`memq` over symbol lists) instead of macro-expansion time — a
 scheme or type name is bound with plain `define` (not `define-syntax`) to a
@@ -913,12 +935,13 @@ em-set-intersection/em-set-difference dropping `'compare` in their 3+-list
 recursions, and em-set= being vacuously `#t` for 3+ arguments) — all
 documented with evidence in the `.sld` header. The test suite
 (`tests/scheme/srfi/srfi148.scm`) is the reference's own `test.sld`
-ported verbatim: 134 pass, 8 `test-expect-fail` (one call per name —
-SRFI 64 combines multiple specifiers with AND, so batching matches
-nothing) citing the two remaining general engine bugs #1800
-(macro-expanded bare `(define x v)` in body position invisible to later
-siblings) and #1801 (two expansions of a template-introduced literal
-symbol wrongly `bound-identifier=?`).
+ported verbatim, and **all 142 assertions pass with zero
+`test-expect-fail`**. The two general engine bugs the port surfaced
+— #1800 (macro-expanded bare `(define x v)` in body position invisible
+to later siblings) and #1801 (two expansions of a template-introduced
+literal symbol wrongly `bound-identifier=?`) — are both fixed; the test
+file's own header explains each fix and is accurate, so read it rather
+than assuming the citations are stale.
 
 SRFI 211 (Scheme Macro Libraries) and SRFI 213 (Identifier Properties)
 closed issue #1699, and are the codebase's first *procedural* macro

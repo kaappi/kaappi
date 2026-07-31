@@ -28,6 +28,14 @@ kaappi test [paths...]
 - **`--lib-path <path>`.** Repeatable; forwarded to every test file. This is
   what makes the runner work unchanged on an ecosystem repo:
   `kaappi test --lib-path ./lib`.
+- **`-j` / `--jobs <n>`.** Run up to `n` files concurrently (default: one per
+  CPU; `--jobs 1` forces the old strictly-sequential behaviour). Because every
+  file is already an isolated worker process, this changes scheduling only —
+  verdicts, per-file output and its **ordering**, and the summary counts are
+  identical at any job count. Durations are the one thing that legitimately
+  moves, so `tests/scheme/test-runner/jobs.sh` normalises the `…ms` fields and
+  then requires the whole transcript to match byte for byte. Windows always runs
+  one job; see below.
 - **Exit status** is nonzero iff a test failed, unexpectedly passed (`xpass`),
   or a file errored.
 
@@ -44,8 +52,33 @@ SRFI-18 thread, open sockets, or call `(exit 1)` in its failure epilogue. In a
 separate process, none of that can corrupt the run or bleed into another file's
 results, and a hung file is a `kill` away — the same robustness the legacy
 `tests/scheme/run-all.sh` gets from spawning per file, but with structured
-results instead of scraped text. It also mirrors the future parallel-execution
-story (kaappi#1509 stretch): files are already independent units.
+results instead of scraped text. It is also what makes `--jobs` cheap: files are
+already independent units, so running several at once needs no isolation work of
+its own.
+
+### How `--jobs` runs them
+
+Worker threads claim file indices from one atomic counter and each performs the
+whole blocking sequence for its file (spawn → drain the pipe → `waitpid` → read
+the emitted JSON). The **main thread reports**, walking the completed prefix in
+file order, so output streams in exactly the order a sequential run would print
+it even though files finish out of order. Each outcome is freed as it is
+reported, so peak retention is whatever finished ahead of the reporting cursor.
+
+Two details are load-bearing:
+
+- **The emit path travels in the child's own `envp`,** not in the parent's
+  environment. `setenv` on the parent before each fork — what the sequential
+  version did — is a single mutable global shared by every in-flight worker, so
+  two concurrent spawns would send both children to the same emit path and lose
+  a result.
+- **Windows is pinned to one job** (`resolveJobs`). There `CreateProcessW`
+  inherits the parent's environment block and this code builds no custom one, so
+  the emit path is still set on the parent, which is only safe while spawns are
+  serialised. Lifting this means threading an environment block through
+  `platform.winSpawnCaptureMerged`.
+
+Reporting stays single-threaded, so `Totals` and stdout need no locking.
 
 Inside the worker (`src/main.zig` `runWorkerFile` → `src/test_runner.zig`):
 
@@ -208,6 +241,14 @@ error/compile suites, which are outside `kaappi test`'s SRFI-64 scope, and it
 runs `kaappi test`'s own acceptance shell tests
 (`tests/scheme/test-runner/*.sh`). Over time SRFI-64 suites can delegate to
 `kaappi test`; nothing forces the switch.
+
+It runs its own `.scm` suites concurrently too, via `KAAPPI_TEST_JOBS`
+(default: one per CPU, `KAAPPI_TEST_JOBS=1` to serialise). Its **shell** suites
+stay sequential: several of them call `ensure_runtime_lib`, which runs
+`zig build lib` and installs into the shared `zig-out/lib`, so concurrent
+scripts would race over one output archive. Parallelising those means giving
+`tests/scheme/shell-common.sh` a build-once guard first — worth doing, since
+they are now the larger half of that script's wall time.
 
 ## Tests
 
