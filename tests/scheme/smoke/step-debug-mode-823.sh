@@ -15,7 +15,7 @@ KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 output=$(printf ',break test-fn\n,step (+ 1 2)\n,breakpoints\n,quit\n' | $KAAPPI 2>&1 || true)
 
 # After ,step, breakpoints should still be listed (debug_mode preserved)
-if echo "$output" | grep -q "test-fn"; then
+if grep -q "test-fn" <<< "$output"; then
     echo "PASS: breakpoint preserved after ,step"
 else
     echo "FAIL: breakpoint lost after ,step"

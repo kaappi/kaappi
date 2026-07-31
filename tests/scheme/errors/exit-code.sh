@@ -185,7 +185,7 @@ SRFI78
 assert_exit_code "SRFI-78 check-report with failure exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/srfi78-fail.scm"
 # Also verify it prints "First failure:" (not crash on unbound caddr)
 output=$("$KAAPPI" "$TMPDIR_TESTS/srfi78-fail.scm" 2>&1 || true)
-if echo "$output" | grep -q "First failure:"; then
+if grep -q "First failure:" <<< "$output"; then
     echo "PASS: SRFI-78 check-report prints first failure"
     PASS=$((PASS + 1))
 else

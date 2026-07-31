@@ -32,7 +32,7 @@ bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
 
 # Run the bundled binary — must not crash or show preamble errors
 OUTPUT=$("$BUNDLE_BIN" 2>&1)
-if echo "$OUTPUT" | grep -q "preamble error"; then
+if grep -q "preamble error" <<< "$OUTPUT"; then
     echo "FAIL: preamble error in bundled binary: $OUTPUT" >&2
     exit 1
 fi

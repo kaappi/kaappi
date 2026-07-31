@@ -15,7 +15,7 @@ assert_blocked() {
     local expr="$2"
     local output
     output=$(echo "$expr" 2>&1 | "$KAAPPI" --sandbox 2>&1 || true)
-    if echo "$output" | grep -qi "error"; then
+    if grep -qi "error" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -32,7 +32,7 @@ assert_works() {
     # Filter out DebugAllocator messages (not Scheme errors)
     local filtered
     filtered=$(echo "$output" | grep -v "DebugAllocator" | grep -v "empty stack trace" | grep -v "^$")
-    if echo "$filtered" | grep -q "^error:"; then
+    if grep -q "^error:" <<< "$filtered"; then
         echo "FAIL: $label — should work but got error: $filtered"
         FAIL=$((FAIL + 1))
     else
@@ -128,7 +128,7 @@ echo "=== Resource limits ==="
 
 # Timeout test
 output=$(echo '(let loop () (loop))' | "$KAAPPI" --timeout 200 2>&1 || true)
-if echo "$output" | grep -qF "timed out"; then
+if grep -qF "timed out" <<< "$output"; then
     echo "PASS: --timeout stops infinite loop"
     PASS=$((PASS + 1))
 else
@@ -139,7 +139,7 @@ fi
 # Memory limit test. The out-of-memory diagnostic is KP9002 (KEP-0005); match
 # the stable code, not the old leaked Zig error name ("OutOfMemory").
 output=$(echo '(define (eat n a) (if (= n 0) a (eat (- n 1) (cons n a)))) (eat 1000000 (list))' | "$KAAPPI" --max-memory 100000 2>&1 || true)
-if echo "$output" | grep -qF "KP9002"; then
+if grep -qF "KP9002" <<< "$output"; then
     echo "PASS: --max-memory stops excessive allocation"
     PASS=$((PASS + 1))
 else
@@ -149,7 +149,7 @@ fi
 
 # Normal program works with generous limits
 output=$(echo '(display (+ 1 2))' | "$KAAPPI" --timeout 5000 --max-memory 10000000 2>&1 || true)
-if echo "$output" | grep -qF "3"; then
+if grep -qF "3" <<< "$output"; then
     echo "PASS: normal program works with generous limits"
     PASS=$((PASS + 1))
 else

@@ -20,7 +20,7 @@ EOF
 output=$("$KAAPPI" "$tmpfile") || true
 
 # Should report exactly 2 pass and 1 fail
-if echo "$output" | grep -q "2 pass, 1 fail"; then
+if grep -q "2 pass, 1 fail" <<< "$output"; then
   echo "PASS: exception in test expression counted as failure"
 else
   echo "FAIL: unexpected output:"

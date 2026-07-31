@@ -42,7 +42,7 @@ assert_out() {
     local pattern="$1"; shift
     local out
     out="$("$@" 2>&1)"
-    if echo "$out" | grep -qF "$pattern"; then
+    if grep -qF "$pattern" <<< "$out"; then
         pass "$label"
     else
         fail "$label" "expected to find: $pattern"$'\n'"  got: $out"
