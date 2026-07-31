@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785510208020,
+  "lastUpdate": 1785511044427,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c5eb3c9811dc0566660ad33b568d261eb4aa0b87",
-          "message": "Finalize SRFI 231: public lib/srfi/231.sld hub, close #1694 (#1755)\n\n* Finalize SRFI 231: public lib/srfi/231.sld hub, close #1694\n\nMerges the 7 internal phase files (misc, intervals, storage-classes,\narrays, views, combinators, assembly — Slices 8-13) into a public,\nbare-importable (srfi 231) re-export hub, following the (srfi 4) thin\nre-export precedent. The 118-binding public surface is confirmed an\nexact bijection against the reference implementation's own export\nclause, with the 4 %-prefixed internal helpers in (srfi 231 arrays)\ncorrectly excluded.\n\nAlso moves SRFI 179 from tracked to excluded: SRFI 231's own abstract\nstates it is \"a revised and improved version of SRFI 179\" (a breaking\nrevision, not a strict superset like 47/63 — see\ndocs/dev/srfi-exclusions.md for specifics).\n\nBumps the tracked SRFI count 170->171 across CLAUDE.md, README.md, and\nCONFORMANCE.md, all cross-checked against the canonical SRFI registry:\n171 implemented + 7 tracked + 30 excluded = 208, matching exactly.\n\nThis closes issue #1694 (the numeric-vector and array family) in full:\n4/160/66/74 (vector family) and 25/164/63/231 (array family, with 47\nand now 179 excluded as superseded) are all shipped.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Add full public-export completeness audit to the hub test\n\nCodeRabbit review of #1755: the hub smoke test only exercised 14\nrepresentative bindings, so it couldn't catch the hub silently\ndropping some OTHER name from its claimed 118-binding surface (a typo\nor missed addition in lib/srfi/231.sld's own export clause).\n\nAdded a single assertion referencing all 118 exported identifiers by\nname, in the same order as the hub's own export clause -- evaluating\nit requires every one to resolve, so a missing export fails the\nassertion immediately rather than going unnoticed. Verified the check\nactually works: temporarily dropped array-block! from the hub's export\nclause and confirmed the audit assertion failed (16 pass, 1 fail)\nbefore restoring the real file.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T10:55:16+05:30",
-          "tree_id": "19a2bc944dbc69ad1e1c2f6cb7a317cfbf78ad04",
-          "url": "https://github.com/kaappi/kaappi/commit/c5eb3c9811dc0566660ad33b568d261eb4aa0b87"
-        },
-        "date": 1785045867883,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.417104,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.690055,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.504299,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.472516,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004873,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031798,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.28291,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042137,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.335787,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.128729,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.931677,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307786,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.054815,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.813534,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.027284,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035719,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "912b1e6246e05b822fe3968f982e614c1b8fe19a",
+          "message": "Phase 2.2: primitives_io audit — 49 → 197 assertions, all 45 specs covered, one process-abort panic (#1947)\n\n* Phase 2.2: cover the 1100 lines primitives_io.zig grew after its audit\n\nThe audit test for src/primitives_io.zig was written against a version of\nthat file that predates custom ports, transcoded ports, the write-buffering\nlayer, and SRFI 192 — 112 lines of assertions against 1941 lines of code.\nThis takes it to 197 passing assertions covering all 45 spec entries, and\nleaves 8 disabled assertions marking defects the coverage found.\n\nFour defects, each paired with an enabled discriminating control so the\nmarker says *because of what*, not just *that it fails*:\n\n- A custom-port read! that re-enters a read on its own port trips\n  std.debug.assert(port.read_buf == null) and ABORTS the process — the\n  single-slot read buffer assumes no re-entrancy. Reachable at two sites\n  (readOneByteFromCustomPort, readOneByteFromTranscodedPort). Control: the\n  same shape returning one byte per call never populates read_buf and\n  completes cleanly. Its non-aborting sibling silently reorders the byte\n  stream.\n- SRFI 192's string-port branch ignores the port's own peek-byte read-ahead,\n  which the fd branch corrects for: port-position over-reports by one after\n  a pushed-back byte, and set-port-position! does not discard the stale byte,\n  so a seek is followed by a read of data from the old position. Controls:\n  the identical cases on a file port are both right.\n- port-has-set-port-position!? is registered to the same function as\n  port-has-port-position?, so it answers about get-position instead of\n  set-position! — wrong in both directions for a custom port with only one\n  of the two. Controls: ports with both, and with neither, answer correctly.\n- flush-output-port on a transcoded port is a silent no-op; it has custom-\n  backend and buffered-fd branches but no transcode branch, and a transcoded\n  port carries the fd -1 sentinel. Controls: flushing the wrapped port works,\n  and close-port does cascade.\n\nConfirmed correct along the way: the 8 KiB high-water drain and its\nflush/close/read triggers, fd-port positions corrected for read-ahead and\nwrite-behind, the freshly-re-read UTF-8 byte-offset conversion after a\nwidth-changing string-set! inside read!, CRLF decode and encode, both\ndecoding error modes, close-port's flush-and-cascade discipline, the\nblocking-callback rejection, and gc_deep_copy's refusal to carry a port\nacross a thread boundary.\n\nFound by: systematic audit v2, Phase 2.2 (docs/audit-strategy.md).\nDiscovery only — no source changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point primitives_io FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T19:41:33+05:30",
+          "tree_id": "dcf0c4b87487858c011e4a12cc7ad5a6041cbef6",
+          "url": "https://github.com/kaappi/kaappi/commit/912b1e6246e05b822fe3968f982e614c1b8fe19a"
+        },
+        "date": 1785511043172,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.945213,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.399424,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56213,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.853622,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005031,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044442,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297564,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055146,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.299306,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.157885,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.510634,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305477,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.695136,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.760242,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044976,
             "unit": "seconds"
           }
         ]
