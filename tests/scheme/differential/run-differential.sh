@@ -265,8 +265,8 @@ is_skipped() {
 #   top-level datum's line (src/main.zig:815).  stdout and the exit code agree;
 #   only the diagnostic degrades.  Found by this harness (audit v2, Phase 4B);
 #   see the header of probes/cache-error-location.scm for the full repro and
-#   its discriminating control.
-#   TODO: replace this paragraph's reference with the issue number once filed.
+#   its discriminating control.  Tracked as kaappi#1922 -- delete this entry
+#   when that is fixed, and the STALE check below will confirm it.
 KNOWN_DIFFS="
 d:cache-error-location.scm
 "
