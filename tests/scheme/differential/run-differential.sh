@@ -223,6 +223,27 @@ tests/scheme/hygiene
 tests/scheme/srfi"
 fi
 
+# A Debug build runs the whole pipeline unoptimised and is ~500x slower on
+# allocation-heavy work (see CLAUDE.md).  Three runs per file over 331 files is
+# ~1000 interpreter invocations, which blew through run-all.sh's 300s
+# SHELL_TIMEOUT on CI's Debug leg while finishing in ~2 minutes on ReleaseSafe.
+#
+# Reduce to probes/ there rather than skipping or raising the budget.  That is
+# a principled reduction, not a cop-out: probes/ is where essentially all the
+# tier-(b) signal lives (see the census above — 9 of 331 corpus files make the
+# optimiser do anything, and 6 of those 9 ARE the probes), so the Debug leg
+# keeps the coverage that discriminates and drops the ~322 files whose
+# comparison is vacuous by construction.
+#
+# Detected from the binary, not from an env var, so it is right whether the
+# build came from CI, `zig build -Doptimize=Debug`, or a stale zig-out.
+BUILD_MODE=$("$KAAPPI" features --json 2>/dev/null |
+    sed -n 's/.*"build_mode":"\([^"]*\)".*/\1/p')
+if [ "$BUILD_MODE" = "Debug" ] && [ "${KAAPPI_DIFF_FULL:-0}" != "1" ]; then
+    CORPUS_DIRS="tests/scheme/differential/probes"
+    DEBUG_REDUCED=1
+fi
+
 # Basename globs whose output is nondeterministic BY CONSTRUCTION, so that
 # comparing two runs of them says nothing about any tier.  Space-separated.
 #
@@ -557,6 +578,10 @@ printf 'corpus: '
 # shellcheck disable=SC2086  # deliberate word splitting over the dir list
 printf '%s ' $CORPUS_DIRS
 echo ""
+if [ "${DEBUG_REDUCED:-0}" = "1" ]; then
+    echo "        (Debug build detected -- reduced to probes/, which carry 6 of"
+    echo "         the 9 optimiser-reaching files.  KAAPPI_DIFF_FULL=1 overrides.)"
+fi
 echo ""
 
 START=$(date +%s)
