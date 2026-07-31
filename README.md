@@ -420,8 +420,8 @@ Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
 bytecode dispatch loop, so a fiber can park inside them (e.g. block on an
 empty channel) and resume later. Other higher-order procedures are still
 native drivers — SRFI-1 (`fold`, `filter`, `find`, `any`, `every`, ...),
-`sort`, `hash-table-walk`/`hash-table-update!`, `assoc`/`member` with a
-custom predicate, `string-index`, `eval`, ... — and a fiber that blocks on
+`hash-table-walk`/`hash-table-update!`, `assoc`/`member` with a custom
+predicate, `string-index`, `eval`, ... — and a fiber that blocks on
 an empty channel inside one of those callbacks cannot be parked: the native
 call's state lives on the Zig stack and cannot be suspended. If other fibers
 are runnable the scheduler still makes progress, but if the blocked receive

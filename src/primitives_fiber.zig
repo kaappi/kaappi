@@ -1273,9 +1273,11 @@ fn localChannelDeadlockMsg(buf: []u8, base: []const u8) []const u8 {
 /// scheduler loop parks itself: status .waiting on the channel/fiber, and
 /// yield_retry makes the dispatch loop rewind ip so the blocking primitive
 /// re-executes when a channel-send (or fiber completion) wakes it. The main
-/// fiber — or a fiber blocked under re-entrant native frames (map/for-each
-/// callbacks, eval), which cannot be safely rewound — raises a deadlock
-/// error instead of returning an unspecified value.
+/// fiber — or a fiber blocked under re-entrant native frames (a native
+/// higher-order driver's callback, eval), which cannot be safely rewound —
+/// raises a deadlock error instead of returning an unspecified value.
+/// `map`/`for-each` are not such frames: they are bootstrapped Scheme and
+/// a fiber parks inside them (#1959).
 fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on: Value, deadlock_msg: []const u8) PrimitiveError!Value {
     if (my_idx != 0 and vm.dispatched_from_scheduler) {
         me.status = .waiting;

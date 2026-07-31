@@ -43,8 +43,10 @@ fn maybeRewindRetry(self: *VM, instr_len: usize) void {
 /// A frame with returns_to_native set (pushed by vm.callWithArgs) delivers its
 /// result via its own runUntil session's return value; its dst is a
 /// placeholder. When such a frame returns while frame_count is still above
-/// the dispatching loop's target, that session — the native Zig caller (map,
-/// for-each, sort, apply, ...) that owned the result — has already returned:
+/// the dispatching loop's target, that session — the native Zig caller
+/// (apply, a native higher-order driver like SRFI-1 fold or
+/// hash-table-update!, eval, a wind thunk, ...) that owned the result — has
+/// already returned:
 /// a continuation captured under the native call was resumed after the call
 /// ended. There is no register to deliver into and the native's iteration
 /// state is gone, so raise a catchable Scheme error instead of silently
@@ -66,9 +68,10 @@ noinline fn raiseDeadNativeReturn(self: *VM) VMError {
 /// execution must resume in the innermost dispatch loop whose scope-root
 /// frame is still live (checked by frame birth id, see resumesHere). Loops
 /// whose scope frames were discarded propagate ContinuationInvoked instead,
-/// so the re-entrant Zig callers (callThunk/callHandler in natives like
-/// with-exception-handler or dynamic-wind) between that loop and the resume
-/// point unwind and keep their pending result-register writes consistent.
+/// so the re-entrant Zig callers (callThunk/callHandler — with-exception-
+/// handler's thunk and handler, and the wind-stack before/after thunks a
+/// continuation transition runs) between that loop and the resume point
+/// unwind and keep their pending result-register writes consistent.
 pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
     // Birth id of this loop's scope-root frame (the frame whose return ends
     // the loop). Tail calls reuse the frame and keep the id, so it is stable
@@ -79,7 +82,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         0;
     // Blocking primitives may park the current fiber (yield_retry) only when
     // this loop was entered directly from a scheduler loop; nested runUntil
-    // calls (map/for-each callbacks, eval) clear the marker for their extent.
+    // calls (a native higher-order driver's callback, with-exception-handler's
+    // thunk, eval) clear the marker for their extent. Bootstrapped-Scheme
+    // drivers like map/for-each and dynamic-wind open no nested loop for
+    // their own bodies and callbacks, so a fiber still parks inside them
+    // (#1959).
     const from_scheduler = self.sched_dispatch_pending;
     self.sched_dispatch_pending = false;
     const saved_from_scheduler = self.dispatched_from_scheduler;

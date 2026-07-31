@@ -504,8 +504,16 @@ pub const VM = struct {
     /// True while the innermost active runUntil was invoked directly by a
     /// fiber scheduler loop. Blocking primitives may only park the current
     /// fiber with yield_retry when this is set — otherwise Zig-native frames
-    /// (map/for-each callbacks, eval) sit between the fiber's bytecode and
-    /// the scheduler, and a retry would corrupt them.
+    /// (a native higher-order driver's callback, with-exception-handler's
+    /// thunk, eval) sit between the fiber's bytecode and the scheduler, and
+    /// a retry would corrupt them. `map`/`for-each` and `dynamic-wind` are
+    /// *not* examples: they are bootstrapped Scheme (vm_bootstrap.zig), so
+    /// their bodies and callbacks stay in this loop and a fiber parks
+    /// inside them (#1959). Only the wind before/after thunks re-entered
+    /// via callThunk are native frames — by a continuation transition
+    /// (vm_continuations.zig) or by an unwind, either a frame return
+    /// leaving its own extent (vm_dispatch.zig) or an error unwinding
+    /// execute (vm_calls.zig).
     dispatched_from_scheduler: bool = false,
     /// SRFI 181: incremented/decremented (via defer) only around the
     /// callWithArgs calls into a custom port's read!/write!/get-position/
@@ -516,10 +524,11 @@ pub const VM = struct {
     /// (fiber.waitForFd's park-vs-drive branch) with a confirmed native-
     /// stack-overflow risk under concurrent fibers. This narrow counter
     /// (not the broader native_reentry_depth, which is incremented for
-    /// every reentrant call — with-exception-handler thunks, map/for-each
-    /// callbacks, apply — and would wrongly reject those already-working
-    /// patterns too) lets those two sites raise a specific, catchable
-    /// error instead, only for the case this SRFI introduces.
+    /// every reentrant call — with-exception-handler thunks, native
+    /// higher-order drivers' callbacks, apply — and would wrongly reject
+    /// those already-working patterns too) lets those two sites raise a
+    /// specific, catchable error instead, only for the case this SRFI
+    /// introduces.
     in_custom_port_callback: u16 = 0,
     /// For child OS threads (SRFI-18): points at the parent-heap fiber's
     /// `terminated` flag. Checked at the periodic dispatch-loop safepoint so

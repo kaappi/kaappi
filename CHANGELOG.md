@@ -47,6 +47,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The "port I/O abandoned" error no longer blames `dynamic-wind`** (#1959).
+  It named "guard, dynamic-wind, callbacks" as the frames a fiber cannot
+  suspend under, but `dynamic-wind` is bootstrapped Scheme: its body runs in
+  the bytecode dispatch loop and a fiber parks inside it exactly like a bare
+  read. Anyone debugging this error was being sent to move blocking I/O out
+  of a `dynamic-wind` for no reason, leaving it inside the `guard` that
+  actually caused the drive. The message now names what genuinely opens a
+  nested native frame: `guard`, and the native higher-order drivers (SRFI-1
+  `fold`/`filter`/`find`, `hash-table-walk`, `assoc`/`member` with a custom
+  predicate, `string-index`, `eval`). README's matching list also dropped
+  `sort`, which is portable Scheme (SRFI 95) and parks too — a fiber
+  blocking inside a `sort` comparator is now covered by the same test.
 - **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
   The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
   Past that, `with-exception-handler` relabelled the overflow as
