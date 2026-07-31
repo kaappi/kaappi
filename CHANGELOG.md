@@ -88,6 +88,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Import cost is unchanged and every char set is immutable once built.
   `tools/gen_srfi115_charsets.py` is now `tools/gen_srfi_charsets.py`, with a
   `--target {115,14}` selector.
+- **Three diagnostics that misdescribed the value or the procedure they were
+  about** (#1916). An integral flonum rendered in a type error without its
+  `.0`, so `(vector-ref v 1.0)` reported "expected exact integer, got 1" —
+  and 1 *is* an exact integer, leaving the message arguing against itself.
+  Error messages now render flonums through the printer, so `1.0`, `+inf.0`
+  and `1.0e+30` read as they do everywhere else; this affects every type
+  error, not just the numeric-vector ones. Separately, a multi-limb bignum
+  handed to a `(srfi 160)` constructor was reported as "expected exact
+  integer, got #<bignum>" — it is an exact integer, and its only fault was
+  not fitting the element kind, so it now says "in-range" (or "non-negative"
+  when the value is negative), matching what an out-of-range fixnum has
+  always said. Finally, `%record?` and `%transcoded-port` reported their
+  errors under the names `record?` and `transcoded-port` — each a real and
+  *different* procedure, exported by `(srfi 237)` and `(srfi 181)`
+  respectively, with a different argument list — so a reader who followed the
+  message landed on the wrong procedure. Both now name themselves, via the
+  shared-constant convention `primitives_srfi237.zig` already used for
+  exactly this reason.
 
 ## [0.22.1] - 2026-07-31
 

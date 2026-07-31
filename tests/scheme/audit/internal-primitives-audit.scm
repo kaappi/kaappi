@@ -682,37 +682,66 @@
 ;;; ==================================================================
 ;;; #1899 (heap values render opaquely as `#<symbol>` etc.) is already
 ;;; filed and is NOT re-asserted here. These two are distinct from it.
+;;;
+;;; All three defects below were found by this audit and fixed in #1916; the
+;;; assertions are kept alongside their original controls, which is what makes
+;;; each one discriminating (every control passed before the fix too).
 
-;; An integral flonum renders without its `.0`, so "expected exact integer,
-;; got 1" is self-contradictory. Control: 1.5 renders correctly as "1.5".
+;; An integral flonum must keep its `.0`, or "expected exact integer, got 1"
+;; argues against itself -- 1 *is* an exact integer. Control: 1.5 always
+;; rendered correctly as "1.5", so a `{d}`-vs-printer regression shows up here
+;; and not in the control.
 (test-assert "diagnostic control: 1.5 renders as 1.5"
              (has-substring? (raised-message (%make-record-type "T" 1.5)) "1.5"))
-;; FAIL: #1916 (integral flonum 1.0 renders as "1" in error messages)
-;; (test-assert "diagnostic: 1.0 does not render as an exact 1"
-;;              (not (has-substring? (raised-message (%make-record-type "T" 1.0))
-;;                                   "got 1")))
+;; Stated positively, not as `(not (has-substring? ... "got 1"))`: "got 1" is a
+;; PREFIX of the correct "got 1.0", so the negative form cannot pass whatever
+;; the code does. The positive form is fully discriminating anyway -- the buggy
+;; message was exactly "got 1", which does not contain "got 1.0".
+(test-assert "diagnostic: 1.0 renders as 1.0, not as an exact 1"
+             (has-substring? (raised-message (%make-record-type "T" 1.0)) "got 1.0"))
 
-;; A multi-limb bignum that is out of an element kind's range is reported as
-;; "expected exact integer" -- but it IS an exact integer. Control: a
-;; single-limb out-of-range value gets the correct "in-range" wording.
+;; A multi-limb bignum out of an element kind's range must be reported as out
+;; of RANGE, not as the wrong TYPE -- it is an exact integer. Control: a
+;; single-limb out-of-range value already got the "in-range" wording.
 (test-assert "diagnostic control: 65536 for u16 says in-range"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 65536))
                              "in-range"))
-;; FAIL: #1916 (out-of-range multi-limb bignum reported as "expected exact integer")
-;; (test-assert "diagnostic: 2^64 for u16 also says in-range"
-;;              (has-substring? (raised-message (%make-numeric-vector 'u16 1 (expt 2 64)))
-;;                              "in-range"))
+(test-assert "diagnostic: 2^64 for u16 also says in-range"
+             (has-substring? (raised-message (%make-numeric-vector 'u16 1 (expt 2 64)))
+                             "in-range"))
+(test-assert "diagnostic: 2^64 for s8 says in-range"
+             (has-substring? (raised-message (%make-numeric-vector 's8 1 (expt 2 64)))
+                             "in-range"))
+;; A NEGATIVE multi-limb bignum into an unsigned kind is rejected for its sign,
+;; not its width -- the same wording a negative fixnum gets, which is the
+;; control here.
+(test-assert "diagnostic control: -1 for u16 says non-negative"
+             (has-substring? (raised-message (%make-numeric-vector 'u16 1 -1))
+                             "non-negative"))
+(test-assert "diagnostic: -2^64 for u16 also says non-negative"
+             (has-substring? (raised-message (%make-numeric-vector 'u16 1 (- (expt 2 64))))
+                             "non-negative"))
+;; The distinction only means something if a genuine non-integer still reports
+;; as one -- otherwise "in-range" everywhere would pass the assertions above.
+(test-assert "diagnostic: a string still says exact integer"
+             (has-substring? (raised-message (%make-numeric-vector 'u16 1 "x"))
+                             "exact integer"))
 
 ;;; The procedure name a `%` primitive reports must match the name that was
 ;;; called -- otherwise the message points at a DIFFERENT, real procedure
 ;;; (`record?` is exported by (srfi 237); `transcoded-port` by (srfi 181)).
-;; FAIL: #1916 (%record? reports its errors as `record?`, dropping the % prefix)
-;; (test-assert "name drift: %record? reports as %record?"
-;;              (has-substring? (raised-message (%record? 5 5)) "%record?"))
-;; FAIL: #1916 (%transcoded-port reports its errors as `transcoded-port`)
-;; (test-assert "name drift: %transcoded-port reports as %transcoded-port"
-;;              (has-substring? (raised-message (%transcoded-port 5 'utf-8 'none 'replace))
-;;                              "%transcoded-port"))
+;;; Asserting the bare name is absent is what discriminates: "%record?"
+;;; contains "record?", so the presence check alone would pass either way.
+(test-assert "name drift: %record? reports as %record?"
+             (has-substring? (raised-message (%record? 5 5)) "%record?"))
+(test-assert "name drift: %record? does not report as bare record?"
+             (not (has-substring? (raised-message (%record? 5 5)) "'record?")))
+(test-assert "name drift: %transcoded-port reports as %transcoded-port"
+             (has-substring? (raised-message (%transcoded-port 5 'utf-8 'none 'replace))
+                             "%transcoded-port"))
+(test-assert "name drift: %transcoded-port does not report as bare transcoded-port"
+             (not (has-substring? (raised-message (%transcoded-port 5 'utf-8 'none 'replace))
+                                  "'transcoded-port")))
 
 ;;; ==================================================================
 ;;; D4 -- registration-table invariant

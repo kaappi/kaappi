@@ -2,6 +2,7 @@ const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
+const printer = @import("printer.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 
@@ -250,6 +251,14 @@ const BR = LS.initMany(&.{ .scheme_base, .scheme_r5rs });
 const BRS1 = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 });
 const BCRS1 = LS.initMany(&.{ .scheme_base, .scheme_cxr, .scheme_r5rs, .srfi_1 });
 
+/// Shared by the spec entry and every error this primitive reports, so the name
+/// a caller sees can never drift from the name it called -- the same convention
+/// `primitives_srfi237.zig`'s `MAKE_RTD` follows. It matters more here than for
+/// most: drop the `%` and the message names `record?`, a real and *different*
+/// procedure `lib/srfi/237.sld` exports, which takes one argument rather than
+/// two (kaappi#1916).
+const RECORD_CHECK = "%record?";
+
 const core_specs = [_]PrimSpec{
     .{ .name = "cons", .func = &cons, .arity = .{ .exact = 2 }, .libs = BRS1 },
     .{ .name = "car", .func = &car, .arity = .{ .exact = 1 }, .libs = BRS1 },
@@ -298,7 +307,7 @@ const core_specs = [_]PrimSpec{
     // not `(scheme base)` exports (kaappi#1856).
     .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = INTERNAL_PUBLIC },
-    .{ .name = "%record?", .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
+    .{ .name = RECORD_CHECK, .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 3 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 4 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "apply", .func = &applyFn, .arity = .{ .variadic = 2 }, .libs = BR },
@@ -561,7 +570,13 @@ fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
     if (value == types.EOF) return "#<eof>";
     if (types.isChar(value)) return "#<char>";
     if (types.isFlonum(value)) {
-        return std.fmt.bufPrint(buf, "{d}", .{types.toFlonum(value)}) catch "?";
+        // Via the printer, not a bare `{d}`, so an integral flonum keeps its
+        // `.0`. Without it `(… 1.0)` reported "expected exact integer, got 1",
+        // and 1 *is* an exact integer -- the message argued against itself
+        // (kaappi#1916). Safe in this deliberately-defensive helper: a flonum
+        // is inline under NaN-boxing, so `formatFlonum` reads no heap and
+        // handles NaN/Inf itself.
+        return printer.formatFlonum(buf, types.toFlonum(value));
     }
     if (types.isPointer(value)) {
         const addr = @as(usize, @truncate(value));
@@ -1043,7 +1058,7 @@ fn makeRecordFn(args: []const Value) PrimitiveError!Value {
 
 fn recordCheckFn(args: []const Value) PrimitiveError!Value {
     // args[0] = value to check, args[1] = record_type
-    if (!types.isRecordType(args[1])) return typeError("record?", "record-type", args[1]);
+    if (!types.isRecordType(args[1])) return typeError(RECORD_CHECK, "record-type", args[1]);
     const rt = types.toObject(args[1]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return types.FALSE;
     const ri = types.toObject(args[0]).as(types.RecordInstance);
