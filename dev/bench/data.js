@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785513595354,
+  "lastUpdate": 1785519953918,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0bf6f03c849d30a05e7584b2ef8fd5f0a2baf207",
-          "message": "Add SRFI 149 (basic syntax-rules template extensions) (#1758)\n\n* Add SRFI 149 (basic syntax-rules template extensions)\n\nSecond of 4 tractable pieces of issue #1699. Like SRFI 139, this needed\nno engine changes despite being grouped with SRFIs that do: Kaappi's\nexpander already implements both of this SRFI's extensions --\nconsecutive ellipses directly after one template element, and letting\na pattern variable be followed by more ellipses than its own\npattern-matched depth, with the excess replicating a shallower sibling\nat the innermost position.\n\nThe spec's own prose gives no worked example for the genuinely-new\nnonzero-depth-excess case, so this needed fetching the reference\nimplementation's expand-template algorithm to understand precisely\nwhat \"innermost\" means, then confirming empirically (against both of\nthe spec's own worked examples, my-append and foo, plus 2 more) that\nKaappi's binding-driven design -- live per-binding depth reduction --\nproduces the identical result via a different mechanism than the\nreference's free-variables-at-this-dimension scan.\n\nlib/srfi/149.sld is a trivial (export syntax-rules) re-export, the\nsame shape as SRFI 46's own \"these R7RS extensions are already native\"\nlibrary. New Zig unit tests in tests_macros.zig plus the usual SRFI-64\nsuite. One pre-existing, unrelated gap found and deliberately left\nalone: an ellipsis with no driving variable at all silently produces\nan empty result instead of erroring -- predates this SRFI and isn't a\ncase it needs to support; fixing it is a separate, broader project.\n\nBumps the SRFI count 172->173, reconciled against the canonical\nregistry: 173 implemented + 5 tracked + 30 excluded = 208.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix markdown lint: avoid #1699 starting a line in CLAUDE.md\n\nCodeRabbit review of #1758: a line starting with \"#1699\" triggers\nMD018 (no-missing-space-atx), since Markdown parses a leading # as an\nATX heading. Reworded to keep it mid-line.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T14:34:36+05:30",
-          "tree_id": "cb0dd54a0cc59ab0c7c9f7fab318a3187d86d2ad",
-          "url": "https://github.com/kaappi/kaappi/commit/0bf6f03c849d30a05e7584b2ef8fd5f0a2baf207"
-        },
-        "date": 1785059045733,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.278715,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.023719,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.887319,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.389266,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006348,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05338,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497781,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068974,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.48396,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.965794,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.561787,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429299,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.796559,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.585379,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043476,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038942,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3de5281fede1fbbdb530005faa9bcc902479cc30",
+          "message": "Phase 1D: printer audit — 79 assertions, five hangs, and a legal-but-wrong datum at depth 1023 (#1956)\n\n* Audit v2 Phase 1D: sweep the printer's structural round-trip\n\n`src/printer.zig` had no Scheme-level test of its own beyond a handful of\nZig unit tests.  Sweep it against the round-trip oracle -- (equal? x (read\n(open-input-string <written x>))) -- across every printable type and every\nstructural shape, with the four `write`-family contracts checked against\ntheir own R7RS 6.13.3 text rather than against each other.\n\n79 enabled assertions, 16 disabled.  Each disabled assertion is paired with\nan enabled control -- a near-identical input that behaves differently -- so\nthe file keeps proving the neighbouring path still works.\n\nBeyond the three symptoms already filed as #1902, the sweep separates that\nissue's single \"1024\" into three independent mechanisms with three distinct\ncliffs (markShared's cdr-spine depth; the seen[] cap, which makes detection\ndepend on an object's *position*; and the shared[] cap), and turns up five\nfindings it does not cover:\n\n- `write-simple` is registered as `.func = &write`, so it emits datum labels\n  on circular structure, which R7RS says it never may.\n- All four output procedures loop forever on a cycle reachable only through\n  a container the cycle pre-pass does not walk (error objects, mutex and\n  condition-variable names).  #1713 fixed this shape for record instances\n  and left the other arms behind.\n- An exact rational at nesting depth 1023 prints as \".../...\" and reads back\n  as a *symbol*: the printer's depth counter outruns the reader's nesting\n  count for that one arm, and the plain printer's truncation sentinel \"...\"\n  is itself a legal identifier.\n- `write-shared` becomes exponential once seen[] is full, so the same two\n  objects in a two-element vector print instantly one way round and never\n  terminate the other.\n- Closed issue #859 (REPL prettyPrint hang) still reproduces; the fix that\n  closed it removed the unbounded memory growth but not the hang, which now\n  lives in `exactFlatLen`.\n\nFindings only -- no printer changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point printer FAIL markers at the filed issues\n\nAlso drops the claim that #859 still reproduces. A properly constructed\npty test -- one that checks whether the REPL still services later input,\nrather than whether the process is merely alive -- shows it responding at\nboth COLUMNS=200 and COLUMNS=12, so that closed issue stays closed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T22:46:53+05:30",
+          "tree_id": "1ec2247abc3ba02ae0a922b3488a7df7d6aea9c4",
+          "url": "https://github.com/kaappi/kaappi/commit/3de5281fede1fbbdb530005faa9bcc902479cc30"
+        },
+        "date": 1785519951230,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.302085,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.678265,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57334,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.981789,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004664,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046303,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.310848,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055927,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.61012,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.230189,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.55831,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280802,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.772434,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.5987,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045189,
             "unit": "seconds"
           }
         ]
