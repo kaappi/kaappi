@@ -78,12 +78,17 @@ pub const writeStdout = reporting.writeStdout;
 pub const writeStderr = reporting.writeStderr;
 
 /// Get the output port: use args[arg_idx] if provided, else current-output-port.
+///
+/// A *closed* port is `argError`, not `typeError`: it is a port, and an
+/// output one, so nothing about its type is wrong — the procedure rejects it
+/// for its state. Same reasoning at every other closed-port check in this
+/// file (`getInputPort`, `portPosition`, `setPortPositionBang`).
 fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) PrimitiveError!*types.Port {
     if (args.len > arg_idx) {
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "output port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_output) return primitives.typeError(proc, "output port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError(proc, "open output port", args[arg_idx]);
+        if (!port.is_open) return primitives.argError(proc, "output port is closed", .{});
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -98,7 +103,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "input port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_input) return primitives.typeError(proc, "input port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError(proc, "open input port", args[arg_idx]);
+        if (!port.is_open) return primitives.argError(proc, "input port is closed", .{});
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -266,14 +271,14 @@ fn portFdWrite(port: *types.Port, buf: [*]const u8, len: usize) isize {
 /// resumes here, so the is_open re-check — a sibling may have closed the
 /// port while we waited — must raise the clean "port closed" error itself.
 fn waitPortFd(port: *types.Port, interest: reactor_mod.Interest) PrimitiveError!void {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     try fiber_mod.waitForFd(vm, port.fd, interest);
     if (!port.is_open) return raisePortClosedDuringIo();
 }
 
 fn raisePortClosedDuringIo() PrimitiveError {
-    const gc = memory.gc_instance orelse return PrimitiveError.InvalidArgument;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString("port closed while I/O was blocked on it") catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();
@@ -876,7 +881,7 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
     // A closed fd-backed port's fd number may already have been reused by
     // the OS for an unrelated, newly opened file; seeking on it would
     // silently reposition that unrelated file instead of erroring.
-    if (!port.is_open) return primitives.typeError("port-position", "open port", args[0]);
+    if (!port.is_open) return primitives.argError("port-position", "port is closed", .{});
     if (port.is_string_port) {
         const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_pos);
         return types.makeFixnum(pos);
@@ -885,10 +890,7 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
         return portPositionFromCustomPort(cb);
     }
     const os_pos = platform.seek(port.fd, 0, platform.SEEK_CUR);
-    if (os_pos < 0) {
-        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("port-position: port does not support positioning", .{});
-        return PrimitiveError.InvalidArgument;
-    }
+    if (os_pos < 0) return primitives.argError("port-position", "port does not support positioning", .{});
     const ahead: i64 = @as(i64, @intCast(port.read_buf_len)) +
         @as(i64, if (port.peek_byte != null) 1 else 0) +
         @as(i64, port.peek_extra_len);
@@ -927,7 +929,7 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
     // See portPosition: a closed fd's number may have been reused by the
     // OS for an unrelated file, so seeking on it must not be allowed to
     // silently reposition that unrelated file instead of erroring.
-    if (!port.is_open) return primitives.typeError("set-port-position!", "open port", args[0]);
+    if (!port.is_open) return primitives.argError("set-port-position!", "port is closed", .{});
 
     if (port.is_output and !port.is_string_port and port.write_buf_len > port.write_buf_start) {
         try drainWriteBuffer(port);
@@ -936,14 +938,14 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
     if (port.is_string_port) {
         if (port.is_input) {
             const len = if (port.string_data) |d| d.len else 0;
-            if (pos > len) return PrimitiveError.InvalidArgument;
+            if (pos > len) return primitives.indexError("set-port-position!", pos, len);
             port.string_pos = @intCast(pos);
         } else {
             // Move the write cursor only -- string_out_len (the buffer's
             // total extent, what get-output-string reads up to) is
             // untouched, so a subsequent write overwrites in place
             // rather than truncating whatever came after the seek point.
-            if (pos > port.string_out_len) return PrimitiveError.InvalidArgument;
+            if (pos > port.string_out_len) return primitives.indexError("set-port-position!", pos, port.string_out_len);
             port.string_out_pos = @intCast(pos);
         }
         return types.VOID;
@@ -960,10 +962,7 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
     // discarding them first would silently lose already-read data for no
     // reason once the (failed) seek leaves the position unchanged.
     const rc = platform.seek(port.fd, pos, platform.SEEK_SET);
-    if (rc < 0) {
-        if (vm_mod.vm_instance) |vm| vm.setErrorDetail("set-port-position!: invalid position or port does not support positioning", .{});
-        return PrimitiveError.InvalidArgument;
-    }
+    if (rc < 0) return primitives.argError("set-port-position!", "invalid position or port does not support positioning", .{});
     // Discard read-ahead lookahead: it describes bytes at the *old*
     // position and is meaningless once we've jumped elsewhere.
     port.peek_byte = null;
@@ -986,10 +985,8 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
 /// calls it itself; it just isn't threaded through port-position.
 fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-    if (cb.get_position_proc == types.FALSE) {
-        vm.setErrorDetail("port-position: port does not support positioning", .{});
-        return PrimitiveError.InvalidArgument;
-    }
+    if (cb.get_position_proc == types.FALSE)
+        return primitives.argError("port-position", "port does not support positioning", .{});
     const result = try callCustomPortProc(vm, cb.get_position_proc, &[_]Value{});
     if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "get-position");
     return result;
@@ -1003,10 +1000,8 @@ fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
 /// jumps elsewhere.
 fn setPortPositionOnCustomPort(port: *types.Port, cb: *types.CustomBacking, pos: i64) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-    if (cb.set_position_proc == types.FALSE) {
-        vm.setErrorDetail("set-port-position!: port does not support positioning", .{});
-        return PrimitiveError.InvalidArgument;
-    }
+    if (cb.set_position_proc == types.FALSE)
+        return primitives.argError("set-port-position!", "port does not support positioning", .{});
     if (port.is_output) try flushCustomPortIfNeeded(vm, cb);
     _ = try callCustomPortProc(vm, cb.set_position_proc, &[_]Value{types.makeFixnum(pos)});
     port.peek_byte = null;
@@ -1544,9 +1539,16 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
         if (e < 0) return primitives.typeError("write-string", "non-negative integer", args[3]);
         end_cp = @intCast(e);
     }
-    if (start_cp > end_cp or end_cp > cp_count) return primitives.typeError("write-string", "valid range", args[0]);
-    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("write-string", "valid start index", args[0]);
-    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.typeError("write-string", "valid end index", args[0]);
+    // Report the *index* that is out of range, not the string: `args[0]` is
+    // the one argument here that is never at fault, and `substring` (the
+    // house precedent for a start/end pair) already names the index. An
+    // inverted-but-in-range pair is neither a type nor a range fault, so it
+    // is argError rather than indexError.
+    if (end_cp > cp_count) return primitives.indexError("write-string", @intCast(end_cp), cp_count);
+    if (start_cp > cp_count) return primitives.indexError("write-string", @intCast(start_cp), cp_count);
+    if (start_cp > end_cp) return primitives.argError("write-string", "start {d} is greater than end {d}", .{ start_cp, end_cp });
+    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.indexError("write-string", @intCast(start_cp), cp_count);
+    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.indexError("write-string", @intCast(end_cp), cp_count);
     try portWriteBytes(port, data[byte_start..byte_end]);
     return types.VOID;
 }
@@ -1938,4 +1940,69 @@ fn setCurrentPort(vm: *vm_mod.VM, param_val: Value, port_val: Value) void {
     if (param_val != types.VOID) {
         vm.setParameterValue(types.toParameter(param_val), port_val) catch {};
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+// This file's own test block, rather than `tests_io.zig`: `waitPortFd` and
+// `raisePortClosedDuringIo` are private, and the point of the test is the tag
+// they pick when the threadlocal is gone -- a readability-only choice that no
+// program can reach, and so exactly the kind that drifts unless something
+// pins it (kaappi#1878's lesson, kaappi#1944's instance).
+test "the fiber-park I/O guards report a missing VM/GC as internal error and OOM (#1944)" {
+    const th = @import("testing_helpers.zig");
+    const diagnostics = @import("diagnostics.zig");
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Rooted because the CONTROL below allocates twice: under -Dgc-stress the
+    // collection that follows would otherwise free the port this test still
+    // holds a raw `*Port` into.
+    var port_val = try ctx.vm.eval("(open-input-string \"x\")");
+    ctx.gc.pushRoot(&port_val);
+    const port = types.toObject(port_val).as(types.Port);
+
+    // CONTROL: with the VM present, `raisePortClosedDuringIo` returns
+    // `ExceptionRaised` -- so neither tag below is merely what the function
+    // always returns. `ExceptionRaised` is also the one tag a guard can never
+    // borrow: it promises `vm.current_exception` was set, and the guard fires
+    // precisely because there is no VM to set it on (#1874).
+    try std.testing.expectEqual(PrimitiveError.ExceptionRaised, raisePortClosedDuringIo());
+
+    // Both guards sit on the first lines of their functions, so nothing
+    // allocates or touches the port while a threadlocal is null; restore
+    // explicitly rather than by `defer`, which would outlive the call.
+    const saved_vm = vm_mod.vm_instance;
+    vm_mod.vm_instance = null;
+    const wait_res = waitPortFd(port, .read);
+    const raise_vm_res = raisePortClosedDuringIo();
+    vm_mod.vm_instance = saved_vm;
+
+    const saved_gc = memory.gc_instance;
+    memory.gc_instance = null;
+    const raise_gc_res = raisePortClosedDuringIo();
+    memory.gc_instance = saved_gc;
+
+    ctx.gc.popRoot(); // last use of `port`; popped explicitly, not by defer
+
+    // No VM means the wait cannot happen at all, so there is no tag to borrow
+    // from the function -- Rule 2. Both sites read `InvalidArgument` until
+    // #1944, which blamed the caller's port for a broken interpreter.
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, wait_res);
+    try std.testing.expectEqual(PrimitiveError.InvalidBytecode, raise_vm_res);
+    // The tag is only half of it: what a reader sees is the code. KP9001 is
+    // "internal error ... please report it"; KP3007, which these carried
+    // before, tells the reader to go fix their own arguments.
+    const wait_err = if (wait_res) |_| unreachable else |e| e;
+    try std.testing.expectEqual(diagnostics.Code.internal_error, diagnostics.runtimeErrorCode(wait_err));
+    try std.testing.expectEqual(diagnostics.Code.internal_error, diagnostics.runtimeErrorCode(raise_vm_res));
+
+    // The GC guard is Rule 1 at scale: the allocation this helper exists to
+    // perform cannot happen, and `OutOfMemory` is what its own two
+    // `allocXxx catch` lines already return.
+    try std.testing.expectEqual(PrimitiveError.OutOfMemory, raise_gc_res);
 }

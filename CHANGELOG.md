@@ -106,6 +106,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   message landed on the wrong procedure. Both now name themselves, via the
   shared-constant convention `primitives_srfi237.zig` already used for
   exactly this reason.
+- **Port errors now say which kind of failure they are** (#1944).
+  `primitives_io.zig` reported every failure as a type error, so three
+  distinct faults all arrived mislabelled. Seeking a string port past its end
+  raised a detail-less `invalid argument in 'set-port-position!'` — no index,
+  no length — and now reports both, as `KP3006`. `(write-string "abc" port 5)`
+  said `expected valid range, got #<string>`, blaming the one argument that
+  was valid; the offending *index* is named now, with an inverted-but-in-range
+  pair (`… port 2 1`) reported as `start 2 is greater than end 1` rather than
+  as a range fault. And using a closed port was `KP3002 type error: expected
+  open input port, got #<port>` — a closed port is a port, so it is `KP3007
+  invalid argument` ("input port is closed"). Passing a genuine non-port, or
+  an input port where an output port is wanted, is still a type error.
+- Three internal guards in `primitives_io.zig` no longer blame the program for
+  a broken interpreter (#1944). A missing VM or GC in the fiber-park I/O path
+  reported `KP3007 invalid argument`; per the rules settled in #1874/#1876/#1878
+  these are `KP9001 internal error` and out-of-memory respectively — the same
+  tags the byte-for-byte twin helper 950 lines down the same file already used.
+  Unreachable in a working build; the tag is what the next maintainer reads.
 
 ## [0.22.1] - 2026-07-31
 
