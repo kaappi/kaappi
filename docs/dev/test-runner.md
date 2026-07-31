@@ -31,9 +31,11 @@ kaappi test [paths...]
 - **`-j` / `--jobs <n>`.** Run up to `n` files concurrently (default: one per
   CPU; `--jobs 1` forces the old strictly-sequential behaviour). Because every
   file is already an isolated worker process, this changes scheduling only —
-  verdicts, per-file output and its **ordering**, and the summary are identical
-  at any job count, which `tests/scheme/test-runner/jobs.sh` pins down by
-  diffing whole transcripts. Windows always runs one job; see below.
+  verdicts, per-file output and its **ordering**, and the summary counts are
+  identical at any job count. Durations are the one thing that legitimately
+  moves, so `tests/scheme/test-runner/jobs.sh` normalises the `…ms` fields and
+  then requires the whole transcript to match byte for byte. Windows always runs
+  one job; see below.
 - **Exit status** is nonzero iff a test failed, unexpectedly passed (`xpass`),
   or a file errored.
 

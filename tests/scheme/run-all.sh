@@ -51,11 +51,23 @@ detect_jobs() {
         || n=$(nproc 2>/dev/null) \
         || n=""
     case "$n" in
-        ''|*[!0-9]*) echo 4 ;;
+        ''|*[!0-9]*|0) echo 4 ;;
         *) echo "$n" ;;
     esac
 }
 JOBS="${KAAPPI_TEST_JOBS:-$(detect_jobs)}"
+
+# Reject a bad KAAPPI_TEST_JOBS loudly. `[[ $running -ge $JOBS ]]` evaluates its
+# operands arithmetically, where a non-numeric value is silently 0 — so
+# KAAPPI_TEST_JOBS=abc would not fail, it would just quietly serialise the run
+# with a spurious `wait` per file. A typo in a CI env var should not cost a
+# 4x-slower suite that still reports success.
+case "$JOBS" in
+    ''|*[!0-9]*|0)
+        echo "run-all.sh: KAAPPI_TEST_JOBS must be a positive integer (got '${KAAPPI_TEST_JOBS:-}')" >&2
+        exit 2
+        ;;
+esac
 
 PASS=0
 FAIL=0

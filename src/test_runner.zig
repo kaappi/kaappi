@@ -1204,6 +1204,32 @@ test "FileResultJson parses a worker object" {
     try testing.expectEqualStrings("2", parsed.value.failures[0].actual.?);
 }
 
+test "resolveJobs clamps to the work available and honours the platform policy" {
+    // No work to spread: never more than one job, whatever was asked for.
+    try testing.expectEqual(@as(usize, 1), resolveJobs(0, 0));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(8, 0));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(0, 1));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(8, 1));
+
+    // Windows and single-threaded builds are pinned to one job: there the emit
+    // path still reaches the worker through the parent's environment, which is
+    // only safe while spawns are serialised.
+    const pinned = comptime (platform.is_windows or builtin.single_threaded);
+
+    // An explicit request never exceeds the number of files to run.
+    try testing.expectEqual(@as(usize, if (pinned) 1 else 4), resolveJobs(16, 4));
+    try testing.expectEqual(@as(usize, if (pinned) 1 else 3), resolveJobs(3, 10));
+
+    // --jobs 1 stays sequential on every platform.
+    try testing.expectEqual(@as(usize, 1), resolveJobs(1, 10));
+
+    // Auto (0) resolves to the CPU count, still clamped by the file count and
+    // never zero.
+    const auto = resolveJobs(0, 1000);
+    try testing.expect(auto >= 1);
+    if (pinned) try testing.expectEqual(@as(usize, 1), auto);
+}
+
 test "randomSeed is in the human-typable range" {
     const s = randomSeed();
     try testing.expect(s >= 1 and s < 1_000_000);
