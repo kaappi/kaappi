@@ -82,12 +82,18 @@ KAAPPI_TEST_SKIP="callcc-bench.scm" bash tests/scheme/run-all.sh
 
 # Run .scm files N at a time (default: one per CPU; 1 = strictly sequential)
 KAAPPI_TEST_JOBS=1 bash tests/scheme/run-all.sh
+
+# Same for the *.sh suites (default: whatever KAAPPI_TEST_JOBS resolved to)
+KAAPPI_SHELL_TEST_JOBS=2 bash tests/scheme/run-all.sh
 ```
 
 The `.scm` suites run concurrently because each file is a fresh interpreter with
-no shared state (see Quirks below). Shell suites (`*.sh`) always run one at a
-time: several call `ensure_runtime_lib`, which builds into the shared
-`zig-out/lib`.
+no shared state (see Quirks below). Shell suites (`*.sh`) run concurrently too
+(kaappi#1926), with their own job count: a shell script can fork a whole
+compiler, so a box that wants the `.scm` files N-wide does not necessarily want
+N concurrent `zig build`s. Their shared state is `zig-out/`, which
+`shell-common.sh` serialises with `build_lock` — a new script that installs
+anything there must take that lock too. See `docs/dev/test-runner.md`.
 
 Results are reported in sorted file order regardless of the job count, so a
 transcript diff between two runs stays meaningful.
@@ -115,9 +121,13 @@ Conventions:
   assertions), `rt_lib_name` (`libkaappi_rt.a` / `kaappi_rt.lib`),
   `skip_without_zig` (skip when the script itself must rebuild with a
   Zig toolchain — boxes running cross-compiled binaries have none, see
-  `docs/dev/freebsd.md`), and `ensure_runtime_lib` (freshen
+  `docs/dev/freebsd.md`), `ensure_runtime_lib` (freshen
   `libkaappi_rt.a` with zig when present, else accept a prebuilt
-  archive so `kaappi compile` tests still run).
+  archive so `kaappi compile` tests still run), `build_lock`/`build_unlock`
+  (serialise anything that installs into `zig-out/`), and
+  `bundle_fixture_binary` (the standalone binary embedding
+  `compile/fixtures/bundle-replay/`, shared so one `zig build -Dbundle`
+  serves every test that needs one).
 - Don't bake POSIX-only spellings into assertions: kaappi prints native
   paths, the runtime archive name is per-platform, and a Windows abort
   exits 3 rather than dying by signal (see `errors/crash-handler.sh`).

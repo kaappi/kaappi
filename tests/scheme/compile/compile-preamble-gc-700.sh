@@ -1,8 +1,13 @@
 #!/bin/bash
 # Regression test for #700: preamble replay GC root and resilient imports.
-# Creates a multi-library project where a bundled binary must replay preamble
-# imports that trigger nested library loading (stressing GC). Without the
-# expr root in the preamble replay loop, GC corrupts the import-set list.
+# A bundled binary must replay preamble imports that trigger nested library
+# loading (stressing GC). Without the expr root in the preamble replay loop,
+# GC corrupts the import-set list.
+#
+# The multi-library project lives in fixtures/bundle-replay/ and is shared with
+# compile-import-error-703.sh, which needs a bundled binary for its own reason:
+# building one recompiles the whole interpreter, so one fixture means one
+# rebuild rather than two (kaappi#1926). Each script asserts only its own line.
 #
 # Usage: bash tests/scheme/compile/compile-preamble-gc-700.sh [path-to-kaappi]
 
@@ -17,69 +22,13 @@ skip_on_windows "compile suite needs a native Zig toolchain on this machine (kaa
 skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 
 KAAPPI="${1:-zig-out/bin/kaappi}"
+REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-mkdir -p "$DIR/lib/myapp"
-
-# Leaf library with no dependencies. `sq` (not `square`) -- `square` is
-# itself a (scheme base) export, and main.scm below imports both.
-cat > "$DIR/lib/myapp/util.sld" << 'SCHEME'
-(define-library (myapp util)
-  (import (scheme base))
-  (export double sq)
-  (begin
-    (define (double x) (* x 2))
-    (define (sq x) (* x x))))
-SCHEME
-
-# Middle library depending on util
-cat > "$DIR/lib/myapp/math.sld" << 'SCHEME'
-(define-library (myapp math)
-  (import (scheme base) (myapp util))
-  (export quad)
-  (begin
-    (define (quad x) (double (double x)))))
-SCHEME
-
-# Top library depending on both
-cat > "$DIR/lib/myapp/app.sld" << 'SCHEME'
-(define-library (myapp app)
-  (import (scheme base) (myapp util) (myapp math))
-  (export run-app)
-  (begin
-    (define (run-app n) (+ (quad n) (sq n)))))
-SCHEME
-
-# Main program importing all libraries in one form
-cat > "$DIR/main.scm" << 'SCHEME'
-(import (scheme base) (scheme write) (myapp app) (myapp util))
-(display (run-app 3))
-(display " ")
-(display (double 5))
-(newline)
-SCHEME
-
-# Compile to .sbc (from within temp dir so lib paths are relative)
-KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
-(cd "$DIR" && "$KAAPPI_ABS" --lib-path lib --compile -o main.sbc main.scm > /dev/null 2>&1)
-
-# Verify .sbc was created
-if [[ ! -f "$DIR/main.sbc" ]]; then
-    echo "FAIL: .sbc file not created" >&2
-    exit 1
-fi
-
-# Build bundled binary into an isolated --prefix so the shared zig-out/bin/kaappi
-# binary -- which run-all.sh and every other test read from a fixed path -- is
-# never touched. Rebuilding it in place here raced the next sequential test's
-# exec of that same path (kaappi#1748).
 BUNDLE_BIN="$DIR/main-standalone"
-REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-BUNDLE_PREFIX="$DIR/bundle-out"
-(cd "$REPO_DIR" && zig build -Dbundle="$DIR/main.sbc" -Doptimize=ReleaseSafe --prefix "$BUNDLE_PREFIX" 2>/dev/null)
-cp "$BUNDLE_PREFIX/bin/kaappi" "$BUNDLE_BIN"
+bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
 
 # Run the bundled binary — must not crash or show preamble errors
 OUTPUT=$("$BUNDLE_BIN" 2>&1)
@@ -87,7 +36,9 @@ if echo "$OUTPUT" | grep -q "preamble error"; then
     echo "FAIL: preamble error in bundled binary: $OUTPUT" >&2
     exit 1
 fi
-if [[ "$OUTPUT" != "21 10" ]]; then
-    echo "FAIL: expected '21 10', got '$OUTPUT'" >&2
+LINE=$(printf '%s\n' "$OUTPUT" | grep '^700: ' || true)
+if [[ "$LINE" != "700: 21 10" ]]; then
+    echo "FAIL: expected '700: 21 10', got '$LINE'" >&2
+    echo "full output: $OUTPUT" >&2
     exit 1
 fi

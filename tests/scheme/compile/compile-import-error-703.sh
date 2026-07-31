@@ -6,6 +6,11 @@
 # Without the fix, handleDefineLibrary returns immediately on CompileError,
 # skipping the begin block (so module state is UNDEFINED) and library registration.
 #
+# The project lives in fixtures/bundle-replay/ and is shared with
+# compile-preamble-gc-700.sh, which needs a bundled binary for its own reason:
+# building one recompiles the whole interpreter, so one fixture means one
+# rebuild rather than two (kaappi#1926). Each script asserts only its own line.
+#
 # Usage: bash tests/scheme/compile/compile-import-error-703.sh [path-to-kaappi]
 
 set -euo pipefail
@@ -19,73 +24,32 @@ skip_on_windows "compile suite needs a native Zig toolchain on this machine (kaa
 skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 
 KAAPPI="${1:-zig-out/bin/kaappi}"
+REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+FIXTURE="$REPO_DIR/tests/scheme/compile/fixtures/bundle-replay"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-mkdir -p "$DIR/lib/myapp"
-
-# Library A: simple leaf
-cat > "$DIR/lib/myapp/util.sld" << 'SCHEME'
-(define-library (myapp util)
-  (import (scheme base))
-  (export greet)
-  (begin
-    (define (greet name) (string-append "Hello, " name "!"))))
-SCHEME
-
-# Library B: depends on A, defines module-level state in begin block
-cat > "$DIR/lib/myapp/app.sld" << 'SCHEME'
-(define-library (myapp app)
-  (import (scheme base) (srfi 69) (myapp util))
-  (export app-greet lookup register!)
-  (begin
-    (define registry (make-hash-table string=? string-hash))
-    (define (register! key val) (hash-table-set! registry key val))
-    (define (lookup key) (hash-table-ref/default registry key #f))
-    (define (app-greet name)
-      (register! name #t)
-      (greet name))))
-SCHEME
-
-# Main program
-cat > "$DIR/main.scm" << 'SCHEME'
-(import (scheme base) (scheme write) (myapp app))
-(display (app-greet "world"))
-(newline)
-(display (lookup "world"))
-(newline)
-SCHEME
+EXPECTED="703: Hello, world! #t"
 
 # Run in interpreter mode — must succeed
-OUTPUT=$("$KAAPPI" --lib-path "$DIR/lib" "$DIR/main.scm" 2>/dev/null)
-if [[ "$OUTPUT" != "Hello, world!"$'\n'"#t" ]]; then
-    echo "FAIL: interpreter mode — expected 'Hello, world!' + '#t', got '$OUTPUT'" >&2
+OUTPUT=$("$KAAPPI" --lib-path "$FIXTURE/lib" "$FIXTURE/main.scm" 2>/dev/null)
+LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)
+if [[ "$LINE" != "$EXPECTED" ]]; then
+    echo "FAIL: interpreter mode — expected '$EXPECTED', got '$LINE'" >&2
+    echo "full output: $OUTPUT" >&2
     exit 1
 fi
 
-# Compile to .sbc
-KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
-(cd "$DIR" && "$KAAPPI_ABS" --lib-path lib --compile -o main.sbc main.scm > /dev/null 2>&1)
-
-if [[ ! -f "$DIR/main.sbc" ]]; then
-    echo "FAIL: .sbc file not created" >&2
-    exit 1
-fi
-
-# Build bundled binary into an isolated --prefix so the shared zig-out/bin/kaappi
-# binary -- which run-all.sh and every other test read from a fixed path -- is
-# never touched. Rebuilding it in place here raced the next sequential test's
-# exec of that same path (kaappi#1748).
+# Same program as a bundled binary, where the define-library forms are reached
+# through the preamble replay rather than a plain top-level load.
 BUNDLE_BIN="$DIR/main-standalone"
-REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-BUNDLE_PREFIX="$DIR/bundle-out"
-(cd "$REPO_DIR" && zig build -Dbundle="$DIR/main.sbc" -Doptimize=ReleaseSafe --prefix "$BUNDLE_PREFIX" 2>/dev/null)
-cp "$BUNDLE_PREFIX/bin/kaappi" "$BUNDLE_BIN"
+bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
 
-# Run bundled binary — the begin block must have executed (hash table initialized)
 OUTPUT=$("$BUNDLE_BIN" 2>/dev/null)
-if [[ "$OUTPUT" != "Hello, world!"$'\n'"#t" ]]; then
-    echo "FAIL: standalone mode — expected 'Hello, world!' + '#t', got '$OUTPUT'" >&2
+LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)
+if [[ "$LINE" != "$EXPECTED" ]]; then
+    echo "FAIL: standalone mode — expected '$EXPECTED', got '$LINE'" >&2
+    echo "full output: $OUTPUT" >&2
     exit 1
 fi
