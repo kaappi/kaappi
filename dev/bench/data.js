@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785512698000,
+  "lastUpdate": 1785513595354,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2e3b70a53dd6b3c2501bdd05fbbf2871e264d37a",
-          "message": "Add SRFI 139 (syntax parameters) (#1757)\n\nFirst of 4 tractable pieces of issue #1699 (SRFI macro & syntax\nextension libraries) picked up after issue #1694 closed. Despite being\ngrouped with 6 SRFIs needing real expander/compiler work, 139 needs\nnone: let-syntax already implements exactly syntax-parameterize's own\nsemantics (adjust the live macro table for a bounded compile extent,\nthen restore it), so lib/srfi/139.sld is a 2-form, 6-line library.\n\nVerified against both of the spec's own worked examples (forever/\nabort, lambda^/return) plus 2 adversarial cases -- nested\nsyntax-parameterize of the same keyword, and a body-local variable\nsharing a name with the macro's own internal continuation identifier\n-- both passing without any implementation changes.\n\nBumps the SRFI count 171->172, reconciled against the canonical\nregistry: 172 implemented + 6 tracked + 30 excluded = 208.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T13:03:49+05:30",
-          "tree_id": "4b70b5b99b5adceee9fd87b2cd4b0636bcad3ac6",
-          "url": "https://github.com/kaappi/kaappi/commit/2e3b70a53dd6b3c2501bdd05fbbf2871e264d37a"
-        },
-        "date": 1785053514670,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.302535,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.596801,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.889038,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.412917,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006401,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053974,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.500314,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069164,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.538497,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.94864,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.564177,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441065,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.790539,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.601312,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043321,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043738,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93fa575717d4339d84e008953104d530adc3b622",
+          "message": "Stop a VM limit from arriving as a catchable condition (#1919)\n\nA recursive procedure that wraps its own recursive call in `guard` is\nordinary code, and past 64 levels it was silently incorrect: it returned\na plausible wrong value and exited 0.\n\nThe exception-handler and dynamic-wind stacks were fixed 64-entry inline\narrays. `with-exception-handler` relabelled the overflow as OutOfMemory\nand then converted it into an ordinary Scheme error object, so the\n*enclosing* guard caught it and its `(#t ...)` clause returned. A case\nthat must return 0 at every depth returned `(0 1 37)` for 63/64/100.\n`with-exception-handler` had it worse -- the overflow was invisible, the\nhandler simply receiving a bare `#<error \"error\">`.\n\nBoth stacks now grow on demand like the frame and register stacks\n(`-Dmax-handlers`/`-Dmax-winds`, hard cap 32768), and `errors.isUncatchable`\nkeeps VM limits and control-flow signals out of a user's `guard`: a limit\nof the implementation is not something the program raised, so it unwinds\nto the top level under its own code. `thread-terminate!` likewise no\nlonger runs the terminated thread's guard clauses on its way out.\n\nTwo error tags turned out to be overloaded, and only the suites said so.\n`OutOfMemory` is real exhaustion but equally the payload-size cap for\n`(make-vector 100000000000000)`, so it stays catchable. `StackOverflow`\ncovered `apply`'s 255-argument ceiling -- which is the bound that ends\nthe walk of a *circular* argument list, and has to stay recoverable --\nso those three sites become KP3007 with a message that names the real\nlimit, instead of sending readers to hunt for runaway recursion.\n\nFixes #1886\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T15:30:28Z",
+          "tree_id": "6ad812fa1bd824b3379e7100f27d2705bd03360c",
+          "url": "https://github.com/kaappi/kaappi/commit/93fa575717d4339d84e008953104d530adc3b622"
+        },
+        "date": 1785513593298,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.423656,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.619933,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.462667,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.548192,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005039,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04156,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.254491,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.048371,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.472071,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.039077,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.365679,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.271626,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.499003,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.83458,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038942,
             "unit": "seconds"
           }
         ]
