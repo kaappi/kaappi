@@ -190,7 +190,7 @@
     (test-equal #\b (read-char p))
     (close-port p))
   (delete-file path))
-;; FAIL: TBD (string-port port-position ignores the pushed-back peek byte: reports 3, next read-char yields the byte at offset 2)
+;; FAIL: #1941 (string-port port-position ignores the pushed-back peek byte: reports 3, next read-char yields the byte at offset 2)
 ;; (let ((p (open-input-string "a\rb")))
 ;;   (read-line p)
 ;;   (test-equal 2 (port-position p))
@@ -212,7 +212,7 @@
     (test-equal #\a (read-char p))
     (close-port p))
   (delete-file path))
-;; FAIL: TBD (set-port-position! on a string port does not discard stale read-ahead: a pushed-back peek byte survives the seek and is returned first)
+;; FAIL: #1941 (set-port-position! on a string port does not discard stale read-ahead: a pushed-back peek byte survives the seek and is returned first)
 ;; (let ((p (open-input-string "a\rXbcd")))
 ;;   (read-line p)
 ;;   (set-port-position! p 0)
@@ -285,13 +285,13 @@
   (test-equal #f (port-has-set-port-position!? r)))
 ;; Both SRFI 192 predicates are registered to the same Zig function, which only
 ;; inspects get_position_proc — so the two mixed cases below are both wrong.
-;; FAIL: TBD (port-has-set-port-position!? answers #t for a custom port with get-position but no set-position!, while set-port-position! on it raises)
+;; FAIL: #1941 (port-has-set-port-position!? answers #t for a custom port with get-position but no set-position!, while set-port-position! on it raises)
 ;; (let ((p (make-custom-binary-input-port "gp-only"
 ;;            (lambda (bv start count) 0) (lambda () 0) #f #f)))
 ;;   (test-equal #t (port-has-port-position? p))
 ;;   (test-equal #f (port-has-set-port-position!? p))
 ;;   (test-equal #t (raises? (lambda () (set-port-position! p 0)))))
-;; FAIL: TBD (port-has-set-port-position!? answers #f for a custom port with set-position! but no get-position, while set-port-position! on it succeeds)
+;; FAIL: #1941 (port-has-set-port-position!? answers #f for a custom port with set-position! but no get-position, while set-port-position! on it succeeds)
 ;; (let ((p (make-custom-binary-input-port "sp-only"
 ;;            (lambda (bv start count) 0) #f (lambda (k) k) #f)))
 ;;   (test-equal #f (port-has-port-position? p))
@@ -449,7 +449,7 @@
              #f #f #f)))
     (set! self p)
     (test-equal 65 (read-u8 p))))
-;; FAIL: TBD (a custom-port read! that re-enters a read on the same port and returns >1 byte trips std.debug.assert(port.read_buf == null) — process ABORTS, uncatchable; kept commented out because a panic would kill the whole suite)
+;; FAIL: #1939 (a custom-port read! that re-enters a read on the same port and returns >1 byte trips std.debug.assert(port.read_buf == null) — process ABORTS, uncatchable; kept commented out because a panic would kill the whole suite)
 ;; (let ((self #f) (depth 0) (n 0))
 ;;   (let ((p (make-custom-binary-input-port "reentrant-2byte"
 ;;              (lambda (bv start count)
@@ -469,7 +469,7 @@
 ;; returns exactly one byte the assert never fires, but the byte the inner
 ;; call had already buffered — chronologically EARLIER in the stream — is
 ;; served after it, so the stream is silently reordered.
-;; FAIL: TBD (re-entrant custom-port read! reorders the byte stream: the outer call's byte precedes bytes the inner call already buffered)
+;; FAIL: #1939 (re-entrant custom-port read! reorders the byte stream: the outer call's byte precedes bytes the inner call already buffered)
 ;; (let ((self #f) (depth 0))
 ;;   (let ((p (make-custom-binary-input-port "reentrant-order"
 ;;              (lambda (bv start count)
@@ -490,7 +490,7 @@
 ;; readOneByteFromTranscodedPort has the identical single-slot assert, reached
 ;; when a re-entrant read consumes only PART of a multi-byte character (here a
 ;; read-u8 that takes the lead byte and leaves the continuation byte behind).
-;; FAIL: TBD (same root cause one level up: a re-entrant read through a transcoded port trips std.debug.assert(port.read_buf == null) in readOneByteFromTranscodedPort — process ABORTS)
+;; FAIL: #1939 (same root cause one level up: a re-entrant read through a transcoded port trips std.debug.assert(port.read_buf == null) in readOneByteFromTranscodedPort — process ABORTS)
 ;; (let ((tp #f) (depth 0) (n 0))
 ;;   (let ((bp (make-custom-binary-input-port "tbase"
 ;;               (lambda (bv start count)
@@ -605,7 +605,7 @@
   (delete-file path))
 ;; flushOutputPort has a custom_backend branch and an isBufferedFdPort branch
 ;; but no transcode branch, and a transcoded port carries the fd -1 sentinel.
-;; FAIL: TBD (flush-output-port on a transcoded port is a silent no-op — it never reaches the wrapped port, so buffered output is not durable until close-port)
+;; FAIL: #1943 (flush-output-port on a transcoded port is a silent no-op — it never reaches the wrapped port, so buffered output is not durable until close-port)
 ;; (let ((path "/tmp/kaappi-audit-io-tcf.txt"))
 ;;   (let* ((bo (open-binary-output-file path))
 ;;          (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
