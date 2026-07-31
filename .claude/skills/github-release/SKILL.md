@@ -166,7 +166,8 @@ Note: `src/main.zig` and `src/thottam.zig` read the version from
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, aarch64-windows and x86_64-windows (kaappi-{aarch64,x86_64}-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, x86_64-openbsd, aarch64-openbsd, x86_64-netbsd, aarch64-netbsd, plus kaappi.wasm (wasm32-wasi)
+- CI builds kaappi and thottam binaries for all 14 targets — aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, s390x-linux, powerpc64le-linux, aarch64-windows and x86_64-windows (kaappi-{aarch64,x86_64}-windows.exe, cross-compiled), x86_64-freebsd, aarch64-freebsd, x86_64-openbsd, aarch64-openbsd, x86_64-netbsd, aarch64-netbsd — plus kaappi.wasm (wasm32-wasi) and the kaappi-lib.tar.gz portable-library bundle
+- Publishing now waits on the `ci-gate` job, which requires ci.yml to have passed for the tagged commit. A tag whose CI fails builds every artifact and then refuses to publish
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -278,14 +279,24 @@ ssh netbsd "ftp -o /tmp/kaappi-$TAG https://github.com/kaappi/kaappi/releases/do
 ssh netbsd "/tmp/kaappi-$TAG --version"
 ssh netbsd "echo '(display (+ 1 2)) (newline)' | /tmp/kaappi-$TAG /dev/stdin"
 ssh netbsd "/tmp/kaappi-$TAG features"
-ssh netbsd "echo '(import (scheme base)(scheme write)(srfi 144)) (write (> fl-least 0.0))' | /tmp/kaappi-$TAG /dev/stdin"
+ssh netbsd "echo '(display (> 5e-324 0.0)) (newline)' | /tmp/kaappi-$TAG /dev/stdin"
 ```
 
 Verify: version matches, the script prints `3`, `features` shows `posix`
 
-+ `kaappi-threads` with target `aarch64-netbsd-none`, and the SRFI-144
-probe prints `#t` (denormal arithmetic — guards the startup FPCR
-flush-to-zero fix on NetBSD/aarch64). See `docs/dev/netbsd.md`.
++ `kaappi-threads` with target `aarch64-netbsd-none`, and the denormal
+probe prints `#t` — that last one guards the startup FPCR flush-to-zero
+fix on NetBSD/aarch64. See `docs/dev/netbsd.md`.
+
+**The denormal probe is deliberately library-free.** The obvious spelling
+imports `(srfi 144)` and tests `(> fl-least 0.0)`, but a freshly imaged VM
+has no `~/.kaappi/lib`, so the import fails and the check dies with
+`undefined variable 'fl-least'` — which reads as a denormal regression on
+the very platform whose FPCR fix it exists to guard. Worse, a failed import
+does not stop execution, so the error surfaces downstream rather than at the
+import. `5e-324` is the same denormal with no library at all. Only reach for
+the SRFI-144 form on a VM you have already populated with
+`kaappi-lib.tar.gz`.
 
 ## Step 11: Update docs site (playground WASM + version)
 

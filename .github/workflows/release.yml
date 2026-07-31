@@ -6,6 +6,10 @@ on:
 
 permissions:
   contents: write
+  # ci-gate reads this repo's CI runs via `gh run list`. Declaring any
+  # `permissions:` block zeroes every scope not listed, so without this the
+  # gate 403s instead of gating.
+  actions: read
 
 jobs:
   build:
@@ -290,8 +294,58 @@ jobs:
             | ./${{ matrix.artifact }} /dev/stdin | grep -qx '2.0'
           echo "dynamic loading OK"
 
+  # The tag push and the `main` push start ci.yml and release.yml as two
+  # independent runs, so without this they race -- and publishing wins. v0.22.1
+  # went public at 06:35:24 with CI on the same commit still running, and would
+  # have published just the same had CI failed. Builds below run in parallel
+  # with CI regardless; only the publish waits, so gating costs no wall clock
+  # unless CI is genuinely the long pole.
+  ci-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Require CI to have passed for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          echo "Waiting for CI on $SHA"
+
+          # A tag pushed at the same moment as the branch can beat its own CI
+          # run into existence, so absence is retried rather than fatal.
+          for attempt in $(seq 1 80); do
+            read -r status conclusion url <<<"$(
+              gh run list --repo "$REPO" --workflow=ci.yml --commit="$SHA" \
+                --limit 1 --json status,conclusion,url \
+                --jq '.[0] // empty | "\(.status) \(.conclusion // "-") \(.url)"' 2>/dev/null || echo "")"
+
+            case "${status:-}" in
+              completed)
+                if [ "$conclusion" = "success" ]; then
+                  echo "CI passed: $url"
+                  exit 0
+                fi
+                echo "::error::CI concluded '$conclusion' for $SHA -- refusing to publish. $url"
+                exit 1
+                ;;
+              "")
+                echo "attempt $attempt: no CI run found yet for $SHA"
+                ;;
+              *)
+                echo "attempt $attempt: CI $status -- $url"
+                ;;
+            esac
+            sleep 60
+          done
+
+          echo "::error::Timed out waiting for CI to conclude on $SHA."
+          echo "::error::Re-run this job once CI finishes, or delete the tag if CI failed."
+          exit 1
+
   release:
-    needs: [build, build-wasm, linux-ffi-smoke]
+    needs: [build, build-wasm, linux-ffi-smoke, ci-gate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
