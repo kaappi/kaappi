@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785539638001,
+  "lastUpdate": 1785539747001,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "672db1f109080ba0300b8be4a29eebf4fb7572fa",
-          "message": "Promote expt to complex for negative base + non-integer exponent (#1725) (#1769)\n\nexptFn's real-number fallback called std.math.pow unconditionally,\nwhich returns +nan.0 for a negative base combined with a non-integer\nreal exponent (e.g. (expt -8.0 0.5), (expt -8 1/3)) instead of the\nwell-defined complex result — the same input shape sqrt already\npromotes correctly.\n\nFactored the existing z^w = e^(w*ln(z)) formula out of the\nalready-complex branch into a shared complexPowGeneral helper, and\nroute a finite negative base with a finite non-integer exponent\nthrough it before falling back to std.math.pow. Integer exponents\n(even via a flonum, e.g. -8.0^3.0) are left untouched since pow\nalready handles those correctly for a negative base.",
-          "timestamp": "2026-07-27T08:05:00+05:30",
-          "tree_id": "2c383fac6554457a1284c7c0b6197f216cad3a98",
-          "url": "https://github.com/kaappi/kaappi/commit/672db1f109080ba0300b8be4a29eebf4fb7572fa"
-        },
-        "date": 1785123400646,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.092422,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.545508,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.950123,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.412205,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006846,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052556,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507999,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068205,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.318538,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.969588,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.530846,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.48407,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.766816,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.742168,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04521,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044048,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ab961376f282c00a307028ea6aa09994bee2f311",
+          "message": "Drop the resolved blocker from the 5B entry (#1971)\n\n#1960 merged, so \"open, blocked by #1967\" is no longer true in either the\nstatus line or the unit entry. #1967 was the pipefail/grep -q race in the\nshell suites, fixed by #1966; 5B's FreeBSD leg then passed with nothing\nchanged but its base.\n\nLeft alone deliberately: the entry still records that 5B found no bugs in\nwaitForFd and says what it closed instead. That is the part most likely to\nbe misread as a wasted unit, and it is the reason the entry is worth\nhaving.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T03:29:54+05:30",
+          "tree_id": "833a0f07a416b0052c538d54bc36536d5875124f",
+          "url": "https://github.com/kaappi/kaappi/commit/ab961376f282c00a307028ea6aa09994bee2f311"
+        },
+        "date": 1785539745203,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.261632,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.641274,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.60754,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.949783,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005107,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04676,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316313,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057629,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.723387,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.205618,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.606921,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.290104,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.793277,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.685328,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044872,
             "unit": "seconds"
           }
         ]
