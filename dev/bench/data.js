@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785485903339,
+  "lastUpdate": 1785493531755,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b0b4029997a65f24a40c5f542bef218de71512cb",
-          "message": "Add SRFI 57/237/240/137/136/131, exclude 99/100/150 (SRFI Phase 4 slice 3, closes #1695) (#1736)\n\n* Add SRFI 237/240/137/136/131, exclude 99/100/150 (SRFI Phase 4 slice 3)\n\nCloses 8 of #1695's 9 SRFIs (57 remains open, tracked separately).\n\nSRFI 237 (R6RS Records, refined) is the one record-system SRFI needing\nreal engine changes, since a portable macro cannot synthesize the\nidentifiers R6RS's auto-naming record syntax requires: RecordType\n(types.zig) gained parent/own_field_names/own_field_mutable/uid/sealed/\nis_opaque fields (parent is the only new heap pointer, traced in all\nthree gc_collect.zig mark-graph switches; RecordType is fully immutable\nafter construction, so none of this needs a write barrier), and\nvm_records.zig's define-record-type desugarer gained a parallel R6RS-\nclause-syntax path dispatching alongside the original R7RS one.\nInheritance/protocol composition (including R6RS's own two-protocol\nworked example) uses a \"materialize the parent instance via its own\nconstructor, then re-extract its fields\" strategy instead of R6RS's own\nCPS n/p threading -- behaviorally identical, but needs no per-level\nspecial-casing regardless of protocol mixing at any depth. SRFI 240\n(Reconciled Records) is a thin syntactic-reconciliation layer over 237,\nexactly as its spec describes.\n\nGetting SRFI 136/131 (and any future SRFI reusing the name\ndefine-record-type) to work at all needed one more fix: Kaappi hardcoded\ndefine-record-type as a non-overridable special form in\nhandleTopLevelForm, checked before any macro table -- so no portable\nlibrary could ever give that name new meaning via define-syntax, even\nthough compiler.zig's compileForm already prioritized macros over\nspecial forms for every non-top-level use (its own comment cites SRFI\n219 redefining `define` as existing precedent for exactly this\nprinciple). handleTopLevelForm/isSpecialTopLevelForm now check for a\nuser macro literally named define-record-type first. This closes the\ngap only for top-level use; library-body use of a shadowing\ndefine-record-type is a documented, un-closed gap, same limitation as\nthe R6RS-clause syntax itself.\n\nSRFI 137 (Minimal Unique Types), 136 (Extensible record types, with its\nsignature CPS-style introspection macro), and 131 (ERR5RS Record Syntax\nreduced, with by-name rather than positional constructor field\nresolution) are pure portable Scheme built on (srfi 237)'s procedural\nlayer. SRFI 99, 100, and 150 are excluded: 99 and 100 both need\nidentifier synthesis from string concatenation at macro-expansion time\n(the same fundamental syntax-rules limitation as already-excluded SRFIs\n89/206/212); 150 needs SRFI 147/148's custom-macro-transformer support,\nwhich SRFI 147's own spec text says isn't portably implementable either.\n\nAlso documents a narrow, un-root-caused compiler quirk found while\nbuilding 136/131: calling one %-prefixed forward-referenced global as a\ndirect argument expression to another, inside a closure passed to map,\nraised a spurious \"undefined variable\" for the inner call -- reliably\nfixed by routing through an extra wrapper function, but worth a\ndedicated investigation later.\n\n* Add SRFI 57 (Records), fully closing issue #1695\n\nRecords with inheritance via \"schemes\" -- a named, reusable field-label\nlist that a type or another scheme can extend, with multiple schemes\nmergeable at once (left-to-right append + delete-duplicates), plus\nrecord-update/record-update!/record-compose for functional update,\nin-place update, and cross-type field composition.\n\nDeliberately does not port the spec's own reference implementation\ntechnique (macro-expansion-time identifier comparison via let-syntax):\na previously-undiscovered expander bug makes any let-syntax upstream of\na define-syntax in the same expansion chain fail to compile. Sidesteps\nit by doing all field-list merging/dedup/lookup on ordinary quoted\nsymbols at run time instead -- simpler than the reference design, not\njust a workaround, and needs no engine changes.\n\nThis closes SRFI Phase 4 issue #1695 in full (57/131/136/137/237/240\nshipped, 99/100/150 excluded).\n\n* Address CodeRabbit review: fix real bugs, document remaining gaps\n\nTwo genuine SRFI 57 spec violations, found by re-verifying against the\nactual spec text rather than trusting the earlier implementation:\n\n- record-compose had import precedence backwards (last import was\n  winning collisions; the spec's \"left to right, dropping any repeated\n  fields\" means the first import should win, matching delete-duplicates\n  semantics used elsewhere in this same spec).\n- define-record-type's field accessors/mutators were polymorphic\n  (resolving via the instance's own actual rtd) when the spec requires\n  them to be monomorphic (\"It is an error to pass an accessor a value\n  not of type <type name>\"); only scheme accessors are meant to be\n  polymorphic.\n\nAlso added: define-record-scheme/define-record-type's \"type-clause\nonly\" shorthand forms, runtime conformance/label-membership checks for\nrecord-update and record-update! (call-time, not expansion-time, since\ntarget is an ordinary value in this design -- documented), and an\nexplicit (srfi 237 primitives) import.\n\nOn the SRFI 237 engine side (used by 131/136/137/57 too): reject a\nsealed parent type per R6RS (both the define-record-type desugarer and\n%make-record-type-descriptor), check nongenerative-uid reuse for actual\nequivalence rather than reusing unconditionally, reject field counts\nthat would overflow the u8 field-count representation instead of\nletting @intCast panic, and make cross-thread deep-copy of a\nnongenerative record type reuse the destination VM's own registration\ninstead of minting a second, non-interoperable type with the same uid.\n\nLeft as documented, not fixed: SRFI 57's labeled record expressions\n(`(type-name (label expr)...)`) would need every scheme/type name to be\na macro rather than an ordinary value, conflicting with this library's\ncore design choice (see lib/srfi/57.sld's header); record_uid_registry\nhas the same lock-free cross-thread staleness tradeoff already accepted\nfor the pre-existing `macros` map, not a new regression.\n\nAlso fixes two documentation issues: a typo/garbled sentence in\nCLAUDE.md's SRFI 137 paragraph, and two self-contradicting statements\nin docs/dev/srfi-exclusions.md (an overgeneralized Gauche comparison,\nand a scope note that claimed SRFI 131 covers shorthands its own\n\"why excluded\" section says it drops).\n\n* Address second CodeRabbit pass: critical GC bug, nominal conformance\n\nCritical: fixed a permanent-GC-disable bug in vm_records.zig. Several\nblocks used `no_collect += 1; errdefer no_collect -= 1;` followed by a\nmanual mid-block `no_collect -= 1` and then MORE fallible operations\n(compileAndRunDefine) still inside the errdefer's scope. If any of those\nlater operations failed, the errdefer fired on top of the already-applied\nmanual decrement, underflowing the u32 counter and permanently disabling\nGC for the rest of the process. Fixed by replacing the errdefer + manual\ndecrement pair with a single unconditional `defer`, matching the pattern\ngc_deep_copy.zig already uses correctly. Applied to all 8 occurrences of\nthis shape in the file, including 4 pre-existing ones in the R7RS\nhandleDefineRecordType path (same file, same bug, latent before this PR).\n\nSRFI 57: replaced structural scheme conformance (\"has the right field\nnames\") with nominal conformance (\"was actually declared to extend this\nscheme\"), per the spec's own semantics. A record instance only carries a\npointer to its raw rtd, which has no room for this library's own scheme\nmetadata, so conformance now looks up a type's declared ancestry from a\nnew side table (%srfi57-registry, populated once per define-record-type)\nrather than checking field-name overlap. This closes a real gap: a\nsame-shaped but unrelated type used to pass every scheme predicate,\naccessor, and record-update/record-compose target check. Also added:\nrecord-compose now validates that each import actually conforms to its\ndeclared type/scheme, and that every explicit override label is a real\nfield of the export type (previously an import's raw field overlap was\nenough, and export labels went unchecked into %make-record positionally).\n\nAlso fixes two narrower gaps found in the same pass: cross-thread\ndeep-copy of a nongenerative record type was registering the copy in the\ndestination VM using the SOURCE's uid string as the hash key (a\ndangling-pointer risk once the source heap is freed) -- now keys by the\ncopy's own, destination-owned uid string. And the R6RS\ndefine-record-type desugarer's nongenerative-uid reuse had the same\nmissing equivalence check already fixed on the %make-record-type-descriptor\nprimitive in the previous commit -- factored fieldsEquivalent out as a\nshared, exported helper and applied it here too.\n\nTwo pre-existing test bugs surfaced by the nominal-conformance fix (both\nrelied on structural coincidence rather than declared conformance) are\ncorrected: `person` and `cp` in the test suite now actually declare the\nschemes their own tests assume they conform to.\n\n* Update CLAUDE.md's SRFI 57 writeup to reflect nominal conformance + no_collect fix\n\n* Fix SRFI 237 record-name binding and add generative clause support\n\nTwo more real gaps found by CodeRabbit's third pass, both in the R6RS\ndefine-record-type desugarer this PR added:\n\n- The declared record name itself (e.g. `point`) was never bound to\n  anything -- only a hidden, redefinition-stable internal alias\n  (`__record_type_point`) was. SRFI 237's own spec is explicit: \"As an\n  expression, this keyword evaluates to the underlying record\n  descriptor.\" Fixed by binding the declared name to the same rtd value,\n  alongside (not instead of) the internal alias, which inheritance/\n  self-reference still needs.\n\n- SRFI 237 adds a `(generative)` clause to R6RS's clause set, mutually\n  exclusive with `(nongenerative ...)`. It wasn't recognized at all, so\n  a spec-valid declaration fell through to the R7RS parser and failed.\n  Added as a clause keyword; parses as a no-op (a record type is already\n  generative by default) and is rejected in combination with\n  `nongenerative`.\n\nBoth verified against the actual SRFI 237 spec text before fixing.\nRegression tests added to tests/scheme/srfi/srfi237.scm; the\ngenerative+nongenerative rejection is verified via a standalone script\ninstead (a malformed top-level define-record-type is a compile error\nthat aborts the whole file, not a catchable exception a SRFI-64 suite\ncan assert against in-process).",
-          "timestamp": "2026-07-24T21:25:23+05:30",
-          "tree_id": "5d3586c48e5a89633f33fd3f0e39d0cc4ef5123d",
-          "url": "https://github.com/kaappi/kaappi/commit/b0b4029997a65f24a40c5f542bef218de71512cb"
-        },
-        "date": 1784910978295,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.00241,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.853093,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912306,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.394613,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006598,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052864,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508733,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068203,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.290659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.958571,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513155,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.47536,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.698233,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.726246,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045236,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044503,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12588782c29762552483fa03b64786a3232e731b",
+          "message": "Rewrite the audit strategy for a codebase that now has fuzzers (#1889)\n\nThe v1 campaign (#1137) closed on 2026-07-05 and its document still\ndescribes what it audited: ~39k lines, 578 procedures, 21 primitives\nfiles, 72 SRFIs. Since its base commit that is 417 commits and +67k\nlines ago. 132 of 162 .sld files and 166 of 200 SRFI tests postdate it,\nso for most of the tree a second campaign is a first audit, not a\nre-audit — and ten primitives files have no audit test at all.\n\nTwo things change the shape of the work rather than just its size.\n\nThe project now runs nightly differential fuzzing with three oracles\n(opt-vs-no-opt, VM-vs-native, Kaappi-vs-Chibi). v1 predates all of it,\nso v2 is scoped explicitly as the complement: fuzzers own crashes and\ntier divergence inside a generated subset, the audit owns breadth and\nanything whose oracle is a document rather than the implementation's\nother half. Without that split the obvious next campaign would spend\nits budget rebuilding harnesses that already run every night.\n\nAnd a large fraction of the remaining work is documentation truth, not\ntesting. Five of the six expander limitations CLAUDE.md lists as open\nare fixed; the eval_fallback_form_names hazard it warns about has\nmigrated to a different, still hand-maintained list; the SRFI 58/163\nexclusions rest on two statements that are now false. An auditor\ntrusting the docs today loses sessions to bugs fixed months ago, which\nis why the truth pass is Phase 0 and not an afterthought.\n\nA seven-agent reconnaissance pass fed the rewrite and is recorded in\nit: 13 reproduced findings against a fully green suite (624/624 Scheme\nfiles, 1395/1395 R7RS assertions). That gap is the campaign's\njustification — the suite is green because it does not ask these\nquestions, not because the answers are right.\n\nThe audit-primitives skill is updated in the same commit because every\nPhase 2 session loads it and it had drifted onto the old\n`try reg(vm, ...)` registration and a 18-of-31 file list.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T15:02:02+05:30",
+          "tree_id": "6cb49d8cb3805204fa855918b2bda28f91a115f7",
+          "url": "https://github.com/kaappi/kaappi/commit/12588782c29762552483fa03b64786a3232e731b"
+        },
+        "date": 1785493530297,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.935647,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.864529,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562005,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.832828,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004842,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044575,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.293627,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054868,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.284727,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.158065,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.511626,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.301755,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.68899,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.783272,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046638,
             "unit": "seconds"
           }
         ]
