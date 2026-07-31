@@ -57,7 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   nested native frame: `guard`, and the native higher-order drivers (SRFI-1
   `fold`/`filter`/`find`, `hash-table-walk`, `assoc`/`member` with a custom
   predicate, `string-index`, `eval`). README's matching list also dropped
-  `sort`, which is portable Scheme (SRFI 95) and parks too.
+  `sort`, which is portable Scheme (SRFI 95) and parks too — a fiber
+  blocking inside a `sort` comparator is now covered by the same test.
 - **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
   The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
   Past that, `with-exception-handler` relabelled the overflow as

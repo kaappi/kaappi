@@ -169,7 +169,7 @@ test "closing a port with a parked reader raises a clean error in that fiber" {
     try std.testing.expectEqual(types.TRUE, r);
 }
 
-test "#1959: a reader inside dynamic-wind or map parks; only native frames drive" {
+test "#1959: a reader inside dynamic-wind, map or sort parks; only native frames drive" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -177,19 +177,24 @@ test "#1959: a reader inside dynamic-wind or map parks; only native frames drive
 
     const pipe1 = makePipe();
     const pipe2 = makePipe();
+    const pipe3 = makePipe();
     _ = try definePortGlobal(vm, "rp1", pipe1[0], true, false);
     _ = try definePortGlobal(vm, "wp1", pipe1[1], false, true);
     _ = try definePortGlobal(vm, "rp2", pipe2[0], true, false);
     _ = try definePortGlobal(vm, "wp2", pipe2[1], false, true);
+    _ = try definePortGlobal(vm, "rp3", pipe3[0], true, false);
+    _ = try definePortGlobal(vm, "wp3", pipe3[1], false, true);
 
-    _ = try vm.eval("(import (kaappi fibers))");
-    // dynamic-wind and map are bootstrapped Scheme (vm_bootstrap.zig), not
-    // natives: their callbacks run in the bytecode dispatch loop, so a fiber
-    // blocking on an fd inside one parks and retries like a bare read. Only
-    // *native* re-entrant frames — guard's exception plumbing (the test
-    // below), native higher-order drivers, eval — force the drive-in-place
-    // path. This pins the split that raiseIoWaitAbandoned's message names,
-    // which listed dynamic-wind as unparkable until #1959.
+    _ = try vm.eval("(import (kaappi fibers) (srfi 95))");
+    // dynamic-wind and map are bootstrapped Scheme (vm_bootstrap.zig) and
+    // sort is portable Scheme (lib/srfi/95.sld) — none is a native: their
+    // callbacks run in the bytecode dispatch loop, so a fiber blocking on
+    // an fd inside one parks and retries like a bare read. Only *native*
+    // re-entrant frames — guard's exception plumbing (the test below),
+    // native higher-order drivers, eval — force the drive-in-place path.
+    // This pins the split that raiseIoWaitAbandoned's message names, which
+    // listed dynamic-wind as unparkable until #1959 (and which README and
+    // the docs site's conformance page both listed `sort` under).
     _ = try vm.eval(
         \\(define fw (spawn (lambda ()
         \\  (dynamic-wind (lambda () #f)
@@ -200,11 +205,23 @@ test "#1959: a reader inside dynamic-wind or map parks; only native frames drive
         \\(define fm (spawn (lambda ()
         \\  (car (map (lambda (p) (read-char p)) (list rp2))))))
     );
-    // Dispatch both before any writer exists, so the assertion cannot be
-    // satisfied by a lucky write-first schedule: a fiber that drove in place
-    // instead of parking never reaches .io_waiting here.
+    // The comparator reads once and caches: sort calls less? an unspecified
+    // number of times, but only the first must find the pipe empty. (A park
+    // re-executes the read-char primitive, not the enclosing comparator, so
+    // the cache survives the retry.)
+    _ = try vm.eval(
+        \\(define fs (spawn (lambda ()
+        \\  (let ((c #f))
+        \\    (sort (list 2 1)
+        \\          (lambda (a b)
+        \\            (if (not c) (set! c (read-char rp3)))
+        \\            (< a b)))))))
+    );
+    // Dispatch all three before any writer exists, so the assertion cannot
+    // be satisfied by a lucky write-first schedule: a fiber that drove in
+    // place instead of parking never reaches .io_waiting here.
     _ = try vm.eval("(fiber-join (spawn (lambda () 1)))");
-    for ([_][]const u8{ "fw", "fm" }) |name| {
+    for ([_][]const u8{ "fw", "fm", "fs" }) |name| {
         const f_val = try vm.eval(name);
         try std.testing.expectEqual(fiber_mod.FiberStatus.io_waiting, types.toObject(f_val).as(fiber_mod.Fiber).status);
     }
@@ -212,10 +229,12 @@ test "#1959: a reader inside dynamic-wind or map parks; only native frames drive
     _ = try vm.eval(
         \\(define w (spawn (lambda ()
         \\  (write-char #\a wp1) (flush-output-port wp1)
-        \\  (write-char #\b wp2) (flush-output-port wp2))))
+        \\  (write-char #\b wp2) (flush-output-port wp2)
+        \\  (write-char #\c wp3) (flush-output-port wp3))))
     );
     try std.testing.expectEqual(types.makeChar('a'), try vm.eval("(fiber-join fw)"));
     try std.testing.expectEqual(types.makeChar('b'), try vm.eval("(fiber-join fm)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (fiber-join fs) '(1 2))"));
 }
 
 test "#1625: guard reader's idle drive unwinds instead of wedging a resolved join" {
