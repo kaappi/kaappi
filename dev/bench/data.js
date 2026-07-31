@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785508160308,
+  "lastUpdate": 1785509661303,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fa3743b61625f481f18067c3ae02bc1412bdfe3c",
-          "message": "Add SRFI 231 views, sharing, and reshaping (#1694 array family, phase 3) (#1752)\n\nFourth of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld for the overall\nroadmap. This slice adds the 11-procedure \"views/sharing/reshaping\"\ncluster the spec's own \"Sharing generalized arrays\" section names as a\nnatural unit: specialized-array-share (the foundational primitive),\narray-extract, array-translate, array-permute, array-reverse,\narray-curry, array-tile, array-sample, array-copy/array-copy!, and\nspecialized-array-reshape.\n\nlib/srfi/231/arrays.sld (phase 2, already merged) gets one small,\npurely additive change: %make-array/%safe-getter/%safe-setter/\n%make-lex-indexer are now exported for this and later phases' sibling\nlibrary files to build genuinely specialized arrays with custom\nindexers, the same way (srfi 160 base)'s %uvec-* helpers exist only\nfor that package's own per-tag files.\n\nlib/srfi/231/views.sld: extract/translate/permute/reverse/sample all\nshare one 3-way dispatch shape (specialized -> specialized-array-share;\nmutable-non-specialized -> make-array with getter+setter; immutable ->\nmake-array with getter only), with the output mirroring the input's\nmode exactly. array-curry and array-tile break this pattern\ndeliberately -- their OUTER array is unconditionally plain immutable/\nnon-specialized regardless of input mode (confirmed by an explicit\nspec quote for curry: \"B is always an immutable array... computed anew\nfor each call\", i.e. never cached), while their INNER\nelements/tiles follow the same 3-way mirroring as everything else.\n\narray-permute needed real care to get the index-rearrangement direction\nright (apply the permutation's inverse to the new multi-index to\nrecover old coordinates) -- verified against both of the spec's own\nworked examples, including the rank-4 one showing it's the new getter's\nown parameter *list* that gets permuted, not a runtime rearrangement.\narray-tile's last-slice truncation (when an axis width doesn't divide\nevenly by a uniform slice size) is spec-sanctioned via an explicit\nmin(), not an error -- verified against the spec's own 6x6 non-uniform\nworked example exactly, including the truncated case.\n\nspecialized-array-reshape deliberately implements a conservative\nsimplification of the reference implementation's full NumPy-derived\nmulti-group stride-matching algorithm: it succeeds zero-copy whenever\nthe source is already array-packed? (the overwhelmingly common case,\ne.g. reshaping a fresh array-copy result) via a plain row-major\nreindex, and otherwise behaves exactly as the spec allows for a failed\ndetection (error, or forced-copy-then-retry when copy-on-failure? is\n#t). This never wrongly claims an affine map exists, but is more\nconservative than the full algorithm for some non-packed-but-still-\naffinely-reshapable arrays -- verified identical to the full algorithm\non both of the spec's own worked examples (a packed reshape succeeding;\na array-sample'd non-packed reshape failing, then succeeding with\ncopy-on-failure?).\n\narray-copy and array-copy! are implemented identically (a direct fill\nloop), a deliberate, documented scope reduction versus the spec's\noptional extra call/cc-safety guarantee for array-copy specifically\n(accumulate-to-a-list-before-filling) -- getters that escape and\nre-invoke a captured continuation mid-copy are exotic enough not to\njustify the added complexity for this phase.\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-25T19:22:24Z",
-          "tree_id": "51d17351f93a3fee98ec8369f58c05734ebfaebe",
-          "url": "https://github.com/kaappi/kaappi/commit/fa3743b61625f481f18067c3ae02bc1412bdfe3c"
-        },
-        "date": 1785009716820,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.139127,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.743474,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.652961,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.233982,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006246,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.042183,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.363283,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054663,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.122165,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.450183,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.242532,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.409978,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.374582,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.884071,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034042,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043638,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5dcf4e3776e00eae9b64a70f3cc550d528aa5646",
+          "message": "Phase 4B: differential harness for the opt-off and cache tiers — 557 files, one real divergence (#1923)\n\n* Turn the execution-tier differential into a repeatable gate\n\nThe reconnaissance pass ran tiers (b) `--no-ir-opt` and (d) cold-vs-warm\n`.sbc` cache once, across 333 files, and found nothing. A one-off green\nrun is not a gate, and — for tier (b) — it was not even much of a\nnegative: only 3 of the 550 pre-existing corpus files make the IR\noptimiser do anything at all, because every `define`/`lambda` body lowers\nto an opaque `passthrough` node and the five passes only ever reach\ntop-level expression position. The other 547 compile identically with the\noptimiser off, so the comparison was vacuous for 99.5% of the corpus.\n\nSo the harness does three things the one-off sweep did not.\n\nIt measures its own vacuity. The summary reports how many files change IR\nunder `--no-ir-opt` and how many populated the bytecode cache (40 of 330\nby default; a program that imports is never cached), so a regression that\nsilently disables either shows up as a count collapsing rather than as a\nstill-green run.\n\nIt ships probes that the passes actually reach. `probes/` puts foldable,\ndead-branch, `not`-rewrite, identity and nested-`begin` shapes at top\nlevel, where the passes live, and leans on the cases where the rewrite is\nonly conditionally sound: `(if 0 ...)` is true in Scheme, `(* 1.5 0)` is\nnot `1.5`, and a shadowed `+`/`*`/`not` must suppress the rewrite\nentirely. Six of the seven are verified non-vacuous, tripling the number\nof corpus files that exercise the optimiser.\n\nIt decides nondeterminism by measurement instead of by a guessed skip\nlist. A tier mismatch has to survive three controls before it is\nreported: the file must actually be cached (otherwise cold and warm are\nthe same configuration, so a tier-(d) mismatch cannot be a cache effect),\ntwo cold baselines must agree, and the divergence must reproduce. The\nfirst control is what distinguishes a real finding from\n`nested-wait-under-sleep-dirty-snapshot-1490.scm`, which hung once under\nload and read as a cache divergence until the check was added. The static\nskip list is consequently empty.\n\nOne real divergence, found by the probes and suppressed via KNOWN_DIFFS\nso the suite stays green: on a cache HIT a runtime error loses its source\nline and snippet whenever the location comes from `Function.source_line`\nrather than the line table, because `vmErrorLocation`'s `fallback_line`\nis a hardcoded 0 on the cache-HIT path where the fresh-compile path\npasses the top-level datum's line. Exit code and stdout agree; only the\ndiagnostic degrades. `probes/cache-error-location.scm` carries the repro\nand its control side by side — `vector-ref` out of range, located by the\nline table, prints identically in both runs.\n\nUnlike the `;; FAIL: #1234` convention, that suppression cannot rot\nquietly: when a listed entry stops diverging the summary says so and asks\nfor it to be deleted. It is a note rather than a failure, because a gate\nthat goes red the moment someone fixes a bug teaches people to distrust\nit.\n\nWired into run-all.sh over the smoke+compliance+audit corpus plus the\nprobes: 330 files, 116s, inside the 300s shell-suite budget.\n`KAAPPI_DIFF_FULL=1` adds continuations/, hygiene/ and srfi/ — 557 files,\n210s — and is opt-in rather than the default because the extra 227 files\nbuy no additional tier coverage: zero of them change the IR, and they add\nseven cached files.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point the known cache divergence at kaappi#1922\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Reduce the differential corpus to probes/ on a Debug build\n\nCI's Debug leg killed the suite at run-all.sh's 300s SHELL_TIMEOUT. Debug\nruns the whole pipeline unoptimised and is ~500x slower on allocation-heavy\nwork, and the harness is ~1000 interpreter invocations, so the same sweep\nthat takes 110s on ReleaseSafe does not finish.\n\nReducing to probes/ rather than skipping the suite or raising the budget,\nbecause the census the harness itself reports says probes/ is where the\nsignal is: 9 of 331 corpus files make the optimiser do anything and 6 of\nthose 9 are the probes. Debug now runs 7 files in 15s and still covers 6 of\nthe 9 discriminating ones, so what it drops is the part that was vacuous by\nconstruction.\n\nDetected from {\"version\":\"0.22.0\",\"build_id\":\"ca18ae6\",\"target\":\"aarch64-macos-none\",\"build_mode\":\"ReleaseSafe\",\"gc_stress\":false,\"sandbox_available\":true,\"features\":[\"r7rs\",\"kaappi\",\"ieee-float\",\"exact-closed\",\"exact-complex\",\"kaappi-fibers\",\"kaappi-reactor\",\"kaappi-diagnostics\",\"posix\",\"kaappi-threads\"],\"srfis\":{\"builtin\":[1,9,13,18,39,69,133,170,192,254,258,260],\"portable\":[0,2,4,5,6,7,8,11,14,16,17,19,23,25,26,27,28,29,30,31,34,35,36,37,38,41,42,43,44,45,46,48,51,54,57,59,60,61,62,63,64,66,67,70,71,74,78,86,87,90,94,95,98,101,111,112,113,115,116,117,118,120,123,125,126,127,128,129,130,131,132,134,135,136,137,139,140,141,143,144,145,146,147,148,149,150,151,152,153,156,158,161,162,164,165,166,167,168,169,171,173,174,175,178,180,181,185,188,189,190,193,194,195,196,197,201,202,203,207,209,210,213,214,215,216,217,219,221,222,223,224,225,227,228,229,231,232,233,234,235,236,237,238,239,240,241,242,244,247,248,250,251,252,253,255,257,259,263,264,267,270,271]},\"limits\":{\"initial_frame_capacity\":480,\"initial_register_capacity\":2048,\"gc_initial_threshold\":8192}} rather than an env var, so it is\nright whether the build came from CI, a local -Doptimize=Debug, or a stale\nzig-out. KAAPPI_DIFF_FULL=1 still forces the whole corpus.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T19:39:36+05:30",
+          "tree_id": "8976b3f277bc70b7a9d4ba341d32f72610c96978",
+          "url": "https://github.com/kaappi/kaappi/commit/5dcf4e3776e00eae9b64a70f3cc550d528aa5646"
+        },
+        "date": 1785509657923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.973515,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.444874,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566195,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.842375,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004866,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044536,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297518,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055164,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.305599,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.158962,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.507275,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302923,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.833881,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.777322,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044957,
             "unit": "seconds"
           }
         ]
