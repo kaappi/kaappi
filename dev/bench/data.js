@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785536946866,
+  "lastUpdate": 1785537514346,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4fe15c21592e12c4ca0999662c85931c864a868f",
-          "message": "Freeze R7RS 4.3.1 peer snapshot permanently, not per-call (#1766)\n\nCodeRabbit-caught, and more serious than it first looked: the previous\nfix (free the old let_syntax_peer_names/vals pair before every\ncross-form overwrite) treated recomputing the sibling-suppression\nsnapshot against a different let-syntax form's own bindings as\nnecessary and correct. It isn't. R7RS 4.3.1's peer snapshot exists to\nfreeze a template's free references against whatever was in scope at\nthe template's own true point of definition, specifically so that\nlater shadowing at some other use site can't reach in and change what\na name resolves to -- recomputing it against a different form's outer\nbindings is exactly the interference the mechanism exists to prevent.\n\nConfirmed via a properly discriminating reproduction (a plain top-level\nprocedure as the shared free reference can't tell the two designs\napart at all, since procedure bindings were never captured by\nlet_syntax_peer_vals in the first place -- only a macro, redefined\nbetween two forms, exposes it): recomputing silently changed a\npreviously-correct answer from 11 to -10. Nesting the reuse inside the\ndefining form's own body was worse, corrupting the outer binding too\n(500 instead of 6).\n\nFixed by replacing the per-call tx_vals-prefix scan with a permanent,\nonce-per-object Transformer.peers_computed flag, mirroring `finalized`\nbut kept as its own field since peer suppression is\ncompileLetSyntax-specific. Also applies CodeRabbit's suggested\natomic-dupe pattern (dupe both new slices before touching the old ones,\nso a second-dupe OOM can't leave one field freed and the other stale).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T23:08:20Z",
-          "tree_id": "b7e150daffa191224dc6bd6bc28487013267b00d",
-          "url": "https://github.com/kaappi/kaappi/commit/4fe15c21592e12c4ca0999662c85931c864a868f"
-        },
-        "date": 1785109579145,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.362588,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.258808,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.904272,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.508168,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006376,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054694,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.51119,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069472,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.489568,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.999023,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.591191,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436074,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.866375,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.630811,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044109,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042888,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fab1e9e9864d8b9b0caf98df3609801924cefe37",
+          "message": "Bump vmactions/netbsd-vm from 1.4.3 to 1.4.4 in the github-actions group (#1970)\n\nBumps the github-actions group with 1 update: [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm).\n\n\nUpdates `vmactions/netbsd-vm` from 1.4.3 to 1.4.4\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/fac0a63f3e5244c600cb9ca532d27ee774ecdb4b...bf34bcd909bb50856f934a67d09a8fbe2b966a1b)\n\n---\nupdated-dependencies:\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.4.4\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-01T02:31:30+05:30",
+          "tree_id": "0e04d110683f4745caedbdc00e29ef9edc2bcc65",
+          "url": "https://github.com/kaappi/kaappi/commit/fab1e9e9864d8b9b0caf98df3609801924cefe37"
+        },
+        "date": 1785537513088,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.927184,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.157308,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560264,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.816146,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004844,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045731,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.295585,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054657,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.31871,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.157812,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.577712,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.296566,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.675182,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.765222,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044383,
             "unit": "seconds"
           }
         ]
