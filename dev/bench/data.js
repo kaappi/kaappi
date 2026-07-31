@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785511044427,
+  "lastUpdate": 1785512698000,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8221fd0429993177149d81e279b0b3283e878890",
-          "message": "Fix CLAUDE.md: the 7 tracked macro/syntax SRFIs are issue #1699, not untriaged (#1756)\n\nPR #1755's SRFI-count reconciliation correctly identified 72, 139, 147,\n148, 149, 211, 213 as the 7 still-tracked final SRFIs, but wrongly\ncalled them \"untriaged; no issue filed\" -- issue #1699 (\"Implement\nSRFI macro & syntax extension libraries\") already tracks exactly this\nset, filed and open. Caught by checking `gh issue list` after the\nfact, not by any verification built into the original edit.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T10:59:58+05:30",
-          "tree_id": "e4145f3453f6df3a8a80a2b2185619f356991aef",
-          "url": "https://github.com/kaappi/kaappi/commit/8221fd0429993177149d81e279b0b3283e878890"
-        },
-        "date": 1785047057936,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.27975,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.220866,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.894887,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.409087,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006408,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053375,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.498585,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069058,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.541488,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.931807,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.565725,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433913,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799244,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.661465,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043728,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044976,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6114398ba48db971cd17792170b82d92e3f439fd",
+          "message": "Tick the eight units landed in the first two batches (#1948)\n\nThe tracker read 2 of 53 while eight units were merged, because each\nunit's PR added its test file without touching the tracker. The document\ncalls that tracker the single source of truth, so a stale one is the same\nfailure Phase 0B existed to fix: the next session to open it would have\nre-run work already done and re-filed issues already filed.\n\nEach entry records its PR and the issues it produced, so the tracker\nanswers what a unit found without needing eight PRs opened alongside it.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T20:49:37+05:30",
+          "tree_id": "3994183ec5106eb2bdac9eda445056deddab5073",
+          "url": "https://github.com/kaappi/kaappi/commit/6114398ba48db971cd17792170b82d92e3f439fd"
+        },
+        "date": 1785512696769,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.352258,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.083364,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.59766,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.981369,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004997,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047616,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.319096,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057249,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.645299,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231968,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.619376,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284556,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815246,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.648532,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043738,
             "unit": "seconds"
           }
         ]
