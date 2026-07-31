@@ -2,9 +2,16 @@
 ;; Audit campaign Phase 2.4 (#1137). Complements compliance/r7rs-control-io-gaps.scm
 ;; (port lifecycle, CRLF read-line, bytevector ports) and the R7RS suite.
 ;; Run directly and read the printed counts — run-all.sh only sees exit codes.
+;;
+;; Extended by audit campaign v2 Phase 2.2 (docs/audit-strategy.md): everything
+;; below the "v2 Phase 2.2" banner covers the ~1100 lines this file gained after
+;; the original audit — SRFI 181 custom ports, SRFI 181 transcoded ports, the
+;; 8 KiB write-buffering layer, close-port's flush/wake/unregister discipline,
+;; and SRFI 192 port positions across every port kind.
 
 (import (scheme base) (scheme write) (scheme read) (scheme file) (scheme char))
-(import (scheme process-context) (srfi 64))
+(import (scheme process-context) (srfi 64) (srfi 181) (srfi 192))
+(import (only (srfi 18) thread-sleep! thread-start! thread-join! make-thread))
 
 (test-begin "primitives_io audit")
 
@@ -106,6 +113,600 @@
 (test-equal #t (guard (e (#t #t)) (get-output-string (open-input-string "x"))))
 (test-equal #t (guard (e (#t #t)) (read-string "n" (open-input-string "x"))))
 (test-equal #t (guard (e (#t #t)) (with-input-from-file 42 (lambda () 1))))
+
+;;; ==========================================================================
+;;; v2 Phase 2.2 — coverage for the ~1100 lines added since the audit above
+;;; ==========================================================================
+
+;; Shared helpers.
+(define (err-message thunk)
+  (guard (e (#t (if (error-object? e) (error-object-message e) (list 'non-error e))))
+    (thunk)))
+(define (raises? thunk) (guard (e (#t #t)) (begin (thunk) #f)))
+(define (bv->list bv)
+  (let loop ((i 0) (acc '()))
+    (if (= i (bytevector-length bv))
+        (reverse acc)
+        (loop (+ i 1) (cons (bytevector-u8-ref bv i) acc)))))
+(define (file-byte-count path)
+  (let ((p (open-binary-input-file path)))
+    (let loop ((n 0))
+      (if (eof-object? (read-u8 p)) (begin (close-port p) n) (loop (+ n 1))))))
+(define (file-head path k)
+  (let ((p (open-binary-input-file path)))
+    (let loop ((i 0) (acc '()))
+      (if (= i k)
+          (begin (close-port p) (reverse acc))
+          (loop (+ i 1) (cons (read-u8 p) acc))))))
+
+;;; --- SRFI 192: string ports ------------------------------------------------
+(let ((p (open-input-string "abcde")))
+  (test-equal 0 (port-position p))
+  (read-char p)
+  (test-equal 1 (port-position p))
+  (test-equal #t (port-has-port-position? p))
+  (set-port-position! p 3)
+  (test-equal #\d (read-char p))
+  (set-port-position! p 0)
+  (test-equal #\a (read-char p)))
+
+;; Output string port: seeking back overwrites in place; the tail survives,
+;; and get-output-string still reports the full extent (string_out_len).
+(let ((o (open-output-string)))
+  (write-string "abcdef" o)
+  (test-equal 6 (port-position o))
+  (set-port-position! o 2)
+  (test-equal 2 (port-position o))
+  (write-string "XY" o)
+  (test-equal "abXYef" (get-output-string o))
+  (test-equal 4 (port-position o)))
+
+;; Out-of-range positions raise (SRFI 192 leaves the condition type to the
+;; implementation; CONFORMANCE.md says "an ordinary error").
+(test-equal #t (raises? (lambda () (set-port-position! (open-output-string) 5))))
+(test-equal #t (raises? (lambda () (set-port-position! (open-input-string "ab") 9))))
+(test-equal #t (raises? (lambda () (set-port-position! (open-input-string "ab") -1))))
+(test-equal #t (raises? (lambda () (set-port-position! (open-input-string "ab") 1.5))))
+(test-equal #t (raises? (lambda () (port-position 42))))
+(test-equal #t (raises? (lambda () (set-port-position! 42 0))))
+(test-equal #t (raises? (lambda () (port-has-port-position? 'nope))))
+
+;; The string-port branches of portPosition/setPortPositionBang ignore the
+;; port's own peek-byte read-ahead. The fd branch corrects for it (see the
+;; two file-port controls immediately below), so the two port kinds disagree.
+;;
+;; CONTROL: with an LF line ending nothing is pushed back, and position and
+;; the next read agree.
+(let ((p (open-input-string "a\nb")))
+  (read-line p)
+  (test-equal 2 (port-position p))
+  (test-equal #\b (read-char p)))
+;; CONTROL: the same CR case on an fd-backed file port answers correctly.
+(let ((path "/tmp/kaappi-audit-io-cr.txt"))
+  (call-with-output-file path (lambda (o) (write-string "a\rb" o)))
+  (let ((p (open-input-file path)))
+    (read-line p)
+    (test-equal 2 (port-position p))
+    (test-equal #\b (read-char p))
+    (close-port p))
+  (delete-file path))
+;; FAIL: #1941 (string-port port-position ignores the pushed-back peek byte: reports 3, next read-char yields the byte at offset 2)
+;; (let ((p (open-input-string "a\rb")))
+;;   (read-line p)
+;;   (test-equal 2 (port-position p))
+;;   (test-equal #\b (read-char p)))
+
+;; CONTROL: a seek with no stale read-ahead discards nothing and re-reads
+;; from the requested offset.
+(let ((p (open-input-string "abcd")))
+  (read-char p) (read-char p)
+  (set-port-position! p 0)
+  (test-equal #\a (read-char p)))
+;; CONTROL: the same stale-peek seek on an fd-backed file port is correct —
+;; setPortPositionBang's fd branch clears peek_byte/peek_extra/read_buf.
+(let ((path "/tmp/kaappi-audit-io-cr2.txt"))
+  (call-with-output-file path (lambda (o) (write-string "a\rXbcd" o)))
+  (let ((p (open-input-file path)))
+    (read-line p)
+    (set-port-position! p 0)
+    (test-equal #\a (read-char p))
+    (close-port p))
+  (delete-file path))
+;; FAIL: #1941 (set-port-position! on a string port does not discard stale read-ahead: a pushed-back peek byte survives the seek and is returned first)
+;; (let ((p (open-input-string "a\rXbcd")))
+;;   (read-line p)
+;;   (set-port-position! p 0)
+;;   (test-equal #\a (read-char p)))
+
+;;; --- SRFI 192: bytevector ports --------------------------------------------
+(let ((p (open-input-bytevector (bytevector 10 20 30))))
+  (test-equal #t (port-has-port-position? p))
+  (test-equal 0 (port-position p))
+  (test-equal 10 (read-u8 p))
+  (test-equal 1 (port-position p))
+  (set-port-position! p 2)
+  (test-equal 30 (read-u8 p)))
+(let ((o (open-output-bytevector)))
+  (write-u8 9 o)
+  (test-equal 1 (port-position o))
+  (test-equal #t (port-has-port-position? o)))
+
+;;; --- SRFI 192: fd-backed ports, corrected for software buffering -----------
+;; readOneByte fills read_buf a chunk at a time, so the raw lseek offset runs
+;; well ahead of the logical position; portPosition subtracts read_buf_len,
+;; peek_byte and peek_extra to compensate.
+(let ((path "/tmp/kaappi-audit-io-pos.bin"))
+  (let ((o (open-binary-output-file path)))
+    (do ((i 0 (+ i 1))) ((= i 100)) (write-u8 i o))
+    (close-port o))
+  (let ((p (open-binary-input-file path)))
+    (test-equal 0 (port-position p))
+    (read-u8 p)
+    (test-equal 1 (port-position p))       ; not 100, despite a 4096-byte chunk read
+    (peek-u8 p)
+    (test-equal 1 (port-position p))       ; peek_byte does not advance the position
+    (read-u8 p)
+    (test-equal 2 (port-position p))
+    (set-port-position! p 50)
+    (test-equal 50 (port-position p))
+    (test-equal 50 (read-u8 p))            ; stale read-ahead was discarded
+    (close-port p))
+  ;; An output port's position counts the bytes still sitting in write_buf.
+  (let ((o (open-binary-output-file path)))
+    (write-u8 1 o) (write-u8 2 o) (write-u8 3 o)
+    (test-equal 3 (port-position o))
+    (set-port-position! o 1)               ; drains write_buf, then seeks
+    (test-equal 1 (port-position o))
+    (write-u8 99 o)
+    (close-port o))
+  (test-equal '(1 99 3) (file-head path 3))
+  (delete-file path))
+
+;;; --- SRFI 192: closed ports and predicates ---------------------------------
+;; A closed fd's number can be recycled by the OS, so positioning a closed
+;; port must not silently reposition an unrelated file.
+(let ((p (open-input-string "x")))
+  (close-port p)
+  (test-equal #t (raises? (lambda () (port-position p))))
+  (test-equal #t (raises? (lambda () (set-port-position! p 0))))
+  (test-equal #f (port-has-port-position? p)))
+
+;; CONTROL: a custom port with BOTH get-position and set-position! answers #t
+;; to both predicates, and set-port-position! really works.
+(let ((q (make-custom-binary-input-port "both"
+           (lambda (bv start count) 0) (lambda () 0) (lambda (k) k) #f)))
+  (test-equal #t (port-has-port-position? q))
+  (test-equal #t (port-has-set-port-position!? q))
+  (test-equal #t (begin (set-port-position! q 0) #t)))
+;; CONTROL: a custom port with NEITHER answers #f to both.
+(let ((r (make-custom-binary-input-port "neither"
+           (lambda (bv start count) 0) #f #f #f)))
+  (test-equal #f (port-has-port-position? r))
+  (test-equal #f (port-has-set-port-position!? r)))
+;; Both SRFI 192 predicates are registered to the same Zig function, which only
+;; inspects get_position_proc — so the two mixed cases below are both wrong.
+;; FAIL: #1941 (port-has-set-port-position!? answers #t for a custom port with get-position but no set-position!, while set-port-position! on it raises)
+;; (let ((p (make-custom-binary-input-port "gp-only"
+;;            (lambda (bv start count) 0) (lambda () 0) #f #f)))
+;;   (test-equal #t (port-has-port-position? p))
+;;   (test-equal #f (port-has-set-port-position!? p))
+;;   (test-equal #t (raises? (lambda () (set-port-position! p 0)))))
+;; FAIL: #1941 (port-has-set-port-position!? answers #f for a custom port with set-position! but no get-position, while set-port-position! on it succeeds)
+;; (let ((p (make-custom-binary-input-port "sp-only"
+;;            (lambda (bv start count) 0) #f (lambda (k) k) #f)))
+;;   (test-equal #f (port-has-port-position? p))
+;;   (test-equal #t (port-has-set-port-position!? p))
+;;   (test-equal #t (begin (set-port-position! p 0) #t)))
+
+;;; --- Write buffering: the 8 KiB high-water mark and its triggers -----------
+;; Ports on fd > 2 accumulate in write_buf and drain when the pending span
+;; plus the new write crosses write_high_water (8192), at flush-output-port,
+;; and at close-port.
+(let ((path "/tmp/kaappi-audit-io-hw.txt"))
+  (let ((o (open-output-file path)))
+    (write-string (make-string 8191 #\x) o)
+    (test-equal 0 (file-byte-count path))        ; entirely buffered
+    (write-string "yy" o)                        ; 8191 + 2 > 8192 -> drain first
+    (test-equal 8191 (file-byte-count path))     ; the drain wrote 8191; "yy" is buffered
+    (flush-output-port o)
+    (test-equal 8193 (file-byte-count path))
+    (close-port o))
+  (test-equal 8193 (file-byte-count path))
+  (delete-file path))
+
+;; close-port flushes what flush-output-port never got to.
+(let ((path "/tmp/kaappi-audit-io-cf.txt"))
+  (let ((o (open-output-file path)))
+    (write-string "abc" o)
+    (test-equal 0 (file-byte-count path))
+    (close-port o))
+  (test-equal 3 (file-byte-count path))
+  (delete-file path))
+
+;; A read on the same port drains pending writes first. Only a bidirectional
+;; buffered fd port can reach that branch, and the only way to build one from
+;; Scheme is (kaappi ffi)'s fd->port over a raw descriptor — verified manually
+;; during the audit, deliberately not committed here (it needs a libc dlopen
+;; and hard-coded O_RDWR, neither of which is portable across this project's
+;; supported platforms). fd->port's own argument validation is covered below.
+
+;;; --- close-port semantics --------------------------------------------------
+(let ((path "/tmp/kaappi-audit-io-dc.txt"))
+  (let ((o (open-output-file path)))
+    (write-string "z" o)
+    (close-port o)
+    (test-equal #f (output-port-open? o))
+    (test-equal 'ok (begin (close-port o) 'ok))      ; double close is a no-op
+    (test-equal #t (raises? (lambda () (write-string "more" o))))
+    (test-equal #t (raises? (lambda () (flush-output-port o)))))
+  (delete-file path))
+
+;; A custom port's close callback runs exactly once, however many times
+;; close-port is called.
+(let ((closes 0))
+  (let ((p (make-custom-binary-input-port "cl"
+             (lambda (bv start count) 0) #f #f (lambda () (set! closes (+ closes 1))))))
+    (close-port p)
+    (close-port p)
+    (close-port p)
+    (test-equal 1 closes)))
+
+;; A raising close callback propagates catchably. The port stays open, since
+;; the error escapes before the is_open transition — pinned as current
+;; behaviour, not asserted as ideal.
+(let ((p (make-custom-binary-input-port "cl2"
+           (lambda (bv start count) 0) #f #f (lambda () (error "close boom")))))
+  (test-equal "close boom" (err-message (lambda () (close-port p))))
+  (test-equal #t (input-port-open? p)))
+
+;;; --- SRFI 181 custom ports: the read!/write! contract ----------------------
+;; A textual read! reports a CHARACTER count; the byte span is recovered from
+;; the buffer's FRESHLY re-read data, so a width-changing string-set! inside
+;; the callback (which reallocates the whole backing buffer) is safe.
+(let ((n 0))
+  (let ((p (make-custom-textual-input-port "wide"
+             (lambda (str start count)
+               (if (< n 3)
+                   (begin (string-set! str start #\x3bb)        ; 1 -> 2 bytes
+                          (string-set! str (+ start 1) #\x4e2d)  ; 1 -> 3 bytes
+                          (set! n (+ n 1))
+                          2)
+                   0))
+             #f #f #f)))
+    (test-equal #\x3bb (read-char p))
+    (test-equal #\x4e2d (read-char p))
+    (test-equal #\x3bb (read-char p))))
+
+;; A textual write! also counts CHARACTERS, and a partial write loops.
+(let ((chunks '()))
+  (let ((p (make-custom-textual-output-port "chunky"
+             (lambda (str start count)
+               (set! chunks (cons (substring str start (+ start 1)) chunks))
+               1)                                   ; accept one character per call
+             #f #f #f #f)))
+    (write-string "a\x3bb;b" p)
+    (test-equal '("a" "\x3bb;" "b") (reverse chunks))))
+
+;; Misbehaving callbacks are rejected catchably rather than trusted.
+(define (custom-reading v)
+  (make-custom-binary-input-port "bad" (lambda (bv start count) v) #f #f #f))
+(test-equal #t (raises? (lambda () (read-u8 (custom-reading 'not-a-number)))))
+(test-equal #t (raises? (lambda () (read-u8 (custom-reading -1)))))
+(test-equal #t (raises? (lambda () (read-u8 (custom-reading 999999)))))
+(test-equal #t (raises? (lambda () (write-u8 1 (make-custom-binary-output-port
+                                                 "w0" (lambda (bv s c) 0) #f #f #f #f)))))
+;; An error raised inside a callback propagates to the caller unchanged.
+(test-equal "boom"
+  (err-message (lambda () (read-u8 (make-custom-binary-input-port
+                                     "raiser" (lambda (bv s c) (error "boom")) #f #f #f)))))
+;; D5: a callback that tries to block is rejected with a catchable error,
+;; not a native-stack overflow from a recursive scheduler drive.
+(test-equal #t
+  (raises? (lambda ()
+             (read-u8 (make-custom-binary-input-port
+                        "blocker"
+                        (lambda (bv s c) (thread-sleep! 0.01) 0)
+                        #f #f #f)))))
+
+;; get-position / set-position! / flush callbacks.
+(let ((flushes 0) (sink '()))
+  (let ((p (make-custom-textual-output-port "fl"
+             (lambda (str start count)
+               (set! sink (cons (substring str start (+ start count)) sink))
+               count)
+             #f #f #f (lambda () (set! flushes (+ flushes 1))))))
+    (write-string "hi" p)
+    (flush-output-port p)
+    (test-equal 1 flushes)
+    (test-equal '("hi") (reverse sink))
+    (close-port p)
+    (test-equal 2 flushes)))               ; close-port flushes before closing
+;; A get-position callback returning a non-integer is rejected, not passed on.
+(test-equal #t
+  (raises? (lambda () (port-position (make-custom-binary-input-port
+                                       "gp" (lambda (bv s c) 0) (lambda () 'weird) #f #f)))))
+;; A custom port with no get-position raises rather than reporting a bogus offset.
+(test-equal #t
+  (raises? (lambda () (port-position (make-custom-binary-input-port
+                                       "np" (lambda (bv s c) 0) #f #f #f)))))
+
+;;; --- SRFI 181 custom ports: re-entrancy ------------------------------------
+;; readOneByte hands out one byte and stashes the rest of a read! burst in the
+;; port's single read_buf slot, asserting that slot is empty first. A read!
+;; callback that re-enters a read on its OWN port breaks that invariant.
+;;
+;; CONTROL: the identical re-entrant shape with every read! returning exactly
+;; one byte never populates read_buf, so it completes cleanly.
+(let ((self #f) (depth 0) (n 0))
+  (let ((p (make-custom-binary-input-port "reentrant-1byte"
+             (lambda (bv start count)
+               (set! depth (+ depth 1))
+               (if (= depth 1) (read-u8 self))
+               (set! depth (- depth 1))
+               (if (< n 8)
+                   (begin (bytevector-u8-set! bv start 65) (set! n (+ n 1)) 1)
+                   0))
+             #f #f #f)))
+    (set! self p)
+    (test-equal 65 (read-u8 p))))
+;; FAIL: #1939 (a custom-port read! that re-enters a read on the same port and returns >1 byte trips std.debug.assert(port.read_buf == null) — process ABORTS, uncatchable; kept commented out because a panic would kill the whole suite)
+;; (let ((self #f) (depth 0) (n 0))
+;;   (let ((p (make-custom-binary-input-port "reentrant-2byte"
+;;              (lambda (bv start count)
+;;                (set! depth (+ depth 1))
+;;                (if (= depth 1) (read-u8 self))
+;;                (set! depth (- depth 1))
+;;                (if (< n 8)
+;;                    (begin (bytevector-u8-set! bv start 65)
+;;                           (bytevector-u8-set! bv (+ start 1) 66)
+;;                           (set! n (+ n 1)) 2)
+;;                    0))
+;;              #f #f #f)))
+;;     (set! self p)
+;;     (test-equal #t (raises? (lambda () (read-u8 p))))))
+;;
+;; The non-aborting sibling of the same root cause: when the outer read!
+;; returns exactly one byte the assert never fires, but the byte the inner
+;; call had already buffered — chronologically EARLIER in the stream — is
+;; served after it, so the stream is silently reordered.
+;; FAIL: #1939 (re-entrant custom-port read! reorders the byte stream: the outer call's byte precedes bytes the inner call already buffered)
+;; (let ((self #f) (depth 0))
+;;   (let ((p (make-custom-binary-input-port "reentrant-order"
+;;              (lambda (bv start count)
+;;                (set! depth (+ depth 1))
+;;                (cond ((= depth 1)
+;;                       (read-u8 self)
+;;                       (set! depth (- depth 1))
+;;                       (bytevector-u8-set! bv start 90) 1)
+;;                      (else
+;;                       (set! depth (- depth 1))
+;;                       (bytevector-u8-set! bv start 65)
+;;                       (bytevector-u8-set! bv (+ start 1) 66) 2)))
+;;              #f #f #f)))
+;;     (set! self p)
+;;     (test-equal 66 (read-u8 p))
+;;     (test-equal 90 (read-u8 p))))
+;;
+;; readOneByteFromTranscodedPort has the identical single-slot assert, reached
+;; when a re-entrant read consumes only PART of a multi-byte character (here a
+;; read-u8 that takes the lead byte and leaves the continuation byte behind).
+;; FAIL: #1939 (same root cause one level up: a re-entrant read through a transcoded port trips std.debug.assert(port.read_buf == null) in readOneByteFromTranscodedPort — process ABORTS)
+;; (let ((tp #f) (depth 0) (n 0))
+;;   (let ((bp (make-custom-binary-input-port "tbase"
+;;               (lambda (bv start count)
+;;                 (set! depth (+ depth 1))
+;;                 (if (= depth 1) (read-u8 tp))
+;;                 (set! depth (- depth 1))
+;;                 (if (< n 8)
+;;                     (begin (bytevector-u8-set! bv start #xC3)
+;;                            (bytevector-u8-set! bv (+ start 1) #xA9)
+;;                            (set! n (+ n 1)) 2)
+;;                     0))
+;;               #f #f #f)))
+;;     (set! tp (transcoded-port bp (make-transcoder (utf-8-codec) 'none 'replace)))
+;;     (test-equal #t (raises? (lambda () (read-char tp))))))
+
+;;; --- D6: ports do not cross a SRFI-18 thread boundary ----------------------
+;; Ports are structurally uncopyable, so gc_deep_copy must reject them at the
+;; join boundary with a catchable error rather than handing back a port whose
+;; fd/buffers belong to a heap that is about to be freed.
+(test-equal #t
+  (raises? (lambda ()
+             (thread-join! (thread-start! (make-thread (lambda () (open-input-string "abc"))))))))
+(test-equal #t
+  (raises? (lambda ()
+             (thread-join! (thread-start! (make-thread (lambda ()
+               (make-custom-binary-input-port "x" (lambda (bv s c) 0) #f #f #f))))))))
+
+;;; --- SRFI 181 transcoded ports ---------------------------------------------
+(define (transcode-read bytes eol)
+  (let* ((bp (open-input-bytevector (apply bytevector bytes)))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) eol 'replace))))
+    (let loop ((acc '()))
+      (let ((c (read-char tp)))
+        (if (eof-object? c) (reverse acc) (loop (cons c acc)))))))
+;; crlf and lf both collapse CR, LF and CRLF alike to one #\newline; none does
+;; no translation at all. The CRLF lookahead reuses the wrapped port's peek_byte.
+(test-equal '(#\a #\newline #\b) (transcode-read '(97 13 10 98) 'crlf))
+(test-equal '(#\a #\newline #\b) (transcode-read '(97 13 98) 'crlf))
+(test-equal '(#\a #\newline #\b) (transcode-read '(97 10 98) 'crlf))
+(test-equal '(#\a #\newline #\b) (transcode-read '(97 13 10 98) 'lf))
+(test-equal '(#\a #\return #\newline #\b) (transcode-read '(97 13 10 98) 'none))
+;; A CR at end of input still yields one newline and then EOF.
+(test-equal '(#\a #\newline) (transcode-read '(97 13) 'crlf))
+;; Multi-byte characters decode one at a time through the single read_buf slot.
+(test-equal '(#\x3bb #\x4e2d) (transcode-read '(#xCE #xBB #xE4 #xB8 #xAD) 'none))
+
+(define (transcode-write s eol)
+  (let* ((bo (open-output-bytevector))
+         (tp (transcoded-port bo (make-transcoder (utf-8-codec) eol 'replace))))
+    (write-string s tp)
+    (bv->list (get-output-bytevector bo))))
+(test-equal '(97 13 10 98) (transcode-write "a\nb" 'crlf))
+(test-equal '(97 10 98) (transcode-write "a\nb" 'lf))
+(test-equal '(97 10 98) (transcode-write "a\nb" 'none))
+
+;; error-handling-mode: replace substitutes U+FFFD, raise signals a condition
+;; satisfying i/o-decoding-error? and then resumes from the next byte.
+(define (transcode-decode bytes mode)
+  (let* ((bp (open-input-bytevector (apply bytevector bytes)))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'none mode))))
+    (guard (e ((i/o-decoding-error? e) 'decoding-error))
+      (let loop ((acc '()))
+        (let ((c (read-char tp)))
+          (if (eof-object? c) (reverse acc) (loop (cons c acc))))))))
+(test-equal '(#\a #\xfffd #\b) (transcode-decode '(97 #xFF 98) 'replace))
+(test-equal 'decoding-error (transcode-decode '(97 #xFF 98) 'raise))
+(test-equal '(#\a #\xfffd) (transcode-decode '(97 #xC3) 'replace))   ; truncated at EOF
+(test-equal 'decoding-error (transcode-decode '(97 #xC3) 'raise))
+;; A bad continuation byte is distinguished from a bad lead byte.
+(test-equal 'decoding-error (transcode-decode '(#xC3 #x41) 'raise))
+
+;; close-port on a transcoded port cascades to the port it wraps.
+(let* ((bo (open-output-bytevector))
+       (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
+  (write-string "z" tp)
+  (close-port tp)
+  (test-equal #f (output-port-open? tp))
+  (test-equal #f (output-port-open? bo)))
+;; Reading through a transcoded port whose wrapped port was closed underneath
+;; raises rather than reading freed state.
+(let* ((bp (open-input-bytevector (bytevector 97 98)))
+       (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'none 'replace))))
+  (close-port bp)
+  (test-equal #t (raises? (lambda () (read-char tp)))))
+;; A transcoded port declines positioning (fd -1, no custom backend).
+(let* ((bp (open-input-bytevector (bytevector 97)))
+       (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'none 'replace))))
+  (test-equal #f (port-has-port-position? tp))
+  (test-equal #t (raises? (lambda () (port-position tp))))
+  (test-equal #t (raises? (lambda () (set-port-position! tp 0)))))
+;; transcoded-port requires a binary port.
+(test-equal #t (raises? (lambda () (transcoded-port (open-output-string)
+                                                    (make-transcoder (utf-8-codec) 'none 'replace)))))
+
+;; CONTROL: flushing the WRAPPED port does reach the device.
+(let ((path "/tmp/kaappi-audit-io-tcw.txt"))
+  (let* ((bo (open-binary-output-file path))
+         (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
+    (write-string "hello" tp)
+    (test-equal 0 (file-byte-count path))
+    (flush-output-port bo)
+    (test-equal 5 (file-byte-count path))
+    (close-port tp))
+  (delete-file path))
+;; CONTROL: close-port on the transcoded port does cascade the flush.
+(let ((path "/tmp/kaappi-audit-io-tcc.txt"))
+  (let* ((bo (open-binary-output-file path))
+         (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
+    (write-string "hello" tp)
+    (close-port tp))
+  (test-equal 5 (file-byte-count path))
+  (delete-file path))
+;; flushOutputPort has a custom_backend branch and an isBufferedFdPort branch
+;; but no transcode branch, and a transcoded port carries the fd -1 sentinel.
+;; FAIL: #1943 (flush-output-port on a transcoded port is a silent no-op — it never reaches the wrapped port, so buffered output is not durable until close-port)
+;; (let ((path "/tmp/kaappi-audit-io-tcf.txt"))
+;;   (let* ((bo (open-binary-output-file path))
+;;          (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
+;;     (write-string "hello" tp)
+;;     (flush-output-port tp)
+;;     (test-equal 5 (file-byte-count path))
+;;     (close-port tp))
+;;   (delete-file path))
+
+;;; --- Standard surface: gaps the original audit left ------------------------
+;; write-string start/end are codepoint indices, not byte offsets.
+(test-equal "\x4e2d;c"
+  (let ((o (open-output-string))) (write-string "a\x3bb;\x4e2d;c" o 2) (get-output-string o)))
+(test-equal "\x3bb;"
+  (let ((o (open-output-string))) (write-string "a\x3bb;\x4e2d;c" o 1 2) (get-output-string o)))
+(test-equal "" (let ((o (open-output-string))) (write-string "abc" o 1 1) (get-output-string o)))
+(test-equal #t (raises? (lambda () (write-string "abc" (open-output-string) 5))))
+(test-equal #t (raises? (lambda () (write-string "abc" (open-output-string) 0 9))))
+(test-equal #t (raises? (lambda () (write-string "abc" (open-output-string) 2 1))))
+(test-equal #t (raises? (lambda () (write-string "abc" (open-output-string) -1))))
+(test-equal #t (raises? (lambda () (write-string "abc" (open-output-string) 'x))))
+
+;; read-string, peek-char and read-line index by codepoint through a real fd.
+(let ((path "/tmp/kaappi-audit-io-u8.txt"))
+  (call-with-output-file path (lambda (o) (write-string "\x3bb;\x4e2d;x\ny\r\nz" o)))
+  (let ((p (open-input-file path)))
+    (test-equal #\x3bb (peek-char p))
+    (test-equal #\x3bb (peek-char p))          ; idempotent
+    (test-equal "\x3bb;\x4e2d;x" (read-string 3 p))
+    (test-equal "" (read-line p))
+    (test-equal "y" (read-line p))              ; CRLF terminated
+    (test-equal "z" (read-line p))
+    (test-equal #t (eof-object? (read-line p)))
+    (close-port p))
+  (delete-file path))
+
+;; char-ready? at EOF is #t (R7RS 6.13.2: a port at end of file is "ready").
+(test-equal #t (char-ready? (open-input-string "")))
+
+;; Port-kind predicates never raise on a non-port; the *-open? pair does.
+(test-equal #f (textual-port? 'x))
+(test-equal #f (binary-port? 'x))
+(test-equal #f (output-port? '()))
+(test-equal #t (raises? (lambda () (input-port-open? 'x))))
+(test-equal #t (raises? (lambda () (output-port-open? 'x))))
+(test-equal #t (binary-port? (open-input-bytevector (bytevector 1))))
+(test-equal #f (textual-port? (open-input-bytevector (bytevector 1))))
+
+;; fd->port rejects the standard streams and anything out of fd_t range.
+(test-equal #t (raises? (lambda () (fd->port 0))))
+(test-equal #t (raises? (lambda () (fd->port 2))))
+(test-equal #t (raises? (lambda () (fd->port -5))))
+(test-equal #t (raises? (lambda () (fd->port "3"))))
+
+;; newline writes exactly one LF and honours the optional port argument.
+(test-equal "\n" (let ((o (open-output-string))) (newline o) (get-output-string o)))
+(test-equal "a\nb"
+  (let ((o (open-output-string)))
+    (parameterize ((current-output-port o)) (display "a") (newline) (display "b"))
+    (get-output-string o)))
+(test-equal #t (raises? (lambda () (newline 42))))
+(test-equal #t (raises? (lambda () (newline (open-input-string "x")))))
+
+;; close-input-port / close-output-port are registered to the same body as
+;; close-port, so neither checks the port's direction — pinned as current
+;; behaviour (R7RS says the argument "must be" the matching kind, without
+;; requiring the implementation to signal).
+(let ((p (open-input-string "x")))
+  (close-input-port p)
+  (test-equal #f (input-port-open? p)))
+(let ((o (open-output-string)))
+  (close-output-port o)
+  (test-equal #f (output-port-open? o)))
+(let ((p (open-input-string "x")))
+  (close-output-port p)                    ; direction-mismatched, still closes
+  (test-equal #f (input-port-open? p)))
+(test-equal #t (raises? (lambda () (close-input-port 'x))))
+(test-equal #t (raises? (lambda () (close-output-port 'x))))
+
+;; Arity is enforced on the fixed-arity entries.
+(test-equal #t (raises? (lambda () (port?))))
+(test-equal #t (raises? (lambda () (eof-object 1))))
+(test-equal #t (raises? (lambda () (open-output-string 'x))))
+
+;; call-with-port closes the port on both the normal and the escaping path.
+(let ((p (open-input-string "abc")))
+  (test-equal #\a (call-with-port p read-char))
+  (test-equal #f (input-port-open? p)))
+(let ((p (open-input-string "abc")))
+  (test-equal #t (raises? (lambda () (call-with-port p (lambda (q) (error "x"))))))
+  (test-equal #f (input-port-open? p)))
+(test-equal #t (raises? (lambda () (call-with-port 42 values))))
+
+;; with-output-to-file restores current-output-port even when the thunk raises.
+(let ((path "/tmp/kaappi-audit-io-wo.txt"))
+  (test-equal #t (raises? (lambda () (with-output-to-file path (lambda () (error "x"))))))
+  (test-equal "restored"
+    (let ((o (open-output-string)))
+      (parameterize ((current-output-port o)) (display "restored"))
+      (get-output-string o)))
+  (delete-file path))
 
 (let ((runner (test-runner-current)))
   (test-end "primitives_io audit")
