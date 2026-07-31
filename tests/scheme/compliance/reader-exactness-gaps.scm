@@ -32,8 +32,12 @@
 ;; `(read (open-input-string ...))`, never as source literals, so that
 ;; re-enabling a test cannot abort the whole suite at read time.
 
-(import (scheme base) (scheme write) (scheme complex) (scheme process-context)
-        (srfi 64))
+;; `(scheme inexact)` is declared for finite?/infinite?/nan?.  They resolve at
+;; top level even without it -- a script reaches vm.globals directly -- so
+;; omitting it would still run green here while failing inside a library body.
+;; Declare it rather than rely on that ambient reachability (see kaappi#1831).
+(import (scheme base) (scheme inexact) (scheme write) (scheme complex)
+        (scheme process-context) (srfi 64))
 
 (test-begin "reader-exactness-gaps")
 
@@ -148,9 +152,13 @@
 ;; Control: the runtime `exact` procedure handles the identical value.
 (test-equal "(exact 2^63) is correct at runtime"
             9223372036854775808 (exact 9223372036854775808.0))
-;; Control: string->number does not crash (it returns #f -- see section 8).
+;; Control: string->number does not crash on the text that panics the reader.
+;; It currently returns #f, which is itself non-conforming -- don't pin that as
+;; correct, or fixing it looks like a regression here.  Assert only the property
+;; this control exists to establish: no crash.
 (test-assert "string->number does not crash on the same text"
-             (not (string->number "#e9223372036854775808.0")))
+             (let ((v (string->number "#e9223372036854775808.0")))
+               (or (not v) (number? v))))
 
 ;; FAIL: #1907 (reader panics: #e<double == 2^63> overflows @intFromFloat)
 ;; (test-equal "#e2^63 as a decimal float" 9223372036854775808
@@ -356,6 +364,23 @@
             (rd "#x1000000000000000000") (string->number "#x1000000000000000000"))
 ;; Control: `#i+inf.0` DOES agree -- it is `#e` on an infinity that diverges.
 (test-equal "parity #i+inf.0" (rd "#i+inf.0") (string->number "#i+inf.0"))
+
+;; Every divergence above has the reader on the wrong side.  This one inverts
+;; it: an UNPREFIXED decimal spelling exactly 2^63 reads correctly but makes
+;; string->number return #f.  Same boundary as #1907 and the same
+;; negative-side-is-fine asymmetry, but no exactness prefix is involved, so it
+;; is not an applyExactness defect -- it is the plain decimal parse path.
+;; Controls (enabled, they pass): the neighbouring value, the negative side,
+;; and larger magnitudes all agree.
+(test-equal "parity 2^63-1 as a decimal"
+            (rd "9223372036854775807.0") (string->number "9223372036854775807.0"))
+(test-equal "parity -2^63 as a decimal"
+            (rd "-9223372036854775808.0") (string->number "-9223372036854775808.0"))
+(test-equal "parity 1e19" (rd "1e19") (string->number "1e19"))
+(test-equal "parity 1e300" (rd "1e300") (string->number "1e300"))
+;; FAIL: #1919 (unprefixed 2^63 decimal: reader ok, string->number gives #f)
+;; (test-equal "parity 2^63 as a decimal"
+;;             (rd "9223372036854775808.0") (string->number "9223372036854775808.0"))
 
 ;; FAIL: #1911 (6.2.7: read gives +inf.0, string->number gives #f)
 ;; (test-equal "parity #e+inf.0" (rd "#e+inf.0") (string->number "#e+inf.0"))
