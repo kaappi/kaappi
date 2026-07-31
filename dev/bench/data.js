@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785505309217,
+  "lastUpdate": 1785506315823,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a44274124dd36c9c4d15c1c86f4dd16d7ca6cefd",
-          "message": "Add SRFI 63, homogeneous and heterogeneous arrays (#1694 array family) (#1747)\n\n* Add SRFI 63, homogeneous and heterogeneous arrays (#1694 array family); exclude 47\n\nSRFI 63 supersedes SRFI 47 outright (its own page says so), implementing\nall 9 of 47's procedures plus 4 new ones (list->array, array->list,\nvector->array, array->vector) and 20 prototype-generator procedures (vs.\n47's 13). Confirmed incompatible with SRFI 25/164, already shipped\nearlier in this array family: array-set!'s value argument is second here\n(not last), make-array takes a type/fill prototype (not a bounds-shape\nobject), and every dimension is a plain zero-based size.\n\nOne <uarray> record covers simple arrays (kind-dispatched to the\nalready-shipped (srfi 160 <tag>) procedures for 12 of the 20 element\nkinds, falling back to a plain vector for the rest) and shared views\n(recursive delegation into the base array's own ref/set!, matching the\npattern from SRFI 25/164). list->array/array->list use a rank-nested\nlist structure while vector->array/array->vector use a flat vector plus\nexplicit dimensions -- confirmed via the spec's own examples rather than\nassumed, since the two pairs looked parallel but aren't.\n\nSRFI 47 moves to docs/dev/srfi-exclusions.md as permanently superseded.\n170 SRFIs now supported (169 -> 170); 9 tracked for future work (231,\nand issue #1699's 7 macro/syntax SRFIs); 29 excluded.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix CodeRabbit findings: vectors/strings as arrays, prototype fill, bounds\n\nConfirmed against the primary SRFI 63 spec text before fixing:\n\n- array? must not be disjoint from vector/string (\"Arrays are not\n  disjoint from other Scheme types\" -- vectors/strings are rank-1\n  arrays in their own right). array-rank, array-dimensions,\n  array-in-bounds?, array-ref, and array-set! now dispatch across\n  <uarray> records, plain vectors, and plain strings via new\n  %array-like-* helpers; make-shared-array can now take any of the\n  three as its base too.\n- make-array now propagates a non-empty prototype's own origin element\n  as the fill value (\"the new array is filled with the element at the\n  origin of prototype\"), instead of always using the kind's zero-ish\n  default. The prototype-generator procedures (A:fixZ8b etc.) needed a\n  matching fix: they were building a zero-length store regardless of\n  whether a fill argument was given, so the value could never actually\n  be read back.\n- Shared-view array-ref/array-set! now validate indices against the\n  view's own declared dimensions before delegating through the mapper,\n  matching array-in-bounds? -- previously a mapper that didn't itself\n  bounds-check could make an out-of-range view index silently return\n  an in-bounds base element.\n- list->array now rejects a negative or non-integer rank up front\n  instead of recursing until stack exhaustion.\n\nequal?'s array-comparison branch stays scoped to genuine <uarray>\nrecords (documented as a deliberate reduction) since plain R7RS\nequal? already handles vector/string comparison correctly.\n\n31 new SRFI-64 assertions (65 -> 96) covering all of the above plus\nregression coverage for everything from the initial implementation.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-25T17:09:23+05:30",
-          "tree_id": "4ad0d1013230d7e307d9626a8d93f74824a38392",
-          "url": "https://github.com/kaappi/kaappi/commit/a44274124dd36c9c4d15c1c86f4dd16d7ca6cefd"
-        },
-        "date": 1784981948818,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.870186,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.749183,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.612456,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.02771,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005722,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03948,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.35109,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05097,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.926134,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.338458,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.153176,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.381723,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.313163,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.874535,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034764,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046008,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c3dec04c7ed3571f4a526d2c0fdca6d104abd96",
+          "message": "Run the test suites in parallel, and stop sleeping through them (#1887)\n\n* Run the test suites in parallel, and stop sleeping through them\n\n`bash tests/scheme/run-all.sh` took 17.8 min on a 4-core box to do about\n90s of actual work. Two independent causes, fixed here.\n\n**The poll interval.** `wait_with_timeout` polled a spawned child with\n`sleep 1`, so every one of the ~620 spawned units cost a full second of\nwall clock no matter how fast it really was — and 381 of the 566 .scm\nfiles finish in under 50ms. That single sleep was ~93% of the script's\nruntime. The tick is now 0.05s, counted in 20ths of a second so the\ntimeout keeps its exact meaning, with an integer fallback if a platform's\n`sleep` rejects fractions.\n\n**No parallelism.** Each .scm file is already a fresh interpreter with no\nshared state, so `run_suite` now dispatches KAAPPI_TEST_JOBS at a time\n(default: one per CPU; 1 restores strictly-sequential). Workers write\ntheir verdict to a slot and the parent tallies and prints afterwards in\nglob-sorted order, so output ordering and the counters are unchanged. An\naudit of the corpus found no cross-file collisions on fixed paths or\nports before turning this on.\n\nShell suites stay sequential: several call `ensure_runtime_lib`, which\nruns `zig build lib` into the shared zig-out/lib, so concurrent scripts\nwould race over one output archive. They are now the larger half of the\nremaining wall time.\n\n`kaappi test` gets the same treatment via `-j`/`--jobs`, which its own\ndocs already anticipated. Worker threads claim files from an atomic\ncounter while the main thread reports the completed prefix in file order,\nso verdicts and output ordering are identical at any job count. The emit\npath now travels in the child's own envp: setenv on the parent before\neach fork is a single mutable global shared by every in-flight worker,\nand two concurrent spawns would have sent both children to the same path\nand lost a result. Windows stays at one job, where that env is still\ninherited from the parent.\n\nMeasured on 4 cores, all three producing identical results\n(2019 pass, 0 fail):\n\n    run-all.sh, before                1070s\n    run-all.sh, KAAPPI_TEST_JOBS=1     425s   2.5x\n    run-all.sh, default (4 jobs)       279s   3.8x\n    kaappi test tests/scheme/srfi     18.5s -> 4.6s   4.0x\n\ntests/scheme/test-runner/jobs.sh pins the parity down by diffing whole\ntranscripts between --jobs 1 and --jobs 4, including a deliberately\nslow-first fixture so a reporter that emitted in completion order would\nfail even though its totals stayed correct.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n* Address review: validate KAAPPI_TEST_JOBS, cover resolveJobs, sharpen docs\n\nThree findings from CodeRabbit on #1887, all valid.\n\n`KAAPPI_TEST_JOBS` was never validated — only `detect_jobs`'s own output\nwas. `[[ $running -ge $JOBS ]]` evaluates its operands arithmetically, so\na non-numeric value is silently 0: `KAAPPI_TEST_JOBS=abc` did not fail,\nit quietly serialised the run with a spurious `wait` per file, and still\nreported success. A typo in a CI env var should not cost a 4x-slower\nsuite that looks fine. Bad values now exit 2 with the offending value\nnamed. `0` is rejected in `detect_jobs` too, where it would have been\npassed through as a valid count.\n\n`resolveJobs` is pure and encodes the platform policy the rest of the\nfeature rests on, so it gets direct unit coverage: zero and one file,\na request above the file count, an explicit `--jobs 1`, and auto —\nwith the Windows and single-threaded expectations gated on the same\ncomptime conditions the function itself uses.\n\nThe `--jobs` doc claimed output is identical at any job count without\nnoting that durations obviously are not; it now says the test normalises\nthe `…ms` fields and then requires a byte-for-byte match, which is what\njobs.sh actually does.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n* Add the CHANGELOG entry the `changelog` CI job requires\n\nThe PR touches src/, and `kaappi test --jobs` is a new user-facing flag,\nso this is a real entry rather than the `no-changelog` escape hatch.\n\nRecords the flag itself and, under Fixed, the emit-path race it required\nclosing — worth stating separately because it was a latent correctness\nbug in shipped code, even though nothing could reach it while spawns\nwere serialised.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T16:19:37+05:30",
+          "tree_id": "9a209b851b025a51669a094eae25d72bc844b930",
+          "url": "https://github.com/kaappi/kaappi/commit/1c3dec04c7ed3571f4a526d2c0fdca6d104abd96"
+        },
+        "date": 1785506313723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.346949,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.970683,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590433,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.982932,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004741,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047208,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.318695,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05739,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.661153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231094,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.616613,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284512,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.79793,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.611677,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044051,
             "unit": "seconds"
           }
         ]
