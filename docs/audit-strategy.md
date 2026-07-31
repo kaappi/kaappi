@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (1 of 53 units) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (2 of 53 units — Phase 0 complete) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -250,7 +250,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 **Phase 0 — Baseline and documentation truth**
 
 - [x] 0A: Baseline run, tracking issue, labels, file F1–F13 (2026-07-31, [#1890](https://github.com/kaappi/kaappi/issues/1890) tracking; baseline fully green at `261fde5f` — 624/624 Scheme files, 1395/1395 R7RS assertions, 0 fail; all 13 reconnaissance findings filed as 12 issues [#1891](https://github.com/kaappi/kaappi/issues/1891)–[#1903](https://github.com/kaappi/kaappi/issues/1903) — `#e1e19`/`#e1e400` merged as one root cause; labels `tier-divergence`, `tooling`, `doc-truth` created)
-- [ ] 0B: Documentation-truth pass (CLAUDE.md expander section, SRFI 148 counts, SRFI 120 header, `srfi-exclusions.md` 58/163, `tests/scheme/CLAUDE.md` table, the `eval_fallback_form_names` note)
+- [x] 0B: Documentation-truth pass (2026-07-31, [#1901](https://github.com/kaappi/kaappi/issues/1901); all 6 items corrected — every claim re-verified against v0.22.1 first, which corrected two of the reconnaissance findings in turn: `srfi148.scm`'s header is accurate rather than stale, and there are 6 `test-expect-fail` calls repo-wide (4 in `srfi150.scm`), not 7/6)
 
 **Phase 1 — Reader, printer, numeric tower** (independent)
 

@@ -31,18 +31,30 @@
 ;;; `timer-task-exists?`/`timer-cancel!` on a given timer from the SAME
 ;;; thread throughout. This is thoroughly verified reliable (this
 ;;; library's own test suite, `tests/scheme/srfi/srfi120.scm`, does
-;;; nothing else). A *different* thread calling into a timer it didn't
-;;; create was tried this session and produced nondeterministic memory
-;;; corruption (different crash signatures across runs -- integer
-;;; overflow, bad alignment, bus error) via this library's request/reply
-;;; protocol specifically, even though a bare hand-written two-thread
-;;; channel round trip with no other moving parts did not reproduce it in
-;;; isolation. This points at a real bug somewhere in the interaction
-;;; between multi-hop channel messages and cross-thread deep-copy, not a
-;;; mistake in this library's own logic, but it has not been root-caused
-;;; and is out of scope for a portable-library change -- treat
-;;; single-thread-only as a hard requirement of this implementation until
-;;; that is investigated separately.
+;;; nothing else).
+;;;
+;;; HISTORY: this header previously reported that a *different* thread
+;;; calling into a timer it didn't create produced nondeterministic
+;;; memory corruption (varying crash signatures -- integer overflow, bad
+;;; alignment, bus error), and attributed it to an un-root-caused bug in
+;;; the interaction between multi-hop channel messages and cross-thread
+;;; deep-copy. That no longer reproduces. Re-checked 2026-07-31 at
+;;; v0.22.1: both documented entry paths fail cleanly and
+;;; deterministically (10/10 runs) with a catchable error rather than
+;;; corrupting anything, because a `<timer>` holds a Fiber and
+;;; `gc_deep_copy` rejects that tag as `error.UncopyableType` -- so the
+;;; single-thread constraint is now *engine-enforced*, not merely
+;;; documented here. The separate multi-hop channel mechanism the old
+;;; note blamed was also exercised directly (~4,000 nested reply-channel
+;;; round trips, 20 soak processes) with zero failures.
+;;;
+;;; Single-thread-only is still the supported usage -- this library's
+;;; request/reply design assumes it, and the checks above are a guard
+;;; rail, not a concurrency model. But do not treat the old corruption
+;;; claim as a live hazard to design around. Caveat on the re-check: it
+;;; was macOS/kqueue, ReleaseSafe, without `-Dgc-stress=true`, so it is
+;;; strong evidence the claim is stale rather than proof the bug never
+;;; existed.
 ;;;
 ;;; LIMITATION: the spec requires a task to "be able to cancel or
 ;;; reschedule other tasks" on the same timer -- e.g. a health-check task
