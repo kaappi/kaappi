@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785523330590,
+  "lastUpdate": 1785526090154,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "963d3c78b1469da02f3356bcf2efd18ea25c9387",
-          "message": "Reseed the default random source in fork(2)ed children (#1761)\n\nThe default SRFI 27 source is created eagerly at VM startup, so a forked\nchild — e.g. every http-listen-prefork worker, which forks via the FFI —\ninherited the parent's exact PRNG state: all workers continued the same\nstream and drew identical \"random\" values (identical kaappi-web session\nids across workers, and a child's draws exactly equal to the parent's).\n\nA pthread_atfork child handler now marks the source stale. The handler\nitself only writes one word: in the forked child of a multithreaded\nparent, anything that can take a libc lock or allocate is off-limits.\nThe next touch of the default source — every path funnels through\ngetRS — reseeds it in place from OS entropy: in place so the heap object\ncaptured by (srfi 27)'s load-time default-random-source binding stays\nthe live default, and flag-cleared-first so an explicit randomize!/\npseudo-randomize!/state-set! in the child stays authoritative.\n\nWindows and WASI have no fork; the handler is compiled out there.\nCross-compiled x86_64-linux, aarch64-windows, aarch64-netbsd, and wasm;\nfull unit + Scheme suites green (1986 pass).\n\nRegression tests: tests/scheme/ffi/fork-reseed.scm (real fork via FFI —\nthe child's 8 draws were element-for-element identical to the parent's\nbefore this fix) and a state-replay unit test in tests_random_port.zig.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T21:20:10+05:30",
-          "tree_id": "b2e96de4d809d631ff1ed3722f4a634a23f790b2",
-          "url": "https://github.com/kaappi/kaappi/commit/963d3c78b1469da02f3356bcf2efd18ea25c9387"
-        },
-        "date": 1785083472932,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.301921,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.638808,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.948636,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.434615,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006497,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055054,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.509945,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06978,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.552324,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.001987,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.61036,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.440979,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.852601,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.741837,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044776,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043003,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db8e3d074fe64ead9d14b6b389d913e1a9dff132",
+          "message": "Test what is inside each per-tag GC arm, not just that one exists (#1963)\n\nZig's exhaustiveness check guarantees markObjectContents, markValueInner,\nreferencesYoung, objectSize and freeObject each have an arm for all 41\nObjectTag members. Nothing guarantees the arm traces the tag's Value\nfields: one that forgets a field compiles cleanly and silently frees a\nlive object. Port's satellites are hand-written at five sites, and\nmarkValueInner deliberately duplicates markPortValues rather than calling\nit, so a third Value-bearing Port field would be invisible in up to five\nplaces at once.\n\nTwo runtime shapes, because the three mark-graph switches are reached by\ntwo different paths. Rooting a container makes markValueInner the only\nthing that can keep a referent alive. Promoting a container to the old\ngeneration, repointing a field through writeBarrier, then dropping the\nroot before a minor collection makes the remembered-set walk\n(markObjectContents, its only caller) the only route, and exposes\npruneRememberedSet's referencesYoung decision directly. Every rooted case\nends by dropping the root and asserting the referents die: an assertion\nthat cannot fail is not a test.\n\nLiveness is decided by walking the GC's own object lists for the\nreferent's address, never by dereferencing it -- reading back a swept\nreferent would be the use-after-free this file exists to detect.\n\nThe comptime inventory pins the exact field list of every heap struct\nthese switches dispatch on, plus the satellites they reach through\n(CustomBacking, TranscodeState, HashEntry, GuardEntry, WindRecord,\nExceptionHandler, SavedFrame, CallFrame). Value is u64, so no comptime\ntype test can tell a real Value from profile_calls -- pinning the whole\nlist is what makes the guard sound. Adding a field is now a build error\nnaming all five switches until someone has looked at them.\n\nMutation-tested: eight deliberate single-field deletions across\nmarkValueInner, markPortValues, referencesYoung and markFiberState each\nfailed exactly the intended case and nothing else, and a seventh Value\nfield on CustomBacking fails the build with the inventory error.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T00:04:40+05:30",
+          "tree_id": "0b6e9a3003744e22473bbbb692aae9841479b758",
+          "url": "https://github.com/kaappi/kaappi/commit/db8e3d074fe64ead9d14b6b389d913e1a9dff132"
+        },
+        "date": 1785526087883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.058264,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.199712,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.432448,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.27726,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003749,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03479,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.229581,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042564,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.803694,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.898721,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.181508,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.239669,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.307003,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.380815,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037203,
             "unit": "seconds"
           }
         ]
