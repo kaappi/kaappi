@@ -11,13 +11,24 @@
 | `srfi/` | SRFI library conformance | yes |
 | `ffi/` | C FFI integration | yes |
 | `audit/` | Auto-generated primitives audit tests | yes |
-| `r7rs/` | Full R7RS suite (1,391 tests, `chibi test`) | yes (special) |
+| `r7rs/` | Full R7RS suite (1,395 tests, `chibi test`) | yes (special) |
 | `errors/` | Error message format, exit code, and reader error regression tests | yes |
 | `bench/` | Micro-benchmarks (no assertions, timing only) | no |
 | `compile/` | Native compiler regression tests | yes |
+| `test-runner/` | `kaappi test` runner (`--json`, `--seed`, `--changed`, `--lib-path`) | yes |
+| `pipeline/` | `kaappi ast`/`expand`/`ir` stage dumps | yes |
+| `doctor/` | `kaappi doctor` self-check | yes |
+| `fmt/` | `kaappi fmt` formatter | yes |
+| `cache/` | `.sbc` bytecode cache transparency | yes |
+| `timings/` | `--timings` stage reporting | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
-| `robustness/` | Stress tests | no |
-| `sandbox/` | Sandbox isolation tests | no |
+| `robustness/` | Stress tests | no (CI runs it separately) |
+| `sandbox/` | Sandbox isolation tests | no (CI runs it separately) |
+
+**The globs in `run-all.sh` are non-recursive** (`tests/scheme/srfi/*.scm`,
+not `**`). A test placed in a subdirectory of a suite is silently never run —
+`tests/scheme/srfi/slow/` is exactly that today (kaappi#1900). Put new files
+directly in a suite directory, or wire the subdirectory up explicitly.
 
 ## Adding a test
 
