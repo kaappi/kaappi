@@ -17,6 +17,7 @@ test {
     _ = @import("tests_filesystem.zig");
     _ = @import("tests_robustness.zig");
     _ = @import("tests_gc_root_boundary.zig");
+    _ = @import("tests_gc_tracing.zig");
     _ = @import("tests_fuzz.zig");
     _ = @import("tests_deepcopy.zig");
     _ = @import("tests_shared_channel.zig");
