@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785537514346,
+  "lastUpdate": 1785539454456,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4b1c584c78db89eac640c54b8e808cfa22b2b5ef",
-          "message": "Set peers_computed only after the snapshot is durably stored (#1767)\n\nCodeRabbit-caught: the previous commit set Transformer.peers_computed\ntrue immediately, before the fallible allocations (peer_names_f/\npeer_vals_f appends, both dupe calls) that actually build the\nlet_syntax_peer_names/vals snapshot. An OOM partway through would leave\nthe flag permanently true with both fields still at their default-empty\nvalue -- every later reuse of that transformer would then treat \"no\nsibling suppression needed\" as the final, correct answer instead of\nretrying the computation.\n\nFixed by moving the flag assignment to strictly after both slices are\ndurably stored, immediately before the self.macros.put that was already\nthere.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T00:21:06Z",
-          "tree_id": "36ff10ce1f3a4d8689764568c132e67fef36404c",
-          "url": "https://github.com/kaappi/kaappi/commit/4b1c584c78db89eac640c54b8e808cfa22b2b5ef"
-        },
-        "date": 1785113845148,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.3016,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.414037,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.901747,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.400381,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006399,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054109,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508896,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069633,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.542661,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.998438,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584733,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431699,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.855915,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632937,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044316,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044383,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "775890947add3c041dcaa46606f654797330ec9f",
+          "message": "Document what may actually cross a thread boundary (#1964)\n\nThe uncopyable-tag list in gc_deep_copy.zig reads as the authoritative\nanswer to \"what can cross a thread boundary\". It is not: it governs the\n*copy* route only — the thread-start! thunk closure, the thread-join!\nresult, a channel message. A value reached through the shared globals map\n(VM.initForThread shares the parent's map by pointer) is never copied and\nnever reaches that switch.\n\nThirteen of the fourteen tags are freely usable through a top-level\ndefine, and for mutexes and condition variables a global is the *only*\nsupported way to share one — exactly inverted from a channel, which must\nbe captured lexically. Nothing anywhere noted that the two differ, and\nthey appear side by side in every concurrency example.\n\nThe globals route is defended per-type inside individual primitives, and\ntwo types do so: channels and thread handles. Extending that to the rest\nuniformly is not possible — it would remove the sole way to synchronise\nthreads — so the honest model is documented instead, with the two\nknown-unsound rows left to their own issues (#1924, #1936).\n\nCLAUDE.md's \"threads cannot share mutable heap state\" was the false\nguarantee in its most compact form; it now describes both routes.\n\ndocs/dev/thread-value-sharing.md holds the per-type matrix.\nsrfi18-sharing-model.scm pins both routes for the nine types covering\nevery distinct enforcement shape, as a characterisation test, so a change\nto any row fails visibly instead of widening the gap silently.\n\nCloses #1937\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T21:10:49Z",
+          "tree_id": "d2444d938a890c0924bc2a6909420c9b4f7d7cae",
+          "url": "https://github.com/kaappi/kaappi/commit/775890947add3c041dcaa46606f654797330ec9f"
+        },
+        "date": 1785539453227,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.272862,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.045469,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.580243,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.954901,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004639,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047974,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312345,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056273,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.677575,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.230175,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.571281,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282839,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.767409,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.611099,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044674,
             "unit": "seconds"
           }
         ]
