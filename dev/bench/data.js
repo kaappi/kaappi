@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785463140440,
+  "lastUpdate": 1785470291489,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c06791039e6e42003aabc7714481635e49fd78ae",
-          "message": "Add SRFI 181 transcoded ports (#1732)\n\n* Add SRFI 181 transcoded ports\n\nCompletes SRFI 181 alongside the custom ports already shipped in #1730:\nmake-transcoder, native-transcoder, codecs (utf-8-codec/make-codec),\neol-styles, the replace/raise error-handling modes, transcoded-port,\nbytevector->string/string->bytevector, and the i/o-decoding-error?/\ni/o-encoding-error?/i/o-encoding-error-char/unknown-encoding-error?\ncondition accessors.\n\nClosing the registry-shadows-a-same-named-.sld gap this uncovered (the\nsame one SRFI 248 already solved) required moving (srfi 181) off its\ndirect registry entry onto a real lib/srfi/181.sld backed by a new\n(srfi 181 primitives) sub-library — so it's now sandbox-embedded like\n(kaappi parallel), and reclassifies from builtin to portable in\n`kaappi features` (150 SRFIs: 12 builtin, 136 portable; doc counts\nreconciled in CLAUDE.md/README.md/CONFORMANCE.md).\n\nPort.transcode (a wrapped_port Value plus plain Codec/EolStyle/ErrorMode\nenums) follows custom_backend's precedent for GC integration. The decode/\nencode loops funnel through readOneByte/portWriteBytes exactly like every\nother port, committing one character per call so a fiber park (which\nreruns the whole native call from scratch) never loses partial progress;\nCRLF lookahead reuses the wrapped port's own peek_byte, the same\nmechanism read-line's CR/CRLF handling already relies on. raise mode\nneeded a mechanism custom ports never did: primitives_control.\nraiseContinuable (factored out of raise-continuable itself) signals a\ncontinuable condition and resumes after the handler returns, safe from\nretry-from-scratch since a reentrant runUntil always runs with\ndispatched_from_scheduler forced false. v1 supports only the UTF-8\ncodec; latin-1-codec/utf-16-codec are not exported at all rather than\nbound to always-failing procedures.\n\nCloses #1729.\n\n* Freeze unknown-encoding-error-name's string, per spec\n\nSRFI 181 requires unknown-encoding-error-name's result to be immutable\n(\"it is an error to mutate this string\") -- the same contract Kaappi\nalready enforces for symbol->string via flags.immutable. make-codec was\nreturning the caller's own make-codec argument verbatim: mutable unless\nthe caller happened to pass a literal, and aliased to the caller's own\nstring object either way.\n\nFixed by round-tripping through string->symbol/symbol->string, the only\nportable way to freeze a string's exact content without a new native\nprimitive. Caught by review; the first regression test written for this\npassed even without the fix, since it used a string literal (already\nimmutable via the reader's own quoted-data handling) rather than a\ngenuinely mutable string -- fixed to use string-copy instead, and added\na second test confirming the condition doesn't alias the caller's string.",
-          "timestamp": "2026-07-23T13:26:08+05:30",
-          "tree_id": "b6f482577a9467a005b9fea3727c7b190f9727f7",
-          "url": "https://github.com/kaappi/kaappi/commit/c06791039e6e42003aabc7714481635e49fd78ae"
-        },
-        "date": 1784795715526,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.015114,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.282341,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.591024,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.95212,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005569,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.039385,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.337135,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.048046,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.841725,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.30274,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.147056,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.361894,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.281067,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.733492,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033847,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042974,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f1c323f402bd5265086faa059bd861df592c4c4",
+          "message": "Say what R6RS rejected, instead of raising a bare type error (#1880)\n\n`define-record-type`'s R6RS clause syntax had two conditions that reported\n`error[KP3002]: type error` and nothing else -- no procedure, no expected\ntype, no value, the three things KP3002's own registry entry promises. Both\nreproduce in five lines: a sealed parent rtd, and a `nongenerative` uid\nalready bound to a non-equivalent type.\n\nNeither is a type error. Both arguments are of a perfectly good type and the\nprocedure rejects them anyway, which is what KP3007 (invalid-argument) is\nfor -- and R6RS's own wording for the first is \"an exception is raised if\nparent is sealed\", nothing about types.\n\nThe procedural half of the same two rules (`%make-record-type-descriptor`)\nhas been getting this right since #1868, so the fix is to stop stating the\nrule twice: `RtdShape`, `sealedParentError` and `reuseNongenerativeRtd` in\nprimitives_srfi237.zig now hold both the equivalence test and its wording,\nand the syntactic and procedural routes share them. Only the procedure name\ndiffers -- a caller who wrote `define-record-type` should not be told about\nthe internal primitive it desugars to. A uid collision now names the one axis\nthat actually differs rather than listing every axis it might have been.\n\nReading those two functions turned up a third condition of the same shape\nthat #1880's census could not see, because it is spelled as a `return switch`\narm rather than a bare return: more than 255 fields once a parent's are\ncounted. Its procedural half was the worse of the two -- a bare TypeError out\nof a primitive is not anonymous, `mapNativeError` fills the detail in from\n`args[0]`, so it confidently blamed the type's *name* for a limit the field\nlist broke.\n\nAlso folds `callFfi`'s four call sites into one `vm_calls.mapFfiError`. Two\nof them supplied a fallback message when callFfi returned without setting a\ndetail and two did not, and the two that did not are the hot ones. That is\nlatent today -- callFfi guarantees a detail on every path it can currently\nfail through -- but one shared mapper is cheaper than separate copies of the\nsame guard staying in sync. Worth knowing for anyone testing this: the four\nsites are *not* reached by direct call / apply / map, which all land in\nvm_calls.zig; the two vm_dispatch.zig sites are the tail-call and tail-apply\nopcodes, so the regression test uses tail-position forms.\n\nThe two remaining bare returns outside ffi.zig already call `setErrorDetail`\non the line above and are now annotated as such, leaving every non-FFI site\nin src/ either fixed or carrying a stated reason.\n\nNot done: ffi.zig's 27 sites (the issue's Group D), which are internal\npass/fail signalling behind `validateArgsDetailed` -- retagging them would\nchange nothing a user sees and would break the caller's switch. The\n`format` job's grep is unchanged; widening it is now a single question about\nthose 27 rather than a mixed bag.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T08:52:21+05:30",
+          "tree_id": "7ea2e112ab6fae5ee525bfdd6b07ff6533a21058",
+          "url": "https://github.com/kaappi/kaappi/commit/9f1c323f402bd5265086faa059bd861df592c4c4"
+        },
+        "date": 1785470289832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.300079,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.89231,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.580175,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.981307,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004642,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046457,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311103,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057056,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.616138,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.232008,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578073,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280976,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.797544,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.486603,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046708,
             "unit": "seconds"
           }
         ]
