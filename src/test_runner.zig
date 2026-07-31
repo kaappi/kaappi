@@ -283,6 +283,9 @@ const ParentOpts = struct {
     /// git revision the change set is computed against (`--since`, default HEAD).
     since: []const u8 = "HEAD",
     since_given: bool = false,
+    /// Worker processes to keep in flight (`--jobs`). 0 means "decide from the
+    /// CPU count"; resolved by `resolveJobs` before the run starts.
+    jobs: usize = 0,
     lib_paths: std.ArrayList([]const u8) = .empty,
     paths: std.ArrayList([]const u8) = .empty,
 
@@ -340,6 +343,17 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
                 return USAGE_ERROR_EXIT;
             };
             opts.lib_paths.append(allocator, val) catch return oom();
+        } else if (std.mem.eql(u8, arg, "--jobs") or std.mem.eql(u8, arg, "-j")) {
+            const val = it.next() orelse {
+                writeStderr("kaappi test: --jobs requires a positive integer argument\n");
+                return USAGE_ERROR_EXIT;
+            };
+            const n = std.fmt.parseInt(usize, val, 10) catch 0;
+            if (n == 0) {
+                writeStderr("kaappi test: --jobs requires a positive integer\n");
+                return USAGE_ERROR_EXIT;
+            }
+            opts.jobs = n;
         } else if (std.mem.eql(u8, arg, "--changed")) {
             opts.changed = true;
         } else if (std.mem.eql(u8, arg, "--list-affected")) {
@@ -435,8 +449,13 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     var totals: Totals = .{};
     const start_ns = clockNs();
 
-    for (run_list, 0..) |file, i| {
-        runOneFile(allocator, exe_path, file, opts, i, &totals);
+    const jobs = resolveJobs(opts.jobs, run_list.len);
+    if (jobs > 1) {
+        runParallel(allocator, exe_path, run_list, opts, &totals, jobs);
+    } else {
+        for (run_list, 0..) |file, i| {
+            runOneFile(allocator, exe_path, file, opts, i, &totals);
+        }
     }
 
     const total_ms = @as(f64, @floatFromInt(clockNs() -| start_ns)) / 1_000_000.0;
@@ -445,28 +464,169 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     return if (totals.fail > 0 or totals.xpass > 0 or totals.errors > 0) 1 else 0;
 }
 
-fn runOneFile(allocator: std.mem.Allocator, exe_path: []const u8, file: []const u8, opts: *ParentOpts, index: usize, totals: *Totals) void {
+/// What one worker produced, held until the reporter reaches this file. Split
+/// out of `runOneFile` so the parallel driver can run the (slow, blocking)
+/// production step on several threads while reporting stays single-threaded and
+/// in file order.
+const FileOutcome = struct {
+    /// null when the worker could not be spawned at all.
+    spawn: ?SpawnResult = null,
+    result_json: ?[]u8 = null,
+};
+
+/// Spawn one worker and collect its result. Safe to call concurrently: the
+/// emit path is unique per index and reaches the child through its own `envp`,
+/// never through the parent's environment.
+fn produceFileOutcome(
+    allocator: std.mem.Allocator,
+    exe_path: []const u8,
+    file: []const u8,
+    opts: *ParentOpts,
+    index: usize,
+) FileOutcome {
     const emit_path = std.fmt.allocPrint(allocator, "{s}/kaappi-test-{d}-{d}.json", .{ tmpDir(), platform.getPid(), index }) catch {
         writeStderr("kaappi test: out of memory\n");
-        return;
+        return .{};
     };
     defer allocator.free(emit_path);
 
-    {
-        platform.setEnv(allocator, EMIT_ENV, emit_path) catch {};
-    }
+    const spawn = spawnWorker(allocator, exe_path, file, opts.lib_paths.items, emit_path) catch {
+        return .{};
+    };
 
-    const spawn = spawnWorker(allocator, exe_path, file, opts.lib_paths.items) catch {
+    const result_json: ?[]u8 = file_utils.readWholeFile(allocator, emit_path, 8 * 1024 * 1024) catch null;
+    unlinkPath(emit_path);
+
+    return .{ .spawn = spawn, .result_json = result_json };
+}
+
+/// Report one outcome and release everything it owns. Single-threaded.
+fn reportOutcome(allocator: std.mem.Allocator, file: []const u8, outcome: FileOutcome, opts: *ParentOpts, totals: *Totals) void {
+    const spawn = outcome.spawn orelse {
         reportSpawnFailure(file, totals, opts.json);
         return;
     };
     defer allocator.free(spawn.output);
+    defer if (outcome.result_json) |rj| allocator.free(rj);
 
-    const result_json: ?[]u8 = file_utils.readWholeFile(allocator, emit_path, 8 * 1024 * 1024) catch null;
-    defer if (result_json) |rj| allocator.free(rj);
-    unlinkPath(emit_path);
+    accumulateAndReport(allocator, file, outcome.result_json, spawn, totals, opts.json);
+}
 
-    accumulateAndReport(allocator, file, result_json, spawn, totals, opts.json);
+fn runOneFile(allocator: std.mem.Allocator, exe_path: []const u8, file: []const u8, opts: *ParentOpts, index: usize, totals: *Totals) void {
+    const outcome = produceFileOutcome(allocator, exe_path, file, opts, index);
+    reportOutcome(allocator, file, outcome, opts, totals);
+}
+
+/// Resolve `--jobs` against the CPU count and the amount of work available.
+///
+/// Windows is pinned to 1: there the worker's emit path still travels through
+/// the parent's environment (`CreateProcessW` inherits it, and this code does
+/// not build a custom environment block), which is only safe while spawns are
+/// serialized. POSIX passes it per child instead and parallelises freely.
+fn resolveJobs(requested: usize, file_count: usize) usize {
+    if (file_count <= 1) return 1;
+    if (comptime platform.is_windows) return 1;
+    if (comptime builtin.single_threaded) return 1;
+
+    const want = if (requested != 0)
+        requested
+    else
+        std.Thread.getCpuCount() catch 1;
+
+    return @max(1, @min(want, file_count));
+}
+
+/// Shared state for the parallel driver: worker threads claim indices from
+/// `next` and fill `outcomes`, while the main thread reports the completed
+/// prefix in order, so output streams as it would sequentially.
+///
+/// Synchronisation is a per-slot release/acquire flag rather than a mutex and
+/// condition variable: each slot has exactly one writer and one reader, and the
+/// `done[i]` release pairs with the reporter's acquire to publish the outcome
+/// written just before it. That also sidesteps `std.Io.Mutex`, which would want
+/// an `Io` instance this orchestrator has no other use for.
+const ParallelRun = struct {
+    allocator: std.mem.Allocator,
+    exe_path: []const u8,
+    files: []const []const u8,
+    opts: *ParentOpts,
+    outcomes: []FileOutcome,
+    done: []std.atomic.Value(bool),
+    next: std.atomic.Value(usize) = .init(0),
+};
+
+fn parallelWorker(pr: *ParallelRun) void {
+    while (true) {
+        const i = pr.next.fetchAdd(1, .monotonic);
+        if (i >= pr.files.len) return;
+
+        pr.outcomes[i] = produceFileOutcome(pr.allocator, pr.exe_path, pr.files[i], pr.opts, i);
+        pr.done[i].store(true, .release);
+    }
+}
+
+fn runParallel(
+    allocator: std.mem.Allocator,
+    exe_path: []const u8,
+    files: []const []const u8,
+    opts: *ParentOpts,
+    totals: *Totals,
+    jobs: usize,
+) void {
+    const outcomes = allocator.alloc(FileOutcome, files.len) catch return runSequentialFallback(allocator, exe_path, files, opts, totals);
+    defer allocator.free(outcomes);
+    const done = allocator.alloc(std.atomic.Value(bool), files.len) catch return runSequentialFallback(allocator, exe_path, files, opts, totals);
+    defer allocator.free(done);
+    @memset(outcomes, .{});
+    for (done) |*d| d.* = .init(false);
+
+    var pr: ParallelRun = .{
+        .allocator = allocator,
+        .exe_path = exe_path,
+        .files = files,
+        .opts = opts,
+        .outcomes = outcomes,
+        .done = done,
+    };
+
+    const threads = allocator.alloc(std.Thread, jobs) catch return runSequentialFallback(allocator, exe_path, files, opts, totals);
+    defer allocator.free(threads);
+
+    var spawned: usize = 0;
+    while (spawned < jobs) : (spawned += 1) {
+        threads[spawned] = std.Thread.spawn(.{}, parallelWorker, .{&pr}) catch break;
+    }
+    if (spawned == 0) {
+        // No threads at all — nothing will ever fill `done`, so do not wait on it.
+        return runSequentialFallback(allocator, exe_path, files, opts, totals);
+    }
+
+    // Report the completed prefix in file order, so output streams exactly as
+    // it would sequentially. Peak retention is whatever finished ahead of the
+    // cursor; each outcome is freed as it is reported.
+    var cursor: usize = 0;
+    while (cursor < files.len) : (cursor += 1) {
+        while (!pr.done[cursor].load(.acquire)) {
+            // Test files run for tens of milliseconds at least, so a 1 ms poll
+            // costs nothing measurable and leaves the core to the workers.
+            platform.sleepNs(1_000_000);
+        }
+        reportOutcome(allocator, files[cursor], pr.outcomes[cursor], opts, totals);
+    }
+
+    for (threads[0..spawned]) |t| t.join();
+}
+
+fn runSequentialFallback(
+    allocator: std.mem.Allocator,
+    exe_path: []const u8,
+    files: []const []const u8,
+    opts: *ParentOpts,
+    totals: *Totals,
+) void {
+    for (files, 0..) |file, i| {
+        runOneFile(allocator, exe_path, file, opts, i, totals);
+    }
 }
 
 const SpawnResult = struct {
@@ -475,11 +635,66 @@ const SpawnResult = struct {
     signaled: bool,
 };
 
+/// Copy the parent's environment, replacing `KAAPPI_TEST_EMIT` with this
+/// child's own path, and return it in `execve` shape (null-terminated array of
+/// null-terminated strings).
+///
+/// Building this per child is what makes concurrent spawning safe: the
+/// alternative — `setenv` on the parent before each fork — is one mutable
+/// global shared by every in-flight worker, so two workers racing would send
+/// both children to the same emit path and lose a result.
+fn buildChildEnv(allocator: std.mem.Allocator, emit_path: []const u8) ![]?[*:0]const u8 {
+    const prefix = EMIT_ENV ++ "=";
+
+    var list: std.ArrayList(?[*:0]const u8) = .empty;
+    errdefer freeChildEnvList(allocator, &list);
+
+    var i: usize = 0;
+    while (std.c.environ[i]) |entry| : (i += 1) {
+        const slice = std.mem.sliceTo(entry, 0);
+        // Drop any inherited value; ours is appended below.
+        if (std.mem.startsWith(u8, slice, prefix)) continue;
+        const dup = try allocator.dupeZ(u8, slice);
+        try list.append(allocator, dup.ptr);
+    }
+
+    const ours = try std.fmt.allocPrintSentinel(allocator, "{s}{s}", .{ prefix, emit_path }, 0);
+    errdefer allocator.free(ours);
+    try list.append(allocator, ours.ptr);
+
+    try list.append(allocator, null);
+    return list.toOwnedSlice(allocator);
+}
+
+/// Free one entry allocated by `buildChildEnv`. `dupeZ`/`allocPrintSentinel`
+/// allocate len+1 bytes, so the sentinel has to be handed back too.
+fn freeChildEnvEntry(allocator: std.mem.Allocator, p: [*:0]const u8) void {
+    const slice = std.mem.sliceTo(p, 0);
+    allocator.free(slice.ptr[0 .. slice.len + 1]);
+}
+
+fn freeChildEnvList(allocator: std.mem.Allocator, list: *std.ArrayList(?[*:0]const u8)) void {
+    for (list.items) |maybe| {
+        if (maybe) |p| freeChildEnvEntry(allocator, p);
+    }
+    list.deinit(allocator);
+}
+
+fn freeChildEnv(allocator: std.mem.Allocator, envp: []?[*:0]const u8) void {
+    for (envp) |maybe| {
+        if (maybe) |p| freeChildEnvEntry(allocator, p);
+    }
+    allocator.free(envp);
+}
+
 /// Fork/exec `exe_path` on one file, capturing its combined stdout+stderr.
-/// `KAAPPI_TEST_EMIT` (set by the caller) is inherited via the environment, so
-/// the child runs as a worker and writes its JSON to that path. Output is
-/// capped so a runaway test can't exhaust memory here.
-fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const u8, lib_paths: []const []const u8) !SpawnResult {
+/// `KAAPPI_TEST_EMIT` is what puts the child in worker mode and tells it where
+/// to write its JSON. On POSIX it is injected into the child's own `envp`, so
+/// concurrent spawns never race over one shared parent environment; on Windows
+/// (where `CreateProcessW` here inherits the parent's block) it is still set on
+/// the parent, which is safe because `resolveJobs` pins Windows to one job.
+/// Output is capped so a runaway test can't exhaust memory here.
+fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const u8, lib_paths: []const []const u8, emit_path: []const u8) !SpawnResult {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
     try argv.append(allocator, exe_path);
@@ -490,6 +705,7 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
     try argv.append(allocator, file);
 
     if (comptime platform.is_windows) {
+        platform.setEnv(allocator, EMIT_ENV, emit_path) catch {};
         // Same 1 MiB in-loop cap as the POSIX read loop below: the pipe
         // keeps draining past it, so a runaway worker can neither exhaust
         // memory here nor block on a full pipe.
@@ -516,6 +732,9 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
         argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
     }
 
+    const envp = try buildChildEnv(allocator, emit_path);
+    defer freeChildEnv(allocator, envp);
+
     var pipe: [2]c_int = undefined;
     if (std.c.pipe(&pipe) != 0) return error.PipeFailed;
 
@@ -536,7 +755,7 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
         _ = std.posix.system.execve(
             @ptrCast(argv_z[0].?),
             @ptrCast(argv_z.ptr),
-            @ptrCast(std.c.environ),
+            @ptrCast(envp.ptr),
         );
         std.process.exit(127);
     }
@@ -944,6 +1163,10 @@ fn printUsage() void {
         \\                     printed on every run so failures are reproducible).
         \\  --lib-path <path>  Add a library search path (repeatable), forwarded to
         \\                     each test file — e.g. kaappi test --lib-path ./lib.
+        \\  -j, --jobs <n>     Run up to n test files concurrently (default: one per
+        \\                     CPU). Each file is already its own worker process, so
+        \\                     results and output order are unchanged. Windows runs
+        \\                     one job regardless.
         \\  --changed          Run only tests affected by files changed since --since,
         \\                     computed from the R7RS import graph (imports + includes).
         \\  --list-affected    Print affected tests (one per line) without running them.
@@ -979,6 +1202,32 @@ test "FileResultJson parses a worker object" {
     try testing.expect(!parsed.value.@"error");
     try testing.expectEqual(@as(usize, 1), parsed.value.failures.len);
     try testing.expectEqualStrings("2", parsed.value.failures[0].actual.?);
+}
+
+test "resolveJobs clamps to the work available and honours the platform policy" {
+    // No work to spread: never more than one job, whatever was asked for.
+    try testing.expectEqual(@as(usize, 1), resolveJobs(0, 0));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(8, 0));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(0, 1));
+    try testing.expectEqual(@as(usize, 1), resolveJobs(8, 1));
+
+    // Windows and single-threaded builds are pinned to one job: there the emit
+    // path still reaches the worker through the parent's environment, which is
+    // only safe while spawns are serialised.
+    const pinned = comptime (platform.is_windows or builtin.single_threaded);
+
+    // An explicit request never exceeds the number of files to run.
+    try testing.expectEqual(@as(usize, if (pinned) 1 else 4), resolveJobs(16, 4));
+    try testing.expectEqual(@as(usize, if (pinned) 1 else 3), resolveJobs(3, 10));
+
+    // --jobs 1 stays sequential on every platform.
+    try testing.expectEqual(@as(usize, 1), resolveJobs(1, 10));
+
+    // Auto (0) resolves to the CPU count, still clamped by the file count and
+    // never zero.
+    const auto = resolveJobs(0, 1000);
+    try testing.expect(auto >= 1);
+    if (pinned) try testing.expectEqual(@as(usize, 1), auto);
 }
 
 test "randomSeed is in the human-typable range" {
