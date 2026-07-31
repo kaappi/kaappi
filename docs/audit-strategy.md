@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (2 of 53 units — Phase 0 complete) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (10 of 53 units — Phase 0 complete; first two parallel batches landed) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -254,15 +254,15 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 
 **Phase 1 — Reader, printer, numeric tower** (independent)
 
-- [ ] 1A: `#e`/`#i` exactness over the i64 boundary (F1, F2) + `string->number` parity
-- [ ] 1B: Radix-prefix delimiter checking (F3), all radices × invalid trailing chars, without breaking SRFI 169 separators or SRFI 270 hex floats
-- [ ] 1C: Port read-buffer refill (F4) — string, symbol, char, block-comment, and raw-string tokens across the 4096/8192 boundaries
+- [x] 1A: `#e`/`#i` exactness over the i64 boundary (F1, F2) + `string->number` parity (2026-07-31, [#1917](https://github.com/kaappi/kaappi/pull/1917); 128 assertions, 39 disabled — filed [#1907](https://github.com/kaappi/kaappi/issues/1907) reader **panics** on `#e` at 2^63 and aborts `check`/`fmt`/`ast`, [#1908](https://github.com/kaappi/kaappi/issues/1908) `#i` on a radix bignum reads digits as decimal, [#1909](https://github.com/kaappi/kaappi/issues/1909) `#e` below 1e-15 collapses to 0, [#1910](https://github.com/kaappi/kaappi/issues/1910) no Complex arm, [#1911](https://github.com/kaappi/kaappi/issues/1911) umbrella: **two divergent `applyExactness` implementations**, [#1921](https://github.com/kaappi/kaappi/issues/1921) unprefixed 2^63 decimal; reopened #751)
+- [x] 1B: Radix-prefix delimiter checking (F3), all radices × invalid trailing chars, without breaking SRFI 169 separators or SRFI 270 hex floats (2026-07-31, [#1931](https://github.com/kaappi/kaappi/pull/1931); 148 assertions, 58 disabled — 494-cell sweep, 382 split; filed [#1929](https://github.com/kaappi/kaappi/issues/1929), which supersedes #1892: **`Reader.readIntegerWithRadix` has never executed** since the commit that added its guard)
+- [x] 1C: Port read-buffer refill (F4) — string, symbol, char, block-comment, and raw-string tokens across the 4096/8192 boundaries (2026-07-31, [#1946](https://github.com/kaappi/kaappi/pull/1946); 23 assertions, 23 disabled — 1714 configurations; filed [#1940](https://github.com/kaappi/kaappi/issues/1940) silent splits incl. **a line comment's tail becoming program data**, [#1945](https://github.com/kaappi/kaappi/issues/1945) UTF-8 codepoint split; corrected #1893's own control, which was unsound)
 - [ ] 1D: Printer limits (F12) — `MAX_SHARED`/`MAX_PRINT_DEPTH` cliffs at n=1023/1024/1025, 2000-deep cycles, `write-shared` label exhaustion
 
 **Phase 2 — Primitives** (independent; order = risk)
 
-- [ ] 2.1: The `%`-prefixed internal-primitive surface (~53 procedures reachable from user code, zero test mention) — see dimension D1
-- [ ] 2.2: `primitives_io.zig` (+1108 lines against a 112-line audit test; custom-port and transcode branches are new)
+- [x] 2.1: The `%`-prefixed internal-primitive surface (~53 procedures reachable from user code, zero test mention) — see dimension D1 (2026-07-31, [#1918](https://github.com/kaappi/kaappi/pull/1918); 239 assertions — 51 of 66 `%` procedures callable with no import; filed [#1912](https://github.com/kaappi/kaappi/issues/1912) **wasm32 truncates indices to u32**, silent wrong reads *and writes* on plain `vector-set!`, [#1913](https://github.com/kaappi/kaappi/issues/1913)–[#1916](https://github.com/kaappi/kaappi/issues/1916); **zero panics** across ~180 adversarial calls)
+- [x] 2.2: `primitives_io.zig` (+1108 lines against a 112-line audit test; custom-port and transcode branches are new) (2026-07-31, [#1947](https://github.com/kaappi/kaappi/pull/1947); 49 → 197 assertions, all 45 specs covered; filed [#1939](https://github.com/kaappi/kaappi/issues/1939) re-entrant custom-port read **aborts the process**, [#1941](https://github.com/kaappi/kaappi/issues/1941)–[#1944](https://github.com/kaappi/kaappi/issues/1944))
 - [ ] 2.3: `primitives_srfi181.zig` (new, no test) — custom-port callback re-entrancy and the blocking rejection
 - [ ] 2.4: `primitives_srfi160.zig` (new, no test) — 11-way element-kind dispatch over raw bytes, c64/c128 packing
 - [ ] 2.5: `primitives_srfi237.zig` (new, no test) — sealed/opaque/uid, multi-level inheritance
@@ -277,7 +277,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 
 **Phase 3 — SRFI breadth** (independent)
 
-- [ ] 3.1: **SRFI 14 rewrite** (F6) — range/inversion-list rep over the existing Unicode tables, plus the ~37 missing names
+- [x] 3.1: **SRFI 14 rewrite** (F6) — range/inversion-list rep over the existing Unicode tables, plus the ~37 missing names (2026-07-31, [#1928](https://github.com/kaappi/kaappi/pull/1928), closed #1895; inversion lists, all 64 spec names, 172-assertion suite — 17/147 against the old library; filed [#1924](https://github.com/kaappi/kaappi/issues/1924) **cross-thread use-after-free**, [#1925](https://github.com/kaappi/kaappi/issues/1925) `char-numeric?` BMP-only, [#1927](https://github.com/kaappi/kaappi/issues/1927) `--lib-path` cannot shadow a bundled SRFI)
 - [ ] 3.2: SRFI 160 sweep A — the generic surface across all 12 element kinds (the test is 87% `s8`)
 - [ ] 3.3: SRFI 160 sweep B — per-type wrappers, c64/c128 packing, the u8-as-bytevector seam
 - [ ] 3.4: SRFI 146 (108 of 161 exports untested)
@@ -291,7 +291,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 **Phase 4 — Execution-tier divergence**
 
 - [ ] 4A: Derive `isRejectedFormHead` from the comptime set (F7) + a test asserting `derived ⊆ rejected ∪ documented-exclusions`
-- [ ] 4B: Ship `tests/scheme/differential/run-differential.sh` — tiers (b) opt-off and (d) cold/warm cache first; both need no build and already run green
+- [x] 4B: Ship `tests/scheme/differential/run-differential.sh` — tiers (b) opt-off and (d) cold/warm cache first; both need no build and already run green (2026-07-31, [#1923](https://github.com/kaappi/kaappi/pull/1923); 557 files, 0 divergence, wired into run-all.sh; filed [#1922](https://github.com/kaappi/kaappi/issues/1922) cache HIT loses error source lines. Quantified the tier-(b) weakness: only **9 of 331** corpus files make the optimiser do anything. Debug reduces to `probes/` after CI timed out at 300s)
 - [ ] 4C: Convert `tests/scheme/compile/*.sh` from golden strings to an interpreter oracle (only 2 of 22 compare tiers today)
 - [ ] 4D: WASM cross-tier — diff the import-free corpus under wasmtime against the interpreter (today: 3 files, exit-code only)
 - [ ] 4E: `.sbc` cache coverage — only 42 of 333 corpus files populate it; `sbc equiv:` covers 6 toy forms
@@ -300,7 +300,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 
 - [ ] 5A: **Validate-or-retire** the SRFI 120 corruption claim; deliver either a live repro or a PR rewriting the header plus tests pinning both rejections
 - [ ] 5B: `waitForFd` park-vs-drive protocol — zero tests reference `waitForFd`, `driving_waits`, or `anyAncestorWaitResolved`
-- [ ] 5C: `gc_deep_copy` promoted-stub ownership skip — an already-promoted channel stub bypasses the owner check
+- [x] 5C: `gc_deep_copy` promoted-stub ownership skip — an already-promoted channel stub bypasses the owner check (2026-07-31, [#1938](https://github.com/kaappi/kaappi/pull/1938); 49 assertions, 24 disabled — CLAUDE.md's sharing model confirmed verbatim, 11 sound behaviours pinned; filed [#1933](https://github.com/kaappi/kaappi/issues/1933) **parent GC reclaims objects a live child references** (gc-stress: hard UAF panic), [#1932](https://github.com/kaappi/kaappi/issues/1932) a record loses its type across `thread-join!`, [#1934](https://github.com/kaappi/kaappi/issues/1934)–[#1937](https://github.com/kaappi/kaappi/issues/1937))
 - [ ] 5D: SRFI-18 re-audit (994 → 1435 lines since v1)
 - [ ] 5E: De-flake and arm the timing tests (76 wall-clock lines; `smoke/thread-sleep-876.scm` has no exit path at all)
 - [ ] 5F: gc-stress × concurrency — needs `/do-stress-test` (Linux, hours)
