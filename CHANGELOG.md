@@ -13,9 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `parent`, or another R6RS clause keyword** (#1882). SRFI 237's R6RS clause
   grammar is ambient — `(scheme base)`'s `define-record-type` accepts it with no
   `(import (srfi 237))` — so the two syntaxes are told apart structurally, and
-  the test read only the head of the form's 2nd element, which in R7RS syntax is
-  the *constructor's* name. `(define-record-type point (fields x y) point? (x
-  point-x) (y point-y))` was therefore parsed as R6RS and rejected with a bare
+  the syntax detector inspected only the head of the form's 2nd element, which
+  in R7RS syntax is the *constructor's* name. `(define-record-type point (fields
+  x y) point? (x point-x) (y point-y))` was therefore parsed as R6RS and
+  rejected with a bare
   `KP2001: invalid syntax`, in a program with nothing to suggest the R6RS
   grammar was in play; the follow-on `undefined variable 'fields'` and its `Did
   you mean 'yield'?` pointed away from the cause. The 3rd element now decides:
