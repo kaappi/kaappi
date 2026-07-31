@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (14 of 53 units — three parallel batches; 5B awaits [#1967](https://github.com/kaappi/kaappi/issues/1967)) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (14 of 53 units — three parallel batches, all merged) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -299,7 +299,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 **Phase 5 — Concurrency**
 
 - [ ] 5A: **Validate-or-retire** the SRFI 120 corruption claim; deliver either a live repro or a PR rewriting the header plus tests pinning both rejections
-- [x] 5B: `waitForFd` park-vs-drive protocol — zero tests reference `waitForFd`, `driving_waits`, or `anyAncestorWaitResolved` (2026-08-01, [#1960](https://github.com/kaappi/kaappi/pull/1960) — **open**, blocked by [#1967](https://github.com/kaappi/kaappi/issues/1967); 26 tests, **no bugs in `waitForFd`**. Pinned the 2×2 selector and the unwind asymmetry, whose nine `false` rows had zero coverage. Filed [#1959](https://github.com/kaappi/kaappi/issues/1959) — the user-visible error names `dynamic-wind` as unparkable when it is not)
+- [x] 5B: `waitForFd` park-vs-drive protocol — zero tests reference `waitForFd`, `driving_waits`, or `anyAncestorWaitResolved` (2026-08-01, [#1960](https://github.com/kaappi/kaappi/pull/1960); 26 tests, **no bugs in `waitForFd`**. Pinned the 2×2 selector and the unwind asymmetry, whose nine `false` rows had zero coverage. Filed [#1959](https://github.com/kaappi/kaappi/issues/1959) — the user-visible error names `dynamic-wind` as unparkable when it is not)
 - [x] 5C: `gc_deep_copy` promoted-stub ownership skip — an already-promoted channel stub bypasses the owner check (2026-07-31, [#1938](https://github.com/kaappi/kaappi/pull/1938); 49 assertions, 24 disabled — CLAUDE.md's sharing model confirmed verbatim, 11 sound behaviours pinned; filed [#1933](https://github.com/kaappi/kaappi/issues/1933) **parent GC reclaims objects a live child references** (gc-stress: hard UAF panic), [#1932](https://github.com/kaappi/kaappi/issues/1932) a record loses its type across `thread-join!`, [#1934](https://github.com/kaappi/kaappi/issues/1934)–[#1937](https://github.com/kaappi/kaappi/issues/1937))
 - [ ] 5D: SRFI-18 re-audit (994 → 1435 lines since v1)
 - [ ] 5E: De-flake and arm the timing tests (76 wall-clock lines; `smoke/thread-sleep-876.scm` has no exit path at all)
