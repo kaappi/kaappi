@@ -339,6 +339,13 @@ run_shell_suite "Doctor" tests/scheme/doctor
 run_shell_suite "Formatter" tests/scheme/fmt
 run_shell_suite "Cache" tests/scheme/cache
 run_shell_suite "Timings" tests/scheme/timings
+# Execution-tier differential: every corpus file must give the same answer with
+# the IR optimiser off and from a warm bytecode cache as it does from a cold
+# one. Defaults to the smoke+compliance+audit corpus plus its own probes
+# (330 files, ~115s, inside SHELL_TIMEOUT); KAAPPI_DIFF_FULL=1 adds
+# continuations/, hygiene/ and srfi/ (557 files, ~210s) — opt-in because those
+# 227 extra files add no tier coverage, only runtime.
+run_shell_suite "Differential tiers" tests/scheme/differential
 
 echo "=== R7RS test suite ==="
 set +e
