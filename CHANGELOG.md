@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A valid R7RS record was rejected when its constructor was named `fields`,
+  `parent`, or another R6RS clause keyword** (#1882). SRFI 237's R6RS clause
+  grammar is ambient — `(scheme base)`'s `define-record-type` accepts it with no
+  `(import (srfi 237))` — so the two syntaxes are told apart structurally, and
+  the test read only the head of the form's 2nd element, which in R7RS syntax is
+  the *constructor's* name. `(define-record-type point (fields x y) point? (x
+  point-x) (y point-y))` was therefore parsed as R6RS and rejected with a bare
+  `KP2001: invalid syntax`, in a program with nothing to suggest the R6RS
+  grammar was in play; the follow-on `undefined variable 'fields'` and its `Did
+  you mean 'yield'?` pointed away from the cause. The 3rd element now decides:
+  R7RS always has one and it is always the bare-symbol `<predicate>`, while an
+  R6RS `<record clause>` is always a list — or absent, when there is at most one
+  clause. That is a pure narrowing, so no R6RS form and no malformed form
+  changes path, and no diagnostic changes. In a body the same misdetection also
+  aborted the internal-define scan, so sibling `define`s written after the
+  record lost their mutual visibility; in a library body, where the R6RS grammar
+  is rejected outright, the whole library failed to load.
 - **Native backend: a nested `let` that fell back to the interpreter lost the
   enclosing `let`'s bindings** (#1862). When a `let` inside another `let` gave up
   on native compilation mid-emission — more than 32 bindings, more head

@@ -280,11 +280,22 @@ fn isR6RSClauseKeyword(name: []const u8) bool {
     return false;
 }
 
-/// R7RS syntax's 2nd element is always (ctor-name field...) where ctor-name
-/// is a plain symbol naming the constructor -- never one of the R6RS clause
-/// keywords above, so checking the head of the 2nd element disambiguates
-/// the two syntaxes (a constructor literally named e.g. "parent" would
-/// misdetect, but that's an extreme, self-inflicted edge case).
+/// Both syntaxes put a list at the 2nd element -- R7RS's
+/// `(<constructor> <field name>*)` and R6RS's first `<record clause>` -- so
+/// that element's head is only half a discriminator: it is a clause keyword
+/// for every R6RS form, but also for a perfectly valid R7RS record whose
+/// constructor happens to be named `fields`, `parent`, `sealed`, ... The
+/// R6RS grammar is ambient (no `(import (srfi 237))` required), so such a
+/// program was misparsed with nothing to hint why (#1882).
+///
+/// The 3rd element settles it, unambiguously: R7RS always has one and it is
+/// always the `<predicate>`, a bare symbol; R6RS either has none (at most
+/// one clause) or has another `<record clause>`, which is always a list.
+/// So a symbol there means R7RS and nothing else -- and only that case is
+/// taken away from the keyword test, which is what makes this a pure
+/// narrowing. Every R6RS form keeps its path, and so does every malformed
+/// one (a missing 3rd element, an improper tail, a non-symbol atom), so no
+/// diagnostic changes either.
 fn looksLikeR6RSClauseSyntax(args: Value) bool {
     if (!types.isPair(args)) return false;
     const rest = types.cdr(args);
@@ -293,7 +304,11 @@ fn looksLikeR6RSClauseSyntax(args: Value) bool {
     if (!types.isPair(second)) return false;
     const head = types.car(second);
     if (!types.isSymbol(head)) return false;
-    return isR6RSClauseKeyword(types.symbolName(head));
+    if (!isR6RSClauseKeyword(types.symbolName(head))) return false;
+
+    const third_cell = types.cdr(rest);
+    if (types.isPair(third_cell) and types.isSymbol(types.car(third_cell))) return false;
+    return true;
 }
 
 fn lookupInternalGlobal(vm: *VM, name: []const u8) ?Value {

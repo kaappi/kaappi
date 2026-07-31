@@ -115,6 +115,63 @@ test "record type distinction" {
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(try vm.eval("(color-b c)")));
 }
 
+// #1882: SRFI 237's R6RS clause grammar is ambient, so `define-record-type`
+// tells the two syntaxes apart structurally. Reading only the head of the
+// 2nd element captured any R7RS record whose *constructor* was named after
+// a clause keyword; the 3rd element (R7RS's bare-symbol predicate, vs. an
+// R6RS clause list or nothing) is what actually separates them.
+test "R7RS record whose constructor is named after an R6RS clause keyword" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-record-type point
+        \\  (fields x y)
+        \\  point?
+        \\  (x point-x)
+        \\  (y point-y))
+    );
+    _ = try vm.eval(
+        \\(define-record-type node
+        \\  (parent l r)
+        \\  node?
+        \\  (l node-l)
+        \\  (r node-r))
+    );
+
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(point-x (fields 1 2))")));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("(point-y (fields 1 2))")));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(point? (fields 1 2))"));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(node-l (parent 3 4))")));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(point? (parent 3 4))"));
+}
+
+// The other half of #1882's narrowing: every genuine R6RS form must keep
+// its path, whether it has one clause (no 3rd element at all) or several
+// (a clause list there).
+test "R6RS clause syntax still detected after the #1882 narrowing" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-record-type box (fields (mutable contents)))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(box-contents (make-box 42))")));
+
+    _ = try vm.eval("(define-record-type animal (fields (immutable id animal-id)))");
+    _ = try vm.eval(
+        \\(define-record-type (dog make-dog dog?)
+        \\  (parent animal)
+        \\  (fields (immutable breed dog-breed)))
+    );
+    _ = try vm.eval("(define rex (make-dog 7 9))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try vm.eval("(animal-id rex)")));
+    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(try vm.eval("(dog-breed rex)")));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(animal? rex)"));
+}
+
 test "record with mixed field types" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
