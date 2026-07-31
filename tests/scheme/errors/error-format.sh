@@ -271,11 +271,15 @@ assert_output_contains "too many apply arguments stays catchable" \
     "caught"
 
 # The half that used to give a silently wrong answer with exit 0: nested
-# `guard` past the old 64-handler cap. Every depth must return 0.
+# `guard` past the old 64-handler cap. Every depth must return 0. 90 is the
+# ceiling here, not a round number: `guard` spends two native re-entrancy
+# frames per level and callReentrant caps those at 200 in a Debug build, so
+# nested guard tops out at 99 there. See the header of
+# tests/scheme/smoke/handler-wind-depth-1886.scm.
 assert_output_contains "nested guard past the old handler cap returns 0 at every depth" \
     '(import (scheme base) (scheme write))
      (define (f n) (guard (e (#t n)) (if (= n 0) (raise (quote b)) (f (- n 1)))))
-     (write (list (f 63) (f 64) (f 100) (f 300)))' \
+     (write (list (f 63) (f 64) (f 65) (f 90)))' \
     "(0 0 0 0)"
 
 # --- Library import errors ---

@@ -6,7 +6,6 @@ const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const errors = @import("errors.zig");
 const diagnostics = @import("diagnostics.zig");
-const build_options = @import("build_options");
 const VMError = th.VMError;
 
 test "guard basic catch" {
@@ -250,12 +249,14 @@ test "nested guard past the old 64-handler cap returns each level's own value" {
         \\  (guard (e (#t n))
         \\    (if (= n 0) (raise 'b) (f (- n 1)))))
     );
-    // 63 worked before the fix; 64 returned 1 and 100 returned 37. The
-    // deepest case only exists to force several growth doublings, and each
-    // level allocates, so it comes off under gc-stress (a collection per
-    // allocation) — 100 is already past the old cap and past one doubling.
-    const deepest: i64 = if (build_options.gc_stress) 100 else 300;
-    for ([_]i64{ 63, 64, 65, 100, deepest }) |depth| {
+    // 63 worked before the fix; 64 returned 1 and 100 returned 37. 90 forces
+    // a real reallocation (the 65th push grows 64 -> 128) and is the deepest
+    // this may go: `guard` costs two native re-entrancy frames per level
+    // (call/ec + with-exception-handler), and callReentrant's own cap is 200
+    // in a Debug build, so nested guard tops out at 99 there — measured, not
+    // estimated. Growth across *several* doublings is covered by the
+    // direct-push test below, which needs no re-entrancy at all.
+    for ([_]i64{ 63, 64, 65, 90 }) |depth| {
         var buf: [64]u8 = undefined;
         const src = try std.fmt.bufPrint(&buf, "(f {d})", .{depth});
         const result = try vm.eval(src);
