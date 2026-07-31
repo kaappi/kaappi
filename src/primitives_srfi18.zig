@@ -568,7 +568,7 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
     return types.VOID;
 }
 
-const SleepWait = struct {
+pub const SleepWait = struct {
     pub fn isDone(_: SleepWait) bool {
         return false; // a pure sleep only ever ends via me.timed_out
     }
@@ -1188,7 +1188,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     return types.TRUE;
 }
 
-const MutexWait = struct {
+pub const MutexWait = struct {
     m: *types.Mutex,
     pub fn isDone(self: MutexWait) bool {
         return !@atomicLoad(bool, &self.m.locked, .acquire);
@@ -1304,7 +1304,7 @@ fn bumpSignalGeneration(cv: *types.ConditionVariable) void {
     }
 }
 
-const CondVarWait = struct {
+pub const CondVarWait = struct {
     me: *fiber_mod.Fiber,
     cv: *types.ConditionVariable,
     start_gen: u64,

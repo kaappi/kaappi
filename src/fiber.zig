@@ -1134,7 +1134,7 @@ pub fn wakeIoWaitersOnFd(sched: *FiberScheduler, fd: platform.fd_t) void {
 
 /// Wait until the current fiber's own fd readiness resolves: done as soon
 /// as something (reactor poll, close-port wake) flips it out of io_waiting.
-const IoWait = struct {
+pub const IoWait = struct {
     me: *Fiber,
     pub fn isDone(self: IoWait) bool {
         return self.me.status != .io_waiting;
