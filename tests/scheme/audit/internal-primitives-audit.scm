@@ -146,10 +146,10 @@
 ;; rt.num_fields: gc_alloc.allocRecordInstance pads short lists with
 ;; types.UNDEFINED and truncates long ones. The padded slot then escapes
 ;; into Scheme as a truthy, printable, unreadable `#<undefined>`.
-;; FAIL: TBD (%make-record ignores field-count mismatch against rt.num_fields)
+;; FAIL: #1915 (%make-record ignores field-count mismatch against rt.num_fields)
 ;; (test-assert "mr: too few field values rejected"
 ;;              (raises? (%make-record (%make-record-type "T" 2) 1)))
-;; FAIL: TBD (%make-record silently drops surplus field values)
+;; FAIL: #1915 (%make-record silently drops surplus field values)
 ;; (test-assert "mr: too many field values rejected"
 ;;              (raises? (%make-record (%make-record-type "T" 2) 1 2 3)))
 
@@ -320,7 +320,7 @@
 ;; TypeError that dumps the whole input list into the message.
 (test-assert "split: 256 elements still works"
              (= 256 (length (car (%record-split-args (iota-list 256) 0)))))
-;; FAIL: TBD (%record-split-args caps at 256 elements; reports a bare TypeError dumping the list)
+;; FAIL: #1914 (%record-split-args caps at 256 elements; reports a bare TypeError dumping the list)
 ;; (test-assert "split: 257 elements works"
 ;;              (= 257 (length (car (%record-split-args (iota-list 257) 0)))))
 
@@ -514,7 +514,7 @@
                  (cond ((= i (bytevector-length bv)) #f)
                        ((not (= 0 (bytevector-u8-ref bv i))) #t)
                        (else (loop (+ i 1)))))))
-;; FAIL: TBD (%random-port-make-from-seed accepts an all-zero seed; the port emits only zeros)
+;; FAIL: #1913 (%random-port-make-from-seed accepts an all-zero seed; the port emits only zeros)
 ;; (test-assert "%random-port-make-from-seed rejects an all-zero seed"
 ;;              (raises? (%random-port-make-from-seed (seed-of 0))))
 
@@ -630,49 +630,49 @@
 
 ;; The nine bare-TypeError sites. Each of these SHOULD report the offending
 ;; argument (an index or a count), and instead reports args[0].
-;; FAIL: TBD (negative index in %record-ref reports a bare KP3002 blaming args[0])
+;; FAIL: #1914 (negative index in %record-ref reports a bare KP3002 blaming args[0])
 ;; (test-assert "taxonomy: %record-ref negative index is an index error"
 ;;              (has-substring?
 ;;               (raised-message (let ((rt (%make-record-type "T" 2)))
 ;;                                 (%record-ref (%make-record rt 1 2) -1 rt)))
 ;;               "out of range for length"))
-;; FAIL: TBD (negative index in %record-set! reports a bare KP3002 blaming args[0])
+;; FAIL: #1914 (negative index in %record-set! reports a bare KP3002 blaming args[0])
 ;; (test-assert "taxonomy: %record-set! negative index is an index error"
 ;;              (has-substring?
 ;;               (raised-message (let ((rt (%make-record-type "T" 2)))
 ;;                                 (%record-set! (%make-record rt 1 2) -1 0 rt)))
 ;;               "out of range for length"))
-;; FAIL: TBD (negative index in %record-ref/inherit reports a bare KP3002)
+;; FAIL: #1914 (negative index in %record-ref/inherit reports a bare KP3002)
 ;; (test-assert "taxonomy: %record-ref/inherit negative index is an index error"
 ;;              (has-substring?
 ;;               (raised-message (let ((rt (%make-record-type "T" 2)))
 ;;                                 (%record-ref/inherit (%make-record rt 1 2) -1 rt)))
 ;;               "out of range for length"))
-;; FAIL: TBD (negative index in %record-set!/inherit reports a bare KP3002)
+;; FAIL: #1914 (negative index in %record-set!/inherit reports a bare KP3002)
 ;; (test-assert "taxonomy: %record-set!/inherit negative index is an index error"
 ;;              (has-substring?
 ;;               (raised-message (let ((rt (%make-record-type "T" 2)))
 ;;                                 (%record-set!/inherit (%make-record rt 1 2) -1 0 rt)))
 ;;               "out of range for length"))
-;; FAIL: TBD (negative index in %record-field-mutable? reports a bare KP3002)
+;; FAIL: #1914 (negative index in %record-field-mutable? reports a bare KP3002)
 ;; (test-assert "taxonomy: %record-field-mutable? negative index is an index error"
 ;;              (has-substring?
 ;;               (raised-message (%record-field-mutable? (%make-record-type "T" 2) -1))
 ;;               "out of range for length"))
-;; FAIL: TBD (%make-record-type out-of-range field count blames args[0], the name string)
+;; FAIL: #1914 (%make-record-type out-of-range field count blames args[0], the name string)
 ;; (test-assert "taxonomy: %make-record-type 256 names the count, not the name"
 ;;              (not (has-substring? (raised-message (%make-record-type "T" 256)) "\"T\"")))
-;; FAIL: TBD (%make-record-type negative field count blames args[0])
+;; FAIL: #1914 (%make-record-type negative field count blames args[0])
 ;; (test-assert "taxonomy: %make-record-type -1 names the count, not the name"
 ;;              (not (has-substring? (raised-message (%make-record-type "T" -1)) "\"T\"")))
-;; FAIL: TBD (>255 OWN fields blames args[0]; the inherited path reports argError correctly)
+;; FAIL: #1914 (>255 OWN fields blames args[0]; the inherited path reports argError correctly)
 ;; (test-assert "taxonomy: own-field overflow is as specific as the inherited one"
 ;;              (has-substring?
 ;;               (raised-message (rtd "T" #f #f #f #f
 ;;                                    (map (lambda (i) (cons (number->string i) #t))
 ;;                                         (iota-list 256))))
 ;;               "255"))
-;; FAIL: TBD (%record-split-args suffix > length / negative reports a bare KP3002)
+;; FAIL: #1914 (%record-split-args suffix > length / negative reports a bare KP3002)
 ;; (test-assert "taxonomy: split suffix > length is not a type error"
 ;;              (not (has-substring? (raised-message (%record-split-args '(1 2) 3))
 ;;                                   "type error")))
@@ -687,7 +687,7 @@
 ;; got 1" is self-contradictory. Control: 1.5 renders correctly as "1.5".
 (test-assert "diagnostic control: 1.5 renders as 1.5"
              (has-substring? (raised-message (%make-record-type "T" 1.5)) "1.5"))
-;; FAIL: TBD (integral flonum 1.0 renders as "1" in error messages)
+;; FAIL: #1916 (integral flonum 1.0 renders as "1" in error messages)
 ;; (test-assert "diagnostic: 1.0 does not render as an exact 1"
 ;;              (not (has-substring? (raised-message (%make-record-type "T" 1.0))
 ;;                                   "got 1")))
@@ -698,7 +698,7 @@
 (test-assert "diagnostic control: 65536 for u16 says in-range"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 65536))
                              "in-range"))
-;; FAIL: TBD (out-of-range multi-limb bignum reported as "expected exact integer")
+;; FAIL: #1916 (out-of-range multi-limb bignum reported as "expected exact integer")
 ;; (test-assert "diagnostic: 2^64 for u16 also says in-range"
 ;;              (has-substring? (raised-message (%make-numeric-vector 'u16 1 (expt 2 64)))
 ;;                              "in-range"))
@@ -706,10 +706,10 @@
 ;;; The procedure name a `%` primitive reports must match the name that was
 ;;; called -- otherwise the message points at a DIFFERENT, real procedure
 ;;; (`record?` is exported by (srfi 237); `transcoded-port` by (srfi 181)).
-;; FAIL: TBD (%record? reports its errors as `record?`, dropping the % prefix)
+;; FAIL: #1916 (%record? reports its errors as `record?`, dropping the % prefix)
 ;; (test-assert "name drift: %record? reports as %record?"
 ;;              (has-substring? (raised-message (%record? 5 5)) "%record?"))
-;; FAIL: TBD (%transcoded-port reports its errors as `transcoded-port`)
+;; FAIL: #1916 (%transcoded-port reports its errors as `transcoded-port`)
 ;; (test-assert "name drift: %transcoded-port reports as %transcoded-port"
 ;;              (has-substring? (raised-message (%transcoded-port 5 'utf-8 'none 'replace))
 ;;                              "%transcoded-port"))
