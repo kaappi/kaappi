@@ -328,7 +328,6 @@ losing the VM costs the message, not the diagnosis:
 | `primitives_arithmetic.raiseDivByZero` | `DivisionByZero` |
 | the `overApplied`-style arity helpers (SRFI 181/254/258/260) | `ArityMismatch` |
 | `primitives_fiber.reraiseFiberError` | `ExceptionRaised` |
-| `primitives_io`'s `waitPortFd` / `raisePortClosedDuringIo` | `InvalidArgument` |
 
 A `gc_instance` guard in an allocating function is the same rule at scale: no
 GC means the allocation the function exists to perform cannot happen, so
@@ -372,14 +371,24 @@ both rules.
 
 One seam the two rules leave visible, so it does not read as fresh drift: the
 `raise*` helpers that build a condition object and end in `return
-PrimitiveError.ExceptionRaised` split across both. `reraiseFiberError` and
-`raisePortClosedDuringIo` already carried a tag of their own and keep it under
-Rule 1; `raiseFiberError`, `raiseWrappedPortClosed` and
-`raiseEntropyUnavailable` carried `OutOfMemory`, which is not what they return,
-so Rule 2 moved them to `InvalidBytecode`. Reading Rule 1 strictly would send
-all five the same way — but `ExceptionRaised` is the one tag a guard cannot
-honestly borrow, since it promises `vm.current_exception` was set and the guard
-fired precisely because there is no VM to set it on.
+PrimitiveError.ExceptionRaised`. `reraiseFiberError` already carried a tag of
+its own and keeps it under Rule 1; `raiseFiberError`, `raiseWrappedPortClosed`
+and `raiseEntropyUnavailable` carried `OutOfMemory`, which is not what they
+return, so Rule 2 moved them to `InvalidBytecode`. Reading Rule 1 strictly
+would send all of them the same way — but `ExceptionRaised` is the one tag a
+guard cannot honestly borrow, since it promises `vm.current_exception` was set
+and the guard fired precisely because there is no VM to set it on.
+
+`primitives_io`'s `waitPortFd` and `raisePortClosedDuringIo` sat on this seam's
+Rule 1 side until #1944, on the same "it already carried a tag of its own"
+reasoning — but the tag was `InvalidArgument`, which neither function returns
+for any other reason, and `raisePortClosedDuringIo` is a byte-for-byte twin of
+`raiseWrappedPortClosed` 950 lines further down the same file, which Rule 2 had
+already moved. Both are settled the same way now: `InvalidBytecode` for the
+`vm_instance` guards, `OutOfMemory` for the `gc_instance` one. That makes the
+seam narrower than it reads above — a guard is only on Rule 1's side if the tag
+it borrows is one the function genuinely returns, not merely one it was written
+with. `primitives_io.zig`'s own test block pins all three.
 
 A second seam, settled by #1878, is the one place a guard sits in a function
 that genuinely raises `TypeError` elsewhere. `primitives.applyFn` does — for a

@@ -699,6 +699,52 @@
   (test-equal #f (input-port-open? p)))
 (test-equal #t (raises? (lambda () (call-with-port 42 values))))
 
+;;; --- #1944: error taxonomy -------------------------------------------------
+;; Every assertion above only ever asked whether a bad call *raises*, which is
+;; why this file's messages could all be the wrong kind and still pass. These
+;; pin the message text, so a regression to the pre-#1944 wording fails here.
+
+;; A closed port is a port: rejecting it is argError, not typeError. The
+;; direction is still reported, since the direction check runs first.
+(test-equal "write-string: output port is closed"
+  (err-message (lambda () (let ((p (open-output-string))) (close-port p) (write-string "x" p)))))
+(test-equal "read-char: input port is closed"
+  (err-message (lambda () (let ((p (open-input-string "x"))) (close-port p) (read-char p)))))
+(test-equal "port-position: port is closed"
+  (err-message (lambda () (let ((p (open-input-string "x"))) (close-port p) (port-position p)))))
+(test-equal "set-port-position!: port is closed"
+  (err-message (lambda () (let ((p (open-input-string "x"))) (close-port p) (set-port-position! p 0)))))
+;; CONTROL: a genuinely wrong type — and a right-type/wrong-direction port —
+;; must still be a type error, or the fix above would have flattened the
+;; distinction instead of drawing it.
+(test-equal "type error in 'write-string': expected output port, got #<symbol>"
+  (err-message (lambda () (write-string "x" 'not-a-port))))
+(test-equal "type error in 'write-string': expected output port, got #<port>"
+  (err-message (lambda () (write-string "x" (open-input-string "y")))))
+
+;; set-port-position! past the end of a string port reports index and length
+;; (it was a detail-less "invalid argument in 'set-port-position!'").
+(test-equal "set-port-position!: index 99 out of range for length 3"
+  (err-message (lambda () (set-port-position! (open-input-string "abc") 99))))
+(test-equal "set-port-position!: index 99 out of range for length 0"
+  (err-message (lambda () (set-port-position! (open-output-string) 99))))
+;; CONTROL: position == length is the legal end-of-input seek, not an error.
+(test-equal #t
+  (let ((p (open-input-string "abc"))) (set-port-position! p 3) (eof-object? (read-char p))))
+
+;; write-string range errors name the offending index, not args[0] — the
+;; string is the one argument that is never at fault here.
+(test-equal "write-string: index 5 out of range for length 3"
+  (err-message (lambda () (write-string "abc" (open-output-string) 5))))
+(test-equal "write-string: index 9 out of range for length 3"
+  (err-message (lambda () (write-string "abc" (open-output-string) 1 9))))
+;; An in-range but inverted pair is neither a type nor a range fault.
+(test-equal "write-string: start 2 is greater than end 1"
+  (err-message (lambda () (write-string "abc" (open-output-string) 2 1))))
+;; CONTROL: a valid sub-range still writes exactly that slice.
+(test-equal "bc"
+  (let ((o (open-output-string))) (write-string "abcde" o 1 3) (get-output-string o)))
+
 ;; with-output-to-file restores current-output-port even when the thunk raises.
 (let ((path "/tmp/kaappi-audit-io-wo.txt"))
   (test-equal #t (raises? (lambda () (with-output-to-file path (lambda () (error "x"))))))
