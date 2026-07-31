@@ -572,7 +572,7 @@
    (test-equal 0 (file-info:rdev (file-info (string-append dir "/reg") #t)))
    (test-equal 0 (file-info:rdev (file-info (string-append dir "/fifo") #f)))))
 
-;; FAIL: TBD (file-info panics — SIGABRT, not catchable — on any path whose
+;; FAIL: #1976 (file-info panics — SIGABRT, not catchable — on any path whose
 ;; st_dev is negative when read as i32; on macOS that is every entry under
 ;; /dev, whose devfs st_dev is 2998493978 = -1296473318 as i32.  The cast is
 ;; `.dev = @intCast(stat_buf.dev)` at src/primitives_filesystem.zig:134.
@@ -691,7 +691,7 @@
 (with-scratch
  (lambda (dir)
    ;; -- create-directory mode --
-   ;; FAIL: TBD (a non-fixnum mode is silently discarded and 0o755 used:
+   ;; FAIL: #1977 (a non-fixnum mode is silently discarded and 0o755 used:
    ;; `if (args.len > 1 and types.isFixnum(args[1]))` in createDirectoryFn)
    ;; (test-equal #t (raised? (lambda () (create-directory (string-append dir "/m1") "notanum"))))
    (test-equal #t (raised? (lambda () (create-directory (string-append dir "/m2") #o10000))))
@@ -701,13 +701,13 @@
    (test-equal 'directory (file-info-type (file-info (string-append dir "/m4") #t)))
 
    ;; -- create-fifo mode --
-   ;; FAIL: TBD (same shape in createFifoFn — non-fixnum mode ignored, 0o664 used)
+   ;; FAIL: #1977 (same shape in createFifoFn — non-fixnum mode ignored, 0o664 used)
    ;; (test-equal #t (raised? (lambda () (create-fifo (string-append dir "/ff1") "notanum"))))
    (test-equal #t (raised? (lambda () (create-fifo (string-append dir "/ff2") #o10000))))
    (test-equal #t (raised? (lambda () (create-fifo (string-append dir "/ff3") -1))))
 
    ;; -- create-temp-file prefix --
-   ;; FAIL: TBD (a non-string prefix is silently discarded and the default
+   ;; FAIL: #1977 (a non-string prefix is silently discarded and the default
    ;; temp-file-prefix used: `if (args.len > 0 and types.isString(args[0]))`)
    ;; (test-equal #t (raised? (lambda () (create-temp-file 42))))
    (test-equal #t (raised? (lambda () (create-temp-file (make-string 400 #\z)))))
@@ -729,7 +729,7 @@
      (set-file-times p -2 3000000)
      (test-equal '(1000000 3000000)
                  (list (file-info:atime (file-info p #t)) (file-info:mtime (file-info p #t))))
-     ;; FAIL: TBD (a non-fixnum, non-time argument falls through to UTIME_NOW
+     ;; FAIL: #1977 (a non-fixnum, non-time argument falls through to UTIME_NOW
      ;; in timeArgToTimespec, so a mistyped time silently stamps the file with
      ;; the current clock instead of raising)
      ;; (test-equal #t (raised? (lambda () (set-file-times p "garbage" "garbage"))))
@@ -741,7 +741,7 @@
      (test-equal #t (> (file-info:mtime (file-info p #t)) 1700000000)))
 
    ;; -- nice --
-   ;; FAIL: TBD (a non-fixnum increment is silently discarded and the default
+   ;; FAIL: #1977 (a non-fixnum increment is silently discarded and the default
    ;; +1 applied, so `(nice "x")` really does renice the process:
    ;; `if (args.len > 0 and types.isFixnum(args[0]))` in niceFn)
    ;; (test-equal #t (raised? (lambda () (nice "x"))))
@@ -752,7 +752,7 @@
    (test-equal #t (exact-integer? (nice 0)))
 
    ;; -- directory-files / file-info extra arguments --
-   ;; FAIL: TBD (SRFI 170 caps these at 2 and 1 arguments respectively; the
+   ;; FAIL: #1977 (SRFI 170 caps these at 2 and 1 arguments respectively; the
    ;; specs declare `.variadic` which has no upper bound, so surplus
    ;; arguments are accepted and ignored rather than reported)
    ;; (test-equal #t (raised? (lambda () (file-info (string-append dir "/t") #t 'extra))))
@@ -782,7 +782,7 @@
 (test-equal '("KAAPPI_A212_LIST" . "here") (assoc "KAAPPI_A212_LIST" (get-environment-variables)))
 (delete-environment-variable! "KAAPPI_A212_LIST")
 (test-equal #f (assoc "KAAPPI_A212_LIST" (get-environment-variables)))
-;; FAIL: TBD (setenv(3)'s return value is discarded — `_ = setenv(...)` in
+;; FAIL: #1977 (setenv(3)'s return value is discarded — `_ = setenv(...)` in
 ;; platform.setEnv — so setEnvVarFn's raiseFileError branch is unreachable and
 ;; an EINVAL name silently does nothing.  A name containing "=" and an empty
 ;; name are both rejected by POSIX; both return normally here and set nothing.)
@@ -822,7 +822,7 @@
      ;; ...and they name the procedure and the expected type
      (test-equal "type error in 'file-info:size': expected file-info, got 42"
                  (msg-of (lambda () (file-info:size 42))))
-     ;; FAIL: TBD (pure argument-range validation is raised through
+     ;; FAIL: #1978 (pure argument-range validation is raised through
      ;; raiseFileError, so `file-error?` answers #t for failures that never
      ;; touched the filesystem.  These are argError/KP3007 cases — "a value of
      ;; acceptable type the procedure rejects anyway" — not file errors.)
