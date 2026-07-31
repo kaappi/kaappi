@@ -243,12 +243,40 @@ runs `kaappi test`'s own acceptance shell tests
 `kaappi test`; nothing forces the switch.
 
 It runs its own `.scm` suites concurrently too, via `KAAPPI_TEST_JOBS`
-(default: one per CPU, `KAAPPI_TEST_JOBS=1` to serialise). Its **shell** suites
-stay sequential: several of them call `ensure_runtime_lib`, which runs
-`zig build lib` and installs into the shared `zig-out/lib`, so concurrent
-scripts would race over one output archive. Parallelising those means giving
-`tests/scheme/shell-common.sh` a build-once guard first — worth doing, since
-they are now the larger half of that script's wall time.
+(default: one per CPU, `KAAPPI_TEST_JOBS=1` to serialise), and its **shell**
+suites at `KAAPPI_SHELL_TEST_JOBS` (default: the same). They get separate knobs
+because a shell script can fork a whole compiler, so a box that wants the
+`.scm` files N-wide does not necessarily want N concurrent `zig build`s.
+
+Three things make that safe and worthwhile (kaappi#1926):
+
+- **One archive, built once.** 18 scripts in `compile/` need
+  `zig-out/lib/libkaappi_rt.a` and each ran `zig build lib` itself, racing
+  over one install. `run-all.sh` now builds it up front and exports
+  `KAAPPI_RT_LIB_READY`, which `ensure_runtime_lib` treats as "already
+  fresh". The marker is advisory: a script run standalone — the Windows CI
+  legs invoke each one directly — sees none and builds its own, as before.
+- **A lock for the builds that remain.** `build_lock`/`build_unlock` in
+  `shell-common.sh` serialise anything that installs into `zig-out/`, using a
+  `mkdir` lock (atomic on POSIX and Git Bash alike; `flock` is Linux-only and
+  macOS has none). A lock whose holder died — `run-all.sh` kills a script that
+  overruns `SHELL_TIMEOUT` — is stolen by the next waiter via the recorded pid.
+- **One interpreter rebuild, not two.** `zig build -Dbundle=…` recompiles the
+  whole interpreter, because the embedded bytecode is part of the compiled
+  module graph; at ~180s on a 4-core runner, the two scripts that needed one
+  were 85% of the shell suites' entire wall time. They now share the fixture
+  in `tests/scheme/compile/fixtures/bundle-replay/`, so the second build is a
+  ~0.2s hit in Zig's own content-addressed cache. `bundle_fixture_binary`
+  regenerates the `.sbc` on every call rather than caching one: identical
+  sources give identical bytes and the hit, while an edit under `src/` changes
+  them and forces exactly the rebuild it must — a cached `.sbc` of our own
+  would go stale against the new binary's build id and fail with
+  `invalid embedded bytecode` (see [cache.md](cache.md)).
+
+Dispatch inside a suite is longest-first — scripts that shell out to a full
+`zig build -D…` go first, found by grep rather than a hand-kept list of names.
+Reporting still walks the glob-sorted order, so a transcript diff between two
+runs stays meaningful at any job count.
 
 ## Tests
 

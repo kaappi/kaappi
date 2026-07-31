@@ -24,10 +24,9 @@ KAAPPI=zig-out/bin/kaappi
 KAAPPI_HOME_TMP=$(mktemp -d /tmp/kaappi-test-home-XXXXXX)
 export KAAPPI_HOME="$KAAPPI_HOME_TMP"
 
-TMPOUT=$(mktemp /tmp/kaappi-test-XXXXXX)
 TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
 TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
-trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
+trap 'rm -f "$TMPSTDOUT" "$TMPSTDERR"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
 
 TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 # Shell-suite tests do real work (native compiles, sometimes a `zig build`) so
@@ -41,9 +40,12 @@ SHELL_TIMEOUT="${KAAPPI_SHELL_TEST_TIMEOUT:-300}"
 # How many .scm files to run at once. Each file is a fresh interpreter with no
 # shared state (see tests/scheme/CLAUDE.md), so they parallelise cleanly — the
 # suite's own audit found no cross-file collisions on fixed paths or ports.
-# Shell suites stay sequential: they do native compiles and `zig build` into a
-# shared .zig-cache, which is a different (unaudited) contention story.
-# KAAPPI_TEST_JOBS=1 restores the old strictly-sequential behaviour.
+# The shell suites run concurrently too (kaappi#1926), at KAAPPI_SHELL_TEST_JOBS
+# — their contention is over the one zig-out/ that `zig build` installs into,
+# which tests/scheme/shell-common.sh now serialises with a lock. They get their
+# own knob because each script can fork a whole compiler: a box that wants the
+# .scm files N-wide does not necessarily want N concurrent `zig build`s.
+# KAAPPI_TEST_JOBS=1 restores the old strictly-sequential behaviour for both.
 detect_jobs() {
     local n=""
     n=$(getconf _NPROCESSORS_ONLN 2>/dev/null) \
@@ -56,8 +58,9 @@ detect_jobs() {
     esac
 }
 JOBS="${KAAPPI_TEST_JOBS:-$(detect_jobs)}"
+SHELL_JOBS="${KAAPPI_SHELL_TEST_JOBS:-$JOBS}"
 
-# Reject a bad KAAPPI_TEST_JOBS loudly. `[[ $running -ge $JOBS ]]` evaluates its
+# Reject a bad job count loudly. `[[ $running -ge $JOBS ]]` evaluates its
 # operands arithmetically, where a non-numeric value is silently 0 — so
 # KAAPPI_TEST_JOBS=abc would not fail, it would just quietly serialise the run
 # with a spurious `wait` per file. A typo in a CI env var should not cost a
@@ -65,6 +68,12 @@ JOBS="${KAAPPI_TEST_JOBS:-$(detect_jobs)}"
 case "$JOBS" in
     ''|*[!0-9]*|0)
         echo "run-all.sh: KAAPPI_TEST_JOBS must be a positive integer (got '${KAAPPI_TEST_JOBS:-}')" >&2
+        exit 2
+        ;;
+esac
+case "$SHELL_JOBS" in
+    ''|*[!0-9]*|0)
+        echo "run-all.sh: KAAPPI_SHELL_TEST_JOBS must be a positive integer (got '${KAAPPI_SHELL_TEST_JOBS:-}')" >&2
         exit 2
         ;;
 esac
@@ -257,52 +266,164 @@ run_suite() {
     echo ""
 }
 
+# Same shape as run_file_worker: record the verdict, never touch the counters.
+run_shell_worker() {
+    local script="$1" slot="$2"
+    local pid status
+    KAAPPI="$KAAPPI" bash "$script" "$KAAPPI" > "$slot.out" 2>&1 &
+    pid=$!
+    if wait_with_timeout "$pid" "$SHELL_TIMEOUT"; then
+        status=0
+        wait "$pid" || status=$?
+    else
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        echo "TIMEOUT" > "$slot.rec"
+        return 0
+    fi
+    case $status in
+        0) echo "PASS" > "$slot.rec" ;;
+        # Exit 77 = SKIP (shell-common.sh skip_on_windows/skip_without_zig/
+        # skip_on_debug_build): the script's premise cannot hold here.
+        77) echo "SKIP" > "$slot.rec" ;;
+        *) echo "FAIL" > "$slot.rec" ;;
+    esac
+    return 0
+}
+
+report_shell_result() {
+    local script="$1" slot="$2"
+    local kind=""
+    [[ -f "$slot.rec" ]] && kind=$(cat "$slot.rec")
+    case "$kind" in
+        PASS)
+            echo "  PASS  $script"
+            PASS=$((PASS + 1))
+            ;;
+        SKIP)
+            echo "  SKIP  $script"
+            SKIPPED=$((SKIPPED + 1))
+            ;;
+        TIMEOUT)
+            echo "  TIMEOUT  $script  (killed after ${SHELL_TIMEOUT}s)"
+            [[ -f "$slot.out" ]] && cat "$slot.out"
+            TIMEDOUT=$((TIMEDOUT + 1))
+            ;;
+        NOTEXEC)
+            echo "  FAIL  $script  (not executable)"
+            FAIL=$((FAIL + 1))
+            ;;
+        *)
+            echo "  FAIL  $script"
+            [[ -f "$slot.out" ]] && cat "$slot.out"
+            FAIL=$((FAIL + 1))
+            ;;
+    esac
+}
+
+# A script that rebuilds the whole interpreter takes minutes, where every other
+# script takes seconds. With a pool of N, when those start matters far more than
+# N does, so they go first. Derived by grep rather than a hand-kept list of
+# names, so a future rebuild-shaped script sorts itself; a wrong answer here
+# costs makespan, never a verdict. Both spellings count: a script that runs the
+# build itself, and one that goes through shell-common.sh's shared fixture
+# (where only the first caller pays, but which one that is isn't known here).
+is_slow_shell_test() {
+    # `^[^#]*`: skip comment lines, several of which mention the build they
+    # deliberately do not run.
+    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary)' "$1" 2>/dev/null
+}
+
 run_shell_suite() {
     local title="$1" dir="$2"
-    local matched=0 pid status
     echo "=== $title ==="
+
+    # Collect first, so the run can be dispatched $SHELL_JOBS-at-a-time and
+    # still be reported in a stable, glob-sorted order.
+    local scripts=()
+    local test_script
     for test_script in "$dir"/*.sh; do
         [[ -e "$test_script" ]] || continue
-        if [[ ! -x "$test_script" ]]; then
-            echo "  FAIL  $test_script  (not executable)"
-            FAIL=$((FAIL + 1))
-            continue
-        fi
-        matched=1
-        KAAPPI="$KAAPPI" bash "$test_script" "$KAAPPI" > "$TMPOUT" 2>&1 &
-        pid=$!
-        if wait_with_timeout "$pid" "$SHELL_TIMEOUT"; then
-            status=0
-            wait "$pid" || status=$?
-        else
-            kill "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-            echo "  TIMEOUT  $test_script  (killed after ${SHELL_TIMEOUT}s)"
-            cat "$TMPOUT"
-            TIMEDOUT=$((TIMEDOUT + 1))
-            continue
-        fi
-        if [[ $status -eq 0 ]]; then
-            echo "  PASS  $test_script"
-            PASS=$((PASS + 1))
-        elif [[ $status -eq 77 ]]; then
-            # Exit 77 = SKIP (shell-common.sh skip_on_windows/skip_without_zig/
-            # skip_on_debug_build): the script's premise cannot hold here.
-            echo "  SKIP  $test_script"
-            SKIPPED=$((SKIPPED + 1))
-        else
-            echo "  FAIL  $test_script"
-            cat "$TMPOUT"
-            FAIL=$((FAIL + 1))
-        fi
+        scripts[${#scripts[@]}]="$test_script"
     done
-    if [[ $matched -eq 0 ]]; then
+
+    if [[ ${#scripts[@]} -eq 0 ]]; then
         echo "  (no tests matched)"
+        echo ""
+        return
     fi
+
+    local slotdir
+    slotdir=$(mktemp -d "${TMPDIR:-/tmp}/kaappi-shell-XXXXXX")
+
+    # Dispatch order is a list of indices into $scripts, slow ones first; the
+    # report below still walks 0..n-1, so the printed order never moves.
+    local order=() i=0
+    while [[ $i -lt ${#scripts[@]} ]]; do
+        if [[ ! -x "${scripts[$i]}" ]]; then
+            echo "NOTEXEC" > "$slotdir/$i.rec"
+        elif is_slow_shell_test "${scripts[$i]}"; then
+            order[${#order[@]}]=$i
+        fi
+        i=$((i + 1))
+    done
+    i=0
+    while [[ $i -lt ${#scripts[@]} ]]; do
+        if [[ -x "${scripts[$i]}" ]] && ! is_slow_shell_test "${scripts[$i]}"; then
+            order[${#order[@]}]=$i
+        fi
+        i=$((i + 1))
+    done
+
+    local running=0 idx
+    i=0
+    while [[ $i -lt ${#order[@]} ]]; do
+        if [[ $running -ge $SHELL_JOBS ]]; then
+            if [[ $HAVE_WAIT_N -eq 1 ]]; then
+                wait -n 2>/dev/null || true
+                running=$((running - 1))
+            else
+                wait || true
+                running=0
+            fi
+        fi
+        idx=${order[$i]}
+        run_shell_worker "${scripts[$idx]}" "$slotdir/$idx" &
+        running=$((running + 1))
+        i=$((i + 1))
+    done
+    wait || true
+
+    i=0
+    while [[ $i -lt ${#scripts[@]} ]]; do
+        report_shell_result "${scripts[$i]}" "$slotdir/$i"
+        i=$((i + 1))
+    done
+
+    rm -rf "$slotdir"
     echo ""
 }
 
 echo "Running .scm suites with $JOBS parallel job(s) (override: KAAPPI_TEST_JOBS)."
+echo "Running shell suites with $SHELL_JOBS parallel job(s) (override: KAAPPI_SHELL_TEST_JOBS)."
+
+# Build the native runtime archive once, up front. 18 scripts in the compile
+# suite need it and each used to run `zig build lib` itself — 18 redundant
+# builds installing into one zig-out/lib, which is exactly the race that kept
+# the shell suites sequential (kaappi#1926). Doing it here and exporting the
+# marker turns every one of those into a no-op. The marker is advisory: a
+# script that does not see it builds its own archive as before, which is what
+# the Windows CI legs (they invoke each script directly) rely on.
+if command -v zig > /dev/null 2>&1; then
+    # Says so out loud: cold, this is a minute of silence before the first
+    # suite prints anything.
+    echo "Building the native runtime archive (zig build lib) once, up front."
+    if zig build lib > /dev/null 2>&1; then
+        export KAAPPI_RT_LIB_READY=1
+    else
+        echo "  WARN  zig build lib failed; compile scripts will each retry it"
+    fi
+fi
 echo ""
 
 run_suite "Smoke tests" tests/scheme/smoke/*.scm

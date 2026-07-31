@@ -24,9 +24,7 @@ KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 # `kaappi compile` needs libkaappi_rt.a (searched in <exe_dir>/../lib).
-if [[ ! -f "$REPO_DIR/zig-out/lib/libkaappi_rt.a" ]]; then
-    (cd "$REPO_DIR" && zig build lib > /dev/null 2>&1)
-fi
+ensure_runtime_lib "$REPO_DIR"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
