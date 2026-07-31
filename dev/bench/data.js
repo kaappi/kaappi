@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785493531755,
+  "lastUpdate": 1785500103924,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "996051e0974bc1d7f442edfbc7587fcf48a19855",
-          "message": "Add SRFI 160/66/74, fix SRFI 4 f32 precision (#1694 vector family) (#1737)\n\n* Add SRFI 160/66/74, fix SRFI 4 f32 precision (#1694 vector family)\n\nAdds a native NumericVector heap type (11 element kinds, u8 stays a\nbytevector alias) backing SRFI 160's homogeneous numeric vector\nlibraries, with the full SRFI-133-shaped extended surface implemented\nonce generically in portable Scheme over six minimal Zig primitives.\nSRFI 4 becomes a thin re-export over this substrate, which also fixes\na real bug in the old wrapped-vector implementation: f32vector never\nactually truncated to 32-bit precision. SRFI 66 (octet vectors) and\nSRFI 74 (binary blobs) are pure-portable additions over bytevectors,\nneeding only one new primitive (%host-big-endian?) so `(endianness\nnative)` is correct on kaappi's own big-endian CI targets.\n\nIssue #1694's array family (SRFI 25/47/58/63/164/179/231) remains open\nand tracked separately: three mutually incompatible API lineages plus\na reader-syntax SRFI, out of scope for one slice.\n\n* Fix CodeRabbit review findings: length overflow, complex sign printing\n\n- %make-numeric-vector: reject a length whose element count would\n  overflow usize before narrowing (unreachable on 64-bit targets given\n  the fixnum range, but a real panic-instead-of-catchable-error gap on\n  wasm32); same defense-in-depth check in allocNumericVectorFill,\n  mirroring allocVectorFill's existing pattern.\n- printer.zig: c64/c128 numeric-vector elements printed a doubled sign\n  for +inf/-inf/+nan imaginary parts (formatFlonum already includes its\n  own sign for these) and lost the sign of a -0.0 imaginary part (`<`\n  is false for negative zero). Factored the already-correct handling\n  from the standalone Complex printer arm into a shared helper.\n- srfi160.scm: strengthened three tests that couldn't actually catch a\n  wrong-direction fold-right/unfold-right/unfold! (commutative combiner,\n  index-only unfold callback) into order-sensitive ones.\n\nNot changed, with reasoning: CodeRabbit's suggestion to relocate the\nSRFI documentation additions out of CLAUDE.md/CONFORMANCE.md contradicts\nthis repo's own established convention (every prior SRFI-adding PR\ndocuments there; kaappi.github.io is end-user docs only per root\nCLAUDE.md). Its file-size-split suggestion for types.zig/memory.zig\nflags a pre-existing condition unrelated to this PR — both files were\nalready ~150-300 lines over the 1500 cap before this change, accumulated\nacross many prior SRFIs; splitting them is a large, separate refactor\ndisproportionate to one SRFI PR's scope.",
-          "timestamp": "2026-07-25T01:26:04+05:30",
-          "tree_id": "4b417a6073039a761e9dd2ed9a396a01dc1041d4",
-          "url": "https://github.com/kaappi/kaappi/commit/996051e0974bc1d7f442edfbc7587fcf48a19855"
-        },
-        "date": 1784925284748,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.278905,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.140903,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.887334,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.400751,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006369,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053304,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497015,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068984,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.471225,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.951958,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.572697,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43482,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805104,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.596886,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043397,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046638,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6040f1802c2e54b7068a0d632a36bb99cfedbb4",
+          "message": "Tick Phase 0A and point the tracker at the filed issues (#1904)\n\nThe document calls its progress tracker the single source of truth for\nwhat is done, so leaving 0A unticked after running it contradicts the\nrule the campaign is meant to enforce — the first session to read it\nwould have re-run the baseline and re-filed thirteen issues.\n\nRecords the green baseline, the tracking issue, and the twelve issue\nnumbers. Also notes that reproducing F12 before filing corrected it: a\nflat cdr-cycle prints its label correctly, and only a car-nested cycle\npast the depth limit loses one. The reconnaissance table keeps the\nrepro recipes, since those are what a fixer needs and the issues\nduplicate rather than replace them.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T15:42:35+05:30",
+          "tree_id": "4d609c6de114ec2e3a4175b0615a4302f7baae5e",
+          "url": "https://github.com/kaappi/kaappi/commit/c6040f1802c2e54b7068a0d632a36bb99cfedbb4"
+        },
+        "date": 1785500102341,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.942564,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.072483,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560011,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.844202,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.0049,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044633,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.293514,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054836,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.29169,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.157576,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519576,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.299184,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.685114,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.732877,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044263,
             "unit": "seconds"
           }
         ]
