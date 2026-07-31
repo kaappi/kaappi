@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (14 of 53 units — three parallel batches, all merged) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (16 of 53 units — 3.2/3.3 closed as subsumed by 2.4) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -278,8 +278,8 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 **Phase 3 — SRFI breadth** (independent)
 
 - [x] 3.1: **SRFI 14 rewrite** (F6) — range/inversion-list rep over the existing Unicode tables, plus the ~37 missing names (2026-07-31, [#1928](https://github.com/kaappi/kaappi/pull/1928), closed #1895; inversion lists, all 64 spec names, 172-assertion suite — 17/147 against the old library; filed [#1924](https://github.com/kaappi/kaappi/issues/1924) **cross-thread use-after-free**, [#1925](https://github.com/kaappi/kaappi/issues/1925) `char-numeric?` BMP-only, [#1927](https://github.com/kaappi/kaappi/issues/1927) `--lib-path` cannot shadow a bundled SRFI)
-- [ ] 3.2: SRFI 160 sweep A — the generic surface across all 12 element kinds (the test is 87% `s8`)
-- [ ] 3.3: SRFI 160 sweep B — per-type wrappers, c64/c128 packing, the u8-as-bytevector seam
+- [x] ~~3.2: SRFI 160 sweep A~~ — **subsumed by 2.4**, which swept all 12 element kinds (8 integer kinds × {min, min±1, max, max±1} plus 9 rejection classes, every cell correct) and cross-checked the two independent range rules across 276 cells. The "87% `s8`" gap it was written against is closed.
+- [x] ~~3.3: SRFI 160 sweep B~~ — **subsumed by 2.4**, which covered both seams (u8-as-bytevector in both directions; c64/c128 packing incl. per-component precision, ±inf/NaN, and a rejected `set!` leaving the slot untouched) and verified the per-type wrappers three ways — each `.sld` mentions only its own tag, tag-normalised the 12 files are byte-identical, and a 12×12 predicate matrix is true only on the diagonal.
 - [ ] 3.4: SRFI 146 (108 of 161 exports untested)
 - [ ] 3.5: SRFI 166 + `columnar`/`unicode`/`color`/`pretty` sub-libraries (52 of 89 untested)
 - [ ] 3.6: SRFI 158 generators (43 of 55 untested)
