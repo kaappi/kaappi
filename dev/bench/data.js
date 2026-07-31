@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785507143448,
+  "lastUpdate": 1785508160308,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c2382e14981e5829e70219468c3e95497a78325b",
-          "message": "Add SRFI 231 core array object (#1694 array family, phase 2) (#1751)\n\n* Add SRFI 231 core array object (#1694 array family, phase 2)\n\nThird of several slices implementing SRFI 231 (\"Intervals and\nGeneralized Arrays\") -- see lib/srfi/231/intervals.sld (phase 1a) and\nlib/srfi/231/storage-classes.sld (phase 1b, both merged) for the\noverall roadmap. This slice adds the array type itself: a domain (an\ninterval) plus a getter, with an optional setter making it mutable,\nand an optional storage-class/body/indexer making it specialized.\n\nlib/srfi/231/arrays.sld: one <array> record covers all four\ncombinations (plain immutable, plain mutable via closures, specialized\nmutable, specialized frozen-immutable) -- specialized-only fields are\nsimply #f on a plain array. array?/mutable-array?/specialized-array?\nconfirmed as a non-strict hierarchy (specialized => array and mutable\n=> array, but specialized and mutable are orthogonal -- array-freeze!\ncan make a specialized array immutable in place, and a closure-backed\nsparse array, per the spec's own example, can be mutable without being\nspecialized at all).\n\nConfirmed two conventions that don't match either prior array SRFI in\nthis codebase exactly: array? is disjoint from vector/string (matching\n25/164, NOT 63's \"vectors are rank-1 arrays\" rule -- easy to get\nbackwards, since getting this wrong was the single biggest miss when\nimplementing 63), while array-set!'s value argument is SECOND (matching\n63, not 25/164's value-last). Getters/setters are always called with\nseparate positional index arguments, never a packed vector/list.\n\nmake-specialized-array's indexer generalizes SRFI 63's 0-based-only\nrow-major offset to arbitrary (including negative) lower bounds: shift\neach axis by its own lower bound first, then apply the standard\nrow-major stride computation using the interval's own widths.\nmake-specialized-array-from-data wraps externally supplied data (e.g.\nan existing (srfi 160 <tag>) vector) as a new array's body with zero\ncopying, confirmed via a real vector-mutation-through-the-array test.\n\nspecialized-array-default-safe?/mutable? are genuine SRFI 39\nparameters, as the spec requires (a documented difference from the\npredecessor SRFI 179, where they were plain variables).\n\n(srfi 231) itself remains not importable -- still tracked under #1694.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit nitpicks: early-exit array-packed?, 0-dim/empty tests\n\n- array-packed? now escapes via call/cc on the first packing mismatch\n  instead of always scanning the full domain -- harmless today since\n  specialized arrays are always packed right after construction, but\n  avoids a full interval-volume traversal once a later phase's\n  view/share/reverse procedures can produce non-packed arrays.\n- Added test coverage for zero-dimensional arrays (a single element,\n  accessed via a thunk-shaped getter/array-ref with no indices, for\n  both a plain and a specialized array) and empty-domain arrays (some\n  axis has lower = upper, so no multi-index can ever be valid -- any\n  access is rejected either via the explicit domain check in safe mode\n  or the storage layer's own bounds check on the resulting zero-length\n  body in unsafe mode). 13 new assertions (50 -> 63).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-25T18:06:40Z",
-          "tree_id": "cfa34740f249b6c819ab69f05c391b00b3c1c8f8",
-          "url": "https://github.com/kaappi/kaappi/commit/c2382e14981e5829e70219468c3e95497a78325b"
-        },
-        "date": 1785005048514,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.280716,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.363761,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.887954,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.414683,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006378,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0535,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.499586,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069087,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.555468,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.926546,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.560132,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.44076,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.79388,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.656009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04408,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044462,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8cb776be89da98a9c82728d0f93c01d5e8eeffe5",
+          "message": "Phase 1C: port refill sweep — 1714 configurations, a silent-split class, and a correction to #1893 (#1946)\n\n* Pin the reader's port-refill boundary with a token x offset sweep\n\n`(read port)` on an fd-backed port reads 4096-byte chunks and re-parses\nthe accumulated buffer after each one, treating only\n`ReadError.UnexpectedEof` as \"incomplete, read more\". A token straddling\na chunk boundary therefore survives only if its scanner happens to\nreport truncation with that exact error.\n\nSweeping 26 token kinds against every interior split point at both the\n4096 and 8192 boundaries -- against a string-port oracle over the same\nbytes, which cannot refill -- shows 12 kinds that do not, in two modes:\na hard `KP3000: read error` (strings, raw strings, `#u8\"...\"`, `#u8(`,\n`|sym\\x41;|`, and a multi-byte UTF-8 codepoint split anywhere, even\ninside a list) and a silent truncation with no error at all (bare\nsymbols, numbers, `#\\space`, `#\\x41`, `#true`, and line comments, whose\nremaining body is then read as program data).\n\nThe passing kinds are enabled and swept; the failing ones are commented\nout with a `;; FAIL:` marker. Fixtures are generated at run time and\ndeleted, so no 4 KB blobs are committed.\n\nWorth recording: #1893's own stated discriminating control -- \"the same\nfile with a bare symbol payload reads all 1024 datums\" -- does not hold.\nThe symbol only survived because it was wrapped in a list, which does\nrefill, and because the check counted datums instead of comparing them.\nAt top level the same symbol splits in two, silently.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point port-refill FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T18:42:38+05:30",
+          "tree_id": "14d1054f4c209b7d0452ed420c561133b5d348ef",
+          "url": "https://github.com/kaappi/kaappi/commit/8cb776be89da98a9c82728d0f93c01d5e8eeffe5"
+        },
+        "date": 1785508159081,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.354779,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.93978,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583787,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.979059,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004746,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047034,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.318927,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057266,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.62904,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234423,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.605772,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28174,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.803356,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.649718,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043638,
             "unit": "seconds"
           }
         ]
