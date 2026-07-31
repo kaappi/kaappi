@@ -41,7 +41,7 @@ assert_blocked() {
     local expr="$2"
     local output
     output=$(echo "$expr" | "$KAAPPI" --sandbox 2>&1 || true)
-    if echo "$output" | grep -qi "error"; then
+    if grep -qi "error" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else

@@ -39,7 +39,7 @@ assert_out() {
     printf '%s\n' "$src" > "$TMP/prog.scm"
     local out
     out="$("$KAAPPI" check "$@" "$TMP/prog.scm" 2>&1 || true)"
-    if echo "$out" | grep -qE "$pattern"; then
+    if grep -qE "$pattern" <<< "$out"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -92,7 +92,7 @@ assert_out "3-state message echoes the token"    "invalid number literal '3-stat
 echo "== --diagnostics=json parity =="
 printf '(car 5)\n' > "$TMP/j.scm"
 JSON="$("$KAAPPI" check --diagnostics=json "$TMP/j.scm" 2>&1 || true)"
-if echo "$JSON" | grep -q '"code":"KP4003"' && echo "$JSON" | grep -q '"severity":1'; then
+if grep -q '"code":"KP4003"' <<< "$JSON" && grep -q '"severity":1' <<< "$JSON"; then
     echo "PASS: json emits an LSP Diagnostic with the KP code and severity"
     PASS=$((PASS + 1))
 else

@@ -140,6 +140,16 @@ Conventions:
   a literal match has to escape. A suite whose *assertions* all fail
   uniformly while its output comparisons stay clean is the signature of
   this, not of a real regression.
+- **Never pipe into `grep -q` under `set -o pipefail`.** Write
+  `grep -q PATTERN <<< "$output"`, not `echo "$output" | grep -q PATTERN`.
+  `grep -q` exits the moment it matches, so when the match is on an early
+  line the writer can still be mid-write and dies of SIGPIPE — and
+  `pipefail` then reports the *pipeline* as failed even though the match
+  succeeded. The assertion fails while printing the very text it was
+  looking for. It is a race, so it passes locally and fails on a loaded CI
+  runner (kaappi#1926 hit three of these at once on `freebsd-test`);
+  matching the last line of the output hides it, matching the first line
+  exposes it. The here-string has no pipeline for `pipefail` to judge.
 
 ## Quirks
 

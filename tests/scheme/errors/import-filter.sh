@@ -31,7 +31,7 @@ assert_stderr_contains() {
     shift 2
     local output
     output=$("$@" 2>&1 >/dev/null) || true
-    if echo "$output" | grep -q "$pattern"; then
+    if grep -q "$pattern" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
