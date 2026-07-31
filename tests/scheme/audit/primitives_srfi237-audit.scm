@@ -174,11 +174,11 @@
 (test-assert "field-names: elements are symbols"
              (symbol? (car (record-type-field-names C))))
 
-;; FAIL: TBD (record-type-field-names returns a list; R6RS requires a vector)
+;; FAIL: #1974 (record-type-field-names returns a list; R6RS requires a vector)
 ;; (test-assert "field-names: R6RS requires a vector" (vector? (record-type-field-names C)))
-;; FAIL: TBD (record-type-field-names returns a list; R6RS requires a vector)
+;; FAIL: #1974 (record-type-field-names returns a list; R6RS requires a vector)
 ;; (test-equal "field-names: vector contents" #(c d) (record-type-field-names C))
-;; FAIL: TBD (record-type-field-names returns a list, so vector-length raises)
+;; FAIL: #1974 (record-type-field-names returns a list, so vector-length raises)
 ;; (test-equal "field-names: vector-length is the own-field count"
 ;;             2 (vector-length (record-type-field-names C)))
 
@@ -222,16 +222,16 @@
 (test-assert "index control: record-field-mutable? on the parent's own field 0"
              (not (record-field-mutable? P 0)))
 
-;; FAIL: TBD (record-accessor integer k is absolute, not own-field-relative)
+;; FAIL: #1974 (record-accessor integer k is absolute, not own-field-relative)
 ;; (test-equal "accessor by index: k=0 selects C's OWN first field"
 ;;             3 ((record-accessor C 0) c-inst))
-;; FAIL: TBD (record-accessor integer k is absolute, not own-field-relative)
+;; FAIL: #1974 (record-accessor integer k is absolute, not own-field-relative)
 ;; (test-equal "accessor by index: k=1 selects C's OWN second field"
 ;;             4 ((record-accessor C 1) c-inst))
-;; FAIL: TBD (record-accessor integer k is absolute — k=2 is past C's own field count)
+;; FAIL: #1974 (record-accessor integer k is absolute — k=2 is past C's own field count)
 ;; (test-assert "accessor by index: k beyond the own-field count is invalid"
 ;;              (raises? (lambda () ((record-accessor C 2) c-inst))))
-;; FAIL: TBD (record-mutator integer k is absolute, not own-field-relative)
+;; FAIL: #1974 (record-mutator integer k is absolute, not own-field-relative)
 ;; (test-equal "mutator by index: k=1 writes C's OWN mutable field d"
 ;;             77 (let ((i ((record-constructor
 ;;                            (make-record-descriptor C (make-record-descriptor P #f #f) #f))
@@ -471,16 +471,16 @@
              (record-type-opaque?
                (make-record-type-descriptor 'OPQC2 P #f #f #t #((immutable w)))))
 
-;; FAIL: TBD (record? does not consult the opaque flag)
+;; FAIL: #1974 (record? does not consult the opaque flag)
 ;; (test-assert "opaque: record? is #f for an instance of an opaque type"
 ;;              (not (record? opq-inst)))
-;; FAIL: TBD (record-rtd does not consult the opaque flag)
+;; FAIL: #1974 (record-rtd does not consult the opaque flag)
 ;; (test-assert "opaque: record-rtd raises for an instance of an opaque type"
 ;;              (raises? (lambda () (record-rtd opq-inst))))
-;; FAIL: TBD (opacity is not inherited from an opaque parent)
+;; FAIL: #1974 (opacity is not inherited from an opaque parent)
 ;; (test-assert "opaque: a child of an opaque parent is itself opaque"
 ;;              (record-type-opaque? OPQ-CHILD))
-;; FAIL: TBD (opacity is not inherited, so record? leaks the subtype too)
+;; FAIL: #1974 (opacity is not inherited, so record? leaks the subtype too)
 ;; (test-assert "opaque: record? is #f for an instance of a child of an opaque type"
 ;;              (not (record? ((record-constructor
 ;;                               (make-record-descriptor OPQ-CHILD
@@ -513,10 +513,10 @@
 (test-assert "immutable: record-field-mutable? negative index raises catchably"
              (raises? (lambda () (record-field-mutable? IMM -1))))
 
-;; FAIL: TBD (record-mutator does not check field mutability)
+;; FAIL: #1974 (record-mutator does not check field mutability)
 ;; (test-assert "immutable: record-mutator on an immutable field raises"
 ;;              (raises? (lambda () (record-mutator IMM 0))))
-;; FAIL: TBD (record-mutator does not check field mutability — the write lands)
+;; FAIL: #1974 (record-mutator does not check field mutability — the write lands)
 ;; (test-equal "immutable: an immutable field cannot be written" 1
 ;;             (let ((i ((root-ctor IMM) 1 2)))
 ;;               (guard (e (#t #t)) ((record-mutator IMM 'x) i 99))
@@ -671,12 +671,12 @@
              (record-type-descriptor?
                (make-record-type-descriptor 'N27 #f #f #f #f (fields-vector 27))))
 
-;; FAIL: TBD (allocRecordInstance sizes in u8 arithmetic — PANICS, uncatchable, at 27 fields)
+;; FAIL: #1973 (allocRecordInstance sizes in u8 arithmetic — PANICS, uncatchable, at 27 fields)
 ;; (test-assert "instantiation: a 27-field record type instantiates"
 ;;              (record?
 ;;                (apply (root-ctor (make-record-type-descriptor 'N27 #f #f #f #f (fields-vector 27)))
 ;;                       (count-up 27))))
-;; FAIL: TBD (same overflow, reached through inheritance rather than own fields)
+;; FAIL: #1973 (same overflow, reached through inheritance rather than own fields)
 ;; (test-assert "instantiation: a 27-field total reached through a parent chain instantiates"
 ;;              (let* ((A (make-record-type-descriptor 'A27 #f #f #f #f (fields-vector 20)))
 ;;                     (B (make-record-type-descriptor 'B27 A #f #f #f (fields-vector 7))))
@@ -687,7 +687,7 @@
 ;; The same overflow is reachable from plain R7RS `define-record-type` with
 ;; no SRFI 237 involvement at all — allocRecordInstance is shared by both
 ;; record systems. Kept here because this audit is what found it.
-;; FAIL: TBD (allocRecordInstance sizes in u8 arithmetic — PANICS on a plain R7RS 27-field record)
+;; FAIL: #1973 (allocRecordInstance sizes in u8 arithmetic — PANICS on a plain R7RS 27-field record)
 ;; (test-assert "instantiation: a plain R7RS 27-field record instantiates"
 ;;              (begin
 ;;                (define-record-type r7-27
@@ -835,7 +835,7 @@
 (test-assert "malformed: the deferred closure does raise when applied"
              (raises? (lambda () ((record-accessor 5 0) c-inst))))
 
-;; FAIL: TBD (integer k bypasses rtd validation in %resolve-field-index)
+;; FAIL: #1974 (integer k bypasses rtd validation in %resolve-field-index)
 ;; (test-assert "malformed: record-accessor on a non-rtd raises eagerly"
 ;;              (raises? (lambda () (record-accessor 5 0))))
 (test-assert "malformed: record-uid->rtd on a non-symbol raises catchably"
@@ -859,13 +859,13 @@
 ;;; three specified names are absent without being among them.
 ;;; ===================================================================
 
-;; FAIL: TBD (the 7-argument make-record-descriptor variant is not implemented)
+;; FAIL: #1974 (the 7-argument make-record-descriptor variant is not implemented)
 ;; (test-assert "exports: the 7-argument make-record-descriptor variant"
 ;;              (record-descriptor?
 ;;                (make-record-descriptor 'Z #f #f #f #f #((immutable v)) #f)))
-;; FAIL: TBD (make-record-constructor-descriptor is not exported)
+;; FAIL: #1974 (make-record-constructor-descriptor is not exported)
 ;; (test-assert "exports: make-record-constructor-descriptor" (procedure? make-record-constructor-descriptor))
-;; FAIL: TBD (record-constructor-descriptor? is not exported)
+;; FAIL: #1974 (record-constructor-descriptor? is not exported)
 ;; (test-assert "exports: record-constructor-descriptor?" (procedure? record-constructor-descriptor?))
 
 ;; Enabled control: the 3-argument form these are aliases of works fine, so
