@@ -47,6 +47,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SRFI 237's record procedures now follow R6RS §6.3** (#1974). Four
+  procedures deviated from the semantics SRFI 237 defines them as
+  "equivalent to", each in a way that produced a wrong answer rather than an
+  error. `record-type-field-names` returns a **vector**, not a list. An
+  exact-integer `k` for `record-accessor`, `record-mutator` and
+  `record-field-mutable?` indexes an rtd's **own** fields, per "note that `k`
+  cannot be used to specify a field of any type `rtd` extends" — it indexed
+  the whole instance, so on a subtype it silently returned an ancestor's
+  field; that path now also rejects a non-rtd and an out-of-range `k`, both
+  of which it accepted. An `opaque` record type is now actually opaque:
+  `record?` answers `#f` for its instances, `record-rtd` raises, and a child
+  of an opaque parent is opaque too. `record-mutator` raises for an immutable
+  field instead of returning a mutator whose writes landed. The deprecated
+  `make-record-constructor-descriptor` and `record-constructor-descriptor?`,
+  and the 7-argument `make-record-descriptor`, are now provided. A record
+  descriptor is accepted wherever a record-type descriptor is expected, and
+  `record-constructor` accepts a bare rtd — including a syntactically defined
+  type's own name, whose `(protocol ...)` it correctly applies — so the
+  procedural and syntactic layers inherit from each other as the SRFI
+  intends. Users of `record-type-field-names` must switch from list
+  operations to vector operations, or wrap the call in `vector->list`.
 - **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
   The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
   Past that, `with-exception-handler` relabelled the overflow as
