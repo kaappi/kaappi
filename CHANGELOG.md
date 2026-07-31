@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-07-31
+
+### Added
+
+- **`(kaappi primitives)`**, a library exposing the `%`-prefixed internal
+  primitives that portable `.sld` files name in their own Scheme source —
+  SRFI 27's random-source accessors, SRFI 74's endianness probe, SRFI 271's
+  random ports, and the record substrate SRFI 57/131/136/150/237 build on
+  (#1856). Each such library now declares the dependency it actually has.
+
+### Changed
+
+- **`(scheme base)` no longer exports 22 `%`-prefixed internal primitives**
+  (#1856). Since v0.22.0 also began enforcing R7RS 5.2, any user library that
+  defined one of those names and imported `(scheme base)` failed to load
+  outright — the documented C-extension walkthrough, whose example exported
+  `%length`, was one such casualty. `%` is this codebase's own private-helper
+  marker, so user code has good reason to treat that namespace as its own. The
+  names are now registered in `vm.globals` and exported by nothing, or
+  re-exported from the new `(kaappi primitives)` where a portable `.sld` names
+  them; `%length` is deleted outright, with case-lambda's arity dispatch
+  referencing `length`'s pristine `(scheme base)` binding instead. Unexporting
+  alone would have converted a loud error into a silent wrong answer, so
+  compiler-synthesized references now resolve against a pristine startup
+  snapshot rather than `vm.globals` — a user library defining its own
+  `%record-ref` no longer captures `define-record-type`'s accessors. A comptime
+  check rejects any `%` name tagged with a `scheme.*` library, and `kaappi
+  check` no longer reports KP4001 on base-binding-prefixed references.
+- **An uninitialized runtime is reported as KP9001 "internal error", not as a
+  caller's type error** (#1874, #1876, #1878). The ~450 threadlocal
+  `vm_instance` / `gc_instance` guards had drifted into an arbitrary
+  TypeError/OutOfMemory split for the same "the runtime is not initialized"
+  failure. A guard now returns the tag its function was going to return anyway;
+  where there is none, `InvalidBytecode` → KP9001, whose registry text ("please
+  report it") is the right instruction. This is user-visible for `apply` and
+  for the 9 bootstrap-installed procedures, which previously reported KP3002 —
+  and, setting no detail, let `mapNativeError` synthesize `type error in 'map':
+  got <args[0]>`, naming a real list element as the culprit. KP9001's own
+  template changes from "internal compiler error" to "internal error", since
+  KP9xxx is now reached from the runtime too. No behavior change in a working
+  build: the threadlocals are set during VM init, before `registerAll`. The
+  rule is written down in `docs/dev/gc-safety-and-error-handling.md`.
+- **A sealed parent rtd and a `nongenerative` uid collision report KP3007
+  (invalid argument), not KP3002 (type error)** (#1880). Neither is a type
+  error — both arguments are of a perfectly good type and the procedure rejects
+  them anyway — and R6RS's own wording for the first is "an exception is raised
+  if parent is sealed". Both previously reported a bare `error[KP3002]: type
+  error` and nothing else: no procedure, no expected type, no value. The
+  syntactic and procedural routes now share one statement of each rule, so a
+  caller who wrote `define-record-type` is not told about the internal
+  primitive it desugars to, and a uid collision names the one axis that
+  actually differs rather than listing every axis it might have been. A third
+  condition of the same shape — more than 255 fields once a parent's are
+  counted — is fixed with them.
+- Six oversized source files are split along their natural seams (#1853):
+  `memory.zig` → `gc_alloc.zig`, `expander.zig` → `expander_instantiate.zig`,
+  `llvm_emit.zig` → `llvm_emit_forms.zig`, `vm_library.zig` → `vm_imports.zig`,
+  `compiler_macro.zig` → `compiler_define_syntax.zig`, and `gc_collect.zig` →
+  `gc_sweep.zig`. Pure code motion, no behavior change — same-name aliases keep
+  every call site compiling as-is.
+- The three "add a built-in procedure" docs are corrected (#1863). Two taught
+  code that cannot compile, including symbol names that never existed
+  (`primitives.gc_instance`, `primitives.vm_instance`) and a
+  `return PrimitiveError.TypeError` the `format` CI job exists to reject.
+  `docs/dev/adding-features.md` is now the one detailed reference; `CLAUDE.md`
+  and the `/add-builtin` skill defer to it. Every sample was verified by
+  compiling it.
+
 ### Fixed
 
 - **A valid R7RS record was rejected when its constructor was named `fields`,
@@ -27,6 +95,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   aborted the internal-define scan, so sibling `define`s written after the
   record lost their mutual visibility; in a library body, where the R6RS grammar
   is rejected outright, the whole library failed to load.
+- **Native backend: `(define (f …) …)` in a `let` or lambda body compiled to a
+  global define** (#1861). An internal definition overwrote an outer one of the
+  same name instead of shadowing it, and a helper referencing an enclosing
+  binding compiled to a global function whose body looked that binding up as a
+  global, so `(let ((a 3)) (define (h n) (* n a)) (h 5))` died with `undefined
+  variable 'a'` in a compiled binary while the interpreter ran it. Issue #819
+  fixed this class for the symbol form, but `lowerDefine` turns a pair target
+  into a `.passthrough`, so the shorthand never reached that path. The form now
+  declines whenever a lexical scope is active — a lambda body has no locals map
+  and is lexical because of its params, and had the identical bug — handing the
+  enclosing scope to the interpreter whole.
 - **Native backend: a nested `let` that fell back to the interpreter lost the
   enclosing `let`'s bindings** (#1862). When a `let` inside another `let` gave up
   on native compilation mid-emission — more than 32 bindings, more head
@@ -43,6 +122,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   see, now applied to the mid-emission escape hatch as well. A fallback inside a
   plain lambda frame, where the params *are* publishable, still compiles the
   lambda natively and is unaffected.
+- **Native backend: an internal `define` in a `let` body could be collected**
+  (#1854). The LLVM backend gave the binding an `alloca` but never pushed it on
+  the GC shadow stack, so a collection triggered anywhere later in the body
+  freed the value it held and the memory was recycled into whatever the body
+  allocated next — a wrong answer in a compiled binary, with no crash and no
+  divergence in the interpreter. `emitLet` now mints and roots these slots
+  alongside the `let`'s own bindings; a `define` outside the head of the body
+  (where R7RS puts internal definitions) routes the whole form to the
+  interpreter rather than compile to something unrooted.
 - **A library body could not reference a global it had not imported from its
   own top level** (#1860) — the identical reference from inside a `lambda` in
   the same body worked, so a name like `cadar` or a `%`-prefixed internal
@@ -56,16 +144,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   function. This also closes the same gap in the other direction: a restricted
   `(environment ...)` withheld a name from the expression's own top level and
   handed it over through a `lambda`, and now withholds it from both.
+- **Every type error names the expected type, and the right argument** (#1868).
+  A bare `TypeError` was never as anonymous as it looked: `mapNativeError`
+  already fills in `type error in '<primitive>': got <args[0]>`, so the
+  procedure name survives but the *expected* type is lost — and whenever the
+  offending value is not the first argument, the report confidently names the
+  wrong one. A string-keyed hash table handed a bad key blamed the table
+  itself:
 
-- **Native backend: an internal `define` in a `let` body could be collected**
-  (#1854). The LLVM backend gave the binding an `alloca` but never pushed it on
-  the GC shadow stack, so a collection triggered anywhere later in the body
-  freed the value it held and the memory was recycled into whatever the body
-  allocated next — a wrong answer in a compiled binary, with no crash and no
-  divergence in the interpreter. `emitLet` now mints and roots these slots
-  alongside the `let`'s own bindings; a `define` outside the head of the body
-  (where R7RS puts internal definitions) routes the whole form to the
-  interpreter rather than compile to something unrooted.
+  ```text
+  -  type error in 'hash-table-set!': got #<hash-table size=0>
+  +  type error in 'hash-table-set!': expected string key
+       (this table compares with string=?), got 1
+  ```
+
+  All 20 remaining bare returns are resolved — 11 became real diagnostics, 9
+  infrastructure guards carry a stated `// bare-ok:` reason — so the CI ratchet
+  loses its baseline and becomes a plain grep-and-fail.
+- **A timed wait whose deadline the dispatch tick had already popped parked
+  unbounded** (#1870). `runSchedulerStep` spends its loop guard on the pre-tick
+  state, so when the tick popped *this* fiber's deadline the idle branch went
+  into `parkOnReactor` with nothing left to bound `reactor.poll()` — and the
+  fiber's own waiter entry kept `hasRunnableFibers()` true, skipping the
+  "nothing can ever happen" early return. This was the `(srfi 120)` flake: a
+  timer thread parked for a 30 ms task slept until an unrelated cross-thread
+  notify arrived, by which point delivery-wins handed it the `stop` message and
+  the task never ran. Measured on the Windows ARM64 reference VM, one timer per
+  iteration: 4 wedges in 13,500 iterations before, 0 in 9,000 after.
+- **The fiber scheduler leaked when its setup allocation failed** (#1864).
+  `ensureScheduler` runs two more fallible steps before `vm.scheduler` is
+  assigned, so a failure in either returned with the struct neither destroyed
+  nor stored, leaking it and the managed waiter-index map built inside it. Low
+  severity on its own — a real OOM during the first spawn — but it blocked
+  writing any OOM-sweep test that reaches a fiber path, since the leak check
+  aborts the test before its own assertions run.
 - The GC root stack is now unwound when an error escapes the compile/eval
   pipeline (#1855). The canonical `pushRoot` / `try` / `popRoot` rooting
   pattern leaks its root when the *protected* allocation is the one that

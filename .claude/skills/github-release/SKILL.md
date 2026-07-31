@@ -95,12 +95,36 @@ removed. Recompute it from source (unique `.name` fields in the primitives
 spec structs):
 
 ```bash
-grep -rn '\.name = "' src/primitives*.zig | sed -E 's/.*\.name = "([^"]+)".*/\1/' | sort -u | wc -l
+{
+  grep -rh '\.name = "' src/primitives*.zig | sed -E 's/.*\.name = "([^"]+)".*/\1/'
+  for f in src/primitives*.zig; do
+    for id in $(grep -o '\.name = [A-Z_][A-Z_0-9]*' "$f" | sed 's/.*= //' | sort -u); do
+      sed -nE "s/^const $id = \"([^\"]+)\";/\1/p" "$f"
+    done
+  done
+} | sort -u | wc -l
 ```
 
 This counts unique procedure names. The sandboxed re-registrations
 (`registerIOSandboxed`, etc.) reuse the same `.name` values, so `sort -u`
 deduplicates them automatically.
+
+**A literal-only grep undercounts.** Not every spec entry spells its name
+inline — some use a file-level constant (`.name = MAKE_RTD`) because the same
+string is also needed elsewhere in the file. The second half of the command
+above resolves those. This is not hypothetical: v0.22.1 found `MAKE_RTD`
+(`%make-record-type-descriptor`, primitives_srfi237.zig) and `LEVER_SET`
+(`%elision-lever-set!`, primitives_parallel.zig) had both converted from
+literals during the cycle, so the old literal-only command reported 687 for a
+real count of 689 — it would have looked exactly like two procedures being
+deleted. Sanity-check a drop by diffing the name sets, not just the totals:
+
+```bash
+git grep -h '\.name = "' <last-tag> -- 'src/primitives*.zig' \
+  | sed -E 's/.*\.name = "([^"]+)".*/\1/' | sort -u > /tmp/old.txt
+# ...then comm -23 /tmp/old.txt against the new set and confirm each
+# "removed" name is really gone: grep -rn '"<name>"' src/
+```
 
 Find every doc citing the old count and update any that are stale:
 
