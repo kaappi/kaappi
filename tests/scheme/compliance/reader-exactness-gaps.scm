@@ -152,13 +152,13 @@
 (test-assert "string->number does not crash on the same text"
              (not (string->number "#e9223372036854775808.0")))
 
-;; FAIL: TBD (reader panics: #e<double == 2^63> overflows @intFromFloat)
+;; FAIL: #1907 (reader panics: #e<double == 2^63> overflows @intFromFloat)
 ;; (test-equal "#e2^63 as a decimal float" 9223372036854775808
 ;;             (rd "#e9223372036854775808.0"))
-;; FAIL: TBD (same panic -- lowest decimal that rounds up to 2^63)
+;; FAIL: #1907 (same panic -- lowest decimal that rounds up to 2^63)
 ;; (test-equal "#e lowest double rounding to 2^63" 9223372036854775808
 ;;             (rd "#e9223372036854775296.0"))
-;; FAIL: TBD (same panic via exponent notation)
+;; FAIL: #1907 (same panic via exponent notation)
 ;; (test-equal "#e2^63 via exponent" 9223372036854775808
 ;;             (rd "#e9.223372036854776e18"))
 
@@ -195,18 +195,18 @@
 (test-equal "string->number #i#x bignum with letters"
             4.722366482869645e21 (string->number "#i#xFFFFFFFFFFFFFFFFFF"))
 
-;; FAIL: TBD (#i#x<bignum> parses hex digits as decimal: gives 1e18, want ~4.72e21)
+;; FAIL: #1908 (#i#x<bignum> parses hex digits as decimal: gives 1e18, want ~4.72e21)
 ;; (test-equal "#i#x bignum" 4.722366482869645e21 (rd "#i#x1000000000000000000"))
-;; FAIL: TBD (#i#b<bignum> parses binary digits as decimal: gives 1.111...e64)
+;; FAIL: #1908 (#i#b<bignum> parses binary digits as decimal: gives 1.111...e64)
 ;; (test-equal "#i#b bignum" 3.6893488147419103e19
 ;;             (rd "#i#b11111111111111111111111111111111111111111111111111111111111111111"))
-;; FAIL: TBD (#i#o<bignum> parses octal digits as decimal: gives 1.0e23)
+;; FAIL: #1908 (#i#o<bignum> parses octal digits as decimal: gives 1.0e23)
 ;; (test-equal "#i#o bignum" 5.902958103587057e20
 ;;             (rd "#i#o100000000000000000000000"))
-;; FAIL: TBD (#i#x<bignum with a-f> raises a spurious read error)
+;; FAIL: #1908 (#i#x<bignum with a-f> raises a spurious read error)
 ;; (test-equal "#i#x bignum with letters" 4.722366482869645e21
 ;;             (rd "#i#xFFFFFFFFFFFFFFFFFF"))
-;; FAIL: TBD (#i on a radix-prefixed bignum RATIONAL raises a spurious read error)
+;; FAIL: #1908 (#i on a radix-prefixed bignum RATIONAL raises a spurious read error)
 ;; (test-assert "#i#x bignum rational"
 ;;              (inexact? (rd "#i#x1000000000000000000/3")))
 
@@ -244,21 +244,21 @@
 (test-assert "(exact 1e-19) is not zero" (not (zero? (exact 1e-19))))
 (test-assert "(exact 1e-30) is not zero" (not (zero? (exact 1e-30))))
 
-;; FAIL: TBD (#e1e-16 collapses to exact 0 -- entire value lost)
+;; FAIL: #1909 (#e1e-16 collapses to exact 0 -- entire value lost)
 ;; (test-assert "#e1e-16 is not zero" (not (zero? (rd "#e1e-16"))))
-;; FAIL: TBD (#e1e-19 collapses to exact 0)
+;; FAIL: #1909 (#e1e-19 collapses to exact 0)
 ;; (test-assert "#e1e-19 is not zero" (not (zero? (rd "#e1e-19"))))
-;; FAIL: TBD (#e1e-30 collapses to exact 0)
+;; FAIL: #1909 (#e1e-30 collapses to exact 0)
 ;; (test-assert "#e1e-30 is not zero" (not (zero? (rd "#e1e-30"))))
-;; FAIL: TBD (#e-1e-20 collapses to exact 0, sign lost too)
+;; FAIL: #1909 (#e-1e-20 collapses to exact 0, sign lost too)
 ;; (test-assert "#e-1e-20 is negative" (negative? (rd "#e-1e-20")))
-;; FAIL: TBD (#e1.5e-18 collapses to exact 0)
+;; FAIL: #1909 (#e1.5e-18 collapses to exact 0)
 ;; (test-assert "#e1.5e-18 is not zero" (not (zero? (rd "#e1.5e-18"))))
-;; FAIL: TBD (#e1e-15 off-by-one denominator: gives 1/999999999999999)
+;; FAIL: #1909 (#e1e-15 off-by-one denominator: gives 1/999999999999999)
 ;; (test-equal "#e1e-15" 1/1000000000000000 (rd "#e1e-15"))
-;; FAIL: TBD (#e0.000000000000001 off-by-one denominator)
+;; FAIL: #1909 (#e0.000000000000001 off-by-one denominator)
 ;; (test-equal "#e0.000000000000001" 1/1000000000000000 (rd "#e0.000000000000001"))
-;; FAIL: TBD (6.2.7 consistency for the tiny end)
+;; FAIL: #1909 (6.2.7 consistency for the tiny end)
 ;; (test-equal "read/string->number agree on #e1e-16"
 ;;             (rd "#e1e-16") (string->number "#e1e-16"))
 
@@ -284,9 +284,9 @@
 (test-assert "(inexact 1+2i) is inexact" (inexact? (inexact (rd "1+2i"))))
 (test-assert "1.5+2.5i is inexact"     (inexact? (rd "1.5+2.5i")))
 
-;; FAIL: TBD (#i on a complex literal is ignored: (exact? #i1+2i) => #t)
+;; FAIL: #1910 (#i on a complex literal is ignored: (exact? #i1+2i) => #t)
 ;; (test-assert "#i1+2i is inexact" (inexact? (rd "#i1+2i")))
-;; FAIL: TBD (#i on a complex literal is ignored)
+;; FAIL: #1910 (#i on a complex literal is ignored)
 ;; (test-assert "#i3+4i is inexact" (inexact? (rd "#i3+4i")))
 
 ;; ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@
 (test-assert "#e1e18+1i round-trips"  (round-trips? (rd "#e1e18+1i")))
 (test-assert "bare 0/0 is a read error" (eq? 'read-error (rd/safe "0/0")))
 
-;; FAIL: TBD (#e1e19+1i prints as 0/0+1i and reads back as +nan.0+1i)
+;; FAIL: #1910 (#e1e19+1i prints as 0/0+1i and reads back as +nan.0+1i)
 ;; (test-assert "#e1e19+1i round-trips" (round-trips? (rd "#e1e19+1i")))
 
 ;; ---------------------------------------------------------------------------
@@ -357,16 +357,16 @@
 ;; Control: `#i+inf.0` DOES agree -- it is `#e` on an infinity that diverges.
 (test-equal "parity #i+inf.0" (rd "#i+inf.0") (string->number "#i+inf.0"))
 
-;; FAIL: TBD (6.2.7: read gives +inf.0, string->number gives #f)
+;; FAIL: #1911 (6.2.7: read gives +inf.0, string->number gives #f)
 ;; (test-equal "parity #e+inf.0" (rd "#e+inf.0") (string->number "#e+inf.0"))
-;; FAIL: TBD (6.2.7: read gives -inf.0, string->number gives #f)
+;; FAIL: #1911 (6.2.7: read gives -inf.0, string->number gives #f)
 ;; (test-equal "parity #e-inf.0" (rd "#e-inf.0") (string->number "#e-inf.0"))
-;; FAIL: TBD (6.2.7: read gives +nan.0, string->number gives #f)
+;; FAIL: #1911 (6.2.7: read gives +nan.0, string->number gives #f)
 ;; (test-assert "parity #e+nan.0"
 ;;              (eq? (not (rd "#e+nan.0")) (not (string->number "#e+nan.0"))))
-;; FAIL: TBD (string->number ignores #e on a complex: yields 1.0+2.0i inexact)
+;; FAIL: #1910 (string->number ignores #e on a complex: yields 1.0+2.0i inexact)
 ;; (test-assert "string->number #e1+2i is exact" (exact? (string->number "#e1+2i")))
-;; FAIL: TBD (string->number ignores #i on a complex: yields 1.0+2.0i either way)
+;; FAIL: #1910 (string->number ignores #i on a complex: yields 1.0+2.0i either way)
 ;; (test-equal "parity #i1+2i" (rd "#i1+2i") (string->number "#i1+2i"))
 
 ;; ---------------------------------------------------------------------------
@@ -389,19 +389,19 @@
 (test-assert "string->number rejects #e12abc"  (not (string->number "#e12abc")))
 (test-assert "string->number rejects #e1e19/3" (not (string->number "#e1e19/3")))
 
-;; FAIL: TBD (#e1.5abc reads as 3/2, leaving `abc`; cf. #1892 but decimal path)
+;; FAIL: #1892 (#e1.5abc reads as 3/2, leaving `abc`; cf. #1892 but decimal path)
 ;; (test-assert "#e1.5abc is a read error" (eq? 'read-error (rd/safe "#e1.5abc")))
-;; FAIL: TBD (#i1.5abc reads as 1.5, leaving `abc`)
+;; FAIL: #1892 (#i1.5abc reads as 1.5, leaving `abc`)
 ;; (test-assert "#i1.5abc is a read error" (eq? 'read-error (rd/safe "#i1.5abc")))
-;; FAIL: TBD (#e12abc reads as 12, leaving `abc`)
+;; FAIL: #1892 (#e12abc reads as 12, leaving `abc`)
 ;; (test-assert "#e12abc is a read error" (eq? 'read-error (rd/safe "#e12abc")))
-;; FAIL: TBD (#e12/3xyz reads as 4, leaving `xyz`)
+;; FAIL: #1892 (#e12/3xyz reads as 4, leaving `xyz`)
 ;; (test-assert "#e12/3xyz is a read error" (eq? 'read-error (rd/safe "#e12/3xyz")))
-;; FAIL: TBD (#e1e19/3 drops `/3` entirely; '(#e1e19/3) reads as two datums)
+;; FAIL: #1892 (#e1e19/3 drops `/3` entirely; '(#e1e19/3) reads as two datums)
 ;; (test-assert "#e1e19/3 is a read error" (eq? 'read-error (rd/safe "#e1e19/3")))
-;; FAIL: TBD (#d1e19/3 -- a pure radix-10 prefix triggers it too)
+;; FAIL: #1892 (#d1e19/3 -- a pure radix-10 prefix triggers it too)
 ;; (test-assert "#d1e19/3 is a read error" (eq? 'read-error (rd/safe "#d1e19/3")))
-;; FAIL: TBD (one token becomes two datums)
+;; FAIL: #1892 (one token becomes two datums)
 ;; (test-equal "(#e1.5abc) is one datum" 1 (length (rd "(#e1.5abc)")))
 
 ;; ---------------------------------------------------------------------------
@@ -424,7 +424,7 @@
    "#e+i" "#e10000000000000000000" "#i10000000000000000000"
    "#e9223372036854775807" "#x1e5" "#e1/3" "#i22/7"))
 
-;; FAIL: TBD (see section 7 -- writes 0/0+1i, reads back +nan.0+1i)
+;; FAIL: #1910 (see section 7 -- writes 0/0+1i, reads back +nan.0+1i)
 ;; (test-assert "round-trip #e1e19+1i" (round-trips? (rd "#e1e19+1i")))
 
 ;; ---------------------------------------------------------------------------
