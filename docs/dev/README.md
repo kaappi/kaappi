@@ -36,6 +36,7 @@ investigation produced analysis worth keeping.
 | [fuzzing.md](fuzzing.md) | Fuzzing runbook: the targets, the scheduled CI job, turning a failure into a regression test |
 | [github-actions.md](github-actions.md) | Workflow hardening rules: SHA-pinned actions, `persist-credentials: false`, least-privilege tokens |
 | [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) | Rooting, write barriers, and error propagation patterns contributors must follow |
+| [thread-value-sharing.md](thread-value-sharing.md) | What may cross an SRFI-18 thread boundary: the copy route vs. the globals route, what each one checks, the per-type matrix |
 | [diagnostics.md](diagnostics.md) | Diagnostic `KP` codes: the registry, the taxonomy, the stability policy, how to add a code |
 | [diagnostics-json.md](diagnostics-json.md) | `--diagnostics=json`: the LSP `Diagnostic` JSON Lines schema shared by the CLI and the language server |
 | [explain.md](explain.md) | `kaappi explain <code>`: the binary's own offline diagnostic reference (prose + example + fix), and the generator for the kaappi-lang.org page |

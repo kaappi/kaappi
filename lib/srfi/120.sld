@@ -24,7 +24,11 @@
 ;;; top-level channel/pair reaches the ORIGINAL object from the wrong
 ;;; heap and either corrupts memory silently or (for a channel
 ;;; specifically, whose primitives do check) fails with "channel belongs
-;;; to another thread".
+;;; to another thread". Note this rule is a channel rule, NOT a general
+;;; one: a mutex or condition variable is the exact opposite -- a
+;;; top-level binding is the only supported way to share one, since
+;;; capturing it is what gets deep-copy-rejected. See
+;;; docs/dev/thread-value-sharing.md for the per-type matrix.
 ;;;
 ;;; IMPORTANT: call `make-timer` and every subsequent
 ;;; `timer-schedule!`/`timer-reschedule!`/`timer-task-remove!`/

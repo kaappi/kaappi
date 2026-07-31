@@ -500,6 +500,22 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             try visited.put(src_ptr, new_val);
             return new_val;
         },
+        // NOT the answer to "what may cross a thread boundary" (#1937).
+        // This list governs the *copy* route only -- the thread-start!
+        // thunk closure, the thread-join! result, a channel message. A
+        // value reached through the shared globals map is never copied and
+        // never reaches this switch, and thirteen of the fourteen tags
+        // below are freely usable that way. For .mutex and
+        // .condition_variable a global is in fact the *only* supported way
+        // to share one, so the refusal here is the opposite of the rule --
+        // exactly inverted from .channel above, whose capture is the
+        // supported route. The globals route is defended per-type inside
+        // individual primitives (`obj.owner != gc.id`), and only two types
+        // do so: channels (primitives_fiber.zig) and thread handles
+        // (primitives_srfi18.checkThreadOwner). Full matrix, and why this
+        // was not simply extended to cover globals:
+        // docs/dev/thread-value-sharing.md, pinned by
+        // tests/scheme/srfi/srfi18-sharing-model.scm.
         .port,
         .continuation,
         .fiber,
