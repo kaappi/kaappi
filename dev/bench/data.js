@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785479087232,
+  "lastUpdate": 1785482016819,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "630f16a225baccd323a93ec3a13c5c60bbba98dc",
-          "message": "Address PR #1733 second-round review: Windows paths, stale sandbox docs (#1734)\n\n* Address PR #1733 second-round review: Windows paths, stale sandbox docs\n\n- extractDir (vm_library.zig): recognize '\\' as a separator on Windows\n  too, matching vicinity:suffix?'s own platform split -- a Windows\n  `(load \"dir\\file.scm\")` was reporting program-vicinity as \"\" instead\n  of \"dir\\\" while loading, since extractDir only searched for '/'\n- Fix stale sandbox documentation in lib/srfi/59.sld and primitives.zig\n  left over from the earlier fix that stopped blocking the whole\n  `(kaappi sysinfo)` library under --sandbox: SRFI 59 is still\n  unavailable under --sandbox, but because it's a non-embedded .sld\n  file (blocked wholesale), not because of kaappi_sysinfo's own gate\n- Move the nested-load program-vicinity regression out of srfi59.scm\n  into its own file (srfi59-nested-load-vicinity.scm), per this\n  project's \"name bug regressions after the bug\" convention\n\nNot applied: using shell-common.sh's native_path in\nscript-path-normalization.sh. native_path converts via `cygpath -m`\n(forward-slash mixed style), but %script-path's actual Windows output\nis backslash-separated and write-escaped -- a format native_path\nwouldn't produce, so it can't build a matching expected value. The\ntest's existing self-referential comparison (clean path vs. \"../\"-laden\npath to the same file) sidesteps needing to predict the exact spelling\nat all, and is already verified passing on both windows-arm-test and\nwindows-x64-test in CI.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix inconsistent procedure count in 59.sld sandbox comment\n\nSaid \"three of its four procedures\" but (kaappi sysinfo) has seven\nprimitives now (3 reachable + 4 sandbox-excluded), not four. Describe\nthe three by what they are instead of by a count.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-24T02:31:13+05:30",
-          "tree_id": "99a948767e165370e2d430929da3a509f46cc33c",
-          "url": "https://github.com/kaappi/kaappi/commit/630f16a225baccd323a93ec3a13c5c60bbba98dc"
-        },
-        "date": 1784842858325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.983317,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.518741,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912027,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.367203,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006567,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052552,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.501848,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067693,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.320823,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.944663,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.51852,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.470933,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.739299,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765631,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043996,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035481,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "40f04a6db595e198ccd8008a513184ab9ddd798a",
+          "message": "Release v0.22.1\n\nBug fixes and diagnostics. Three native-backend correctness fixes: an\ninternal define in a `let` body was never GC-rooted (#1854), the procedure\nshorthand `(define (f ...) ...)` compiled to a global define (#1861), and a\nnested `let` falling back to the interpreter lost the enclosing scope\n(#1862). Plus the `(srfi 120)` Windows wedge (#1870) and a library body that\ncould not reference an unimported global from its own top level (#1860).\n\nThe user-visible surface change is #1856: `(scheme base)` no longer exports\n22 `%`-prefixed internal primitives, so a user library defining its own\n`%name` loads again under v0.22.0's R7RS 5.2 enforcement. The ones portable\n`.sld` files need move to a new `(kaappi primitives)`.\n\nDiagnostics: every type error now names the expected type and the right\nargument (#1868), an uninitialized runtime reports KP9001 instead of a\ncaller type error (#1874/#1876/#1878), and two R6RS record conditions\nreport KP3007 rather than a bare KP3002 (#1880).\n\nBuilt-in procedures 690 -> 689 (`%length` deleted). The count command in\nthe release skill was undercounting by 2 -- it greps only for literal\n`.name = \"...\"`, and two entries converted to named constants this cycle --\nso it now resolves those too.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T11:50:24+05:30",
+          "tree_id": "dc5bbbf2a11807643f675b30b34648ed25440706",
+          "url": "https://github.com/kaappi/kaappi/commit/40f04a6db595e198ccd8008a513184ab9ddd798a"
+        },
+        "date": 1785482014724,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.3059,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.582863,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571659,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.978246,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004648,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046357,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.310691,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057033,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.602668,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231199,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.572815,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.278719,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.800123,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.620418,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043836,
             "unit": "seconds"
           }
         ]
