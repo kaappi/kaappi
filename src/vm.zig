@@ -509,8 +509,11 @@ pub const VM = struct {
     /// a retry would corrupt them. `map`/`for-each` and `dynamic-wind` are
     /// *not* examples: they are bootstrapped Scheme (vm_bootstrap.zig), so
     /// their bodies and callbacks stay in this loop and a fiber parks
-    /// inside them (#1959). Only the wind before/after thunks a
-    /// continuation transition re-enters via callThunk are native frames.
+    /// inside them (#1959). Only the wind before/after thunks re-entered
+    /// via callThunk are native frames — by a continuation transition
+    /// (vm_continuations.zig) or by an unwind, either a frame return
+    /// leaving its own extent (vm_dispatch.zig) or an error unwinding
+    /// execute (vm_calls.zig).
     dispatched_from_scheduler: bool = false,
     /// SRFI 181: incremented/decremented (via defer) only around the
     /// callWithArgs calls into a custom port's read!/write!/get-position/

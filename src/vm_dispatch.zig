@@ -43,8 +43,10 @@ fn maybeRewindRetry(self: *VM, instr_len: usize) void {
 /// A frame with returns_to_native set (pushed by vm.callWithArgs) delivers its
 /// result via its own runUntil session's return value; its dst is a
 /// placeholder. When such a frame returns while frame_count is still above
-/// the dispatching loop's target, that session — the native Zig caller (map,
-/// for-each, sort, apply, ...) that owned the result — has already returned:
+/// the dispatching loop's target, that session — the native Zig caller
+/// (apply, a native higher-order driver like SRFI-1 fold or
+/// hash-table-update!, eval, a wind thunk, ...) that owned the result — has
+/// already returned:
 /// a continuation captured under the native call was resumed after the call
 /// ended. There is no register to deliver into and the native's iteration
 /// state is gone, so raise a catchable Scheme error instead of silently
