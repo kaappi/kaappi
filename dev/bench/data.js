@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785509667302,
+  "lastUpdate": 1785510208020,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "34e15133a27c823053078175621ebb3505263913",
-          "message": "Add SRFI 231 multi-array assembly (#1694 array family, phase 5) (#1754)\n\n* Add SRFI 231 multi-array assembly (#1694 array family, phase 5)\n\nFinal content phase of SRFI 231: array-assign!, array-stack(!),\narray-decurry(!), array-append(!), array-block(!) (9 bindings). All\nfour stack/decurry/append/block constructors follow the established\nvirtual-array-then-array-copy pattern; their `!` twins are aliases,\nconfirmed safe by reading the reference implementation directly (the\ntwo only diverge under multi-shot continuation re-entry, which the\nspec itself declares undefined). array-block needed a two-pass design:\nfull per-axis width-consistency validation (reusing array-curry +\narray-permute + index-first) followed by cheap single-pencil probing\nfor offsets, both confirmed against the reference implementation.\n\nOnly the merge into a public lib/srfi/231.sld plus docs/SRFI-count\nbookkeeping remains for the whole SRFI (#1694).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Strengthen array-block test coverage with position-dependent blocks\n\nCodeRabbit review of #1754: every test block was a uniform constant\nalready sitting at a zero lower bound, so the local-index/block-lower\nremap in array-block's assembled getter (assembly.sld:259) could be\nmissing, sign-flipped, or otherwise wrong and every assertion would\nstill pass -- any index inside a constant, zero-based block returns\nthe same value regardless of whether the arithmetic is correct.\n\nReplaced the four const-array blocks with array-translate'd blocks\ncarrying distinct nonzero lower bounds and position-tagged values, so\neach assertion now depends on the real local coordinate. Verified the\nnew test actually catches the bug class: temporarily dropping the\nblock-lowers addition turned 0 failures into 12, confirming the fix\ncloses a real gap rather than just adding assertions.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T09:15:39+05:30",
-          "tree_id": "e17d18ea65ba1ca63b0f3f04ba731b412444ae03",
-          "url": "https://github.com/kaappi/kaappi/commit/34e15133a27c823053078175621ebb3505263913"
-        },
-        "date": 1785039818760,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.284387,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.416287,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.893852,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.416302,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006388,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053715,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.497987,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069212,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.524828,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.93126,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.576853,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434035,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815633,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.65073,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044278,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042981,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5ddfe48acfbf8af321b798530fc53b24821b4bb",
+          "message": "Phase 5C: cross-thread boundary audit — 49 assertions, six new findings including a read-direction UAF (#1938)\n\n* Map the cross-thread heap boundary, and pin the half of it that works\n\nPhase 5C of the v2 audit campaign. #1924 established that a child thread\nmutating a heap object reachable from a top-level binding leaves the parent\nreading freed memory. This maps how far that reaches, and — as importantly —\nwhere the boundary is actually sound, so those parts need not be re-audited.\n\n49 enabled assertions pin the working boundary: immediates (fixnum, char,\nboolean, flonum) survive every container; raw-byte content does too\n(string-set! including the widening rebuild, string-copy!, bytevector and\nf64vector elements); interned symbols survive because a child stamps them\nwith the parent's GC id; a child may store a parent-heap value into a\nparent-heap object and keep eq?; a child may grow a parent hash table across\na rehash; parameters are per-thread; a mutex left locked by a dead child\nreads as abandoned; join deep-copies results, nested objects included; and\nall seven reachable uncopyable tags are refused in both directions.\n\n24 assertions are commented out behind `;; FAIL:` markers rather than\ntest-expect-fail, because reading freed memory can take down the runner.\nSeventeen are #1924's shape across every mutable heap type — including the\nshared globals map itself and promise memoisation, which its own matrix\ndoes not cover. Seven are new and are marked TBD:\n\n  * the read direction, which #1924 does not cover: the parent's collector\n    reclaims an object a LIVE child still references, since markVMRoots\n    returns early unless vm.gc == gc. Under -Dgc-stress=true this escalates\n    to the engine's own UAF panic, 3/3, with the no-drop control clean 3/3.\n  * a plain R7RS record returned through thread-join! arrives as a\n    DIFFERENT record type: pt? answers #f and every accessor raises. The\n    supported worker-thread path, no globals and no mutation involved. A\n    SRFI 237 nongenerative type is the control and is enabled — its uid\n    registry is the one identity-preserving path in gc_deep_copy.\n  * gc_deep_copy's .channel arm skips the ownership check for an\n    already-promoted channel, so a grandchild that only ever reached a\n    channel through a shared global gets a working stub. The unpromoted\n    control is enabled and refuses.\n  * symbol interning is one level deep: at thread depth >= 2 a grandchild's\n    string->symbol no longer dedupes against the process table.\n  * a continuation invoked cross-thread returns a value satisfying no type\n    predicate at all.\n\nCLAUDE.md's claim that top-level bindings are shared by pointer while\nlexical captures are deep-copied-and-re-owned is confirmed, and both halves\nare now asserted directly.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point cross-thread FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T19:40:55+05:30",
+          "tree_id": "4aa2be03e1a6302c71fd7fd1dfa0dfcaea17a740",
+          "url": "https://github.com/kaappi/kaappi/commit/c5ddfe48acfbf8af321b798530fc53b24821b4bb"
+        },
+        "date": 1785510205407,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.335597,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.604451,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.450512,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.416965,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004082,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034737,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.230712,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042794,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.831192,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.896954,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.172455,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.237944,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.305979,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.440092,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035719,
             "unit": "seconds"
           }
         ]
