@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785540839831,
+  "lastUpdate": 1785541365941,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4284fadcb52be2f98e5af097943da6dad8b8a33d",
-          "message": "Fix let-values/let*-values corruption when list/apply/call-with-values are shadowed (#1771)\n\nBoth forms desugar internally to code that invokes list, apply, and\ncall-with-values by name. Those were ordinary, shadowable identifier\nreferences, so a program redefining any of them at the top level --\nexactly what SRFI 101 does for `list` -- could corrupt the desugaring\ninstead of the compiler always meaning the true (scheme base)\nprocedures. The reported symptom was a spurious \"apply: expected\nproper list, got #<record_instance>\" error: the shadowed `list`\nhanded back something other than a real list, and the\ncorrectly-resolved `apply` then correctly rejected it.\n\nCompiler-synthesized references to these three names now resolve\nthrough a protected path: a __kaappi_base__-prefixed symbol that\nget_global/call_global recognize and resolve against (scheme base)'s\nown pristine export table (captured once at VM startup, never\ntouched again) instead of the live, mutable globals map. The\nreference has to stay a plain symbol rather than a pre-resolved\nvalue, since the .sbc bytecode cache has no serialization tag for\nprocedure constants and would silently corrupt one to nil on a cache\nround-trip.\n\nAlso fixes an adjacent gap: even the \"protected\" call_global fast\npath already used by let*-values only ever guarded against lexical\nshadowing, not a top-level redefinition of call-with-values itself --\nand isContinuationBarrier needed to recognize the new prefixed name\nso call-with-values keeps the standard frame setup its continuation\ncapture semantics depend on.\n\nFixes #1715\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T08:23:29+05:30",
-          "tree_id": "d05dd7be0867f3efd4b318aaf0b127e4b516af6a",
-          "url": "https://github.com/kaappi/kaappi/commit/4284fadcb52be2f98e5af097943da6dad8b8a33d"
-        },
-        "date": 1785124210361,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.397541,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.597212,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.940857,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.528775,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006426,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055121,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.515354,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068968,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.510032,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.996336,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.63078,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.44271,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.85868,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.665281,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043974,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025018,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e7c723ddf073ad0865ba358f129607c3c0916c77",
+          "message": "Tick 2.5 and 6D; close 3.2/3.3 as subsumed by 2.4 (#1990)\n\n* Close SRFI 160 sweeps 3.2 and 3.3 as subsumed by 2.4\n\n2.4 audited primitives_srfi160.zig AND the portable surface it carries,\nwhich is what 3.2 and 3.3 were scoped to cover separately. Its 1066\nassertions already sweep all 12 element kinds at every boundary, both\nseams, and the per-type wrappers.\n\nLeft open, they would tell the next session that SRFI 160 coverage is\nmissing when it is not -- the same class of drift Phase 0B existed to\nremove, just pointing the other way: a tracker that overstates remaining\nwork wastes a session as surely as one that understates finished work.\n\nStruck through rather than deleted, with what 2.4 actually covered\nrecorded inline, so the decision is auditable instead of looking like\nunits that quietly vanished.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.5 and 6D, and record why 2.12 and 5D are not ticked\n\nOnly two of the fourth batch merged. 2.12 and 5D are complete and green\non macOS but held by real BSD failures -- 2 assertions on FreeBSD and\nOpenBSD, 1 on NetBSD, out of 421 and 273 respectively.\n\nThose stay unticked rather than ticked-with-a-caveat, because the work is\nnot landed and the tests are not running anywhere. The status line names\ntheir PRs so the next reader knows the units exist and where they stopped,\ninstead of finding two silently missing entries.\n\nUnlike the earlier #1967 case, this is not harness flake: the failures are\nin the units' own audit files, on the platforms whose filesystem and\nthread semantics those units probe, and the same files pass everywhere\nelse. Chasing them needs a real BSD box.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T04:50:56+05:30",
+          "tree_id": "126dd8c90836116d52c13be556bf97b05954044d",
+          "url": "https://github.com/kaappi/kaappi/commit/e7c723ddf073ad0865ba358f129607c3c0916c77"
+        },
+        "date": 1785541364331,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.254822,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.863211,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.588007,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.951469,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00471,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046534,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315574,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057158,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.645479,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.228194,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.581629,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28531,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.780013,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.648735,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043476,
             "unit": "seconds"
           }
         ]
