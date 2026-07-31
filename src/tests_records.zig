@@ -3,6 +3,7 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_mod = @import("vm.zig");
 
 test "define-record-type basic" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -113,6 +114,91 @@ test "record type distinction" {
     try std.testing.expectEqual(@as(i64, 255), types.toFixnum(try vm.eval("(color-r c)")));
     try std.testing.expectEqual(@as(i64, 128), types.toFixnum(try vm.eval("(color-g c)")));
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(try vm.eval("(color-b c)")));
+}
+
+// #1882: SRFI 237's R6RS clause grammar is ambient, so `define-record-type`
+// tells the two syntaxes apart structurally. Reading only the head of the
+// 2nd element captured any R7RS record whose *constructor* was named after
+// a clause keyword; the 3rd element (R7RS's bare-symbol predicate, vs. an
+// R6RS clause list or nothing) is what actually separates them.
+test "R7RS record whose constructor is named after an R6RS clause keyword" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval(
+        \\(define-record-type point
+        \\  (fields x y)
+        \\  point?
+        \\  (x point-x)
+        \\  (y point-y))
+    );
+    _ = try ctx.vm.eval(
+        \\(define-record-type node
+        \\  (parent l r)
+        \\  node?
+        \\  (l node-l)
+        \\  (r node-r))
+    );
+
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try ctx.vm.eval("(point-x (fields 1 2))")));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try ctx.vm.eval("(point-y (fields 1 2))")));
+    try std.testing.expectEqual(types.TRUE, try ctx.vm.eval("(point? (fields 1 2))"));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try ctx.vm.eval("(node-l (parent 3 4))")));
+    try std.testing.expectEqual(types.FALSE, try ctx.vm.eval("(point? (parent 3 4))"));
+}
+
+// The other half of #1882's narrowing: every genuine R6RS form must keep
+// its path, whether it has one clause (no 3rd element at all) or several
+// (a clause list there).
+test "R6RS clause syntax still detected after the #1882 narrowing" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define-record-type box (fields (mutable contents)))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try ctx.vm.eval("(box-contents (make-box 42))")));
+
+    _ = try ctx.vm.eval("(define-record-type animal (fields (immutable id animal-id)))");
+    _ = try ctx.vm.eval(
+        \\(define-record-type (dog make-dog dog?)
+        \\  (parent animal)
+        \\  (fields (immutable breed dog-breed)))
+    );
+    _ = try ctx.vm.eval("(define rex (make-dog 7 9))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try ctx.vm.eval("(animal-id rex)")));
+    try std.testing.expectEqual(@as(i64, 9), types.toFixnum(try ctx.vm.eval("(dog-breed rex)")));
+    try std.testing.expectEqual(types.TRUE, try ctx.vm.eval("(animal? rex)"));
+}
+
+// The risk in narrowing a discriminator is that a form which used to be
+// rejected by the parser it reached now reaches the *other* parser and
+// slips through. These are the shapes near #1882's new boundary — a
+// non-symbol atom, a list, and a well-formed-looking R7RS form — and each
+// must still be an error whichever parser ends up seeing it.
+test "malformed record forms still fail after the #1882 narrowing" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const malformed = [_][]const u8{
+        // A non-symbol atom where a predicate or a clause would go: not a
+        // predicate for R7RS, not a clause for R6RS.
+        "(define-record-type point (fields x y) 42 (x point-x))",
+        "(define-record-type point (fields x y) \"pred\" (x point-x))",
+        // A list there, so still R6RS — and these are clauses it rejects
+        // (unknown, and the documented `parent-rtd` gap).
+        "(define-record-type point (fields x) (bogus 1))",
+        "(define-record-type point (fields x) (parent-rtd r))",
+        // Now reaches the R7RS parser, which must still catch a constructor
+        // field with no matching field spec.
+        "(define-record-type point (fields x) point?)",
+        // Not a clause keyword at all, so untouched by this fix.
+        "(define-record-type point (make-point x y))",
+    };
+    for (malformed) |src| {
+        try std.testing.expectError(vm_mod.VMError.CompileError, ctx.vm.eval(src));
+    }
 }
 
 test "record with mixed field types" {
