@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785459833051,
+  "lastUpdate": 1785463140440,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d8853a26901293789bf4a02e59da1954a0b7d251",
-          "message": "Add SRFI 181 custom ports (#1730)\n\n* Add SRFI 181 custom ports (closes #1727; transcoded ports split to #1729)\n\nImplements make-custom-binary-input-port, make-custom-binary-output-port,\nmake-custom-textual-input-port, make-custom-textual-output-port,\nmake-custom-binary-input/output-port, and make-file-error. This is the\nSRFI deferred out of Phase 3 (#1728) for being disproportionately\ncomplex: Port has never held a Scheme Value field before, and custom\nports need their read!/write!/get-position/set-position!/close/flush\nhooks to be Scheme procedures -- the first Value-bearing fields Port has\nhad, plus the first time a port needs to call back into Scheme\nreentrantly.\n\nTwo research passes and a design review (full spec fetch, tracing the\nGC marking switches and the reentrant-call/fiber-parking mechanism)\nproduced a validated design and caught concrete bugs before they\nshipped: a memory leak (missing freeObject/objectSize sites -- 5\ngc_collect.zig touch points needed, not the obvious 3), a\nuse-after-free trap (Kaappi strings reallocate their whole backing\nbuffer in place on a differing-byte-width string-set!, so a read!\ncallback's buffer must never be cached across the call), and a\nsilent-data-loss ordering bug (portWriteBytes has two fd-handling\nsteps, not one -- a custom port's branch must precede both).\n\nTranscoded ports (make-transcoder, codecs, eol-styles, the raise\nerror-handling mode) are split into #1729: the raise mode specifically\nneeds vm.callHandler's continuable-raise machinery, which is\narchitecturally harder than the custom-port plumbing itself.\n\nDesign:\n- Port.custom_backend: ?*CustomBacking holds the 6 callback Values\n  (read!/write!/get-position/set-position!/close/flush), following the\n  existing random_gen field's \"owned pointer, freed with the port\"\n  shape. GC-marked via a shared markPortValues helper wired into all\n  three marking switches (referencesYoung, markObjectContents,\n  markValueInner) plus the two dedicated freeObject/objectSize arms.\n- GC.allocCustomPort follows allocMultipleValues's slice_roots\n  template (rootArgs1/rootArgs2 cap out at 2 Values; this needs up to\n  6 protected across one allocation).\n- readOneByte/portWriteBytes (the single byte source/sink every port\n  primitive already funnels through) gained a custom-port branch each,\n  reusing the existing UTF-8 decode/encode pipeline by exploiting that\n  Kaappi strings are already UTF-8 byte arrays internally.\n- Custom port callbacks run through vm.callWithArgs, which always\n  executes with dispatched_from_scheduler forced false. A callback\n  that tries to block (another port's I/O, thread-sleep!) is rejected\n  with a catchable error via a new, narrow vm.in_custom_port_callback\n  counter (checked in fiber.waitForFd and threadSleepFn) instead of\n  risking the confirmed native-stack-overflow a silent recursive\n  scheduler drive would otherwise allow under concurrent fibers.\n- port-position/set-port-position!/port-has-port-position? (SRFI 192)\n  gained custom-port branches for free integration with get-position/\n  set-position!. close-port/flush-output-port gate their callback\n  invocations on is_open/non-#f so a double-close or a #f flush never\n  double-invokes or misfires.\n\n150 SRFIs now supported (13 built-in, up from 12). Doc counts\nreconciled across both CLAUDE.md files, README.md, and CONFORMANCE.md\nfrom `kaappi features --json`. Cross-compiles clean for Windows x86_64\nand WASM (zero platform-specific code -- every operation is a Scheme-\nlevel callWithArgs call). Full regression green: zig build test\n(including -Dgc-stress=true), 1953 Scheme tests (558 files + 1395\nR7RS).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review findings on PR #1730\n\nVerified each finding directly against current code before fixing or\ndeclining, per established project practice.\n\nFixed (3 genuine bugs):\n\n- writeBytesToCustomPort: re-allocated and copied the entire shrinking\n  \"remaining\" slice into a fresh bytevector/string on every partial-\n  write iteration, even though write! never mutates its buffer -- O(n^2)\n  for a callback that only accepts a small chunk per call (the exact\n  \"one-at-a-time\" pattern this PR's own test file already exercised).\n  Confirmed via a 20000-byte write through a 1-byte-at-a-time callback\n  (12ms after the fix). Now allocates once and varies start/count.\n- closePort: didn't flush a custom output port before invoking\n  close_proc, unlike setPortPositionOnCustomPort (which already flushes\n  before seeking) and the fd path's drainWriteBuffer. R7RS: \"If port is\n  an output port, it is flushed before being closed.\" Confirmed via a\n  custom port simulating internal buffering (data relies on flush! to\n  emit) that silently lost it on close-port without the fix.\n- raiseCustomPortCallbackBlocked's error message said \"tried to block\n  on another port's I/O\", but the function is also raised from\n  threadSleepFn for thread-sleep! -- misleading for that case. Now\n  covers both.\n\nAdded (1 nitpick, genuinely strengthens coverage):\n\n- A new GC-stress test that passes allocCustomPort's callback arguments\n  in deliberately unrooted (from the test's own perspective) and forces\n  a collection via the runtime gc.stress field during the allocator's\n  own maybeCollect() call -- the existing two tests pre-root the\n  callbacks externally, so neither could actually detect a regression\n  in allocCustomPort's own slice_roots usage specifically. Verified by\n  temporarily removing the slice_roots assignment and confirming this\n  new test (and only this one) fails.\n\nDeclined (1 finding, real but out of scope for this PR):\n\n- types.zig exceeds the 1500-line policy (1627 lines). Confirmed this\n  predates this PR entirely (1605 lines on main already, before SRFI\n  181's 22-line addition) -- an organic, 105-commit history of one-more-\n  heap-type additions past the file's own documented ~500-line target.\n  A proper split is a repo-wide structural change touching call sites\n  across dozens of files (every heap type here is referenced from\n  primitives files, memory.zig, gc_collect.zig, every vm*.zig file,\n  printer.zig, and more) -- exactly the kind of \"heavy lift\" this\n  project scopes into its own focused PR rather than bundling into a\n  feature PR's already-large diff (same reasoning that split transcoded\n  ports into #1729). Filed as #1731 with a suggested first-cut split\n  and context for whoever picks it up.\n\nAll 5 findings were genuine and independently verified: 3 fixed with\nregression tests (each proven to fail without its fix), 1 test-coverage\nnitpick added, 1 declined with a filed follow-up and clear reasoning.\nFull suite green: zig build test, 1953/1953 Scheme tests (558 files +\n1395 R7RS).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-23T08:26:57+05:30",
-          "tree_id": "6f3c27fa2051390321fc7f6e8eb65a59c6ffad5a",
-          "url": "https://github.com/kaappi/kaappi/commit/d8853a26901293789bf4a02e59da1954a0b7d251"
-        },
-        "date": 1784777130134,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.981008,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.429176,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.908313,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.379089,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006674,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052694,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50594,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067996,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.333013,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.954859,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.509003,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.469617,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.717967,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765668,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04513,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034944,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7bd728d4a102b667ef52b211e2c4e4a635749bb9",
+          "message": "Report a missing VM as an internal error in the last four guards (#1878)\n\nkaappi#1874 settled what a `vm_instance orelse` guard should return, but four\nsites kept `TypeError` through the sweep. Rule 1 vets a guard against its own\nfunction and never vets the function, so a correct-looking guard on a\nwrongly-tagged function reads exactly like a site the rule has already cleared\n-- the same trap kaappi#1876 hit with `bootstrapStub`.\n\nThe three `vm.zig` hooks are the easy half: they return `anyerror`, so there\nwas never a tag they were going to return anyway. `applyFn` is the one worth\narguing. `apply` does raise real type errors, for a non-procedure and for an\nimproper final list, which is why its guard looked settled. It isn't: Rule 1\ncovers a helper that fetches the VM only to attach a message to an error it\nwas already committed to raising, and `apply` fetches it in order to call the\nprocedure. A null threadlocal means `apply` cannot run at all. The\n`gc_instance` line under it keeps `OutOfMemory` -- two adjacent guards, one per\nrule.\n\nOnly `apply`'s tag is user-visible. It is a primitive, so a bare `TypeError`\nreached `--diagnostics=json`, the LSP and `error-object-code` as KP3002 \"you\npassed a bad argument type\" for a condition no program can cause; it is KP9001\n\"please report it\" now. The three hooks' callers collapse everything but\n`OutOfMemory` into `InvalidSyntax`/`TransformerFailed`, so their tag is read by\nthe next maintainer rather than by a diagnostic -- which is precisely why it\nneeded pinning, an unpinned readability-only tag being what drifted here in the\nfirst place.\n\nThe doc gains both decisions and the CI gate's two blind spots, with one\ncorrection to how they have been described: there are three spellings of this\nerror in `src/`, not two. `ffi.zig` declares inline `error{TypeError}` sets and\nuses neither the `PrimitiveError` nor the `VMError` alias, and it holds 27 of\nthe 35 out-of-scope sites -- so a grep widened from the two-alias description\nmisses all of them, which is the same blind-spot class the warning is about.\nWidening the gate stays out of scope; those 35 are real error conditions\nneeding triage, not threadlocal guards.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T01:18:07Z",
+          "tree_id": "801ea451e4eb32d3cf37a2254a5787852c401962",
+          "url": "https://github.com/kaappi/kaappi/commit/7bd728d4a102b667ef52b211e2c4e4a635749bb9"
+        },
+        "date": 1785463138959,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.243356,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.830061,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.963405,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004711,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04671,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314667,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057662,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.66787,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.230955,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.589988,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279296,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.797338,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.625157,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042974,
             "unit": "seconds"
           }
         ]
