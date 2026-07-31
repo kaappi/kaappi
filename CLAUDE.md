@@ -53,7 +53,10 @@ build id, target triple, build mode, compiled-in subsystems (the KEP-0004
 portable SRFIs, and initial VM/GC limits — all derived, no hardcoded second
 list; see `docs/dev/features.md`;
 `kaappi test [paths...]` runs SRFI-64 suites (`--json`, `--seed <n>`,
-`--lib-path`) aggregating from the runner's own counters; `--changed`
+`--lib-path`) aggregating from the runner's own counters; `-j`/`--jobs <n>`
+runs files concurrently (default: one per CPU, Windows always 1) with verdicts
+and output order identical at any job count, since each file was already its own
+worker process; `--changed`
 /`--list-affected` (with `--since <rev>`) select only suites whose R7RS import
 closure changed, falling back to a loud full run when the graph can't be trusted
 — see `docs/dev/test-runner.md`. `kaappi ast|expand|ir <file>` are read-only

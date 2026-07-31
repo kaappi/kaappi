@@ -37,6 +37,26 @@ TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 # 3M-iteration test took 7+ minutes under a Debug build and ate the rest of a
 # 40-minute CI job before anyone could tell which file was responsible).
 SHELL_TIMEOUT="${KAAPPI_SHELL_TEST_TIMEOUT:-300}"
+
+# How many .scm files to run at once. Each file is a fresh interpreter with no
+# shared state (see tests/scheme/CLAUDE.md), so they parallelise cleanly — the
+# suite's own audit found no cross-file collisions on fixed paths or ports.
+# Shell suites stay sequential: they do native compiles and `zig build` into a
+# shared .zig-cache, which is a different (unaudited) contention story.
+# KAAPPI_TEST_JOBS=1 restores the old strictly-sequential behaviour.
+detect_jobs() {
+    local n=""
+    n=$(getconf _NPROCESSORS_ONLN 2>/dev/null) \
+        || n=$(sysctl -n hw.ncpu 2>/dev/null) \
+        || n=$(nproc 2>/dev/null) \
+        || n=""
+    case "$n" in
+        ''|*[!0-9]*) echo 4 ;;
+        *) echo "$n" ;;
+    esac
+}
+JOBS="${KAAPPI_TEST_JOBS:-$(detect_jobs)}"
+
 PASS=0
 FAIL=0
 TIMEDOUT=0
@@ -57,10 +77,15 @@ R7RS_PASS=0
 R7RS_FAIL=0
 R7RS_STATUS_FAIL=0
 
-run_file() {
-    local file="$1"
-    local output pid status
-    "$KAAPPI" "$file" > "$TMPOUT" 2>&1 &
+# Run one .scm file to completion in the background, recording its verdict in
+# "$slot.rec" and its combined output in "$slot.out". Runs in a subshell, so it
+# cannot touch the PASS/FAIL counters — the parent tallies those later from the
+# records, which is also what keeps the printed order deterministic regardless
+# of the order files actually finish in.
+run_file_worker() {
+    local file="$1" slot="$2"
+    local pid status
+    "$KAAPPI" "$file" > "$slot.out" 2>&1 &
     pid=$!
     if wait_with_timeout "$pid" "$TIMEOUT"; then
         status=0
@@ -68,37 +93,90 @@ run_file() {
     else
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
-        echo "  TIMEOUT  $file  (killed after ${TIMEOUT}s)"
-        cat "$TMPOUT"
-        TIMEDOUT=$((TIMEDOUT + 1))
-        return
+        echo "TIMEOUT" > "$slot.rec"
+        return 0
     fi
     if [[ $status -eq 0 ]]; then
         # SRFI-64 files rely on their own exit-on-fail epilogue, and a file
         # that forgets it (or a stray chibi-test file — the shim exits 0
         # even when assertions fail) would otherwise slip through. Trust
         # the printed counts, not just the exit code.
-        if grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]' "$TMPOUT"; then
-            echo "  FAIL  $file  (failing assertions reported despite exit 0)"
-            cat "$TMPOUT"
-            FAIL=$((FAIL + 1))
+        if grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]' "$slot.out"; then
+            echo "FAIL_ASSERT" > "$slot.rec"
         else
-            echo "  PASS  $file"
-            PASS=$((PASS + 1))
+            echo "PASS" > "$slot.rec"
         fi
     else
-        echo "  FAIL  $file"
-        cat "$TMPOUT"
-        FAIL=$((FAIL + 1))
+        echo "FAIL" > "$slot.rec"
     fi
+    return 0
 }
 
+# Print one worker's verdict and fold it into the counters. Parent shell only.
+report_file_result() {
+    local file="$1" slot="$2"
+    local kind=""
+    [[ -f "$slot.rec" ]] && kind=$(cat "$slot.rec")
+    case "$kind" in
+        PASS)
+            echo "  PASS  $file"
+            PASS=$((PASS + 1))
+            ;;
+        TIMEOUT)
+            echo "  TIMEOUT  $file  (killed after ${TIMEOUT}s)"
+            [[ -f "$slot.out" ]] && cat "$slot.out"
+            TIMEDOUT=$((TIMEDOUT + 1))
+            ;;
+        FAIL_ASSERT)
+            echo "  FAIL  $file  (failing assertions reported despite exit 0)"
+            [[ -f "$slot.out" ]] && cat "$slot.out"
+            FAIL=$((FAIL + 1))
+            ;;
+        *)
+            # Empty record = the worker itself died before writing a verdict.
+            echo "  FAIL  $file"
+            [[ -f "$slot.out" ]] && cat "$slot.out"
+            FAIL=$((FAIL + 1))
+            ;;
+    esac
+}
+
+# `wait -n` (return as soon as the *next* job finishes) keeps the pool full with
+# no polling at all, but it arrived in bash 4.3 and macOS still ships 3.2. There
+# we fall back to draining the whole batch before starting the next one, which
+# costs a little at each batch boundary but needs no polling either — polling
+# here meant a `$(jobs -r | wc -l)` subshell every few milliseconds, which on a
+# box already saturated by workers is pure overhead.
+HAVE_WAIT_N=0
+if (( ${BASH_VERSINFO[0]:-0} > 4 || (${BASH_VERSINFO[0]:-0} == 4 && ${BASH_VERSINFO[1]:-0} >= 3) )); then
+    HAVE_WAIT_N=1
+fi
+
+# Poll a child to completion, giving up after $secs.
+#
+# The tick is 0.05s, not 1s: at one-second granularity every spawned unit cost a
+# full second of wall clock no matter how fast it really was, and 381 of the 566
+# .scm files finish in under 50ms. That single sleep accounted for ~93% of this
+# script's runtime (668s total for ~53s of actual work). Ticks are counted in
+# 20ths of a second so the $secs timeout keeps its exact meaning.
+#
+# Fractional sleep is not POSIX, but every platform this suite runs on (GNU
+# coreutils, macOS/BSD, busybox) accepts it; the fallback keeps a stubborn
+# `sleep` from spinning the CPU.
+TICKS_PER_SEC=20
+if ! sleep 0.05 2>/dev/null; then
+    TICKS_PER_SEC=1
+fi
+
 wait_with_timeout() {
-    local pid=$1 secs=$2 elapsed=0
+    local pid=$1 secs=$2 ticks=0
+    local limit=$((secs * TICKS_PER_SEC))
+    local interval=0.05
+    if [[ $TICKS_PER_SEC -eq 1 ]]; then interval=1; fi
     while kill -0 "$pid" 2>/dev/null; do
-        if [[ $elapsed -ge $secs ]]; then return 1; fi
-        sleep 1
-        elapsed=$((elapsed + 1))
+        if [[ $ticks -ge $limit ]]; then return 1; fi
+        sleep "$interval"
+        ticks=$((ticks + 1))
     done
     return 0
 }
@@ -108,23 +186,62 @@ run_suite() {
     shift
     local matched=0
     echo "=== $title ==="
+
+    # Collect first, so the run can be dispatched $JOBS-at-a-time and still be
+    # reported in a stable, glob-sorted order.
+    local files=()
+    local pattern file
     for pattern in "$@"; do
         for file in $pattern; do
             if [[ -e "$file" ]]; then
+                matched=1
                 if should_skip "$file"; then
                     echo "  SKIP  $file"
                     SKIPPED=$((SKIPPED + 1))
-                    matched=1
                     continue
                 fi
-                matched=1
-                run_file "$file"
+                files[${#files[@]}]="$file"
             fi
         done
     done
+
     if [[ $matched -eq 0 ]]; then
         echo "  (no tests matched)"
+        echo ""
+        return
     fi
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo ""
+        return
+    fi
+
+    local slotdir
+    slotdir=$(mktemp -d "${TMPDIR:-/tmp}/kaappi-suite-XXXXXX")
+
+    local i=0 running=0
+    while [[ $i -lt ${#files[@]} ]]; do
+        if [[ $running -ge $JOBS ]]; then
+            if [[ $HAVE_WAIT_N -eq 1 ]]; then
+                wait -n 2>/dev/null || true
+                running=$((running - 1))
+            else
+                wait || true
+                running=0
+            fi
+        fi
+        run_file_worker "${files[$i]}" "$slotdir/$i" &
+        running=$((running + 1))
+        i=$((i + 1))
+    done
+    wait || true
+
+    i=0
+    while [[ $i -lt ${#files[@]} ]]; do
+        report_file_result "${files[$i]}" "$slotdir/$i"
+        i=$((i + 1))
+    done
+
+    rm -rf "$slotdir"
     echo ""
 }
 
@@ -172,6 +289,9 @@ run_shell_suite() {
     fi
     echo ""
 }
+
+echo "Running .scm suites with $JOBS parallel job(s) (override: KAAPPI_TEST_JOBS)."
+echo ""
 
 run_suite "Smoke tests" tests/scheme/smoke/*.scm
 run_shell_suite "Smoke shell tests" tests/scheme/smoke
