@@ -625,7 +625,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (nargs > 1) {
                     var fi: u8 = 0;
                     while (fi < nargs - 1) : (fi += 1) {
-                        if (count >= 255) return VMError.StackOverflow;
+                        if (count >= 255) return tooManyApplyArgs(self);
                         flat_args[count] = self.registers[abs_base + 1 + fi];
                         count += 1;
                     }
@@ -638,7 +638,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         self.setErrorDetail("apply: last argument must be a list", .{});
                         return VMError.TypeError; // bare-ok: detail set above
                     }
-                    if (count >= 255) return VMError.StackOverflow;
+                    if (count >= 255) return tooManyApplyArgs(self);
                     flat_args[count] = types.car(rest);
                     count += 1;
                     rest = types.cdr(rest);
@@ -647,7 +647,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (types.isClosure(proc)) {
                     const closure = types.toObject(proc).as(types.Closure);
                     const func = closure.func;
-                    if (count > std.math.maxInt(u8)) return VMError.StackOverflow;
+                    if (count > std.math.maxInt(u8)) return tooManyApplyArgs(self);
                     const total_nargs: u8 = @intCast(count);
 
                     if (!func.is_variadic) {
@@ -1376,6 +1376,22 @@ pub fn ensureCallWindow(vm: *VM, base: usize, nargs: u8) VMError!void {
 fn toBase(base_wide: usize) VMError!u32 {
     if (base_wide > std.math.maxInt(u32)) return VMError.StackOverflow;
     return @intCast(base_wide);
+}
+
+/// A tail-position `apply` flattened more arguments than this opcode's u8
+/// `nargs` can encode. That is a limit on one call's argument list, not on the
+/// stack, so it is InvalidArgument (KP3007) and stays catchable — unlike
+/// genuine stack exhaustion, which #1886 made uncatchable.
+///
+/// Catchable is load-bearing, not just tidier: this same bound is what ends
+/// the flattening walk of a *circular* argument list, and
+/// `tests/scheme/audit/primitives_core-audit.scm` pins `(apply + <circular>)`
+/// as recoverable. Reporting StackOverflow both sent readers hunting for
+/// runaway recursion and, once limits stopped being catchable, would have
+/// made a bad argument list unrecoverable.
+fn tooManyApplyArgs(vm: *VM) VMError {
+    vm.setErrorDetail("apply: too many arguments (limit 255)", .{});
+    return VMError.InvalidArgument;
 }
 
 pub fn constantAt(vm: *VM, func: *types.Function, idx: u16) VMError!Value {

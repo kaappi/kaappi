@@ -24,6 +24,8 @@ pub fn build(b: *std.Build) void {
 
     const max_frames = b.option(u32, "max-frames", "Initial call frame capacity (default: 480, grows to 32768)") orelse 480;
     const max_registers = b.option(u32, "max-registers", "Initial register count (default: 2048, grows to 65536)") orelse 2048;
+    const max_handlers = b.option(u32, "max-handlers", "Initial exception-handler stack capacity (default: 64, grows to 32768)") orelse 64;
+    const max_winds = b.option(u32, "max-winds", "Initial dynamic-wind stack capacity (default: 64, grows to 32768)") orelse 64;
 
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
     const gc_stress = b.option(bool, "gc-stress", "Force GC on every allocation (stress testing)") orelse false;
@@ -62,6 +64,8 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
+    options.addOption(u32, "max_handlers", max_handlers);
+    options.addOption(u32, "max_winds", max_winds);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
     options.addOption(bool, "gc_stress", gc_stress);
     options.addOption(bool, "emulated_target", emulated_target);

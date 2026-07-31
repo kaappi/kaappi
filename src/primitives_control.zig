@@ -6,6 +6,7 @@ const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const primitives_io = @import("primitives_io.zig");
 const diagnostics = @import("diagnostics.zig");
+const errors = @import("errors.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -137,11 +138,13 @@ pub fn raiseContinuable(vm: *vm_mod.VM, obj: Value) PrimitiveError!Value {
     }
     const handler = vm.handler_stack[vm.handler_count - 1].handler;
     vm.popHandler();
+    // Both re-pushes below restore the slot popped a line above, so the
+    // capacity is already there and neither can actually overflow.
     const result = vm.callHandler(handler, obj, 0) catch |err| {
         vm.pushHandler(handler) catch {};
         return err;
     };
-    vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
+    try vm.pushHandler(handler);
     return result;
 }
 
@@ -175,13 +178,23 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(handler)) return primitives.typeError("with-exception-handler", "procedure", args[0]);
     if (!types.isProcedure(thunk)) return primitives.typeError("with-exception-handler", "procedure", args[1]);
 
-    // Push the handler onto the handler stack
-    vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
+    // Push the handler onto the handler stack. A failure here is the handler
+    // stack hitting MAX_HANDLER_LIMIT — propagate it as the StackOverflow it
+    // is, rather than relabelling it OutOfMemory (#1886): nothing failed to
+    // allocate, and KP9002 sent readers looking for a memory leak.
+    try vm.pushHandler(handler);
 
     // Call the thunk
     const result = vm.callThunk(thunk) catch |err| {
         if (err == vm_mod.VMError.ContinuationInvoked) {
             return PrimitiveError.ContinuationInvoked;
+        }
+        // A VM limit or control-flow signal is not a condition this handler
+        // may see: unwind past it untouched (#1886). Must come before the
+        // conversion below, and after the ContinuationInvoked check above.
+        if (errors.isUncatchable(err)) {
+            vm.popHandler();
+            return err;
         }
         if (err == vm_mod.VMError.ExceptionRaised) {
             vm.popHandler();
@@ -244,7 +257,7 @@ fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(handler)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[0]);
     if (!types.isProcedure(thunk)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[1]);
 
-    vm.pushHandlerSticky(handler) catch return PrimitiveError.OutOfMemory;
+    try vm.pushHandlerSticky(handler);
 
     const result = vm.callThunk(thunk) catch |err| {
         if (err == vm_mod.VMError.ContinuationInvoked) {
@@ -253,6 +266,12 @@ fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
             // library popped the sticky handler via %pop-unwind-handler!), so
             // popping here would corrupt the restored state.
             return PrimitiveError.ContinuationInvoked;
+        }
+        // A VM limit or control-flow signal is not a condition — see the
+        // matching check in withExceptionHandlerFn (#1886).
+        if (errors.isUncatchable(err)) {
+            vm.popHandler();
+            return err;
         }
         vm.popHandler();
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -498,7 +517,7 @@ fn pushWindFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (!types.isProcedure(args[0])) return primitives.typeError("%push-wind", "procedure", args[0]);
     if (!types.isProcedure(args[1])) return primitives.typeError("%push-wind", "procedure", args[1]);
-    if (vm.wind_count >= vm_mod.MAX_WINDS) return PrimitiveError.OutOfMemory;
+    try vm.ensureWindCapacity(vm.wind_count + 1);
     vm.wind_stack[vm.wind_count] = .{ .before = args[0], .after = args[1] };
     vm.wind_count += 1;
     return types.VOID;

@@ -46,8 +46,19 @@ pub const INITIAL_FRAME_CAPACITY: usize = build_options.max_frames;
 pub const INITIAL_REGISTER_CAPACITY: usize = build_options.max_registers;
 pub const MAX_FRAME_LIMIT: usize = 32768;
 pub const MAX_REGISTER_LIMIT: usize = 65536;
-pub const MAX_HANDLERS = 64;
-pub const MAX_WINDS = 64;
+
+/// Exception-handler and dynamic-wind stacks are growable, exactly like the
+/// frame and register stacks above: these are the *initial* capacities, and
+/// `VM.ensureHandlerCapacity`/`ensureWindCapacity` double them on demand up to
+/// the hard limits below. They were fixed 64-entry inline arrays until #1886,
+/// which is why 65 dynamically nested `guard`s used to produce a silently
+/// wrong answer. A handler or wind record cannot exist without at least one
+/// live call frame holding it, so the hard limits match MAX_FRAME_LIMIT —
+/// whichever stack is exhausted first, the failure is the same KP3008.
+pub const INITIAL_HANDLER_CAPACITY: usize = build_options.max_handlers;
+pub const INITIAL_WIND_CAPACITY: usize = build_options.max_winds;
+pub const MAX_HANDLER_LIMIT: usize = 32768;
+pub const MAX_WIND_LIMIT: usize = 32768;
 
 /// Per-fiber initial storage (KEP-0001 Phase 2, resolved question 5) —
 /// deliberately much smaller than the VM's own INITIAL_REGISTER_CAPACITY/
@@ -57,6 +68,8 @@ pub const MAX_WINDS = 64;
 /// preallocation cheap even with thousands of concurrently-live fibers.
 pub const INITIAL_FIBER_REGISTER_CAPACITY: usize = 256;
 pub const INITIAL_FIBER_FRAME_CAPACITY: usize = 32;
+pub const INITIAL_FIBER_HANDLER_CAPACITY: usize = 8;
+pub const INITIAL_FIBER_WIND_CAPACITY: usize = 8;
 
 pub const ExceptionHandler = struct {
     handler: Value,

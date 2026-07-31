@@ -20,8 +20,10 @@ pub const INITIAL_FRAME_CAPACITY = types.INITIAL_FRAME_CAPACITY;
 pub const INITIAL_REGISTER_CAPACITY = types.INITIAL_REGISTER_CAPACITY;
 pub const MAX_FRAME_LIMIT = types.MAX_FRAME_LIMIT;
 pub const MAX_REGISTER_LIMIT = types.MAX_REGISTER_LIMIT;
-pub const MAX_HANDLERS = types.MAX_HANDLERS;
-pub const MAX_WINDS = types.MAX_WINDS;
+pub const INITIAL_HANDLER_CAPACITY = types.INITIAL_HANDLER_CAPACITY;
+pub const INITIAL_WIND_CAPACITY = types.INITIAL_WIND_CAPACITY;
+pub const MAX_HANDLER_LIMIT = types.MAX_HANDLER_LIMIT;
+pub const MAX_WIND_LIMIT = types.MAX_WIND_LIMIT;
 
 pub threadlocal var vm_instance: ?*VM = null;
 
@@ -344,7 +346,10 @@ pub const VM = struct {
     syntax_properties: std.StringHashMap(Value),
     output: std.ArrayList(u8),
     libraries: library_mod.LibraryRegistry,
-    handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
+    /// Growable, like `frames`/`registers` (#1886). Never a fixed array: 64
+    /// dynamically nested `guard`s is ordinary in recursive code, and the old
+    /// inline `[64]` cap turned depth 65 into a silently wrong answer.
+    handler_stack: []ExceptionHandler,
     handler_count: usize = 0,
     native_reentry_depth: u16 = 0,
     current_exception: ?Value = null,
@@ -356,7 +361,8 @@ pub const VM = struct {
     // `%unwind-raise-empty?` to read.
     native_call_was_tail: bool = false,
     pending_raise_empty: bool = false,
-    wind_stack: [MAX_WINDS]types.WindRecord = undefined,
+    /// Growable, for the same reason as `handler_stack` above (#1886).
+    wind_stack: []types.WindRecord,
     wind_count: usize = 0,
     continuation_invoked: bool = false,
     continuation_value: Value = types.VOID,
@@ -526,6 +532,10 @@ pub const VM = struct {
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);
         errdefer gc.allocator.free(registers);
+        const handler_stack = try gc.allocator.alloc(ExceptionHandler, INITIAL_HANDLER_CAPACITY);
+        errdefer gc.allocator.free(handler_stack);
+        const wind_stack = try gc.allocator.alloc(types.WindRecord, INITIAL_WIND_CAPACITY);
+        errdefer gc.allocator.free(wind_stack);
         const globals_map = try gc.allocator.create(std.StringHashMap(Value));
         errdefer gc.allocator.destroy(globals_map);
         globals_map.* = std.StringHashMap(Value).init(gc.allocator);
@@ -536,6 +546,8 @@ pub const VM = struct {
             .gc = gc,
             .frames = frames,
             .registers = registers,
+            .handler_stack = handler_stack,
+            .wind_stack = wind_stack,
             .globals = globals_map,
             .globals_lock = globals_lock,
             .macros = std.StringHashMap(Value).init(gc.allocator),
@@ -564,10 +576,16 @@ pub const VM = struct {
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);
         errdefer gc.allocator.free(registers);
+        const handler_stack = try gc.allocator.alloc(ExceptionHandler, INITIAL_HANDLER_CAPACITY);
+        errdefer gc.allocator.free(handler_stack);
+        const wind_stack = try gc.allocator.alloc(types.WindRecord, INITIAL_WIND_CAPACITY);
+        errdefer gc.allocator.free(wind_stack);
         var vm = VM{
             .gc = gc,
             .frames = frames,
             .registers = registers,
+            .handler_stack = handler_stack,
+            .wind_stack = wind_stack,
             // Shared by pointer: the child sees the parent's map through
             // every rehash. Reads on this VM take the shared lock (see the
             // `globals` field doc); a struct copy here would leave the child
@@ -658,6 +676,8 @@ pub const VM = struct {
         const allocator = self.gc.allocator;
         allocator.free(self.frames);
         allocator.free(self.registers);
+        allocator.free(self.handler_stack);
+        allocator.free(self.wind_stack);
         if (self.heap_owned) allocator.destroy(self);
     }
 
@@ -684,6 +704,45 @@ pub const VM = struct {
         @memset(new_regs[self.registers.len..], types.UNDEFINED);
         memory.freeSliceNoFill(self.gc.allocator, Value, self.registers);
         self.registers = new_regs;
+    }
+
+    /// Grow the exception-handler stack, mirroring ensureFrameCapacity.
+    /// Past MAX_HANDLER_LIMIT this is StackOverflow, which
+    /// `errors.isUncatchable` keeps out of a user's `guard` (#1886) — a limit
+    /// of the implementation is not a Scheme condition.
+    pub fn ensureHandlerCapacity(self: *VM, needed: usize) VMError!void {
+        if (needed <= self.handler_stack.len) return;
+        if (needed > MAX_HANDLER_LIMIT) {
+            // KP3008's own message is about runaway recursion, which would
+            // send a reader looking in the wrong place: say which stack.
+            self.setErrorDetail("too many nested exception handlers (limit {d})", .{MAX_HANDLER_LIMIT});
+            return VMError.StackOverflow;
+        }
+        var new_cap = self.handler_stack.len;
+        while (new_cap < needed) new_cap *= 2;
+        if (new_cap > MAX_HANDLER_LIMIT) new_cap = MAX_HANDLER_LIMIT;
+        const new_stack = memory.allocSliceNoFill(self.gc.allocator, ExceptionHandler, new_cap) catch
+            return VMError.OutOfMemory;
+        @memcpy(new_stack[0..self.handler_count], self.handler_stack[0..self.handler_count]);
+        memory.freeSliceNoFill(self.gc.allocator, ExceptionHandler, self.handler_stack);
+        self.handler_stack = new_stack;
+    }
+
+    /// Grow the dynamic-wind stack. See ensureHandlerCapacity.
+    pub fn ensureWindCapacity(self: *VM, needed: usize) VMError!void {
+        if (needed <= self.wind_stack.len) return;
+        if (needed > MAX_WIND_LIMIT) {
+            self.setErrorDetail("too many nested dynamic-wind forms (limit {d})", .{MAX_WIND_LIMIT});
+            return VMError.StackOverflow;
+        }
+        var new_cap = self.wind_stack.len;
+        while (new_cap < needed) new_cap *= 2;
+        if (new_cap > MAX_WIND_LIMIT) new_cap = MAX_WIND_LIMIT;
+        const new_stack = memory.allocSliceNoFill(self.gc.allocator, types.WindRecord, new_cap) catch
+            return VMError.OutOfMemory;
+        @memcpy(new_stack[0..self.wind_count], self.wind_stack[0..self.wind_count]);
+        memory.freeSliceNoFill(self.gc.allocator, types.WindRecord, self.wind_stack);
+        self.wind_stack = new_stack;
     }
 
     pub fn getParameterValue(self: *VM, param: *types.ParameterObject) Value {
@@ -956,7 +1015,7 @@ pub const VM = struct {
     }
 
     pub fn pushHandler(self: *VM, handler: Value) VMError!void {
-        if (self.handler_count >= MAX_HANDLERS) return VMError.StackOverflow;
+        try self.ensureHandlerCapacity(self.handler_count + 1);
         self.handler_stack[self.handler_count] = .{
             .handler = handler,
             .frame_count = self.frame_count,
@@ -967,7 +1026,7 @@ pub const VM = struct {
     /// SRFI 248: push a sticky (unwind) handler that raise/raise-continuable
     /// invoke without popping. See `types.ExceptionHandler.sticky`.
     pub fn pushHandlerSticky(self: *VM, handler: Value) VMError!void {
-        if (self.handler_count >= MAX_HANDLERS) return VMError.StackOverflow;
+        try self.ensureHandlerCapacity(self.handler_count + 1);
         self.handler_stack[self.handler_count] = .{
             .handler = handler,
             .frame_count = self.frame_count,

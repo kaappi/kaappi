@@ -227,6 +227,61 @@ echo "-- Stack overflow --"
 assert_output_contains "stack overflow is reported with code" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)' "error[KP3008]: stack overflow"
 
+# #1886: a VM limit is not a condition the program raised, so it unwinds past
+# every handler. It used to be converted into a bare #<error "error"> that an
+# enclosing guard caught, returning a plausible wrong value with exit 0.
+assert_output_contains "stack overflow is not catchable by guard" \
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1)))))
+     (guard (e (#t (display "SWALLOWED"))) (deep 50000))' \
+    "error[KP3008]: stack overflow"
+
+assert_output_lacks "guard clause does not run on stack overflow" \
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1)))))
+     (guard (e (#t (display "SWALLOWED"))) (deep 50000))' \
+    "SWALLOWED"
+
+assert_output_lacks "with-exception-handler does not see a stack overflow" \
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1)))))
+     (with-exception-handler (lambda (e) (display "SWALLOWED")) (lambda () (deep 50000)))' \
+    "SWALLOWED"
+
+# A limit must never be reported as out-of-memory: nothing failed to allocate,
+# and KP9002 sent readers looking for a memory leak (#1886).
+assert_output_lacks "stack overflow is not reported as out-of-memory" \
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)' \
+    "KP9002"
+
+# The 255 ceiling on a tail-position `apply` is what the tail_apply opcode's
+# nargs byte encodes — a limit on one argument list, not on the stack. It
+# reported KP3008, which both misdirected the reader and (once limits stopped
+# being catchable) would have made it unrecoverable (#1886). It has to stay
+# catchable: it is also what stops the walk of a circular argument list, which
+# tests/scheme/audit/primitives_core-audit.scm pins.
+assert_output_contains "too many apply arguments names the real limit" \
+    '(define (f) (apply + (make-list 300 1))) (f)' \
+    "error[KP3007]: apply: too many arguments (limit 255)"
+
+assert_output_lacks "too many apply arguments is not a stack overflow" \
+    '(define (f) (apply + (make-list 300 1))) (f)' "KP3008"
+
+assert_output_contains "too many apply arguments stays catchable" \
+    '(import (scheme base) (scheme write))
+     (define (f) (apply + (make-list 300 1)))
+     (write (guard (e (#t (quote caught))) (f)))' \
+    "caught"
+
+# The half that used to give a silently wrong answer with exit 0: nested
+# `guard` past the old 64-handler cap. Every depth must return 0. 90 is the
+# ceiling here, not a round number: `guard` spends two native re-entrancy
+# frames per level and callReentrant caps those at 200 in a Debug build, so
+# nested guard tops out at 99 there. See the header of
+# tests/scheme/smoke/handler-wind-depth-1886.scm.
+assert_output_contains "nested guard past the old handler cap returns 0 at every depth" \
+    '(import (scheme base) (scheme write))
+     (define (f n) (guard (e (#t n)) (if (= n 0) (raise (quote b)) (f (- n 1)))))
+     (write (list (f 63) (f 64) (f 65) (f 90)))' \
+    "(0 0 0 0)"
+
 # --- Library import errors ---
 echo
 echo "-- Library import errors --"

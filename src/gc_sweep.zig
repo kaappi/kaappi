@@ -231,7 +231,9 @@ pub fn objectSize(obj: *Object) usize {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             break :blk @sizeOf(@import("fiber.zig").Fiber) +
                 fiber.registers.len * @sizeOf(Value) +
-                fiber.frames.len * @sizeOf(types.CallFrame);
+                fiber.frames.len * @sizeOf(types.CallFrame) +
+                fiber.handler_stack.len * @sizeOf(types.ExceptionHandler) +
+                fiber.wind_stack.len * @sizeOf(types.WindRecord);
         },
         .channel => @sizeOf(types.Channel),
         .mutex => @sizeOf(types.Mutex),
@@ -549,6 +551,8 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             fiber.owned_mutexes.deinit(gc.allocator);
             memory_mod.freeSliceNoFill(gc.allocator, CallFrame, fiber.frames);
             memory_mod.freeSliceNoFill(gc.allocator, Value, fiber.registers);
+            memory_mod.freeSliceNoFill(gc.allocator, types.ExceptionHandler, fiber.handler_stack);
+            memory_mod.freeSliceNoFill(gc.allocator, types.WindRecord, fiber.wind_stack);
             poisonAndDestroy(gc, @import("fiber.zig").Fiber, fiber);
         },
         .channel => {

@@ -29,9 +29,12 @@ pub const Fiber = struct {
     registers: []Value,
     frames: []CallFrame,
     frame_count: usize,
-    handler_stack: [types.MAX_HANDLERS]types.ExceptionHandler,
+    /// Growable like `registers`/`frames` (#1886) — and, like them, started
+    /// far smaller than the VM's own initial capacity, since most fibers
+    /// install no handler at all and there can be thousands live at once.
+    handler_stack: []types.ExceptionHandler,
     handler_count: usize,
-    wind_stack: [types.MAX_WINDS]types.WindRecord,
+    wind_stack: []types.WindRecord,
     wind_count: usize,
     current_exception: ?Value,
     continuation_invoked: bool,
@@ -495,6 +498,30 @@ pub const FiberScheduler = struct {
         fiber.frames = new_frames;
     }
 
+    // Unlike the two above, these carry the old entries across. saveCurrentFiber
+    // calls all four in sequence, so an OOM in a later one returns before any
+    // memcpy refills them — and markFiberState traces handler_stack[0..count],
+    // which would then be uninitialized. Cheap here: these arrays are small.
+    fn growFiberHandlers(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) VMError!void {
+        if (needed <= fiber.handler_stack.len) return;
+        var new_cap = fiber.handler_stack.len;
+        while (new_cap < needed) new_cap *= 2;
+        const new_stack = try allocator.alloc(types.ExceptionHandler, new_cap);
+        @memcpy(new_stack[0..fiber.handler_count], fiber.handler_stack[0..fiber.handler_count]);
+        allocator.free(fiber.handler_stack);
+        fiber.handler_stack = new_stack;
+    }
+
+    fn growFiberWinds(allocator: std.mem.Allocator, fiber: *Fiber, needed: usize) VMError!void {
+        if (needed <= fiber.wind_stack.len) return;
+        var new_cap = fiber.wind_stack.len;
+        while (new_cap < needed) new_cap *= 2;
+        const new_stack = try allocator.alloc(types.WindRecord, new_cap);
+        @memcpy(new_stack[0..fiber.wind_count], fiber.wind_stack[0..fiber.wind_count]);
+        allocator.free(fiber.wind_stack);
+        fiber.wind_stack = new_stack;
+    }
+
     /// Copies only the live register/frame window (see liveRegisterSpan)
     /// instead of the VM's entire register file — fiber switch cost no
     /// longer scales with the VM's peak register-file capacity (KEP-0001
@@ -510,6 +537,8 @@ pub const FiberScheduler = struct {
         const span = liveRegisterSpan(vm.frames[0..vm.frame_count], vm.registers.len);
         try growFiberRegisters(vm.gc.allocator, fiber, span);
         try growFiberFrames(vm.gc.allocator, fiber, vm.frame_count);
+        try growFiberHandlers(vm.gc.allocator, fiber, vm.handler_count);
+        try growFiberWinds(vm.gc.allocator, fiber, vm.wind_count);
         // The copy below spans dead gap registers between live frame windows.
         // While this fiber was running it was GC-marked per-frame (markVMRoots),
         // so a gap slot's stale pointer could already have been freed; copying it
@@ -535,6 +564,8 @@ pub const FiberScheduler = struct {
         const span = liveRegisterSpan(fiber.frames[0..fiber.frame_count], fiber.registers.len);
         try vm.ensureRegisterCapacity(span);
         try vm.ensureFrameCapacity(fiber.frame_count);
+        try vm.ensureHandlerCapacity(fiber.handler_count);
+        try vm.ensureWindCapacity(fiber.wind_count);
         @memcpy(vm.registers[0..span], fiber.registers[0..span]);
         @memcpy(vm.frames[0..fiber.frame_count], fiber.frames[0..fiber.frame_count]);
         vm.frame_count = fiber.frame_count;
