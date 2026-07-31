@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (16 of 53 units — 3.2/3.3 closed as subsumed by 2.4) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (18 of 53 units — 2.12 and 5D complete but held by BSD failures, see [#1985](https://github.com/kaappi/kaappi/pull/1985)/[#1986](https://github.com/kaappi/kaappi/pull/1986)) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -265,7 +265,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 - [x] 2.2: `primitives_io.zig` (+1108 lines against a 112-line audit test; custom-port and transcode branches are new) (2026-07-31, [#1947](https://github.com/kaappi/kaappi/pull/1947); 49 → 197 assertions, all 45 specs covered; filed [#1939](https://github.com/kaappi/kaappi/issues/1939) re-entrant custom-port read **aborts the process**, [#1941](https://github.com/kaappi/kaappi/issues/1941)–[#1944](https://github.com/kaappi/kaappi/issues/1944))
 - [ ] 2.3: `primitives_srfi181.zig` (new, no test) — custom-port callback re-entrancy and the blocking rejection
 - [x] 2.4: `primitives_srfi160.zig` (new, no test) — 11-way element-kind dispatch over raw bytes, c64/c128 packing (2026-07-31, [#1952](https://github.com/kaappi/kaappi/pull/1952); 1066 assertions — filed [#1949](https://github.com/kaappi/kaappi/issues/1949) `Uvector-segment` with `n=0` **hangs**, [#1950](https://github.com/kaappi/kaappi/issues/1950)/[#1951](https://github.com/kaappi/kaappi/issues/1951) c64/c128 elements are always Complex. The 12-kind × boundary matrix and both seams are **correct**; the two range rules agree across 276 cells)
-- [ ] 2.5: `primitives_srfi237.zig` (new, no test) — sealed/opaque/uid, multi-level inheritance
+- [x] 2.5: `primitives_srfi237.zig` (new, no test) — sealed/opaque/uid, multi-level inheritance (2026-08-01, [#1975](https://github.com/kaappi/kaappi/pull/1975); 186 assertions, 26 disabled — filed [#1973](https://github.com/kaappi/kaappi/issues/1973) a **27-field record aborts the process** via u8 size arithmetic, reachable from plain R7RS `define-record-type`, and [#1974](https://github.com/kaappi/kaappi/issues/1974) four R6RS defects. Protocol composition is exact at 16/16 masks; the **nongenerative** cross-thread path is pinned enabled so #1932's fix flips a test)
 - [ ] 2.6: `primitives_fiber.zig` (+1241 lines against a 135-line audit test)
 - [ ] 2.7: `primitives_srfi18.zig` (+793/−352) — deep-copy round-trip for every new heap type
 - [ ] 2.8: `primitives_hashtable.zig` (+403, 8 callback sites)
@@ -311,7 +311,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 - [ ] 6A: `fmt` line-ending policy (F8) — decide preserve-vs-normalise, implement, document, test CRLF/lone-CR/mixed
 - [ ] 6B: Reconcile `kaappi test` with `run-all.sh` (F13)
 - [ ] 6C: Completions ↔ flag-table drift gate (`--no-ir-opt` is missing from all three scripts; `completions.zig` has zero tests)
-- [ ] 6D: LSP end-to-end — 942 lines, 6 inline tests, no integration test at all
+- [x] 6D: LSP end-to-end — 942 lines, 6 inline tests, no integration test at all (2026-08-01, [#1987](https://github.com/kaappi/kaappi/pull/1987); 152 assertions, 5.2s — filed [#1979](https://github.com/kaappi/kaappi/issues/1979) a `define-syntax` **leaks across documents** and survives `didClose`, [#1981](https://github.com/kaappi/kaappi/issues/1981) four divergences from `kaappi check` incl. whole files going undiagnosed and `KP4xxx` never appearing, [#1980](https://github.com/kaappi/kaappi/issues/1980) six protocol defects incl. **no response at all** on bad `params`)
 - [ ] 6E: `thottam` — 932 lines, 3 tests; version-constraint parsing, `--locked`, lockfile provenance
 - [ ] 6F: `fmt` adversarial comment placement and a byte-level mutation fuzzer over the corpus
 
