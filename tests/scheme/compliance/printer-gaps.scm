@@ -228,13 +228,13 @@
 (test-assert "rational leaf at depth 1024 is REJECTED by the reader"
              (reader-rejects? (nest 1024 1/3)))
 
-;; FAIL: TBD (exact rational at nesting depth 1023 prints as "..." "/" "..." and
-;; FAIL: TBD  reads back as the symbol |.../...| -- readable, silent, wrong type)
+;; FAIL: #1953 (exact rational at nesting depth 1023 prints as "..." "/" "..." and
+;; FAIL: #1953  reads back as the symbol |.../...| -- readable, silent, wrong type)
 ;; (test-assert "rational leaf at depth 1023 round-trips" (round-trips? (nest 1023 1/3)))
-;; FAIL: TBD (same, negative)
+;; FAIL: #1953 (same, negative)
 ;; (test-assert "negative rational leaf at depth 1023 round-trips"
 ;;             (round-trips? (nest 1023 -7/9)))
-;; FAIL: TBD (the corrupted leaf is accepted by the reader as a symbol)
+;; FAIL: #1953 (the corrupted leaf is accepted by the reader as a symbol)
 ;; (test-assert "depth-1023 rational does not silently become a symbol"
 ;;             (not (symbol? (unnest 1023 (round-trip (nest 1023 1/3))))))
 
@@ -274,8 +274,8 @@
              (equal? (wr (make-acyclic-sharing))
                      (out write-simple (make-acyclic-sharing))))
 
-;; FAIL: TBD (write-simple is registered as &write, so it emits datum labels on a
-;; FAIL: TBD  circular structure; R7RS 6.13.3 says it never may)
+;; FAIL: #1955 (write-simple is registered as &write, so it emits datum labels on a
+;; FAIL: #1955  circular structure; R7RS 6.13.3 says it never may)
 ;; (test-assert "write-simple emits NO datum label on a cycle"
 ;;             (not (has-label? (out write-simple (make-cycle)))))
 
@@ -402,22 +402,22 @@
 (test-equal "E control: an acyclic list irritant prints normally"
             "#<error \"boom\" (1 2 3)>" (wr (err-with (list 1 2 3))))
 
-;; FAIL: TBD (write of an error object whose irritant is a cdr-cyclic list never
-;; FAIL: TBD  returns -- markCycles does not traverse .error_object)
+;; FAIL: #1954 (write of an error object whose irritant is a cdr-cyclic list never
+;; FAIL: #1954  returns -- markCycles does not traverse .error_object)
 ;; (test-assert "E: write of a cyclic-irritant error object terminates"
 ;;             (string? (wr (err-with (cyclic-list)))))
-;; FAIL: TBD (display, same hang -- R7RS: "display must not loop forever on
-;; FAIL: TBD  self-referencing pairs, vectors, or records")
+;; FAIL: #1954 (display, same hang -- R7RS: "display must not loop forever on
+;; FAIL: #1954  self-referencing pairs, vectors, or records")
 ;; (test-assert "E: display of a cyclic-irritant error object terminates"
 ;;             (string? (dsp (err-with (cyclic-list)))))
-;; FAIL: TBD (write-shared, same hang -- markShared has the same blind spot)
+;; FAIL: #1954 (write-shared, same hang -- markShared has the same blind spot)
 ;; (test-assert "E: write-shared of a cyclic-irritant error object terminates"
 ;;             (string? (wsh (err-with (cyclic-list)))))
-;; FAIL: TBD (a mutex NAMED by a cyclic list hangs identically; needs (srfi 18))
+;; FAIL: #1954 (a mutex NAMED by a cyclic list hangs identically; needs (srfi 18))
 ;; (test-assert "E: write of a mutex named by a cyclic list terminates"
 ;;             (string? (wr (make-mutex (cyclic-list)))))
-;; FAIL: TBD (a condition variable named by a cyclic list, same; needs (srfi 18).
-;; FAIL: TBD  Its acyclic control prints "#<condition-variable (1 2 3)>" fine.)
+;; FAIL: #1954 (a condition variable named by a cyclic list, same; needs (srfi 18).
+;; FAIL: #1954  Its acyclic control prints "#<condition-variable (1 2 3)>" fine.)
 ;; (test-assert "E: write of a condition variable named by a cyclic list terminates"
 ;;             (string? (wr (make-condition-variable (cyclic-list)))))
 ;;
@@ -459,9 +459,9 @@
 (test-assert "F control: DAG BEFORE the filler stays linear"
              (< (string-length (wsh (vector (dag 40) (filler 1200)))) 20000))
 
-;; FAIL: TBD (seen[] is full after the 1200-element filler, so the DAG's nodes are
-;; FAIL: TBD  never recorded as shared and write-shared unfolds 2^40 leaves -- the
-;; FAIL: TBD  SAME two objects, only swapped)
+;; FAIL: #1902 (seen[] is full after the 1200-element filler, so the DAG's nodes are
+;; FAIL: #1902  never recorded as shared and write-shared unfolds 2^40 leaves -- the
+;; FAIL: #1902  SAME two objects, only swapped)
 ;; (test-assert "F: DAG AFTER the filler stays linear"
 ;;             (< (string-length (wsh (vector (filler 1200) (dag 40)))) 20000))
 
