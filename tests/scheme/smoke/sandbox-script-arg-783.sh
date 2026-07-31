@@ -21,7 +21,7 @@ SCM
 
 # 1) --sandbox AFTER the filename is a script argument — must NOT sandbox
 output=$("$KAAPPI" "$tmpdir/writer.scm" --sandbox 2>&1)
-if echo "$output" | grep -qF -- "--sandbox"; then
+if grep -qF -- "--sandbox" <<< "$output"; then
     echo "PASS: --sandbox after filename passed through as script arg"
     PASS=$((PASS + 1))
 else
@@ -31,7 +31,7 @@ fi
 
 # 2) --sandbox BEFORE the filename is an interpreter flag — must sandbox
 output=$("$KAAPPI" --sandbox "$tmpdir/writer.scm" 2>&1 || true)
-if echo "$output" | grep -qi "error"; then
+if grep -qi "error" <<< "$output"; then
     echo "PASS: --sandbox before filename activates sandboxing"
     PASS=$((PASS + 1))
 else

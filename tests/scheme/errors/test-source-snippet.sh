@@ -13,7 +13,7 @@ assert_contains() {
     local expected="$3"
     local output
     output=$(echo "$input" | "$KAAPPI" 2>&1 || true)
-    if echo "$output" | grep -qF "$expected"; then
+    if grep -qF "$expected" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -29,7 +29,7 @@ TMPFILE="$TMPDIR/test.scm"
 echo '(define (foo x) (+ x 1))
 (foo "hello")' > "$TMPFILE"
 output=$("$KAAPPI" "$TMPFILE" 2>&1 || true)
-if echo "$output" | grep -qF '(define (foo x) (+ x 1))'; then
+if grep -qF '(define (foo x) (+ x 1))' <<< "$output"; then
     echo "PASS: runtime error includes source snippet"
     PASS=$((PASS + 1))
 else

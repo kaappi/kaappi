@@ -16,7 +16,7 @@ KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 # If newlines become spaces, ";; comment" eats "(+ 1 2)" on the same line.
 output=$(printf '(begin\n  ;; a comment\n  (+ 1 2))\n,quit\n' | $KAAPPI 2>&1 || true)
 
-if echo "$output" | grep -q "3"; then
+if grep -q "3" <<< "$output"; then
     echo "PASS: multi-line entry with comment evaluates correctly"
 else
     echo "FAIL: multi-line entry with comment did not evaluate correctly"

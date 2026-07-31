@@ -14,7 +14,7 @@ assert_output_contains() {
     local expected="$3"
     local output
     output=$(echo "$input" | "$KAAPPI" 2>&1 || true)
-    if echo "$output" | grep -qF "$expected"; then
+    if grep -qF "$expected" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -29,7 +29,7 @@ assert_output_lacks() {
     local forbidden="$3"
     local output
     output=$(echo "$input" | "$KAAPPI" 2>&1 || true)
-    if echo "$output" | grep -qF "$forbidden"; then
+    if grep -qF "$forbidden" <<< "$output"; then
         echo "FAIL: $label — output still contains '$forbidden'"
         FAIL=$((FAIL + 1))
     else
@@ -44,7 +44,7 @@ assert_file_output_contains() {
     local expected="$3"
     local output
     output=$("$KAAPPI" "$file" 2>&1 || true)
-    if echo "$output" | grep -qF "$expected"; then
+    if grep -qF "$expected" <<< "$output"; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
@@ -62,7 +62,7 @@ assert_no_zig_leak() {
     local input="$2"
     local output
     output=$(echo "$input" | "$KAAPPI" 2>&1 || true)
-    if echo "$output" | grep -qE 'error\.[A-Z][A-Za-z]+'; then
+    if grep -qE 'error\.[A-Z][A-Za-z]+' <<< "$output"; then
         echo "FAIL: $label — leaked a Zig error name: $(echo "$output" | grep -oE 'error\.[A-Z][A-Za-z]+' | head -1)"
         FAIL=$((FAIL + 1))
     else
@@ -295,7 +295,7 @@ assert_output_contains "library not found includes library name" \
 # Missing dependency reports the actual missing library, not the top-level one
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 dep_output=$("$KAAPPI" --lib-path "$SCRIPT_DIR/fixtures" "$SCRIPT_DIR/fixtures/missing-dep.scm" 2>&1 || true)
-if echo "$dep_output" | grep -qF "srfi.999"; then
+if grep -qF "srfi.999" <<< "$dep_output"; then
     echo "PASS: missing dependency names the dependency"
     PASS=$((PASS + 1))
 else

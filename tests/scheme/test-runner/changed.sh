@@ -39,7 +39,7 @@ check() { # check <condition-exit-code> <label> [detail]
         echo "FAIL: $2  ${3:-}"; failed=$((failed + 1))
     fi
 }
-has()  { printf '%s\n' "$1" | grep -qxF "$2"; }  # exact-line match in a list
+has()  { grep -qxF "$2" <<< "$1"; }  # exact-line match in a list
 
 # ── Build the fixture repo ─────────────────────────────────────────────
 mkdir -p "$FIX/lib/mylib" "$FIX/tests"
@@ -128,7 +128,7 @@ AFF="$(run --list-affected --lib-path ./lib 2>/dev/null)"      # nothing changed
 NOTE="$(run --list-affected --lib-path ./lib 2>&1 1>/dev/null)"
 has "$AFF" "tests/test-load.scm"; check $? "load-using suite runs even with no change (incomplete graph)" "$AFF"
 ! has "$AFF" "tests/test-a.scm"; check $? "graph-complete suites skipped when nothing changed" "$AFF"
-printf '%s' "$NOTE" | grep -q "incomplete"; check $? "stderr names the forced suite as incomplete" "$NOTE"
+grep -q "incomplete" <<< "$NOTE"; check $? "stderr names the forced suite as incomplete" "$NOTE"
 
 # ── 4. Clean exit status when the affected set is empty of failures ─────
 set +e; run --changed --lib-path ./lib >/dev/null 2>&1; rc=$?; set -e
@@ -170,14 +170,14 @@ mkdir -p "$FIX/csrc"; echo 'int x;' > "$FIX/csrc/helper.c"      # untracked
 AFF="$(run --list-affected --lib-path ./lib 2>/dev/null)"
 NOTE="$(run --list-affected --lib-path ./lib 2>&1 1>/dev/null)"
 has "$AFF" "tests/test-b.scm"; check $? "csrc change forces a full run (independent test-b included)" "$AFF"
-printf '%s' "$NOTE" | grep -q "native/FFI artifact changed"; check $? "stderr explains the native-artifact full run" "$NOTE"
+grep -q "native/FFI artifact changed" <<< "$NOTE"; check $? "stderr explains the native-artifact full run" "$NOTE"
 rm -rf "$FIX/csrc"
 
 # ── 8. Unknown revision → loud full run ────────────────────────────────
 AFF="$(run --list-affected --since no-such-rev --lib-path ./lib 2>/dev/null)"
 NOTE="$(run --list-affected --since no-such-rev --lib-path ./lib 2>&1 1>/dev/null)"
 has "$AFF" "tests/test-b.scm"; check $? "unknown --since revision forces a full run" "$AFF"
-printf '%s' "$NOTE" | grep -q "running all"; check $? "stderr explains the unknown-revision full run" "$NOTE"
+grep -q "running all" <<< "$NOTE"; check $? "stderr explains the unknown-revision full run" "$NOTE"
 
 # ── 9. A brand-new untracked suite counts as changed ───────────────────
 cat > "$FIX/tests/test-new.scm" <<'EOF'
