@@ -22,6 +22,7 @@ belongs here.
 | Compiler IR | `ir.md` |
 | LLVM native backend | `llvm-backend.md` |
 | GC safety | `gc-safety-and-error-handling.md` |
+| SRFI-18 threads / what may cross a thread boundary | `thread-value-sharing.md` |
 | Tests | `testing.md`, `test-runner.md` |
 | A slowdown (compiler or generated code) | `performance.md` |
 | Fuzzing | `fuzzing.md`, `fuzzing-feasibility.md` |

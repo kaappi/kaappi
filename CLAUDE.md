@@ -1328,14 +1328,38 @@ through them, not around them.
 ## OS threads (SRFI-18)
 
 `thread-start!` spawns real OS threads via `std.Thread.spawn`. Each child
-thread gets its own VM and GC with an independent heap. Values are
-**deep-copied** when crossing thread boundaries:
+thread gets its own VM and GC with an independent heap. A value reaches
+another thread by one of **two routes**, with separate and unrelated
+enforcement — `docs/dev/thread-value-sharing.md` is the full matrix,
+pinned by `tests/scheme/srfi/srfi18-sharing-model.scm`.
+
+**The copy route.** Values are **deep-copied** at three boundaries:
 
 - **At start:** the thunk closure is deep-copied from parent GC to child GC
-- **At join:** the result is deep-copied from child GC to parent GC
+- **At join:** the result (or uncaught exception) is deep-copied back
+- **Channel messages:** the payload is copied in each direction
 
-This means threads cannot share mutable heap state. The child GC collects
-independently and the child heap is freed after `thread-join!`.
+`gc_deep_copy.zig` refuses 14 tags outright here (port, continuation,
+fiber, mutex, condition variable, ffi-callback, the four SRFI-170 record
+types, environment, and the three SRFI-254 weak references). Channels are
+the exception: their arm promotes and aliases, which is what makes lexical
+capture the supported way to share one.
+
+**The globals route.** `VM.initForThread` shares the parent's `globals`
+map **by pointer**, so a thunk that *names* a top-level binding captures
+nothing — the child resolves it at run time and gets the parent's own
+object, uncopied. That list of 14 does not apply here, and 13 of the 14
+are freely usable this way. Only two types defend themselves, by comparing
+`Object.owner` against the running `GC.id`: channels
+(`primitives_fiber.zig`) and thread handles
+(`primitives_srfi18.checkThreadOwner`).
+
+So threads **can** share mutable heap state, and for mutexes and condition
+variables a global is the *only* supported way to share one — exactly
+inverted from channels, which must be captured lexically. Mutating shared
+state through a global is a live hazard (#1924), not a supported idiom;
+the child GC collects independently and the child heap is freed after
+`thread-join!`.
 
 **Key implementation details:**
 

@@ -14,7 +14,10 @@
 ;; The shared mutexes are top-level globals and the thunks reference them by
 ;; name: sync primitives are deep-copy-rejected when *captured* by a thread
 ;; thunk's closure, so globals (shared by reference across threads) are the
-;; only supported way to share one — see srfi18-cross-thread-wait.scm.
+;; only supported way to share one — see srfi18-cross-thread-wait.scm. That
+;; is exactly inverted from a channel, which must be captured lexically;
+;; docs/dev/thread-value-sharing.md has the full per-type matrix and
+;; srfi18-sharing-model.scm pins it.
 
 (import (scheme base) (scheme write) (scheme process-context) (srfi 18))
 
