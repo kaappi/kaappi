@@ -74,22 +74,39 @@ fn parseKind(name: []const u8) ?NumericElementKind {
 
 const MagSign = struct { mag: u64, positive: bool };
 
-fn magnitudeAndSign(val: Value) ?MagSign {
+/// Keeping `.too_wide` distinct from `.not_exact` is what stops a multi-limb
+/// bignum from being reported as the wrong *type*: it genuinely is an exact
+/// integer, so collapsing the two (as a plain `?MagSign` did) answered
+/// "expected exact integer, got #<bignum>" and pointed the reader at a problem
+/// that isn't there -- the value's only fault is not fitting s8..u64
+/// (kaappi#1916). `.too_wide` carries the sign because the unsigned case
+/// distinguishes "negative" from "too large", exactly as it does for a fixnum.
+const ExactMag = union(enum) {
+    fits: MagSign,
+    too_wide: struct { positive: bool },
+    not_exact,
+};
+
+fn magnitudeAndSign(val: Value) ExactMag {
     if (types.isFixnum(val)) {
         const n = types.toFixnum(val);
-        return .{ .mag = if (n < 0) @intCast(-n) else @intCast(n), .positive = n >= 0 };
+        return .{ .fits = .{ .mag = if (n < 0) @intCast(-n) else @intCast(n), .positive = n >= 0 } };
     }
     if (types.isBignum(val)) {
         const bn = types.toBignum(val);
-        if (bn.len == 0) return .{ .mag = 0, .positive = true };
-        if (bn.len > 1) return null;
-        return .{ .mag = bn.limbs[0], .positive = bn.positive };
+        if (bn.len == 0) return .{ .fits = .{ .mag = 0, .positive = true } };
+        if (bn.len > 1) return .{ .too_wide = .{ .positive = bn.positive } };
+        return .{ .fits = .{ .mag = bn.limbs[0], .positive = bn.positive } };
     }
-    return null;
+    return .not_exact;
 }
 
 fn expectSignedInRange(proc: []const u8, val: Value, comptime bits: u7) PrimitiveError!i64 {
-    const ms = magnitudeAndSign(val) orelse return typeError(proc, "exact integer", val);
+    const ms = switch (magnitudeAndSign(val)) {
+        .fits => |m| m,
+        .too_wide => return typeError(proc, "in-range signed integer", val),
+        .not_exact => return typeError(proc, "exact integer", val),
+    };
     const shift: u6 = bits - 1;
     const max_mag_pos: u64 = (@as(u64, 1) << shift) - 1;
     const max_mag_neg: u64 = @as(u64, 1) << shift;
@@ -109,7 +126,13 @@ fn expectSignedInRange(proc: []const u8, val: Value, comptime bits: u7) Primitiv
 }
 
 fn expectUnsignedInRange(proc: []const u8, val: Value, comptime bits: u7) PrimitiveError!u64 {
-    const ms = magnitudeAndSign(val) orelse return typeError(proc, "exact integer", val);
+    const ms = switch (magnitudeAndSign(val)) {
+        .fits => |m| m,
+        // A negative one is rejected for being negative, not for being wide --
+        // the same reason, and the same message, a negative fixnum gets below.
+        .too_wide => |w| return typeError(proc, if (w.positive) "in-range unsigned integer" else "non-negative integer", val),
+        .not_exact => return typeError(proc, "exact integer", val),
+    };
     if (!ms.positive and ms.mag != 0) return typeError(proc, "non-negative integer", val);
     const max_mag: u64 = if (bits == 64) std.math.maxInt(u64) else blk: {
         const shift: u6 = bits;

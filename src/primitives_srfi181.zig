@@ -65,6 +65,15 @@ const LS = primitives.LibSet;
 
 const SRFI181 = LS.initOne(.srfi_181_primitives);
 
+/// Shared by the spec entry and every error this primitive reports, so the name
+/// a caller sees can never drift from the name it called -- the same convention
+/// `primitives_srfi237.zig`'s `MAKE_RTD` follows. It matters more here than for
+/// most: drop the `%` and the message names `transcoded-port`, a real and
+/// *different* procedure `lib/srfi/181.sld` exports, whose second argument is a
+/// transcoder record rather than this one's three unpacked symbols
+/// (kaappi#1916).
+const TRANSCODED_PORT = "%transcoded-port";
+
 pub const specs = [_]primitives.PrimSpec{
     .{ .name = "make-custom-binary-input-port", .func = &makeCustomBinaryInputPort, .arity = .{ .exact = 5 }, .libs = SRFI181 },
     .{ .name = "make-custom-binary-output-port", .func = &makeCustomBinaryOutputPort, .arity = .{ .variadic = 5 }, .libs = SRFI181 },
@@ -72,7 +81,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "make-custom-textual-output-port", .func = &makeCustomTextualOutputPort, .arity = .{ .variadic = 5 }, .libs = SRFI181 },
     .{ .name = "make-custom-binary-input/output-port", .func = &makeCustomBinaryInputOutputPort, .arity = .{ .variadic = 6 }, .libs = SRFI181 },
     .{ .name = "make-file-error", .func = &makeFileError, .arity = .{ .variadic = 0 }, .libs = SRFI181 },
-    .{ .name = "%transcoded-port", .func = &transcodedPortPrim, .arity = .{ .exact = 4 }, .libs = SRFI181 },
+    .{ .name = TRANSCODED_PORT, .func = &transcodedPortPrim, .arity = .{ .exact = 4 }, .libs = SRFI181 },
     .{ .name = "i/o-decoding-error?", .func = &ioDecodingErrorP, .arity = .{ .exact = 1 }, .libs = SRFI181 },
     .{ .name = "i/o-encoding-error?", .func = &ioEncodingErrorP, .arity = .{ .exact = 1 }, .libs = SRFI181 },
     .{ .name = "i/o-encoding-error-char", .func = &ioEncodingErrorCharFn, .arity = .{ .exact = 1 }, .libs = SRFI181 },
@@ -204,13 +213,13 @@ fn symbolToErrorMode(v: Value) ?types.ErrorMode {
 /// binary-port's own directions, per the spec ("a new textual port ...
 /// from binary-port"), not passed separately.
 fn transcodedPortPrim(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return primitives.typeError("transcoded-port", "port", args[0]);
+    if (!types.isPort(args[0])) return primitives.typeError(TRANSCODED_PORT, "port", args[0]);
     const binary_port = types.toObject(args[0]).as(types.Port);
-    if (!binary_port.is_binary) return primitives.typeError("transcoded-port", "binary port", args[0]);
+    if (!binary_port.is_binary) return primitives.typeError(TRANSCODED_PORT, "binary port", args[0]);
 
-    const codec = symbolToCodec(args[1]) orelse return primitives.typeError("transcoded-port", "recognized codec", args[1]);
-    const eol_style = symbolToEolStyle(args[2]) orelse return primitives.typeError("transcoded-port", "recognized eol-style", args[2]);
-    const error_mode = symbolToErrorMode(args[3]) orelse return primitives.typeError("transcoded-port", "recognized error-handling-mode", args[3]);
+    const codec = symbolToCodec(args[1]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized codec", args[1]);
+    const eol_style = symbolToEolStyle(args[2]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized eol-style", args[2]);
+    const error_mode = symbolToErrorMode(args[3]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized error-handling-mode", args[3]);
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocTranscodedPort(args[0], binary_port.is_input, binary_port.is_output, codec, eol_style, error_mode) catch PrimitiveError.OutOfMemory;
