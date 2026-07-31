@@ -735,10 +735,23 @@ test "yield-retry: a write-side park resumes from write_buf_start without duplic
 
     // Confirmed parked on WRITE readiness — the write half of the selector,
     // reached through the port layer rather than set up by hand.
+    //
+    // POSIX only. On Windows CI the fiber reaches `.completed` here instead:
+    // the 20 KB write is accepted outright, so the flush never EAGAINs and
+    // there is nothing to park on. Whether that is because a reduced
+    // SO_SNDBUF is not honoured, or because the socket layer buffers past
+    // it, is NOT established here — only the observed outcome is.
+    //
+    // The gate is deliberately narrow: it covers the three parking
+    // assertions, not the lossless-resume assertions below. Those are the
+    // property the test exists for and they run on every platform, whether
+    // or not a park happened to occur.
     const f = types.toObject(try vm.eval("f")).as(fiber_mod.Fiber);
-    try std.testing.expectEqual(fiber_mod.FiberStatus.io_waiting, f.status);
-    try std.testing.expectEqual(reactor_mod.Interest.write, f.io_interest);
-    try std.testing.expectEqual(@as(?platform.fd_t, fds[0]), f.io_fd);
+    if (comptime !platform.is_windows) {
+        try std.testing.expectEqual(fiber_mod.FiberStatus.io_waiting, f.status);
+        try std.testing.expectEqual(reactor_mod.Interest.write, f.io_interest);
+        try std.testing.expectEqual(@as(?platform.fd_t, fds[0]), f.io_fd);
+    }
 
     // The drainer runs as a fiber, so writer and reader ping-pong through
     // the reactor across many parks and re-executions of the flush.
