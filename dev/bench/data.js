@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785500103924,
+  "lastUpdate": 1785504207153,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a814ffde3d3bd500ed3faaf546499fc4d1ef780c",
-          "message": "Add SRFI 25, multi-dimensional array primitives (#1694 array family) (#1739)\n\n* Add SRFI 25, multi-dimensional array primitives (#1694 array family)\n\nPure portable Scheme (lib/srfi/25.sld) -- arrays are spec-defined as\nheterogeneous with no relationship to SRFI 4/160's numeric vectors, so\na define-record-type wrapping a plain vector is spec-sufficient. One\nrecord covers both simple (row-major backing vector) and share-array\n(affine view: base array + index-translation mapper) arrays; views\nrecurse into the base array's own ref/set! rather than its raw vector,\nso nested views compose correctly for both reads and writes.\n\nConfirms and corrects the \"three mutually incompatible lineages\"\nframing in issue #1694: SRFI 164 is actually a compatible extension of\n25 (identical shape representation), not a separate lineage, making it\na comparatively cheap follow-on. SRFI 47/63 (63 supersedes 47) is the\nreal incompatible lineage (array-set!'s value-last vs. value-second\nargument order is a silent-data-corruption-class conflict). SRFI 231\n(supersedes 179) is a third, much larger, unrelated redesign (118\nbindings). SRFI 58's reader syntax is written specifically against\n47/63's naming. All four remain open, tracked separately.\n\n* Fix CodeRabbit review findings: shape aliasing, arity/index validation\n\n- lib/srfi/25.sld: make-array/array/share-array now deep-copy the\n  caller's shape vector before storing it in the array record. Per\n  spec, \"an array does not retain a dependence to the shape array\" --\n  without the copy, a caller mutating their own shape object (shape\n  returns an ordinary, caller-visible mutable vector of pairs) could\n  retroactively corrupt an already-constructed array's bounds while\n  its backing store keeps the size computed at construction time.\n- make-array now rejects more than one fill-value argument instead of\n  silently discarding all but the first.\n- The packed-index-array form of array-ref/array-set! now requires the\n  index array to be 0-based, per spec (\"a 0-based 1-dimensional\n  array\"), instead of silently accepting any lower bound.\n- srfi25.scm: added regression tests for all three fixes, and wrapped\n  the share-array fixtures in let/let* instead of top-level defines\n  for cleaner test isolation.\n- CLAUDE.md: a line starting with \"#1694\" was being parsed as an ATX\n  heading attempt by markdown linters; reworded so it doesn't start\n  the line.",
-          "timestamp": "2026-07-25T08:11:07+05:30",
-          "tree_id": "bbb6102013228c9dce445b78550a4e63981ea2ab",
-          "url": "https://github.com/kaappi/kaappi/commit/a814ffde3d3bd500ed3faaf546499fc4d1ef780c"
-        },
-        "date": 1784949459090,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.281301,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.002534,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.928057,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.407502,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006624,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053803,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.510388,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069983,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.598937,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.927427,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.587934,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.44324,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.836557,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.697104,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044821,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044263,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d621fc7f3afe0e9bf713c9810475bf35758014c",
+          "message": "Correct six documentation claims that no longer describe the code (#1905)\n\nPhase 0B of the v2 audit campaign (#1901). Every claim was re-verified\nagainst v0.22.1 before being edited, which matters more than usual here:\nthe point of the pass is to stop propagating unverified statements, so\ntaking the reconnaissance report on faith would have reproduced the\nfailure mode it was meant to fix. Two findings changed under that check.\n\nThe native-backend warning was aimed at the wrong list.\neval_fallback_form_names is comptime-derived and self-maintaining; the\nhand-maintained array that can actually cause a silent miscompilation is\nisRejectedFormHead, which is already missing define-property (#1896).\nAnyone adding a form was being pointed at the safe list.\n\nSRFI 148 was recorded as 134 passing with 8 test-expect-fail. It is 142\npassing with none. The reconnaissance also called the test file's header\ncitations dead comments; reading it showed the opposite — the header\ndocuments both fixes accurately and is worth keeping, so the note now\nsays to read it rather than distrust it. Repo-wide there are 6\ntest-expect-fail calls, 4 of them in srfi150.scm, which matches that\nfile's reported count exactly and disproves the claim that two never\nexecute.\n\nThree limitations documented as open are fixed: the let-syntax chain\nproducing define-syntax, library-body shadowing of define-record-type,\nand (already noted elsewhere) the ellipsis leniency. The shadowing note\nnow records the trap that made it look broken — bind a name from the\nmacro's pattern, not one introduced by its template, or hygiene renames\nit and the test fails for an unrelated reason.\n\nThe SRFI 120 corruption claim does not reproduce. Both documented entry\npaths now fail cleanly and deterministically across 10 runs, because a\n<timer> holds a Fiber that gc_deep_copy rejects outright, so the\nsingle-thread constraint is engine-enforced rather than a hazard to\ndesign around. The re-check's limits (macOS, ReleaseSafe, no gc-stress)\nare recorded alongside it — stale claim, not proof the bug never existed.\n\nThe SRFI 58 and 163 exclusions rested on \"SRFI 160 has no implementation\nat all\" and \"SRFI 4 is a purely portable wrapper\". Both are false now, so\neach entry drops to a single reader-ambiguity blocker and both SRFIs\nbecome re-considerable.\n\nFinally, tests/scheme/CLAUDE.md's directory table was missing six suites\nthat exist and run, and said nothing about run-all.sh's globs being\nnon-recursive — the reason tests/scheme/srfi/slow/ has never run (#1900).\nThat stale table is what sent a reconnaissance agent chasing a\n\"tests exist but never run\" headline that turned out to be false.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T15:45:08+05:30",
+          "tree_id": "59aac2a19d1c488ca2527790782f66af787d2428",
+          "url": "https://github.com/kaappi/kaappi/commit/6d621fc7f3afe0e9bf713c9810475bf35758014c"
+        },
+        "date": 1785504205910,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.388724,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.202274,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.597258,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.048954,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004692,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047007,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.318063,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.059108,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.624791,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.251477,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.612267,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.29035,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.821671,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.624745,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047755,
             "unit": "seconds"
           }
         ]
