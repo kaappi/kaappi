@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785529567383,
+  "lastUpdate": 1785533975794,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "826eeb3c9bea60ab1ec55b5584c00d9d624d627c",
-          "message": "Persist begin-wrapped SRFI 147 helpers, fix double-finalization leak (#1763)\n\nTracing SRFI 148's actual reference implementation (not just its grammar)\nfound that em-syntax-rules-aux2's own base case expands to\n`(begin (define-syntax o spec) o)`, where the SURROUNDING syntax-rules\nbody also calls `o` directly from within its own rules (not just as the\nbare tail) -- so `o` must keep resolving every time the macro being\ndefined here is later invoked, not just while resolving that one\ntransformer-spec. A helper registered only in resolveTransformerSpec's\ntransient, function-local merged_macros (discarded once that call\nreturns) cannot satisfy this -- confirmed via direct reproduction\nfailing with \"undefined variable '__hyg_N_helper'\" on every subsequent\nuse of the outer macro.\n\nFixed by registering each begin-internal helper into the real,\npersistent-for-this-scope's-lifetime self.macros (and lib_env at library\ntop level), exactly like an ordinary define-syntax at the same nesting\ndepth gets.\n\nThat fix immediately surfaced an adjacent bug under the unit test\nsuite's leak-checking allocator: a begin-wrapped alias can hand the\nexact same Transformer Value to two or more different binding sites, and\ncaptureLocalsOnTransformer/computeBoundFreeRefs both allocate and\nunconditionally overwrite a slice field with no free of what was there\nbefore -- a second finalization pass on an already-finalized object\nleaked the first allocation. Fixed by merging both calls into one\nfinalizeTransformer, guarded by a new Transformer.finalized flag.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T18:22:45Z",
-          "tree_id": "ef8cad314bf1b89c43e8502abdd0d41f47ba0583",
-          "url": "https://github.com/kaappi/kaappi/commit/826eeb3c9bea60ab1ec55b5584c00d9d624d627c"
-        },
-        "date": 1785092603121,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.325883,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.01117,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.694687,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.425462,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00687,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045787,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.395867,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.059723,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.303349,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.517346,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.325476,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.443159,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.472464,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.041009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038237,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044673,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db0533161a6b1294321bf611b13206ca6504472b",
+          "message": "Tick the third batch, and mark 5B as landed-but-blocked (#1968)\n\n1D, 2.4 and 7B are merged. 5B is ticked as complete work with its PR\nstill open, because it is blocked by a CI regression on main (#1967)\nrather than by anything in the unit -- leaving it unticked would imply\nthe work is outstanding when what is outstanding is someone else's\nFreeBSD failure.\n\nEach entry records what the unit found AND what it confirmed correct.\nThe two units that found no bugs in their target are the ones most at\nrisk of being read as wasted, so their entries say what they closed:\nnine untested false rows in the unwind asymmetry, and a 41-tag mark\ngraph whose arm contents nothing could check.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T02:00:15+05:30",
+          "tree_id": "10d24394df48e68650b6ebf4b7772864a79c6d27",
+          "url": "https://github.com/kaappi/kaappi/commit/db0533161a6b1294321bf611b13206ca6504472b"
+        },
+        "date": 1785533974500,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.961673,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.607652,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.557629,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.834074,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004867,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044936,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.295251,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.059248,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.510185,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.15452,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.613622,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302184,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.764885,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.783166,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045887,
             "unit": "seconds"
           }
         ]
