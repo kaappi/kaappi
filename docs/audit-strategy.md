@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** not started · **Last updated:** 2026-07-31 · **Tracking issue:** _file in Phase 0_
+**Status:** in progress (1 of 53 units) · **Last updated:** 2026-07-31 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -90,8 +90,16 @@ produced **13 reproduced findings**, listed here so Phase 0 can file them
 immediately rather than rediscovering them. Every row marked **[R]** was
 reproduced a second time by the orchestrating session against
 `zig-out/bin/kaappi` v0.22.1 (build `261fde5f`, macOS aarch64, ReleaseSafe);
-rows marked **[A]** are single-source agent reports and **must be reproduced
-before filing**.
+rows marked **[A]** were single-source agent reports at the time of writing.
+
+**All 13 are now filed** (Phase 0A, 2026-07-31) as
+[#1891](https://github.com/kaappi/kaappi/issues/1891)–[#1903](https://github.com/kaappi/kaappi/issues/1903),
+tracked from [#1890](https://github.com/kaappi/kaappi/issues/1890). Twelve
+issues rather than thirteen: F1 and F2 share one root cause, and this document
+mandates one issue per root cause. Both `[A]` rows were reproduced before
+filing, and reproducing F12 corrected it — a *flat* cdr-cycle prints its label
+correctly; only a **car-nested** cycle past the depth limit loses it. Keep the
+table below for the repro recipes and controls; the issues carry the fixes.
 
 | # | Finding | Repro | Severity |
 |--:|---|---|---|
@@ -241,7 +249,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 
 **Phase 0 — Baseline and documentation truth**
 
-- [ ] 0A: Baseline run, tracking issue, labels, file F1–F13
+- [x] 0A: Baseline run, tracking issue, labels, file F1–F13 (2026-07-31, [#1890](https://github.com/kaappi/kaappi/issues/1890) tracking; baseline fully green at `261fde5f` — 624/624 Scheme files, 1395/1395 R7RS assertions, 0 fail; all 13 reconnaissance findings filed as 12 issues [#1891](https://github.com/kaappi/kaappi/issues/1891)–[#1903](https://github.com/kaappi/kaappi/issues/1903) — `#e1e19`/`#e1e400` merged as one root cause; labels `tier-divergence`, `tooling`, `doc-truth` created)
 - [ ] 0B: Documentation-truth pass (CLAUDE.md expander section, SRFI 148 counts, SRFI 120 header, `srfi-exclusions.md` 58/163, `tests/scheme/CLAUDE.md` table, the `eval_fallback_form_names` note)
 
 **Phase 1 — Reader, printer, numeric tower** (independent)
