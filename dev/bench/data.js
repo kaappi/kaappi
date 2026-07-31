@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785482016819,
+  "lastUpdate": 1785485903339,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "45cafd216e4b978bc35d53bdae61435b032930c5",
-          "message": "Add SRFI 120, exclude 21 and 230 (SRFI Phase 4 slice 2) (#1735)\n\n* Add SRFI 120, exclude 21 and 230 (SRFI Phase 4 slice 2, closes #1702)\n\nSRFI 120 (Timer APIs) ships as a portable library with zero engine\nchanges: each make-timer spawns a dedicated SRFI-18 thread coordinated\nthrough a (kaappi fibers) control channel, with all mutating calls\n(schedule/reschedule/remove/exists) implemented as synchronous\nrequest/reply over fresh one-shot reply channels.\n\nSRFI 21 (real-time multithreading) and SRFI 230 (atomic operations) are\nexcluded: both need architecture Kaappi's SRFI-18 doesn't have (a\nuserspace-scheduled thread model with enforced priority inheritance, and\nshared mutable memory across threads' otherwise-independent heaps,\nrespectively). See docs/dev/srfi-exclusions.md for the full rationale.\n\nAlso discovered and documented (but did not fix, as out of scope for a\nportable-library change): calling SRFI 120's procedures on one timer from\nmore than one thread produces nondeterministic memory corruption, even\nthough a bare two-thread channel round trip with none of this library's\nother machinery does not reproduce it in isolation. The library's own\nheader comment and test suite treat single-calling-thread as a hard\nrequirement until that engine-level issue is investigated separately.\n\n158 SRFIs implemented, 25 tracked, 25 excluded (208 total).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address PR #1735 review: spec-conformance fixes for SRFI 120\n\nThree genuine spec-conformance bugs found by review, all verified\nagainst the actual SRFI 120 spec text before fixing:\n\n- make-timer-delta only accepted full-word units (hours, seconds, ...);\n  the spec's required baseline vocabulary is the abbreviated symbols\n  (h/m/s/ms/us/ns). Both are now accepted.\n- timer-cancel! never re-raised a task's preserved error. The spec is\n  explicit: \"the procedure raises the preserved error if there is\" --\n  timer-cancel! is now synchronous (like the other operations) and\n  raises whatever condition caused the timer to stop, including a\n  re-raising error-handler's own condition.\n- A negative timer-delta (e.g. (make-timer-delta -1 's)) silently\n  produced a negative fire-at instead of being rejected, unlike the\n  plain-integer branch which already enforced non-negativity.\n\nAlso fixed: the SRFI 21/230 exclusion doc claimed both \"extend SRFI 18\",\nbut SRFI 230 is a standalone interface that merely notes an SRFI-18-based\nimplementation is possible.\n\nDocumented (not fixed, out of scope): the spec requires a task to be able\nto cancel/reschedule other tasks on the same timer, which this\nimplementation cannot do (thunks run synchronously inside the timer's own\nmessage loop, so a reentrant call from within a thunk deadlocks). A real\nfix needs either reentrant reply-channel semantics or per-task threads,\nand the latter would hit the same cross-thread channel bug already\nflagged as out of scope in the original PR.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix timer-cancel! sentinel to survive the cross-thread channel hop\n\n%no-error-sentinel was a freshly-consed list sent from the timer thread\nto the caller over a channel. channel-send/receive deep-copies non-symbol\nheap values across threads' independent GC heaps, so the copy arriving\nin the calling thread was `equal?` but never `eq?` to the sender's own\nbinding -- timer-cancel! always mistook its own sentinel for a real\npreserved condition and raised it. Switched to a bare symbol, which\nsurvives the hop intact because Kaappi interns symbols through a table\nshared across every thread's heap (the same reason the 'schedule/'stop/\netc. message tags elsewhere in this file already work via `case`).\n\nAlso closes the edge case CodeRabbit flagged: a task that (raise #f)s\nwith no handler is now correctly re-raised by timer-cancel! instead of\nbeing confused with \"nothing was preserved\" (both previously looked\nlike plain #f).\n\n* Address PR #1735 third-round review: tagged stop-reply, id-return, doc fixes\n\nConfirmed and fixed against the SRFI 120 spec text and this codebase's\nactual behavior:\n\n- Replace the %no-error-sentinel value comparison with a tagged reply\n  pair, ('ok . #f) or ('error . condition), for the (stop) message. A\n  bare sentinel -- symbol or not -- compared by eq?/eqv? can never fully\n  rule out collision with a task's own raised condition (R7RS `raise`\n  accepts any object); tagging the pair makes the distinction structural\n  instead of relying on an unlikely value. Added a regression test that\n  raises the exact symbol the old sentinel used, proving the collision\n  this design point closes.\n- timer-reschedule! now returns the task id on success, matching \"the\n  procedure returns given id\" (it previously returned #t).\n- make-timer-delta now rejects non-integer n, matching \"n must be an\n  integer\".\n- Import (srfi 1) explicitly for filter rather than relying on it being\n  incidentally visible without a declared dependency.\n- Fixed a stale doc comment claiming preserved task errors have no\n  retrievable accessor -- timer-cancel! has re-raised them since the\n  previous commit.\n- Documented (as a known limitation, not fixed) that a task thunk running\n  longer than %reply-timeout-seconds makes concurrent requests see false\n  \"not responding\"/timeout answers, since %timer-loop services `control`\n  only between thunks; SRFI 120 tasks are meant to be short callbacks, so\n  a full liveness-aware reply protocol is left as a documented gap.\n- Tightened three tests that either ignored a channel-receive's result\n  (so a timer that silently never fired could still pass) or used a\n  fixed thread-sleep! to wait for a background task to run (replaced with\n  a channel signal sent immediately before the task raises).\n\nVerified two other CodeRabbit claims from this same round against actual\nKaappi behavior and declined them: `exit` and `filter` are both reachable\nfrom bare (scheme base) in top-level script execution regardless of\ndeclared imports (confirmed empirically and via precedent -- 43 existing\nsrfi test files already call exit without importing (scheme\nprocess-context), and lib/srfi/216.sld already imports (srfi 18)\nunconditionally the same way this library does), so adding cond-expand\nguards or a (scheme process-context) import would be unrequested churn\naddressing no observable bug.\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-24T10:02:45+05:30",
-          "tree_id": "2bfadb4f6b121938a53c05e54a05bf1f5eb4e7b4",
-          "url": "https://github.com/kaappi/kaappi/commit/45cafd216e4b978bc35d53bdae61435b032930c5"
-        },
-        "date": 1784869894278,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.356468,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.381419,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.90511,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.412713,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006319,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054181,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.515244,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071238,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.523627,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.89808,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.594672,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436413,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.808304,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.663322,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045023,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043836,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "261fde5fad3c3d65cda83fdd507ce5d14cee729a",
+          "message": "Gate publishing on CI, and ask for a changelog entry while it is cheap (#1885)\n\nv0.22.1 went public at 06:35:24 with ci.yml still running on the same\ncommit, and would have published identically had CI failed. The tag push\nand the branch push start release.yml and ci.yml as two independent runs\nwith nothing between them, so they race and publishing wins. The only\nthing that actually gated that release was a local test run.\n\nA new `ci-gate` job polls for the ci.yml run on the tagged SHA and only\nthe `release` job depends on it, so the 14 platform builds still run in\nparallel with CI -- gating costs no wall clock unless CI is the long pole.\nAbsence of a run is retried rather than treated as failure, since a tag\npushed alongside its branch can beat its own CI run into existence; a\nconcluded-but-not-successful run (including `cancelled`) refuses to\npublish. The workflow gains `actions: read`, without which the poll would\n403 -- declaring any `permissions:` block zeroes every scope not listed.\n\nThe changelog half addresses a different recurring miss: `[Unreleased]` is\nreconstructed from `git log` at release time rather than written as the\nwork lands, and had 14 of 100 commits at v0.22.0 and 5 of 16 at v0.22.1.\nA PR touching src/ or lib/srfi/ without touching CHANGELOG.md now fails,\nwith a `no-changelog` label for changes that are genuinely not\nuser-visible. Labels are read live via the API rather than from\ngithub.event, because re-running a job replays the original event payload\n-- a label added in response to the failure would otherwise be invisible\nto the re-run, making the documented escape hatch a dead end.\n\nAlso corrects two things the v0.22.1 run surfaced in the release skill:\nthe build-target list said 12 where the matrix ships 14 (s390x and\nppc64le were missing, both present in the released assets), and the\nNetBSD denormal probe imported (srfi 144), which needs ~/.kaappi/lib and\nso fails on a fresh VM as `undefined variable 'fl-least'` -- reading as a\ndenormal regression on the one platform whose FPCR fix it guards. The\nlibrary-free `5e-324` spelling tests the same thing with no import.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T13:08:23+05:30",
+          "tree_id": "b2a7bbed1d42d32efd3baa3a2e7685fb4d8c6579",
+          "url": "https://github.com/kaappi/kaappi/commit/261fde5fad3c3d65cda83fdd507ce5d14cee729a"
+        },
+        "date": 1785485901359,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.318459,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.998063,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.582215,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.982443,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004751,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046463,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311828,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057339,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.604341,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231106,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.580214,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.278186,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.797204,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.626622,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044503,
             "unit": "seconds"
           }
         ]
