@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785470291489,
+  "lastUpdate": 1785479087232,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cbf4dbe4d2f1115b4f390230a4733963ce125ba2",
-          "message": "Add 7 SRFI libraries, exclude 3, reduce 1 (SRFI Phase 4 slice 1) (#1733)\n\n* Add 7 SRFI libraries, exclude 3, reduce 1 (SRFI Phase 4 slice 1)\n\nImplements SRFI 59 (Vicinity), 90 (Extensible hash table constructor,\nreduced scope), 112 (Environment Inquiry), 123 (Generic accessor and\nmodifier operators), 126 (R6RS-based hashtables, non-weak baseline),\n173 (Hooks), and 193 (Command line) from issue #1703.\n\nA new shared native primitive surface (src/primitives_sysinfo.zig,\n`(kaappi sysinfo)`) backs the script-path/version/platform inquiries\nthese libraries need: %script-path (vm.script_path, resolved once in\nrunFile -- absolute, `.`/`..` normalized, symlinks never followed) feeds\nboth SRFI 59's program-vicinity and SRFI 193's script-file/\nscript-directory; %implementation-version/%os-name/%cpu-architecture\nfeed SRFI 112.\n\nSRFI 88 (Keyword objects) and SRFI 89 (Optional/named parameters) are\nexcluded rather than implemented. SRFI 88's postfix-colon syntax\nreinterprets already-valid R7RS identifiers (breaking real, unrelated\nuses like the `(prefix lib id:)` import modifier and `:::`-style custom\nsyntax-rules ellipsis identifiers) in exchange for compatibility with\njust one of several competing, never-standardized keyword conventions\nacross the Scheme ecosystem. SRFI 89's named-parameter matching needs a\nruntime type check during macro pattern matching that plain\nsyntax-rules cannot express -- confirmed via the reference\nimplementation, which resorts to define-macro for exactly this reason;\nno mainstream syntax-rules-only Scheme has ported it faithfully either.\nSRFI 227 (Optional arguments), already implemented, covers the\noptional-positional-parameter niche instead. Full rationale for both in\ndocs/dev/srfi-exclusions.md, including why a working prototype of\nlambda*/define* as native compiler forms was reversed as disproportionate.\n\nSRFI 106 (Basic socket interface) is also excluded: raw sockets belong\nin the kaappi-net ecosystem package, which already covers this space\nwith TLS support core deliberately doesn't have.\n\n157 SRFIs now supported (12 built-in, 143 portable), up from 150.\n23 SRFIs excluded (was 20).\n\n* Address PR #1733 review: script-path lifetime, sandbox scope, vicinity gaps\n\n- resolveScriptPath: normalize \".\"/\"..\" in absolute paths too, not just\n  relative ones (regression test: script-path-normalization.sh)\n- vm.script_path: free the previous allocation in runFile, free on VM\n  deinit (root VM only), and share (never free) it with child SRFI-18\n  threads via initForThread\n- kaappi_sysinfo: stop blocking the whole library under --sandbox; rely on\n  the per-primitive sandbox flag so only %script-path opts out and the\n  other sysinfo procedures stay reachable\n- SRFI 59 program-vicinity: track vm.current_lib_dir (already maintained\n  as \"whatever file is currently loading\" for .sld/include resolution, now\n  also for `load`) instead of the static top-level script path, so a\n  nested load reports its own directory while active\n- SRFI 59 library-vicinity/implementation-vicinity: return real\n  directories ($KAAPPI_HOME/lib, the running executable's own directory)\n  instead of \"\", which silently meant \"current directory\"\n- SRFI 59 home-vicinity: fall back to USERPROFILE on Windows when HOME is\n  unset\n- Fix osName's doc comment and CLAUDE.md's SRFI total (208 = 157 + 28 + 23,\n  not 27)\n- srfi193.scm: accept Windows path separators in the script-file/\n  script-directory assertions (was failing windows-arm-test)\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix script-path-normalization.sh to not hardcode a POSIX path spelling\n\nWindows CI failed: the test asserted the raw $tmpdir (an MSYS /tmp/...\nspelling from Git Bash's mktemp) against kaappi's own output, but kaappi\nprints native paths -- a backslash-separated, write-escaped Windows path\nunder a Git-Bash-translated temp directory, per tests/scheme/CLAUDE.md's\nown \"don't bake POSIX-only spellings into assertions\" guidance. Compare\nkaappi's output for a clean path against its output for a \"../\"-laden\npath to the same file instead, so the test never needs to predict the\nexact spelling on any given host.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-23T19:13:58Z",
-          "tree_id": "f5888e97a8951889b596b38ab1b5b684ef1b1cec",
-          "url": "https://github.com/kaappi/kaappi/commit/cbf4dbe4d2f1115b4f390230a4733963ce125ba2"
-        },
-        "date": 1784836422348,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.345868,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.026928,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.892785,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.400492,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006311,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053963,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.502997,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069366,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.574566,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.908126,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.583309,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430315,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.809545,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.667976,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044217,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046708,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3fbfc0a575efff60ad66152ef7b62e5b3e799268",
+          "message": "Let a record's constructor be named `fields` or `parent` (#1882)\n\nSRFI 237's R6RS clause grammar is ambient — `(scheme base)`'s\n`define-record-type` accepts it with no `(import (srfi 237))` — so the two\nsyntaxes are told apart structurally. The detector inspected only the head\nof the form's 2nd element, which in R7RS syntax is the *constructor's*\nname, so `(define-record-type point (fields x y) point? (x point-x) (y\npoint-y))` was parsed as R6RS and rejected. Nothing in such a program\nsignals that the R6RS grammar is in play, and the diagnostic was a bare\nKP2001 whose follow-on `undefined variable 'fields'` pointed away from the\ncause.\n\nThe 3rd element separates the grammars unambiguously: R7RS always has one\nand it is always the bare-symbol `<predicate>`, while an R6RS `<record\nclause>` is always a list — or absent, when there is at most one clause.\nAdding that as a second condition is a pure narrowing, so every R6RS form\nkeeps its path and every malformed form keeps its diagnostic; only valid\nR7RS forms move.\n\nTwo paths beyond the top-level handler shared the misdetection. In a body\nit aborted the internal-define scan, so sibling `define`s written after\nthe record lost their mutual visibility. In a library body, where the R6RS\ngrammar is rejected outright as a documented top-level-only feature, the\nwhole library failed to load.\n\nTests: a compliance suite with a library fixture (18 assertions, 8 of them\nfailing before the fix) plus three unit tests — the R7RS one demonstrates\nthe fix, the R6RS-detection and malformed-form ones bound it.",
+          "timestamp": "2026-07-31T11:20:10+05:30",
+          "tree_id": "998eea705c31025c9b6744147610e7f0e8726ec9",
+          "url": "https://github.com/kaappi/kaappi/commit/3fbfc0a575efff60ad66152ef7b62e5b3e799268"
+        },
+        "date": 1785479085311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.055786,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.203136,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.43785,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.215485,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003795,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034516,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231392,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042579,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.774703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.917524,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.175114,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.237565,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.312865,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.381513,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035481,
             "unit": "seconds"
           }
         ]
