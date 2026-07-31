@@ -18,6 +18,7 @@
   (export
     make-record-type-descriptor record-type-descriptor?
     make-record-descriptor record-descriptor-rtd record-descriptor-parent record-descriptor?
+    make-record-constructor-descriptor record-constructor-descriptor?
     record-constructor record-predicate record-accessor record-mutator
     record? record-rtd record-type-name record-type-parent record-type-uid
     record-type-generative? record-type-sealed? record-type-opaque?

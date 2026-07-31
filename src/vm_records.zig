@@ -556,6 +556,8 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     } else null;
     if (parent_rt) |p| if (p.sealed) return srfi237_prims.sealedParentError(DEFINE_RTD, p);
     const parent_total_fields: usize = if (parent_rt) |p| p.num_fields else 0;
+    // R6RS: a child of an opaque type is opaque regardless of its own clause.
+    const is_opaque = srfi237_prims.effectiveOpaque(spec.is_opaque, parent_rt);
 
     var field_names_buf: [256][]const u8 = undefined;
     var field_mutable_buf: [256]bool = undefined;
@@ -574,7 +576,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             rt_val = try srfi237_prims.reuseNongenerativeRtd(DEFINE_RTD, u, existing, .{
                 .parent = parent_rt,
                 .sealed = spec.sealed,
-                .is_opaque = spec.is_opaque,
+                .is_opaque = is_opaque,
                 .field_names = field_names_buf[0..spec.field_count],
                 .field_mutable = field_mutable_buf[0..spec.field_count],
             });
@@ -586,7 +588,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
                 field_mutable_buf[0..spec.field_count],
                 u,
                 spec.sealed,
-                spec.is_opaque,
+                is_opaque,
             ) catch |err| return switch (err) {
                 error.TooManyFields => srfi237_prims.tooManyFieldsError(DEFINE_RTD, spec.field_count, parent_rt),
                 else => VMError.OutOfMemory,
@@ -603,7 +605,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             field_mutable_buf[0..spec.field_count],
             null,
             spec.sealed,
-            spec.is_opaque,
+            is_opaque,
         ) catch |err| return switch (err) {
             error.TooManyFields => srfi237_prims.tooManyFieldsError(DEFINE_RTD, spec.field_count, parent_rt),
             else => VMError.OutOfMemory,
@@ -611,6 +613,16 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     }
     vm.gc.pushRoot(&rt_val);
     defer vm.gc.popRoot();
+
+    // Records THAT this definition has a protocol, so `(srfi 237)` can refuse
+    // to derive a protocol-less record descriptor from this rtd rather than
+    // silently building records the protocol never saw. Never cleared: on the
+    // nongenerative-reuse path above, `rt_val` may be an rtd a previous
+    // definition created, and "some definition under this uid had a protocol"
+    // is the conservative answer (see types_record.RecordType.has_protocol).
+    if (spec.protocol_expr != null) {
+        types.toObject(rt_val).as(types.RecordType).has_protocol = true;
+    }
 
     const internal_name = internRecordTypeName(vm.gc, spec.type_name) catch return VMError.OutOfMemory;
     if (vm.current_lib_env) |lib_env| {

@@ -427,11 +427,15 @@ corruption hazard; see `lib/srfi/120.sld`'s header for the caveats on
 that re-check. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
 SRFI 237 (R6RS Records, refined) is the one record-system SRFI needing real
 engine changes: `RecordType` (`types.zig`) gained `parent`/`own_field_names`/
-`own_field_mutable`/`uid`/`sealed`/`is_opaque` fields (`parent` is the only
-new heap pointer, traced in all three `gc_collect.zig` mark-graph switches;
-the rest are raw owned bytes like the pre-existing `name`, needing only
-`objectSize`/`freeObject`/`gc_deep_copy` updates — RecordType is fully
-immutable after construction, so none of this needs a write barrier), and
+`own_field_mutable`/`uid`/`sealed`/`is_opaque`/`has_protocol` fields (`parent`
+is the only heap pointer, traced in all three `gc_collect.zig` mark-graph
+switches; the rest are raw owned bytes like the pre-existing `name` or plain
+bools, needing only `objectSize`/`freeObject`/`gc_deep_copy` updates — no
+field ever needs a write barrier, since `parent` is set once at allocation
+and the one field written afterwards, `has_protocol`, is a bool.
+`src/tests_gc_tracing.zig` pins the field inventory at comptime, so adding a
+field to any heap struct fails the build until the tracing question has been
+answered explicitly), and
 `vm_records.zig`'s `define-record-type` desugarer gained a parallel R6RS-
 clause-syntax path (`handleDefineRecordTypeR6RS`) alongside the original
 R7RS one, dispatching on shape (R6RS's 2nd-position clause list vs R7RS's
@@ -460,7 +464,44 @@ the shadowed definition, same as at top level. When testing this, bind a
 name that comes from the macro's **pattern**, not one introduced by its
 template: a template-introduced name is hygienically renamed, so the
 binding is invisible from outside and the test looks like a failure for
-an unrelated reason. SRFI 137 (Minimal Unique
+an unrelated reason. kaappi#1974 then fixed four R6RS §6.3 deviations in
+the procedural/inspection layers, all of them in `lib/srfi/237.sld` rather
+than the engine: `record-type-field-names` returns a **vector** (the
+`%record-type-field-names` primitive still answers with the list every
+internal index walk wants — SRFI 57/131/136/150 call the primitive
+directly for that reason, and so does this library); an integer `k` for
+`record-accessor`/`record-mutator`/`record-field-mutable?` is
+**own-field-relative**, per "note that k cannot be used to specify a field
+of any type rtd extends" (it was read as absolute, silently returning an
+ancestor's field — and disagreeing with `record-field-mutable?`, whose own
+`k` was already own-relative; SRFI 137's payload accessor relied on the
+bug and now asks by name, since a subtype there declares zero own fields
+and so has no valid `k` at all); `opaque` is enforced (`record?` → `#f`,
+`record-rtd` raises, and opacity is inherited from an opaque parent — the
+inheritance is folded in at *construction* by
+`primitives_srfi237.effectiveOpaque`, shared by both creation paths, so
+`RecordType.is_opaque` stays the single already-effective answer); and
+`record-mutator` rejects an immutable field. The deprecated
+`make-record-constructor-descriptor`/`record-constructor-descriptor?` and
+the 7-argument `make-record-descriptor` were added at the same time.
+A record descriptor is now accepted **wherever an rtd is expected** (the
+SRFI's "the type of record descriptors is a subtype of the type of
+record-type descriptors"), and conversely `record-constructor` accepts a
+bare rtd — which matters because a syntactic `define-record-type`'s
+<record name> evaluates to a simple rtd, not the record descriptor SRFI
+237 specifies. A protocol lives on the *descriptor*, so synthesizing a
+protocol-less one from an rtd would silently bypass it; instead
+`%record-type-constructor` recovers the finished, protocol-applied
+constructor the desugarer already bound under its fixed
+`__record_ctor_<name>` alias, after checking the sibling
+`__record_type_<name>` alias still names *that* rtd (both alias names are
+spelled with a leading space, so no source identifier can collide with
+them, and both are keyed by type name, so a generative redefinition
+rebinds them). When it cannot be
+recovered and `RecordType.has_protocol` says there is one, it raises
+rather than constructing a wrong record. That combination is what makes
+the SRFI's own worked Examples section run — a procedural type inheriting
+from a syntactic one whose construction a protocol governs. SRFI 137 (Minimal Unique
 Types) is pure portable Scheme built directly on `(srfi 237)`: a "subtype"
 is exactly SRFI 237's `parent` relation, with every level correctly
 sharing the ROOT type's single payload field (a subtype's own rtd adds

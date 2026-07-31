@@ -24,12 +24,27 @@ pub const RecordType = struct {
     own_field_mutable: []bool = &.{},
     /// SRFI 237 nongenerative identity. Owned string; null means
     /// generative (every evaluation of the defining form is a distinct
-    /// type). RecordType is fully immutable after construction -- this is
-    /// set once at allocation, never mutated -- so no write barrier is
-    /// ever needed for any field on this struct.
+    /// type). No field on this struct ever needs a write barrier: `parent`
+    /// is the only heap pointer and it is set once at allocation, and the
+    /// one field written afterwards (`has_protocol`) is a plain bool.
     uid: ?[]const u8 = null,
     sealed: bool = false,
     is_opaque: bool = false,
+    /// True when this type was defined by a syntactic `define-record-type`
+    /// carrying a `(protocol ...)` clause. The protocol itself is not stored
+    /// -- it is already baked into the exposed constructor the desugarer
+    /// generates -- so this only records THAT there is one.
+    ///
+    /// SRFI 237 keeps a protocol on the record DESCRIPTOR, not on the rtd,
+    /// which is why a procedurally created rtd always leaves this false. It
+    /// exists so `(srfi 237)`'s `%fresh-rcd` can tell when deriving a
+    /// protocol-less record descriptor from a bare rtd would silently skip
+    /// that protocol, and refuse instead of constructing a wrong record
+    /// (kaappi#1974). Set by vm_records.zig right after the rtd is created
+    /// or reused, and only ever set to true -- a nongenerative uid shared by
+    /// definitions that disagree about having a protocol stays conservative,
+    /// because refusing is recoverable and a wrong field value is not.
+    has_protocol: bool = false,
 };
 
 pub const RecordInstance = struct {

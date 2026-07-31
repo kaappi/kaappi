@@ -319,7 +319,10 @@
                 labels))
 
     (define (%srfi57-update rec overrides)
-      (let* ((rtd (record-rtd rec)) (fields (record-type-field-names rtd)))
+      ;; %record-type-field-names, not the public record-type-field-names:
+      ;; the public one answers with a vector (R6RS), the primitive with the
+      ;; list this `map` wants.
+      (let* ((rtd (record-rtd rec)) (fields (%record-type-field-names rtd)))
         (apply %make-record rtd
           (map (lambda (f) (let ((p (assq f overrides))) (if p (cdr p) ((record-accessor rtd f) rec))))
                fields))))

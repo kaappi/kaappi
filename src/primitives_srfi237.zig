@@ -96,6 +96,8 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "%record-type-field-names", .func = &recordTypeFieldNamesFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
     .{ .name = "%record-field-mutable?", .func = &recordFieldMutableFn, .arity = .{ .exact = 2 }, .libs = SRFI237 },
     .{ .name = "%record-type?", .func = &recordTypeCheckFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
+    .{ .name = "%record-type-has-protocol?", .func = &recordTypeHasProtocolFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
+    .{ .name = "%record-type-constructor", .func = &recordTypeConstructorFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
     .{ .name = "%record-type-total-field-count", .func = &recordTypeTotalFieldCountFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
     .{ .name = "%record-uid->rtd", .func = &recordUidToRtdFn, .arity = .{ .exact = 1 }, .libs = SRFI237 },
 };
@@ -155,6 +157,24 @@ pub const RtdShape = struct {
 /// must never become an ancestor of another record type.
 pub fn sealedParentError(proc: []const u8, parent: *RecordType) PrimitiveError {
     return argError(proc, "record type '{s}' is sealed and cannot be a parent", .{parent.name});
+}
+
+/// R6RS: "The record type is also opaque if an opaque parent is supplied."
+/// Opacity is therefore inherited, and inherited *at construction time*: a
+/// child of an opaque type is itself opaque no matter what its own `opaque?`
+/// argument said. Folding it in here rather than walking `.parent` at every
+/// query keeps `RecordType.is_opaque` the single, already-effective answer --
+/// so `record-type-opaque?`, `record?` and `record-rtd` all read one field and
+/// cannot drift apart, and the nongenerative-equivalence comparison in
+/// `reuseNongenerativeRtd` compares effective against effective.
+///
+/// Called by BOTH creation paths (`%make-record-type-descriptor` here and
+/// `handleDefineRecordTypeR6RS` in vm_records.zig) before the shape
+/// comparison and before allocation, for the same "the two paths cannot
+/// drift" reason as the two error helpers above (kaappi#1974).
+pub fn effectiveOpaque(declared: bool, parent: ?*RecordType) bool {
+    if (declared) return true;
+    return if (parent) |p| p.is_opaque else false;
 }
 
 /// `GC.allocRecordTypeExtended` caps a record type at 255 fields *including*
@@ -227,7 +247,7 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         try expectString(MAKE_RTD, args[2]);
 
     const sealed = args[3] != types.FALSE;
-    const is_opaque = args[4] != types.FALSE;
+    const is_opaque = effectiveOpaque(args[4] != types.FALSE, parent);
 
     var field_names_buf: [256][]const u8 = undefined;
     var field_mutable_buf: [256]bool = undefined;
@@ -436,6 +456,62 @@ fn recordFieldMutableFn(args: []const Value) PrimitiveError!Value {
 
 fn recordTypeCheckFn(args: []const Value) PrimitiveError!Value {
     return if (types.isRecordType(args[0])) types.TRUE else types.FALSE;
+}
+
+/// Whether this rtd came from a syntactic `define-record-type` with a
+/// `(protocol ...)` clause. Not part of SRFI 237's surface -- it exists so the
+/// portable layer's `%fresh-rcd` can refuse to synthesize a protocol-less
+/// record descriptor for a type whose construction a protocol governs.
+fn recordTypeHasProtocolFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isRecordType(args[0])) return typeError("%record-type-has-protocol?", "record-type", args[0]);
+    return if (asRecordType(args[0]).has_protocol) types.TRUE else types.FALSE;
+}
+
+/// Look a name up the way vm_records' own generated code resolves its
+/// internal aliases: the enclosing library environment when there is one,
+/// otherwise (and as a fallback) the global table.
+fn lookupInternalBinding(vm: *vm_mod.VM, name: []const u8) ?Value {
+    if (vm.current_lib_env) |env| {
+        if (env.get(name)) |v| return v;
+    }
+    return vm.globals.get(name);
+}
+
+/// The exposed, protocol-applied constructor `define-record-type` generated
+/// for this rtd, or `#f` when there is none to be had.
+///
+/// SRFI 237 puts a protocol on the record DESCRIPTOR, and the <record name> a
+/// syntactic definition binds evaluates here to a bare rtd -- which cannot
+/// carry one. Rather than store the protocol on `RecordType` (a GC-traced
+/// Value field, on a struct that has exactly one heap pointer today), this
+/// recovers the finished constructor the desugarer already bound under the
+/// fixed ` __record_ctor_<name>` alias, which is precisely what the protocol
+/// was applied to. That is also the same constructor a syntactic child
+/// reaches for its parent, so both inheritance routes construct identically.
+///
+/// The sibling ` __record_type_<name>` alias is checked to still name THIS
+/// rtd first: both aliases are keyed by type name, so a generative
+/// redefinition rebinds them, and handing an older rtd the newer type's
+/// constructor would build records of the wrong type. Any doubt answers `#f`,
+/// which the caller turns into a refusal rather than a wrong record.
+fn recordTypeConstructorFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isRecordType(args[0])) return typeError("%record-type-constructor", "record-type", args[0]);
+    const rt = asRecordType(args[0]);
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    // Temporary buffers only: StringHashMap hashes by content, so a lookup
+    // needs no interned copy of the name.
+    const type_alias = std.fmt.allocPrint(gc.allocator, " __record_type_{s}", .{rt.name}) catch
+        return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(type_alias);
+    const bound_type = lookupInternalBinding(vm, type_alias) orelse return types.FALSE;
+    if (!types.isRecordType(bound_type) or asRecordType(bound_type) != rt) return types.FALSE;
+
+    const ctor_alias = std.fmt.allocPrint(gc.allocator, " __record_ctor_{s}", .{rt.name}) catch
+        return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(ctor_alias);
+    return lookupInternalBinding(vm, ctor_alias) orelse types.FALSE;
 }
 
 /// Total field count INCLUDING inherited fields -- what record-constructor
