@@ -414,7 +414,7 @@
 (thread-join! ab4-t)
 (test-equal "subject starts abandoned" 'abandoned (mutex-state ab4))
 (test-assert "unlock of an abandoned mutex returns #t" (mutex-unlock! ab4))
-;; FAIL: TBD (mutex-unlock! leaves the mutex unlocked/abandoned instead of
+;; FAIL: #1984 (mutex-unlock! leaves the mutex unlocked/abandoned instead of
 ;;       unlocked/not-abandoned, so the next mutex-lock! raises a spurious
 ;;       abandoned-mutex-exception)
 ;; (test-equal "unlock makes it unlocked/not-abandoned"
@@ -432,7 +432,7 @@
 (thread-start! ab5-dead)
 (thread-join! ab5-dead)
 (test-assert "locking with a dead thread as owner returns" (mutex-lock! ab5 #f ab5-dead))
-;; FAIL: TBD (mutex-lock! with a terminated thread as the owner argument
+;; FAIL: #1982 (mutex-lock! with a terminated thread as the owner argument
 ;;       records it as the live owner instead of making the mutex
 ;;       unlocked/abandoned)
 ;; (test-equal "dead owner => unlocked/abandoned" 'abandoned (mutex-state ab5))
@@ -630,7 +630,7 @@
 ;;
 ;; These stay COMMENTED OUT: a hang takes the runner down as surely as an
 ;; abort, and run-all.sh counts a per-file timeout as a failure.
-;; FAIL: TBD (thread-terminate! is not observed by a thread parked in
+;; FAIL: #1982 (thread-terminate! is not observed by a thread parked in
 ;;       thread-sleep!, mutex-lock! or a condvar wait; thread-join!
 ;;       afterwards blocks for the remainder of the wait, or forever when
 ;;       the wait is untimed -- residual of closed #880)
@@ -718,7 +718,7 @@
 (thread-sleep! 0.08)
 (test-equal "CONTROL: joins fine before any terminate" 'result-kept (join-outcome lc-12))
 (thread-terminate! lc-12)
-;; FAIL: TBD (thread-terminate! on an already-completed thread replaces its
+;; FAIL: #1982 (thread-terminate! on an already-completed thread replaces its
 ;;       end-result with a terminated-thread-exception)
 ;; (test-equal "terminating a completed thread must not destroy its result"
 ;;   'result-kept (join-outcome lc-12))
@@ -731,7 +731,7 @@
 (test-equal "CONTROL: the raised reason is available"
   '(UNCAUGHT original-reason) (join-outcome lc-13))
 (thread-terminate! lc-13)
-;; FAIL: TBD (thread-terminate! on an already-errored thread replaces its
+;; FAIL: #1982 (thread-terminate! on an already-errored thread replaces its
 ;;       end-exception, losing the original raised object)
 ;; (test-equal "terminating an errored thread must not lose its reason"
 ;;   '(UNCAUGHT original-reason) (join-outcome lc-13))
@@ -756,7 +756,7 @@
 ;;    terminated-thread exception (same two-fiber cause as lc-14) --
 (define lc-15 (make-thread (lambda () (thread-terminate! (current-thread)) 'not-reached)))
 (thread-start! lc-15)
-;; FAIL: TBD (a thread that terminates itself joins as an uncaught-exception
+;; FAIL: #1982 (a thread that terminates itself joins as an uncaught-exception
 ;;       with a void reason instead of a terminated-thread-exception)
 ;; (test-equal "self-terminated thread joins as TERMINATED"
 ;;   'TERMINATED (join-outcome lc-15))
@@ -839,7 +839,7 @@
 ;; point value out of bounds". `guard` cannot catch a panic.
 ;; Cliff measured: 9.2e18 is fine, 9.3e18 aborts — exactly the i64 edge.
 ;; These stay COMMENTED OUT: running one takes the whole test runner down.
-;; FAIL: TBD (seconds->time panics, exit 134, on +inf.0/-inf.0 and any
+;; FAIL: #1983 (seconds->time panics, exit 134, on +inf.0/-inf.0 and any
 ;;       |x| >= 2^63 — uncatchable, aborts the process)
 ;; (test-assert "seconds->time +inf.0 raises catchably" (raises? (lambda () (seconds->time +inf.0))))
 ;; (test-assert "seconds->time -inf.0 raises catchably" (raises? (lambda () (seconds->time -inf.0))))
@@ -925,7 +925,7 @@
 ;; channel-send/channel-receive timeouts parse through, so the blast
 ;; radius is wider than SRFI 18.
 ;; Cliff measured: 1.8e10 is fine (catchable), 1.9e10 aborts.
-;; FAIL: TBD (thread-sleep! / mutex-lock! / thread-join! / mutex-unlock!+cv
+;; FAIL: #1984 (thread-sleep! / mutex-lock! / thread-join! / mutex-unlock!+cv
 ;;       panic, exit 134, on +inf.0 or a timeout >= ~1.845e10 seconds)
 ;; (test-assert "thread-sleep! +inf.0 raises catchably" (raises? (lambda () (thread-sleep! +inf.0))))
 ;; (test-assert "thread-sleep! 1e300 raises catchably"  (raises? (lambda () (thread-sleep! 1e300))))
@@ -955,7 +955,7 @@
 ;; out of bounds" the number branch produces -- two distinct sites, one
 ;; cliff. Measured: (seconds->time 1.8e10) is fine, (seconds->time 1.9e10)
 ;; aborts.
-;; FAIL: TBD (a time-object timeout whose seconds field exceeds ~1.845e10
+;; FAIL: #1984 (a time-object timeout whose seconds field exceeds ~1.845e10
 ;;       panics with "integer overflow", exit 134, in timeoutToDeadlineNs)
 ;; (test-assert "a huge absolute time object raises catchably"
 ;;   (raises? (lambda () (thread-join! to-5 (seconds->time 1e18) 'TV))))
