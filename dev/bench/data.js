@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785521560761,
+  "lastUpdate": 1785523330590,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b5dabae02d77837a641d1093ec0cf942160cecd9",
-          "message": "Bump the github-actions group with 2 updates (#1738)\n\nBumps the github-actions group with 2 updates: [actions/checkout](https://github.com/actions/checkout) and [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm).\n\n\nUpdates `actions/checkout` from 7.0.0 to 7.0.1\n- [Release notes](https://github.com/actions/checkout/releases)\n- [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/actions/checkout/compare/9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0...3d3c42e5aac5ba805825da76410c181273ba90b1)\n\nUpdates `vmactions/freebsd-vm` from 1.5.0 to 1.5.2\n- [Release notes](https://github.com/vmactions/freebsd-vm/releases)\n- [Commits](https://github.com/vmactions/freebsd-vm/compare/5a72679103d223925653750faa878a143340fbd0...77ed28d336d03fe19a3f4f7266c1d2c4714dd79d)\n\n---\nupdated-dependencies:\n- dependency-name: actions/checkout\n  dependency-version: 7.0.1\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: vmactions/freebsd-vm\n  dependency-version: 1.5.2\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-07-26T21:19:48+05:30",
-          "tree_id": "52428b465ec8c835eff5d0b2d880a43741db8d10",
-          "url": "https://github.com/kaappi/kaappi/commit/b5dabae02d77837a641d1093ec0cf942160cecd9"
-        },
-        "date": 1785083208902,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.973826,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.014041,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92491,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.466193,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006612,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052518,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50808,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067369,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.320004,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.967904,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.499548,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.481464,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.689994,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.745343,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043951,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034544,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e24e594ed8a650edb6b09d9216b16594a78610ad",
+          "message": "Parallelise run-all.sh's shell suites, and stop rebuilding twice (#1957)\n\nThe shell suites were the larger half of run-all.sh's wall time and ran\nstrictly sequentially, because several scripts build into the one shared\nzig-out/ and would race each other's install. Two separate things had to\nchange: the race (which blocked concurrency) and the cost (which was\nsomewhere else entirely).\n\nThe cost was two full interpreter rebuilds. `zig build -Dbundle=…`\nrecompiles everything, since the embedded bytecode is part of the compiled\nmodule graph, and the two scripts that need a standalone binary each paid\nfor one — 85% of the shell suites' entire wall time for two tests. They\nneeded different embedded bytecode only because each carried its own\nfixture, so they now share one, in\ntests/scheme/compile/fixtures/bundle-replay/. Identical bytes make the\nsecond build a ~0.2s hit in Zig's own content-addressed cache. The .sbc is\nregenerated on every call rather than cached: unchanged sources give\nidentical bytes and the hit, while an edit under src/ changes them and\nforces exactly the rebuild it must — a cached .sbc of our own would go\nstale against the new binary's build id instead.\n\nThe race is closed at both ends. run-all.sh builds the runtime archive once\nup front and exports KAAPPI_RT_LIB_READY, which ensure_runtime_lib treats as\n\"already fresh\"; the marker is advisory, so a script run standalone (the\nWindows CI legs invoke each one directly) still builds its own. What builds\nremain take a mkdir-based lock — atomic on POSIX and Git Bash alike, where\nflock is Linux-only and macOS has none — and a lock whose holder was killed\nis stolen by the next waiter via the recorded pid. Six scripts had their own\ninline copy of the archive build, checking only for the file's existence;\nthey go through ensure_runtime_lib now, so one guard covers all 18.\n\nDispatch inside a suite is longest-first, found by grep rather than a list\nof names. Reporting still walks glob order, so a transcript diff between two\nruns stays meaningful at any job count.\n\nFull suite on a 12-core box: 475s -> 245s, same 2026 pass / 0 fail. The\nparallel and KAAPPI_TEST_JOBS=1 transcripts differ only in the line that\nreports the job count.\n\nCloses #1926",
+          "timestamp": "2026-07-31T23:27:09+05:30",
+          "tree_id": "a44f3a0ad9e71998d6a8746749f3433472bc0dba",
+          "url": "https://github.com/kaappi/kaappi/commit/e24e594ed8a650edb6b09d9216b16594a78610ad"
+        },
+        "date": 1785523328128,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.327595,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.23971,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.603549,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.968196,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004676,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047056,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314084,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057826,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.69526,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.222003,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.648019,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28591,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802526,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.679759,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043003,
             "unit": "seconds"
           }
         ]
