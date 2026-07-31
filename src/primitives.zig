@@ -405,13 +405,19 @@ pub fn registerSandboxed(vm: *vm_mod.VM) !void {
 /// version became the single implementation (#1375): a stub that errors
 /// makes a missing vm_bootstrap.install() fail loudly instead of silently
 /// falling back to a native implementation that has since diverged.
+///
+/// The tag is `InvalidBytecode` (-> KP9001 "internal error") because that is
+/// what an uninstalled bootstrap is: an implementation-invariant violation no
+/// program can cause or fix. It read `TypeError` (-> KP3002) until #1876,
+/// which told every tool reading the code -- `--diagnostics=json`, the LSP,
+/// `error-object-code` -- that the caller had passed a bad argument type.
 pub fn bootstrapStub(comptime name: []const u8) types.NativeFnType {
     const S = struct {
         fn call(args: []const Value) PrimitiveError!Value {
             _ = args;
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode;
             vm.setErrorDetail("'{s}' is implemented in Scheme (src/vm_bootstrap.zig) but vm_bootstrap.install() has not run for this VM", .{name});
-            return PrimitiveError.TypeError; // bare-ok: detail set on the line above
+            return PrimitiveError.InvalidBytecode;
         }
     };
     return &S.call;

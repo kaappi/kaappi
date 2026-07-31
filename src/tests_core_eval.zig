@@ -619,10 +619,22 @@ test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     try primitives_mod.registerAll(&vm);
 
     const result = vm.eval("(map (lambda (x) x) (list 1 2 3))");
-    try std.testing.expectError(vm_mod.VMError.TypeError, result);
+    try std.testing.expectError(vm_mod.VMError.InvalidBytecode, result);
     const detail = vm.last_error_detail[0..vm.last_error_detail_len];
     try std.testing.expect(std.mem.indexOf(u8, detail, "vm_bootstrap.install") != null);
     try std.testing.expect(std.mem.indexOf(u8, detail, "'map'") != null);
+
+    // The tag is only half of it (#1876) -- what a tool reads is the code. Run
+    // the error this eval actually returned through the same mapping
+    // `toplevel_driver` reports with: an uninstalled bootstrap must surface as
+    // KP9001 "internal error" ("please report it"), not the KP3002 type error
+    // ("you passed a bad argument") it claimed until #1876. Deriving the code
+    // from `result` rather than from a literal tag is what keeps this coupled
+    // to bootstrapStub -- `runtimeErrorCode`'s own table is pinned separately
+    // in tests_diagnostics.zig.
+    const diagnostics = @import("diagnostics.zig");
+    const err = if (result) |_| unreachable else |e| e;
+    try std.testing.expectEqual(diagnostics.Code.internal_error, diagnostics.runtimeErrorCode(err));
 }
 
 // Regression test: `call_global`/`tail_call_global` populated the per-Function
