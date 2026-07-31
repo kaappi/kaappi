@@ -36,6 +36,32 @@ All predicate-accepting procedures accept SRFI-14 char-set objects directly in a
 
 - `string-xcopy!` — mutation variant
 
+### SRFI 14 — Character-set Library
+
+**Coverage: 100%** (all 64 spec names). A char set is an inversion list — a
+sorted, disjoint, non-adjacent list of `(lo . hi)` code-point pairs — so
+duplicates are unrepresentable and `char-set:full` and `char-set-complement`
+cost two pairs rather than 1.1 million.
+
+Two deliberate deviations. The `!` linear-update variants are pure aliases of
+their functional counterparts, which the spec explicitly permits ("allowed,
+but not required, to side-effect"). And the standard `char-set:*` constants
+come from generated Unicode general-category tables
+(`tools/gen_srfi_charsets.py --target 14`), which is how SRFI 14 defines them
+— so they do **not** always agree with the nearest `(scheme char)` predicate,
+because R7RS defines those by Unicode *property* instead:
+
+| | SRFI 14 char set | R7RS predicate |
+|---|---|---|
+| letters | Lu, Ll, Lt, Lm, Lo | `char-alphabetic?` = Alphabetic (adds Nl and Other_Alphabetic) |
+| digits | Nd (680 characters) | `char-numeric?` (370 — BMP only) |
+| whitespace | Zs, Zl, Zp + U+0009–U+000D | `char-whitespace?` = White_Space (adds U+0085) |
+
+Surrogates are excluded from every char set, `char-set:full` included, since
+`integer->char` rejects them; `ucs-range->char-set` treats a range covering
+them as the spec's "no corresponding representative" case — ignored by
+default, an error when `error?` is true.
+
 ### SRFI 27 — Random Numbers
 
 **Coverage: 100%** (11 of 11 spec procedures). Full state save/restore via `random-source-state-ref`/`state-set!` (all 4 xoshiro256 state words). For exact `unit`, `random-source-make-reals` quantizes to **every** multiple of `unit` in the open interval `(0,1)` — `x·unit` for `x ∈ {1, …, ceil(1/unit)−1}`. This intentionally extends the spec's illustrative `{1, …, floor(1/unit)−1}` set (introduced with "One can imagine…", i.e. non-normative), which undershoots when `1/unit` is non-integral.
@@ -294,7 +320,7 @@ The SRE syntax itself is complete. Three named char sets carry Unicode range
 tables inside `lib/srfi/115.sld` (titlecase, symbol, and the UAX #29 grapheme
 break classes) because R7RS `(scheme char)` exposes no general category
 predicate and the library is portable Scheme; regenerate them with
-`tools/gen_srfi115_charsets.py` after a Unicode version bump. `punctuation`,
+`tools/gen_srfi_charsets.py` after a Unicode version bump. `punctuation`,
 `graphic`, `printing` and `control` remain ASCII approximations in a Unicode
 context. `digit` and `*$` are chibi extensions, not SRFI 115 names, and are
 correctly rejected.

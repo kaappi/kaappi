@@ -28,6 +28,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   spawns would have sent both children to the same path. It now travels in the
   child's own `envp`. Not reachable before `--jobs` existed, since spawns were
   serialised.
+- **`(srfi 14)` is a character set again, is Unicode-aware, and exports its
+  whole API** (#1895). The old 108-line library was a multiset — `(char-set
+  #\a #\a #\b)` kept the duplicate, and union with itself grew without bound,
+  so every downstream size, fold and count was wrong. It was also ASCII-only,
+  `char-set:full` included: `#\λ` was not in it, and `char-set:letter` stopped
+  at `z`. And it exported 23 of the SRFI's 64 names while `(cond-expand
+  (srfi-14 ...))` answered yes, so portable code was told the library was there
+  and then handed a multiset. A char set is now an inversion list — a sorted,
+  disjoint, non-adjacent list of `(lo . hi)` code-point pairs — which makes
+  duplicates unrepresentable rather than merely filtered, and makes
+  `char-set:full` and `char-set-complement` two pairs instead of 1.1 million
+  list cells. All 64 spec names are implemented, including the cursor
+  protocol, `char-set-unfold`, `char-set<=`, `char-set-hash`,
+  `char-set-diff+intersection`, `ucs-range->char-set`, the `!` linear-update
+  variants and the 17 standard `char-set:*` constants. The constants come from
+  generated Unicode general-category tables, which is how the SRFI defines
+  them, so `char-set:letter` is Lu/Ll/Lt/Lm/Lo and `char-set:digit` is all of
+  Nd — both deliberately *broader or narrower* than the nearest `(scheme
+  char)` predicate, since R7RS asks those predicates a different question.
+  Surrogates are excluded throughout, since `integer->char` rejects them.
+  Import cost is unchanged and every char set is immutable once built.
+  `tools/gen_srfi115_charsets.py` is now `tools/gen_srfi_charsets.py`, with a
+  `--target {115,14}` selector.
 
 ## [0.22.1] - 2026-07-31
 
