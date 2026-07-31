@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785526090154,
+  "lastUpdate": 1785529567383,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "845b75622e3d7a4eac3e7d63f6adee32918a3075",
-          "message": "Extend SRFI 147 with begin-wrapped and bare-alias transformer specs (#1762)\n\nDeeper research for SRFI 148 (reading its reference implementation, not\njust the spec prose) found that em-syntax-rules's own core mechanism\n(em-syntax-rules-aux1/aux2) bottoms out through exactly\n`(begin (define-syntax a spec) a)` -- a private helper definition\nfollowed by a bare reference to it. Both grammar alternatives this\nneeds (begin-wrapped definitions, and bare-keyword aliasing of a\nnon-builtin macro) were deferred in #1760 based on an earlier, shallower\npass that concluded neither was needed.\n\nresolveTransformerSpec now returns an already-parsed Transformer instead\nof raw syntax-rules source, since the bare-symbol alias case has no\nsource to hand back -- only a Transformer an earlier step already\nparsed. Aliasing a builtin special form still correctly falls through to\nInvalidSyntax: builtins are recognized structurally, never stored as\nTransformer values in the macro table a bare symbol resolves against.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T16:43:21Z",
-          "tree_id": "ed8bbbe59ae47dc0485d217451db18b135a1717a",
-          "url": "https://github.com/kaappi/kaappi/commit/845b75622e3d7a4eac3e7d63f6adee32918a3075"
-        },
-        "date": 1785086432884,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.309789,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.914241,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.930957,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.445399,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006397,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054384,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506559,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06879,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.542347,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.972524,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.607075,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437158,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.84202,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.676303,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044597,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037203,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e58801829acda296b6fcddb1f86d945d9af05ff1",
+          "message": "Stop piping into grep -q under pipefail (#1966)\n\n`grep -q` exits the moment it matches. When the match is on an early line\nof the output, the writer on the left of the pipe can still be mid-write\nand dies of SIGPIPE — and `set -o pipefail`, which every one of these\nscripts sets, then reports the whole pipeline as failed even though the\nmatch succeeded. The assertion fails while printing the very text it was\nlooking for.\n\nIt is a race, so it passes locally and on 16 of 17 CI legs, then fails on\nthe slowest one. #1957 made run-all.sh dispatch the shell suites\nconcurrently, which raised the load enough to fire it: three assertions in\ntests/scheme/errors/ failed on freebsd-test, each matching the first or\nsecond line of a multi-line output, each with the expected text visible in\nthe failure it printed. In every case the assertion beside it matching the\n*last* line passed, because grep then reads to EOF and the writer never\nsees a closed pipe.\n\nReproduced directly: with an early match and a large output, `echo \"$x\" |\ngrep -q PATTERN` under pipefail reports no-match 20 times out of 20, and\nthe here-string form 0 times out of 20. At the real ~3-line size it is\nabout 1 in 16,000 on an idle machine — rare enough to have gone unnoticed,\ncommon enough to bite three times in one run on an emulated 4-core VM.\n\nA here-string has no pipeline for pipefail to judge: same grep, same\npattern, same exit status, no second process whose death can be mistaken\nfor a failed match. Converted all 29 sites rather than the three that\nfailed, since they are one latent bug and the rest would surface next.\n\nTwo piped `grep -q` uses remain, in errors/reader-*-errors.sh: those have a\ncommand on the left rather than a variable, and neither script sets\npipefail, so neither can hit this.",
+          "timestamp": "2026-08-01T01:18:44+05:30",
+          "tree_id": "41a345cc698f8dd2d6924bd845d24699e9a8d1ad",
+          "url": "https://github.com/kaappi/kaappi/commit/e58801829acda296b6fcddb1f86d945d9af05ff1"
+        },
+        "date": 1785529566020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.959296,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.117832,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.595535,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.829967,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004863,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044767,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.296501,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05944,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.504309,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.16581,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.524644,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.308806,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.687212,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.817554,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044673,
             "unit": "seconds"
           }
         ]
