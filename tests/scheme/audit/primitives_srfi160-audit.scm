@@ -262,7 +262,7 @@
 (test-equal "#<c128vector 1.5+0.0i>" (write-to-string (c128vector 1.5)))
 (test-equal "#<c64vector 1.5+0.0i>" (write-to-string (c64vector 1.5)))
 
-;;; FAIL: TBD (a zero-imaginary c64/c128 element writes as a real)
+;;; FAIL: #1951 (a zero-imaginary c64/c128 element writes as a real)
 ;;; (c128vector-ref (c128vector 1.5) 0) is a Complex for which real? is
 ;;; #f, yet `write` emits "1.5", which reads back as a flonum whose real?
 ;;; is #t — an external representation that does not round-trip. The same
@@ -708,7 +708,7 @@
 ;; loop's (>= start len) guard is true on entry, so n = 0 terminates.
 (test-equal '() (s8vector-segment (s8vector) 0))
 
-;;; FAIL: TBD (Uvector-segment with n = 0 never terminates)
+;;; FAIL: #1949 (Uvector-segment with n = 0 never terminates)
 ;;; %uvec-segment (lib/srfi/160/base.sld:357) advances with
 ;;;   (loop (min len (+ start n)) ...)
 ;;; so n = 0 leaves `start` unchanged forever while consing a fresh
@@ -754,7 +754,7 @@
              (exact-integer? ((comparator-hash-function u8vector-comparator)
                               (bytevector 1 2))))
 
-;;; FAIL: TBD (c64/c128 comparator hash raises on every value)
+;;; FAIL: #1950 (c64/c128 comparator hash raises on every value)
 ;;; %uvec-hash (lib/srfi/160/base.sld:472) folds with `number-hash`, and
 ;;; number-hash (lib/srfi/128.sld:54) is `(abs x)`-based, which raises
 ;;; KP3002 "expected number, got #<complex>" for a complex argument.
