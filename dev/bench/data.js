@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785539747001,
+  "lastUpdate": 1785540561420,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7fd9417875c9b0dc122d7f8afd5630b3de9f56d2",
-          "message": "Detect cycles through record instances in the printer (#1713) (#1768)\n\nwrite/display/write-shared already datum-labeled cycles through pairs\nand vectors, but record instances were invisible to that machinery, so\nprinting fell through to the plain depth-limited recursive printer. A\ndirect self-reference merely recursed to the depth cap, but a record\nfield that's a vector of records which each reference it back (e.g.\ntwo mutually-referencing record types, the SRFI 209 enum/enum-type\nshape that motivated this issue) fans out combinatorially at every\nlevel of that recursion, hanging the process well before the cap.\n\nRecord instances now join pairs and vectors in both cycle-detection\npasses (markCyclesRec, markShared) and in the shared-aware printer, so\na cyclic web of records prints with #N=/#N# datum labels instead of\nlooping forever.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T08:03:58+05:30",
-          "tree_id": "5f13324199f5d46f80b9ca86ec5068d189b39932",
-          "url": "https://github.com/kaappi/kaappi/commit/7fd9417875c9b0dc122d7f8afd5630b3de9f56d2"
-        },
-        "date": 1785123421662,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.341017,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.197353,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.895551,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.417431,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006274,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053498,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506268,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069531,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.512027,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.94447,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.621699,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430284,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805024,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.640263,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044066,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044872,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fdc06de60ce50a6e0b7efb163cfa185cf0e5445",
+          "message": "Phase 2.5: SRFI 237 audit — 186 assertions, and a 27-field record aborts the process (#1975)\n\n* Audit primitives_srfi237.zig: 186 assertions, one uncatchable panic\n\nPhase 2.5 of the v2 audit campaign (docs/audit-strategy.md, #1890). The\nfile had no audit test and postdates the v1 campaign entirely.\n\nCovers all 18 specs, the R6RS `define-record-type` desugarer that shares\ntheir enforcement helpers, and the portable layer in lib/srfi/237.sld\nthat is their only other caller. The oracle is R6RS Library chapter 6:\nSRFI 237 defines every one of these as \"equivalent to the procedure with\nthe same name in R6RS\", so R6RS's own sentences are quoted beside the\nassertions they justify.\n\nConfirmed correct, with the assertions to keep it that way:\n\n  * Protocol composition over a 4-level chain, all 16 present/absent\n    combinations, plus the rule that a protocol runs once per\n    record-constructor call and never per instance.\n  * Field shadowing — a child redeclaring an ancestor's field name gets\n    its own slot, its own mutability, and leaves the ancestor's readable.\n  * sealed, enforced identically from both layers via one shared helper.\n  * nongenerative uid reuse, and all four R6RS equivalence axes rejected\n    with the differing axis named. The type NAME is correctly not an axis.\n  * A nongenerative record survives thread-join! with its identity, by\n    uid re-resolution in gc_deep_copy.\n  * All 18 arities match their bodies; all 18 reject bad input catchably.\n\nDisabled, each paired with an enabled control (26 markers):\n\n  * A record type with 27 or more fields PANICS on instantiation —\n    allocRecordInstance sizes itself in u8 arithmetic. Uncatchable, and\n    reachable from plain R7RS define-record-type, not just SRFI 237.\n    Control: 26 fields works.\n  * record-type-field-names returns a list; R6RS requires a vector.\n  * record-accessor/record-mutator take k as an absolute index across\n    inherited fields; R6RS requires an own-field index. Control: the\n    by-name path resolves per level correctly, and record-field-mutable?\n    already uses own-field indexing on the same rtd.\n  * The opaque flag is stored but never enforced: record? answers #t,\n    record-rtd returns the rtd, and opacity is not inherited.\n  * record-mutator does not reject an immutable field.\n  * Three specified names are absent and undocumented: the 7-argument\n    make-record-descriptor, make-record-constructor-descriptor, and\n    record-constructor-descriptor?.\n\nAlso pins the current behaviour of #1914 (own-field 255-limit overflow\nreports a bare TypeError blaming args[0] while the inherited path reports\nit precisely), #1915 (constructor arity unchecked, so an extra argument\nsilently shifts the field layout) and #1932, so their fixes flip a test.\n\nDiscovery only — no source changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point SRFI 237 FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T03:36:47+05:30",
+          "tree_id": "820e20c4c901e51210b7a60b1232818cdf755dc3",
+          "url": "https://github.com/kaappi/kaappi/commit/5fdc06de60ce50a6e0b7efb163cfa185cf0e5445"
+        },
+        "date": 1785540559899,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.270532,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.122883,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.606205,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.950425,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004715,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04682,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315995,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057198,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.719247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.205352,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.611071,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.2911,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.784604,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.698868,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044987,
             "unit": "seconds"
           }
         ]
