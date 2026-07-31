@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`kaappi test -j` / `--jobs <n>`** runs test files concurrently, defaulting
+  to one job per CPU (#1887). Every file was already an isolated worker
+  process, so this is a scheduling change only: verdicts, per-file output and
+  its ordering, and the summary counts are identical at any job count — worker
+  threads claim files from a shared counter while the main thread reports the
+  completed prefix in file order. `--jobs 1` keeps the old strictly-sequential
+  behaviour. Windows runs one job regardless, because there the worker's emit
+  path still reaches the child through the inherited parent environment.
+  Measured on 4 cores, `kaappi test tests/scheme/srfi` went from 18.5s to 4.6s.
+
+### Fixed
+
+- **`kaappi test` could have lost a file's results once it ran more than one
+  worker at a time** (#1887). The path each worker writes its JSON to was
+  published by setting `KAAPPI_TEST_EMIT` on the *parent* before each fork — a
+  single mutable global shared by every in-flight worker, so two concurrent
+  spawns would have sent both children to the same path. It now travels in the
+  child's own `envp`. Not reachable before `--jobs` existed, since spawns were
+  serialised.
+
 ## [0.22.1] - 2026-07-31
 
 ### Added
