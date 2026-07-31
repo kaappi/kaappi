@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785533975794,
+  "lastUpdate": 1785536812605,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "26d841123133d7d96a61f4d95ce193a2a924a47c",
-          "message": "Fix let_syntax_peer_names/vals leak when siblings share a Transformer (#1764)\n\nCodeRabbit-caught on #1763, after CI had already auto-merged it: the\nsame overwrite-without-free hazard just fixed for captured_locals/\nbound_free_refs (via finalizeTransformer) also applies to\ncompileLetSyntax's own let_syntax_peer_names/vals bookkeeping, which\nlives in a separate code block outside finalizeTransformer's reach.\nReachable as soon as two sibling let-syntax bindings resolve to the same\nTransformer object (a begin-wrapped helper reference for one, a bare\nalias of that same helper for the other).\n\nFixed with a narrower guard than Transformer.finalized: a linear scan of\nthis call's own tx_vals prefix for an identical Value already processed\nearlier in the SAME loop. This can't be a permanent per-object flag like\nfinalized, since a transformer aliased into some OTHER, unrelated\nlet-syntax form later genuinely needs its own peer snapshot computed\nagainst that different form's sibling set.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T19:51:53Z",
-          "tree_id": "b0f9bd8023419df813fea7d50f781e9c0410c7a4",
-          "url": "https://github.com/kaappi/kaappi/commit/26d841123133d7d96a61f4d95ce193a2a924a47c"
-        },
-        "date": 1785097600957,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335232,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.712538,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.894163,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.403217,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006376,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053978,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.503101,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069153,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.506244,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.960459,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.599976,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.428366,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.806329,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.456877,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043949,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045887,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b2027b1d8c95e9e7932da541ad37edc2af9da14",
+          "message": "Phase 5B: waitForFd park-vs-drive — 26 tests for a protocol that had zero direct coverage (#1960)\n\n* Assert which branch waitForFd took, not just that the read worked\n\n`waitForFd`, `driving_waits` and `anyAncestorWaitResolved` had zero direct\nreferences in any src/tests_*.zig. The park-vs-drive branch was reached only\nincidentally, through Scheme programs that happened to block, and incidental\ncoverage cannot say which branch ran: a change that made every caller drive in\nplace — or every caller park — would have left the whole suite green.\n\nsrc/tests_waitforfd.zig (26 tests) asserts the branch. The selector,\n`my_idx != 0 and vm.dispatched_from_scheduler`, is plain VM state, so all four\ncells are set up directly rather than raced into; the two that must DRIVE are\ndiscriminating controls for the two terms of the conjunction. The park cells\nuse an fd that is already readable, which separates \"parks because it was told\nto\" from \"parks because the fd was not ready\".\n\nThree gaps this closes beyond the branch itself:\n\n- The #1625 unwind asymmetry. `IoWait` is the only wait kind setting\n  `unwind_on_resolved_ancestor`, and runSchedulerStep gates on `@hasDecl`, so\n  opting a join/channel/mutex/condvar wait in — or IoWait out — compiles\n  cleanly and silently changes blocking semantics. A comptime table over all\n  ten production Ctx types pins it; the nine `false` rows had no coverage at\n  all. `anyAncestorWaitResolved` gets direct tests for its identity filter,\n  its timed_out disjunct, and its whole-stack scan.\n\n- The yield-retry contract. A parked primitive re-executes from scratch, so\n  progress in a Zig local is lost. Five tests reach a *confirmed* park with the\n  stream torn mid-item (mid-UTF-8, mid-line, mid-CRLF, mid-datum) and assert\n  both that the prefix landed in port.read_buf and that the resumed primitive\n  produces the whole item, plus a control at an item boundary where nothing\n  may be stashed. The write side takes the other route — drain before append,\n  progress in write_buf_start — and is checked for loss and duplication.\n\n- Which frames actually force the drive branch. `guard` does; `map` and\n  `dynamic-wind` do not, because both are bootstrapped in Scheme\n  (vm_bootstrap.zig) and their thunk call stays in the same runUntil. All\n  four fibers in that test run the identical `(read-char rp)`. README section\n  Fibers already says this; two Zig doc comments still name dynamic-wind and\n  map/for-each as re-entrant native frames, including the user-visible\n  \"port I/O abandoned\" message text.\n\nDeterminism, rather than sleeping, comes from FIFO dispatch: a trivial\n`(fiber-join (spawn ...))` dispatches every already-spawned fiber to its first\nblocking point first. 6/6 identical runs; unchanged under -Dgc-stress=true.\n\nThe production diff is visibility only — nine wait-context types go `pub` so\nthe asymmetry table can name them — plus the vm_tests.zig registration.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Gate the write-side parking assertions to POSIX\n\nWindows CI reached .completed where the test expected .io_waiting: the\n20 KB write is accepted outright, so the flush never EAGAINs and there is\nnothing to park on. Shrinking SO_SNDBUF is what forces the park on\nkqueue/epoll hosts and it does not have that effect there.\n\nWhy the mechanism is not stated in the comment: I could not establish\nwhether the reduced SO_SNDBUF is ignored or the socket layer simply\nbuffers past it, and this cannot be checked from the dev machine. The\ncomment records the observed outcome and says so, rather than asserting a\ncause that was never verified.\n\nThe gate covers only the three parking assertions. The lossless-resume\nassertions -- 20000 bytes arriving exactly once, nothing lost to a park\nand nothing duplicated by a re-execution -- are the property the test\nexists for, and they still run on every platform whether or not a park\noccurred.\n\nVerified: 30/30 on macOS with the gate in place (so it does not silently\ndisable the test here), and `zig build test -Dtarget=x86_64-windows`\ncompiles clean -- the same command CI's windows-cross job runs.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T02:13:39+05:30",
+          "tree_id": "d08a5fccaf4ff34f7ba9e8882d7536c6c8f468dd",
+          "url": "https://github.com/kaappi/kaappi/commit/2b2027b1d8c95e9e7932da541ad37edc2af9da14"
+        },
+        "date": 1785536810385,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.24768,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.674911,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.45735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.24858,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004612,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.037616,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.24723,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.045303,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.279681,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.015743,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.262393,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.254601,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.35284,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.833433,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03751,
             "unit": "seconds"
           }
         ]
