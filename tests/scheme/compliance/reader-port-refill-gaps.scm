@@ -239,13 +239,13 @@
 ;; FAIL: #1893 (a string longer than the whole buffer can never be read)
 ;; (test-assert "string longer than the buffer" (refill-ok-from? 2000 p-long-string))
 
-;; FAIL: TBD (SRFI 267 raw string: readRawString returns UnterminatedString)
+;; FAIL: #1940 (SRFI 267 raw string: readRawString returns UnterminatedString)
 ;; (test-equal "raw string, every split" #t (all-splits-ok? p-rawstring))
-;; FAIL: TBD (SRFI 207 #u8"...": readByteStringLiteral returns UnterminatedString)
+;; FAIL: #1940 (SRFI 207 #u8"...": readByteStringLiteral returns UnterminatedString)
 ;; (test-equal "byte string, every split" #t (all-splits-ok? p-bytestring))
-;; FAIL: TBD (|sym\x41;| truncated mid-escape reports InvalidEscape, splits 18-20)
+;; FAIL: #1940 (|sym\x41;| truncated mid-escape reports InvalidEscape, splits 18-20)
 ;; (test-equal "|quoted symbol| with \\x escape, every split" #t (all-splits-ok? p-qsymbol-hex))
-;; FAIL: TBD (#u8( prefix truncated after #u or #u8 reports UnexpectedChar)
+;; FAIL: #1940 (#u8( prefix truncated after #u or #u8 reports UnexpectedChar)
 ;; (test-equal "bytevector, every split" #t (all-splits-ok? p-bytevector))
 ;; FAIL: #1920 (dotted pair truncated after the . reports UnexpectedChar/DotNotInList)
 ;; (test-equal "dotted pair, every split" #t (all-splits-ok? p-dotted))
@@ -254,7 +254,7 @@
 ;; from a token straddling it.  nextToken (src/reader.zig) reports a
 ;; truncated UTF-8 sequence as UnexpectedChar, so even a list, which refills
 ;; correctly for every ASCII payload, fails.
-;; FAIL: TBD (multi-byte UTF-8 codepoint split across the boundary)
+;; FAIL: #1945 (multi-byte UTF-8 codepoint split across the boundary)
 ;; (test-assert "UTF-8 codepoint split inside a list"
 ;;   (and (refill-ok? p-utf8-list 4) (refill-ok? p-utf8-list 5)))
 
@@ -266,27 +266,27 @@
 ;; first case here: the symbol only survived because #1893 wrapped it in a
 ;; list (which does refill) and counted datums rather than comparing them.
 
-;; FAIL: TBD (bare symbol split at the boundary reads as TWO symbols, silently)
+;; FAIL: #1940 (bare symbol split at the boundary reads as TWO symbols, silently)
 ;; (test-equal "symbol, every split" #t (all-splits-ok? p-symbol))
-;; FAIL: TBD (UTF-8 symbol: splits between codepoints truncate, splits inside raise)
+;; FAIL: #1945 (UTF-8 symbol: splits between codepoints truncate, splits inside raise)
 ;; (test-equal "UTF-8 symbol, every split" #t (all-splits-ok? p-symbol-utf8))
-;; FAIL: TBD (number split at the boundary reads as TWO numbers, silently)
+;; FAIL: #1940 (number split at the boundary reads as TWO numbers, silently)
 ;; (test-equal "number, every split" #t (all-splits-ok? p-number))
-;; FAIL: TBD (#x number: silent split plus InvalidNumber on a truncated prefix)
+;; FAIL: #1940 (#x number: silent split plus InvalidNumber on a truncated prefix)
 ;; (test-equal "hex number, every split" #t (all-splits-ok? p-number-hex))
-;; FAIL: TBD (#\space truncated to #\s plus the symbol `pace')
+;; FAIL: #1940 (#\space truncated to #\s plus the symbol `pace')
 ;; (test-equal "#\\space, every split" #t (all-splits-ok? p-char-space))
-;; FAIL: TBD (#\x41 truncated to #\x plus the number 41)
+;; FAIL: #1940 (#\x41 truncated to #\x plus the number 41)
 ;; (test-equal "#\\x41, every split" #t (all-splits-ok? p-char-hex))
-;; FAIL: TBD (#true truncated to #t plus the symbol `rue')
+;; FAIL: #1940 (#true truncated to #t plus the symbol `rue')
 ;; (test-equal "#true, every split" #t (all-splits-ok? p-true))
-;; FAIL: TBD (line comment truncated at the boundary: the REST OF THE COMMENT
+;; FAIL: #1940 (line comment truncated at the boundary: the REST OF THE COMMENT
 ;;            is read as program data, because a buffer holding only a comment
 ;;            is discarded and reading resumes inside it)
 ;; (test-equal "line comment, every split" #t (all-splits-ok? p-linecmt))
-;; FAIL: TBD (symbol longer than the whole buffer splits into two symbols)
+;; FAIL: #1940 (symbol longer than the whole buffer splits into two symbols)
 ;; (test-assert "symbol longer than the buffer" (refill-ok-from? 2000 p-long-symbol))
-;; FAIL: TBD (line comment longer than the whole buffer leaks its body as data)
+;; FAIL: #1940 (line comment longer than the whole buffer leaks its body as data)
 ;; (test-assert "line comment longer than the buffer" (refill-ok-from? 2000 p-long-linecmt))
 
 ;; --- the same failures repeat at every later boundary ---------------------
@@ -297,7 +297,7 @@
 ;;       (cond ((>= i n) #t)
 ;;             ((refill-ok-at? 8192 p-string i) (loop (+ i 1)))
 ;;             (else i)))))
-;; FAIL: TBD (symbol splits identically at 8192)
+;; FAIL: #1940 (symbol splits identically at 8192)
 ;; (test-equal "symbol at the 8192 boundary, every split" #t
 ;;   (let ((n (utf8-length p-symbol)))
 ;;     (let loop ((i 1))
