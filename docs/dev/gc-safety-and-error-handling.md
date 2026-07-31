@@ -368,13 +368,60 @@ sites fell through both at once:
 There are in fact three spellings of the same error in `src/`, since
 `PrimitiveError` and `VMError` are both aliases of `errors.KaappiError` and
 `ffi.zig` declares inline `error{TypeError}` sets instead of using either. A
-grep covering all three outside `primitives*.zig` returns 35 sites: 27 in
-`ffi.zig` (all the bare `return error.TypeError` spelling), 4 in
-`vm_dispatch.zig`, 2 each in `vm_records.zig` and `vm_calls.zig`. Those are
-real error conditions — an unsupported FFI signature, a sealed parent rtd —
-not threadlocal guards, so widening the gate means triaging them first rather
-than turning it on. Until someone does, read the gate as covering the
-primitives layer it was written for, not the rules as a whole.
+grep covering all three outside `primitives*.zig` returned 35 sites, triaged
+by #1880. They were not 35 problems, and the four groups wanted four different
+treatments:
+
+| Group | Sites | What it was | What #1880 did |
+|---|---|---|---|
+| A | 2, `vm_records.zig` | Live defects: a sealed parent rtd and a `nongenerative` uid collision reported `error[KP3002]: type error` and nothing else | Both now report through `primitives_srfi237.zig`'s shared helpers as KP3007 with a message (plus a third condition the census could not see — below) |
+| B | 4, `vm_dispatch.zig` + `vm_calls.zig` | Latent: two of `callFfi`'s four call sites supplied a fallback message and two did not | All four route through one `vm_calls.mapFfiError` |
+| C | 2, `vm_dispatch.zig` | Already correct — `setErrorDetail` on the line above | Annotated `// bare-ok: detail set above` |
+| D | 27, `ffi.zig` | Internal pass/fail signalling behind `validateArgsDetailed`, which supplies every message | Left alone |
+
+Group A is the one worth knowing about beyond its own fix. R6RS's sealed-parent
+and uid-collision rules are enforced twice — syntactically in
+`vm_records.handleDefineRecordTypeR6RS`, procedurally in
+`%make-record-type-descriptor` — and the procedural half had been getting this
+right since #1868 while the syntactic half raised a message-less KP3002 the
+whole time. Both the rule and its wording now live once, in
+`primitives_srfi237.zig` (`RtdShape`, `sealedParentError`,
+`reuseNongenerativeRtd`), so the two routes cannot disagree about what R6RS
+requires or about how to say so. Only the procedure name differs, because a
+caller who wrote `define-record-type` should not be told about the internal
+primitive it desugars to.
+
+Reading those two functions turned up a **third** condition of the same shape
+that no grep in this section can see, and it is the more useful lesson: both
+routes signalled "more than 255 fields once the parent's are counted" as a
+`return switch` arm yielding a bare `TypeError`. Neither the path nor the
+spelling blind spot explains that one — `return switch (err) { .X => VMError
+.TypeError, … }` simply is not `return VMError.TypeError`, so a gate widened
+to all three spellings and all of `src/` would still have walked past it. It
+also showed why "bare" is the wrong mental model for these: out of a primitive,
+`mapNativeError` fills a missing detail in from `args[0]`, so the procedural
+half did not report *nothing* — it reported `type error in
+'%make-record-type-descriptor': got "chi"`, confidently blaming the type's name
+for a limit the field list broke. A message that names the wrong argument is
+harder to spot in review than no message at all, and impossible to find by
+counting grep hits.
+
+Group B leaves one fact worth recording, because the obvious way to check it is
+wrong. `callFfi`'s four sites are *not* reached by direct call / `apply` / `map`
+— all three of those go through `vm_calls.zig`, and the two hot
+`vm_dispatch.zig` sites are the **tail-call** and **tail-apply** opcodes, which
+a non-tail call never reaches. A three-form check built from
+`(f x)` / `(apply f …)` / `(map f …)` tests two sites twice and the other two
+not at all; `tests/scheme/ffi/error-messages.scm` uses tail-position forms for
+exactly this reason.
+
+That leaves 27 sites, all of them Group D and all in `ffi.zig`, so widening the
+gate is now a single question rather than a mixed bag: whether the validator's
+internal pass/fail signal should carry a distinct tag (`error.FfiArgReject`)
+that the grep would never count, or simply be annotated. Retagging them as
+user-facing errors would change nothing a user sees and would break
+`validateArgsDetailed`'s own switch. Until that is settled, read the gate as
+covering the primitives layer it was written for, not the rules as a whole.
 
 ### Sandbox enforcement
 

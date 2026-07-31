@@ -588,6 +588,77 @@ assert_output_contains "non-equivalent uid collision is KP3007 and echoes the ui
     "(import (scheme base) (srfi 237)) (make-record-type-descriptor 'a #f 'dup #f #f '#((mutable x))) (make-record-type-descriptor 'a #f 'dup #f #f '#((mutable y)))" \
     'error[KP3007]: %make-record-type-descriptor: uid "dup" is already bound to a record type'
 
+# The same two conditions reached SYNTACTICALLY. Until kaappi#1880 these were
+# the only two `define-record-type` errors that reported nothing at all: a bare
+# "error[KP3002]: type error" naming no procedure, no expected type and no
+# value -- the three things KP3007's own registry entry promises. Both now go
+# through the same helpers as the procedural twins above, so the pair also pins
+# that the two routes cannot drift apart again.
+assert_output_contains "syntactic sealed parent is KP3007, and names the parent" \
+    "(import (scheme base) (srfi 237)) (define-record-type (p mk-p p?) (fields (immutable x)) (sealed #t)) (define-record-type (c mk-c c?) (parent p) (fields (immutable y)))" \
+    "error[KP3007]: define-record-type: record type 'p' is sealed and cannot be a parent"
+
+assert_output_contains "syntactic uid collision is KP3007, and names the axis that differs" \
+    "(import (scheme base) (srfi 237)) (define-record-type (a mk-a a?) (fields (immutable x)) (nongenerative dup)) (define-record-type (b mk-b b?) (fields (immutable y)) (nongenerative dup))" \
+    'error[KP3007]: define-record-type: uid "dup" is already bound to a record type with a different field set'
+
+# The negative half: the old answer was KP3002, so a regression that reverted
+# either site would still satisfy a "contains KP3007" check on the other one.
+assert_output_lacks "syntactic sealed parent is not reported as a type error" \
+    "(import (scheme base) (srfi 237)) (define-record-type (p mk-p p?) (fields (immutable x)) (sealed #t)) (define-record-type (c mk-c c?) (parent p) (fields (immutable y)))" \
+    'error[KP3002]'
+
+# A uid collision names the ONE axis that actually differs, not a list of every
+# axis it might have been. Checked on an axis other than the field set so a
+# hardcoded tail cannot pass.
+assert_output_contains "a uid differing only in sealedness says so" \
+    "(import (scheme base) (srfi 237)) (define-record-type (a mk-a a?) (fields (immutable x)) (nongenerative dup)) (define-record-type (b mk-b b?) (fields (immutable x)) (sealed #t) (nongenerative dup))" \
+    'is already bound to a record type with a different sealed flag'
+
+# The other half of the uid rule: an EQUIVALENT redefinition is not an error at
+# all, it reuses the registered rtd. Without this, "reject everything" passes
+# every assertion above.
+assert_output_contains "an equivalent nongenerative redefinition still reuses the rtd" \
+    "(import (scheme base) (scheme write) (srfi 237)) (define-record-type (a mk-a a?) (fields (immutable x)) (nongenerative dup)) (define-record-type (b mk-b b?) (fields (immutable x)) (nongenerative dup)) (display (a? (mk-b 1)))" \
+    '#t'
+
+# A third condition of the same shape, in the same two functions, that
+# kaappi#1880's census could not see: RecordType.num_fields is a u8, so 255 is
+# the cap on a type's fields INCLUDING inherited ones. Both parsers already cap
+# a type's own fields, so only the inherited total can trip it -- and both
+# routes signalled it as a `return switch` arm yielding a bare TypeError, a
+# spelling the gate's grep does not match either.
+gen_fields() {
+    prefix="$1"; count="$2"; i=0; out=""
+    while [ "$i" -lt "$count" ]; do
+        out="$out (immutable $prefix$i)"
+        i=$((i + 1))
+    done
+    printf '%s' "$out"
+}
+OVERSIZE_SYNTACTIC="(import (scheme base) (srfi 237))
+(define-record-type (par mk-par par?) (fields $(gen_fields p 200)))
+(define-record-type (chi mk-chi chi?) (parent par) (fields $(gen_fields c 100)))"
+OVERSIZE_PROCEDURAL="(import (scheme base) (srfi 237))
+(define P (make-record-type-descriptor 'par #f #f #f #f '#($(gen_fields p 200))))
+(make-record-type-descriptor 'chi P #f #f #f '#($(gen_fields c 100)))"
+
+assert_output_contains "an oversized inherited field count names both contributions" \
+    "$OVERSIZE_SYNTACTIC" \
+    'error[KP3007]: define-record-type: record type would have 300 fields (100 of its own plus 200 inherited), but the limit is 255'
+
+assert_output_contains "the procedural route reports the same limit the same way" \
+    "$OVERSIZE_PROCEDURAL" \
+    'record type would have 300 fields (100 of its own plus 200 inherited), but the limit is 255'
+
+# The procedural route was the worse of the two before the fix: a bare
+# TypeError out of a primitive is not anonymous, so mapNativeError synthesized
+# "type error in '%make-record-type-descriptor': got \"chi\"" -- blaming the
+# type's NAME, the first argument, for a limit the field list broke.
+assert_output_lacks "the oversized-field error does not blame the type's name" \
+    "$OVERSIZE_PROCEDURAL" \
+    'got "chi"'
+
 # %elision-lever-set! is a KEP-0002 gate-harness hook compiled in only with
 # -Dchannel-instrument=true, so it is absent from ordinary builds (including
 # the one CI runs this suite against). Probe for it rather than assuming.
@@ -626,6 +697,8 @@ assert_no_zig_leak "string-keyed table, non-string key (kaappi#1868)" \
     '(import (scheme base) (srfi 69)) (hash-table-set! (make-hash-table string=?) 1 2)'
 assert_no_zig_leak "sealed parent rtd (kaappi#1868)" \
     "(import (scheme base) (srfi 237)) (define l (make-record-type-descriptor 'l #f #f #t #f '#())) (make-record-type-descriptor 'c l #f #f #f '#())"
+assert_no_zig_leak "syntactic sealed parent rtd (kaappi#1880)" \
+    "(import (scheme base) (srfi 237)) (define-record-type (p mk-p p?) (fields (immutable x)) (sealed #t)) (define-record-type (c mk-c c?) (parent p) (fields (immutable y)))"
 
 echo
 echo "=== Results ==="

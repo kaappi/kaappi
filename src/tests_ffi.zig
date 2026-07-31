@@ -4,6 +4,8 @@ const types = @import("types.zig");
 const ffi = @import("ffi.zig");
 const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
+const vm_mod = @import("vm.zig");
+const vm_calls = @import("vm_calls.zig");
 
 // A C-ABI function with a real `_Bool` parameter. In safe builds (the default)
 // the Zig compiler inserts a check that traps if the incoming byte is not 0 or
@@ -273,4 +275,76 @@ test "ffi-open: a path with separators is not re-searched under home lib" {
     // "<home>/lib/<path>" mashup may appear anywhere in the message.
     try std.testing.expect(std.mem.indexOf(u8, msg, "/lib/)") == null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "lib//") == null);
+}
+
+// kaappi#1880: `callFfi`'s four call sites now route failures through one
+// mapper. Until #1880 only the two in vm_calls.zig supplied a fallback message
+// when callFfi returned TypeError without setting a detail; the two hot ones
+// in vm_dispatch.zig (the tail-call and tail-apply opcodes) returned a bare
+// TypeError, so such a failure would report usefully or not at all depending
+// on which opcode dispatched the call.
+//
+// `callFfi` sets a detail on every path it can currently fail through, so
+// nothing reaches the fallback from Scheme -- the Scheme-level check in
+// tests/scheme/ffi/error-messages.scm can only pin that the four sites agree,
+// not that the fallback works. Forcing the empty-detail state here is the only
+// way to exercise what those sites now share.
+test "mapFfiError supplies a fallback message when callFfi left none (#1880)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var ptypes = [_]types.FfiType{.bool_type};
+    var ffi_fn = makeBoolFn(ptypes[0..], .int);
+
+    ctx.vm.last_error_detail_len = 0;
+    try std.testing.expectEqual(
+        vm_mod.VMError.TypeError,
+        vm_calls.mapFfiError(ctx.vm, error.TypeError, &ffi_fn),
+    );
+    // Naming the function is the whole point: "type error" alone is what the
+    // two dispatch sites used to produce.
+    const detail = ctx.vm.last_error_detail[0..ctx.vm.last_error_detail_len];
+    try std.testing.expect(std.mem.indexOf(u8, detail, "recv_bool") != null);
+}
+
+test "mapFfiError never overwrites a detail callFfi already set (#1880)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var ptypes = [_]types.FfiType{.bool_type};
+    var ffi_fn = makeBoolFn(ptypes[0..], .int);
+
+    // The fallback is a floor, not an overwrite. Clobbering the specific
+    // message `validateArgsDetailed` produces with the generic one would be
+    // strictly worse than the bug being fixed -- this is what the two sites
+    // that already had the guard got right, and what is being copied.
+    ctx.vm.setErrorDetail("'{s}': argument 1 must be string, got integer", .{ffi_fn.name});
+    try std.testing.expectEqual(
+        vm_mod.VMError.TypeError,
+        vm_calls.mapFfiError(ctx.vm, error.TypeError, &ffi_fn),
+    );
+    try std.testing.expectEqualStrings(
+        "'recv_bool': argument 1 must be string, got integer",
+        ctx.vm.last_error_detail[0..ctx.vm.last_error_detail_len],
+    );
+}
+
+test "mapFfiError passes a raised Scheme exception through untouched (#1880)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var ptypes = [_]types.FfiType{.bool_type};
+    var ffi_fn = makeBoolFn(ptypes[0..], .int);
+
+    // An ffi-callback that raised must stay an exception, not become a type
+    // error, and must not pick up an FFI-signature detail on the way out.
+    ctx.vm.last_error_detail_len = 0;
+    try std.testing.expectEqual(
+        vm_mod.VMError.ExceptionRaised,
+        vm_calls.mapFfiError(ctx.vm, error.ExceptionRaised, &ffi_fn),
+    );
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.last_error_detail_len);
 }

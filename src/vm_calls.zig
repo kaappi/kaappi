@@ -350,6 +350,30 @@ fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
     return types.VOID;
 }
 
+/// `mapNativeError`'s counterpart for `ffi.callFfi`, which reports through an
+/// inline `error{TypeError}` set of its own rather than the VM's.
+///
+/// `callFfi` guarantees a detail on every path it can currently fail through
+/// (`validateArgsDetailed` covers every user-reachable argument problem, and
+/// `callFfi` has this same fallback at its own exit), so the fallback here is
+/// unreachable today. It exists because the four call sites did not used to
+/// agree: the two in this file had it and the two hot ones in
+/// `vm_dispatch.zig` did not, so a future `callFfi` failure that forgot a
+/// detail would have reported usefully or not at all depending on which opcode
+/// dispatched the call (kaappi#1880). One shared mapper is cheaper than
+/// separate copies of the same guard staying in sync.
+///
+/// The four sites are callValue and callWithArgs here, and the tail-call and
+/// tail-apply opcodes in `vm_dispatch.zig`. Note that a *non*-tail call
+/// reaches neither of the latter two, which is why
+/// `tests/scheme/ffi/error-messages.scm` covers them with tail-position forms.
+pub fn mapFfiError(vm: *VM, err: anyerror, ffi_fn: *types.FfiFunction) VMError {
+    if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
+    if (vm.last_error_detail_len == 0)
+        vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
+    return VMError.TypeError; // bare-ok: this is mapFfiError itself
+}
+
 pub fn mapNativeError(vm: *VM, err: anyerror, name: []const u8, args: []const Value) VMError {
     return switch (err) {
         error.TypeError => blk: {
@@ -431,12 +455,8 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
             return VMError.ArityMismatch;
         }
         const ffi_mod = @import("ffi.zig");
-        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc, vm) catch |err| {
-            if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
-            if (vm.last_error_detail_len == 0)
-                vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
-            return VMError.TypeError;
-        };
+        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc, vm) catch |err|
+            return mapFfiError(vm, err, ffi_fn);
         vm.registers[base] = result;
         return;
     }
@@ -790,12 +810,8 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
             return VMError.ArityMismatch;
         }
         const ffi_mod = @import("ffi.zig");
-        return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch |err| {
-            if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
-            if (vm.last_error_detail_len == 0)
-                vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
-            return VMError.TypeError;
-        };
+        return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch |err|
+            return mapFfiError(vm, err, ffi_fn);
     }
     if (types.isParameter(proc)) {
         const param = types.toObject(proc).as(types.ParameterObject);

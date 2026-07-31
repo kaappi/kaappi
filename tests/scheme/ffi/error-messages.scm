@@ -59,6 +59,35 @@
     (c-abs (expt 2 40))
     #f))
 
+;; kaappi#1880: one FFI failure, four dispatch sites. `callFfi` is reached from
+;; four places -- callValue and callWithArgs in vm_calls.zig, and the tail-call
+;; and tail-apply opcodes in vm_dispatch.zig -- and until #1880 only the first
+;; two supplied a fallback message when callFfi returned without setting one.
+;; The four forms below are chosen because each reaches a DIFFERENT one of
+;; those sites: the tail-position pair is what a non-tail call never reaches,
+;; so a check built from direct/apply/map alone leaves both hot sites untested.
+(define (ffi-error-message thunk)
+  (guard (e (#t (error-object-message e)))
+    (thunk)
+    "no error raised"))
+
+(define (tail-call x) (c-abs x))                       ; vm_dispatch: tail call
+(define (tail-apply x) (apply c-abs (list x)))         ; vm_dispatch: tail apply
+(define (nontail-call x) (+ 0 (c-abs x)))              ; vm_calls: callValue
+(define (nontail-apply x) (+ 0 (apply c-abs (list x)))) ; vm_calls: callWithArgs
+
+(define site-messages
+  (map (lambda (f) (ffi-error-message (lambda () (f -3.0))))
+       (list tail-call tail-apply nontail-call nontail-apply)))
+
+(test-assert "the same FFI error reports identically through all four dispatch sites"
+  (let ((first (car site-messages)))
+    (and (string-contains first "abs")
+         (let loop ((rest (cdr site-messages)))
+           (cond ((null? rest) #t)
+                 ((string=? (car rest) first) (loop (cdr rest)))
+                 (else #f))))))
+
 (let ((runner (test-runner-current)))
   (test-end "ffi-error-messages")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

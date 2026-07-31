@@ -265,6 +265,13 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 // define-record-type inside its own .sld body -- a real but narrower gap
 // than the top-level case this session's test suite exercises.
 
+/// The name this path's errors report. The syntactic and procedural routes to
+/// R6RS's sealed-parent and nongenerative-uid rejections share their wording
+/// (primitives_srfi237.zig) but not their name: a caller who wrote
+/// `define-record-type` should never be told about the internal primitive it
+/// happens to desugar to.
+const DEFINE_RTD = "define-record-type";
+
 fn isR6RSClauseKeyword(name: []const u8) bool {
     const keywords = [_][]const u8{ "fields", "parent", "protocol", "sealed", "opaque", "nongenerative", "generative", "parent-rtd" };
     for (keywords) |kw| {
@@ -532,9 +539,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         if (!types.isRecordType(parent_val)) return VMError.CompileError;
         break :blk types.toObject(parent_val).as(types.RecordType);
     } else null;
-    // R6RS: "An exception ... is raised if parent is sealed" -- a sealed
-    // type must never become an ancestor of another record type.
-    if (parent_rt) |p| if (p.sealed) return VMError.TypeError;
+    if (parent_rt) |p| if (p.sealed) return srfi237_prims.sealedParentError(DEFINE_RTD, p);
     const parent_total_fields: usize = if (parent_rt) |p| p.num_fields else 0;
 
     var field_names_buf: [256][]const u8 = undefined;
@@ -545,21 +550,19 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
     }
 
     // nongenerative: reuse an existing RTD registered under this uid, but
-    // only when it's actually equivalent (same check as
-    // %make-record-type-descriptor in primitives_srfi237.zig -- R6RS:
-    // "the record-type definitions should be equivalent").
+    // only when it's actually equivalent -- R6RS's rule and its rejection
+    // message are shared with %make-record-type-descriptor, the procedural
+    // route to the same condition.
     var rt_val: Value = undefined;
     if (spec.uid) |u| {
         if (vm.record_uid_registry.get(u)) |existing| {
-            const existing_rt = types.toObject(existing).as(types.RecordType);
-            if (existing_rt.parent != parent_rt or
-                existing_rt.sealed != spec.sealed or
-                existing_rt.is_opaque != spec.is_opaque or
-                !srfi237_prims.fieldsEquivalent(existing_rt, field_names_buf[0..spec.field_count], field_mutable_buf[0..spec.field_count]))
-            {
-                return VMError.TypeError;
-            }
-            rt_val = existing;
+            rt_val = try srfi237_prims.reuseNongenerativeRtd(DEFINE_RTD, u, existing, .{
+                .parent = parent_rt,
+                .sealed = spec.sealed,
+                .is_opaque = spec.is_opaque,
+                .field_names = field_names_buf[0..spec.field_count],
+                .field_mutable = field_mutable_buf[0..spec.field_count],
+            });
         } else {
             rt_val = vm.gc.allocRecordTypeExtended(
                 spec.type_name,
@@ -570,7 +573,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
                 spec.sealed,
                 spec.is_opaque,
             ) catch |err| return switch (err) {
-                error.TooManyFields => VMError.TypeError,
+                error.TooManyFields => srfi237_prims.tooManyFieldsError(DEFINE_RTD, spec.field_count, parent_rt),
                 else => VMError.OutOfMemory,
             };
             vm.gc.pushRoot(&rt_val);
@@ -587,7 +590,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             spec.sealed,
             spec.is_opaque,
         ) catch |err| return switch (err) {
-            error.TooManyFields => VMError.TypeError,
+            error.TooManyFields => srfi237_prims.tooManyFieldsError(DEFINE_RTD, spec.field_count, parent_rt),
             else => VMError.OutOfMemory,
         };
     }
