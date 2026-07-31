@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785536812605,
+  "lastUpdate": 1785536946866,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "beaee758678073c163814e3b772586296e066b42",
-          "message": "Free let_syntax_peer_names/vals before cross-form recomputation too (#1765)\n\nCodeRabbit-caught follow-up to #1764's own fix (found in that PR's\nreview, after CI had already auto-merged it): the tx_vals-prefix scan\nonly catches the same Transformer reappearing within one let-syntax\nform. It genuinely can't skip recomputation when that transformer is\naliased into a DIFFERENT, unrelated let-syntax form later -- that\nform's own sibling set differs and needs its own snapshot -- but the\nrecomputation itself still unconditionally overwrote whatever an\nearlier form's processing had already set, with no free.\n\nFixed by freeing the previous let_syntax_peer_names/vals pair\nimmediately before every overwrite, regardless of which case (within-\nform repeat vs. cross-form reuse) triggered it. Mutation-tested: a\nsecond reproduction (the same helper aliased into two separate,\nsequential top-level let-syntax forms, each with a distinct sibling of\nthe same name) confirms the recomputation itself still resolves\ncorrectly, and leaks 2 allocations without this fix.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T21:21:54Z",
-          "tree_id": "6ee4ec3f51b4725f059bf7f7dcf68245d301b6d8",
-          "url": "https://github.com/kaappi/kaappi/commit/beaee758678073c163814e3b772586296e066b42"
-        },
-        "date": 1785102960674,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.316555,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.250153,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.900124,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.412647,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006392,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054069,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.507157,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069469,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.52858,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.007143,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.591855,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429864,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.864783,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.66001,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044588,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03751,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a82cd4d90d32a2c8e7d0d5f5b4b0680a39238e3",
+          "message": "Say which kind of failure a port error is (#1944) (#1969)\n\nprimitives_io.zig had 44 typeError sites and zero indexError/argError\nsites, so every non-type failure in the file arrived mislabelled.\n\nSeeking a string port past its end raised a detail-less \"invalid\nargument in 'set-port-position!'\" — no index, no length — while the\nsibling non-seekable path three branches down did set detail. It reports\nindex and length now (KP3006).\n\nwrite-string's range check blamed args[0]: `(write-string \"abc\" p 5)`\nsaid \"expected valid range, got #<string>\", naming the one argument that\nwas valid. The offending index is named now, following substring, the\nhouse precedent for a start/end pair. An inverted-but-in-range pair is\nneither a type nor a range fault, so `(write-string \"abc\" p 2 1)` is\nargError: \"start 2 is greater than end 1\".\n\nA closed port was \"type error: expected open input port, got #<port>\".\nA closed port is a port, and the direction check has already run, so\nnothing about its type is wrong — that is argError (KP3007). A genuine\nnon-port, and an input port where an output port is wanted, are still\ntype errors; both are pinned as controls.\n\nThree internal guards carried the tag .claude/rules/gc-safety.md\nforbids: waitPortFd and raisePortClosedDuringIo reported a missing VM or\nGC as KP3007, blaming the program for a broken interpreter. #1874\nblessed these as Rule 1 keepers on the grounds that they \"already\ncarried a tag of their own\" — but InvalidArgument is not a tag either\nfunction returns for any other reason, and raisePortClosedDuringIo is a\nbyte-for-byte twin of raiseWrappedPortClosed 950 lines down the same\nfile, which Rule 2 had already moved. Both are settled the same way now,\nand the doc's seam paragraph says why the Rule 1 side is narrower than\nit read.\n\nThe audit file's existing assertions only ever asked whether a bad call\nraises, which is how all of this drifted; 13 new assertions pin the\nmessage text, 9 of which fail without this change. The guard tags are\nunreachable from Scheme, so they get a Zig test where the private\nhelpers live.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T02:25:15+05:30",
+          "tree_id": "3d6c4b566c2864f447d18282ec13a6ece5c07ca8",
+          "url": "https://github.com/kaappi/kaappi/commit/9a82cd4d90d32a2c8e7d0d5f5b4b0680a39238e3"
+        },
+        "date": 1785536944840,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.287284,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.785897,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.570462,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.952305,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004713,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04671,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.31136,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056612,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.686396,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.24324,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.582693,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286477,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.771485,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.50433,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042888,
             "unit": "seconds"
           }
         ]
