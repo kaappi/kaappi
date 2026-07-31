@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785520130043,
+  "lastUpdate": 1785521560761,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8c69cbc8f8057433f2b7aad3b614e5eb919615cc",
-          "message": "Add SRFI 147 (custom macro transformers) (#1760)\n\n* Add SRFI 147 (custom macro transformers)\n\nThird of 4 tractable pieces of issue #1699, and the first that\ngenuinely needed an engine change. R7RS's <transformer spec> only\naccepts a literal (syntax-rules ...) form; this SRFI extends it to\nalso accept a macro use that itself expands (possibly through several\nsteps) to one -- letting a library define its own\ntransformer-generating-transformer, e.g. the spec's own worked\nexample, a syntax-rules* that auto-wraps multi-form templates in\nbegin. This is exactly what SRFI 148's em-syntax-rules needs, the\nreason this SRFI was implemented.\n\ncompileDefineSyntax/compileLetSyntax/compileLetrecSyntax now route\nevery transformer-spec through a new resolveTransformerSpec, which\nexpands a non-literal spec via the same expander.expandMacro every\nordinary macro call already goes through, looping (depth-bounded)\nuntil it bottoms out at a literal syntax-rules form. Two of the\ngrammar's other alternatives -- bare-keyword aliasing and\nbegin-wrapped-definitions -- are deliberately not implemented, since\nneither is needed by SRFI 148.\n\nVerifying against just the spec's own example wasn't enough --\nbash tests/scheme/run-all.sh caught two real, generalizable bugs no\namount of SRFI-147-specific testing alone would have found:\n\n1. A LIFO root-stack violation: an early draft rooted the resolved\n   spec via pushRoot + defer popRoot() inside compileLetSyntax's\n   per-binding loop, but the same iteration pushes an unrelated root\n   right after, so the deferred pop silently removed the wrong (most\n   recent) entry instead. Surfaced only in srfi257.scm's heavily\n   macro-based library as an unrelated-looking \"invalid syntax\" error.\n   Fixed by popping immediately and explicitly, never via defer across\n   a stretch that itself calls pushRoot -- now documented in\n   .claude/rules/gc-safety.md, whose glob also grew to cover\n   compiler*.zig/expander.zig.\n2. A parent-scope-chain visibility gap: the macro lookup only checked\n   self.macros, unlike the established expandAndCompileMacroUse path,\n   which merges every ancestor Compiler scope's macros first -- a\n   nested child scope (e.g. a let-syntax inside guard's desugared\n   lambda, as SRFI 64's own test-equal produces) never automatically\n   inherits an enclosing scope's macros.\n\nBumps the SRFI count 173->174, reconciled against the canonical\nregistry: 174 implemented + 4 tracked + 30 excluded = 208.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix ancestor-scope shadowing order in resolveTransformerSpec\n\nCodeRabbit review of #1760: the ancestor-chain merge populated\nnearest-to-farthest (matching expandAndCompileMacroUse's own existing\npattern), but since a hash map's put() overwrites, this means a\nFARTHER ancestor's macro definition wins over a NEARER one when both\nredefine the same name -- backwards from correct lexical shadowing.\n\nConfirmed via a 3-level nested-lambda reproduction: an outermost\nmk-transformer definition wrongly won over a middle-scope redefinition\nthat should have shadowed it. Fixed by collecting the ancestor chain\nfirst, then populating farthest-to-nearest (self.macros last of all),\nso a nearer scope's put() call correctly happens after a farther one's.\n\nDeliberately not fixed in expandAndCompileMacroUse itself: it's the\nmost heavily-exercised path in the entire macro system, the scenario\nneeds 2+ ancestor generations redefining the exact same macro name\n(rare, never observed causing a problem there), and touching it\ncarries regression risk disproportionate to this PR's actual scope --\nworth its own dedicated fix.\n\nAlso fixes a markdown-lint nit (blank lines around fenced examples in\ngc-safety.md) and switches a manually-constructed GC/VM test to the\nestablished th.TestContext helper.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-26T20:17:10+05:30",
-          "tree_id": "d9c5a05d813bbc52cf3d2b74d38808e12a28449d",
-          "url": "https://github.com/kaappi/kaappi/commit/8c69cbc8f8057433f2b7aad3b614e5eb919615cc"
-        },
-        "date": 1785079333164,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.134434,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.426043,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.650484,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.238276,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006155,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.043289,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.373584,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054549,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.168129,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.43825,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.239222,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.405442,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.383051,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.805854,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036393,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04029,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "589aba141046e3b8544cf84787b4cb1b8a1579ad",
+          "message": "Phase 2.4: SRFI 160 audit — 1066 assertions across 12 element kinds, one hang (#1952)\n\n* Phase 2.4: audit primitives_srfi160 across all 12 element kinds\n\nsrc/primitives_srfi160.zig is 280 lines and six %-prefixed generic\nprimitives, but those six are the entire native surface under 12 element\nkinds and ~732 exported names across 13 .sld files. It had no audit test,\nand the existing tests/scheme/srfi/srfi160.scm is 75% s8.\n\nAdds tests/scheme/audit/primitives_srfi160-audit.scm: 1066 assertions,\nevery 12-kind sweep generated from one kind table rather than written out\nper kind.\n\nConfirmed correct, systematically rather than by spot check: the 8\ninteger kinds at min/min+1/min-1/max/max-1/max+1 and against nine\ntype/exactness rejection classes; the two independent range checks\n(%uvec-elt-valid? in Scheme, expectSignedInRange/expectReal in Zig) agree\non a 12x23 corpus; f32 really truncates to single precision; -0.0, +-inf.0\nand NaN survive; c64/c128 pack two components independently and at the\nright width; a rejected set! never leaves a half-written element; the\nu8-as-bytevector seam holds in both directions; every per-type wrapper\nfixes its own kind symbol (12x12 predicate matrix plus every\nkind-constructing entry point); and callback errors propagate out of all\n18 higher-order generics, with an out-of-range callback result rejected\nrather than truncated.\n\nThree findings, disabled with a marker and an enabled control each:\n\n- Uvector-segment with n = 0 never terminates. %uvec-segment advances by\n  (min len (+ start n)), so start never moves while a fresh zero-length\n  copy is consed each iteration. All 12 kinds, both dispatch branches.\n  SRFI 160 makes n = 0 \"an error\", so a raise would conform; a hang does\n  not. Controls: n = -1 raises, n = 1 and n = 3 work, empty vector with\n  n = 0 returns ().\n\n- c64/c128 comparator hash raises on every value. %uvec-hash folds with\n  number-hash, which is (abs x)-based and rejects a complex. c64/c128\n  elements always decode to a Complex, so this fires even when every\n  imaginary part is zero. SRFI 160 requires the comparator to provide\n  hashing. Controls: the s8, f64 and u8 comparator hashes all work.\n\n- A zero-imaginary c64/c128 element writes as a form that reads back as a\n  different type: real? is #f, yet write emits \"1.5\", which reads as a\n  flonum. Affects the default fill, so every fresh c64/c128 vector has\n  such elements. Only decodeElement can produce them -- make-rectangular\n  normalises a zero imaginary part away. The vector printer prints\n  \"1.5+0.0i\" for the same bytes, so the two printer paths disagree.\n\nByte order is host-native by design and, on this evidence, not observable\nfrom Scheme: there is no NumericVector-to-bytes view, and NumericVector\nis not .sbc-serialisable. The printer and the primitives are two separate\nhand-written native-endian decoders, so the section 8 assertions use\nvalues whose byte-reverse is a different in-range number -- they assert\nencoder/decoder agreement rather than a little-endian layout, so they\npass on any host and would fail on s390x only if the two drifted apart.\n\nFound by: systematic audit v2, Phase 2.4\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point SRFI 160 FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-31T23:11:25+05:30",
+          "tree_id": "c2c96809d17d13065b03b09200c18c067ea72f26",
+          "url": "https://github.com/kaappi/kaappi/commit/589aba141046e3b8544cf84787b4cb1b8a1579ad"
+        },
+        "date": 1785521556195,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.140581,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.408456,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.447896,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.214184,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004263,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036742,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.228824,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041613,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.243518,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.981944,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.252776,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.241359,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.35194,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.763942,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034544,
             "unit": "seconds"
           }
         ]
