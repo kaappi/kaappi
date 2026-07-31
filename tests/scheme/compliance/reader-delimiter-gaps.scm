@@ -242,99 +242,99 @@
 (test-group "radix prefix: trailing character must terminate the token"
   ;; --- #b: a digit from a higher radix ---
   (test-assert "s->n rejects #b12" (not (string->number "#b12")))
-  ;; FAIL: #1892 (#b12 reads as 1 followed by the symbol 2)
+  ;; FAIL: #1929 (#b12 reads as 1 followed by the symbol 2)
   ;; (test-assert "#b12 rejected" (rejects? "#b12"))
 
   (test-assert "s->n rejects #b19" (not (string->number "#b19")))
-  ;; FAIL: #1892 (#b19 reads as 1 followed by the symbol 9)
+  ;; FAIL: #1929 (#b19 reads as 1 followed by the symbol 9)
   ;; (test-assert "#b19 rejected" (rejects? "#b19"))
 
   (test-assert "s->n rejects #o18" (not (string->number "#o18")))
-  ;; FAIL: #1892 (#o18 reads as 1 followed by the symbol 8)
+  ;; FAIL: #1929 (#o18 reads as 1 followed by the symbol 8)
   ;; (test-assert "#o18 rejected" (rejects? "#o18"))
 
   (test-assert "s->n rejects #d1a" (not (string->number "#d1a")))
-  ;; FAIL: #1892 (#d1a reads as 1 followed by the symbol a)
+  ;; FAIL: #1929 (#d1a reads as 1 followed by the symbol a)
   ;; (test-assert "#d1a rejected" (rejects? "#d1a"))
 
   (test-assert "s->n rejects #x1g" (not (string->number "#x1g")))
-  ;; FAIL: #1892 (#x1g reads as 1 followed by the symbol g)
+  ;; FAIL: #1929 (#x1g reads as 1 followed by the symbol g)
   ;; (test-assert "#x1g rejected" (rejects? "#x1g"))
 
   ;; --- exponent-marker-shaped letters ---
   (test-assert "s->n rejects #b1p4" (not (string->number "#b1p4")))
-  ;; FAIL: #1892 (#b1p4 reads as 1 followed by the symbol p4)
+  ;; FAIL: #1929 (#b1p4 reads as 1 followed by the symbol p4)
   ;; (test-assert "#b1p4 rejected" (rejects? "#b1p4"))
 
   (test-assert "s->n rejects #o1e3" (not (string->number "#o1e3")))
-  ;; FAIL: #1892 (#o1e3 reads as 1 followed by the symbol e3)
+  ;; FAIL: #1929 (#o1e3 reads as 1 followed by the symbol e3)
   ;; (test-assert "#o1e3 rejected" (rejects? "#o1e3"))
 
   (test-assert "s->n rejects #d1p" (not (string->number "#d1p")))
-  ;; FAIL: #1892 (#d1p reads as 1 followed by the symbol p)
+  ;; FAIL: #1929 (#d1p reads as 1 followed by the symbol p)
   ;; (test-assert "#d1p rejected" (rejects? "#d1p"))
 
   (test-assert "s->n rejects #x1s" (not (string->number "#x1s")))
-  ;; FAIL: #1892 (#x1s reads as 1 followed by the symbol s)
+  ;; FAIL: #1929 (#x1s reads as 1 followed by the symbol s)
   ;; (test-assert "#x1s rejected" (rejects? "#x1s"))
 
   (test-assert "s->n rejects #x1l" (not (string->number "#x1l")))
-  ;; FAIL: #1892 (#x1l reads as 1 followed by the symbol l)
+  ;; FAIL: #1929 (#x1l reads as 1 followed by the symbol l)
   ;; (test-assert "#x1l rejected" (rejects? "#x1l"))
 
   ;; --- punctuation ---
   (test-assert "s->n rejects #b1/" (not (string->number "#b1/")))
-  ;; FAIL: #1892 (#b1/ reads as 1 followed by the symbol /)
+  ;; FAIL: #1929 (#b1/ reads as 1 followed by the symbol /)
   ;; (test-assert "#b1/ rejected" (rejects? "#b1/"))
 
   (test-assert "s->n rejects #b1." (not (string->number "#b1.")))
-  ;; FAIL: #1892 (#b1. reads as 1 followed by a stray dot token)
+  ;; FAIL: #1929 (#b1. reads as 1 followed by a stray dot token)
   ;; (test-assert "#b1. rejected" (rejects? "#b1."))
 
   (test-assert "s->n rejects #o1+" (not (string->number "#o1+")))
-  ;; FAIL: #1892 (#o1+ reads as 1 followed by the symbol +)
+  ;; FAIL: #1929 (#o1+ reads as 1 followed by the symbol +)
   ;; (test-assert "#o1+ rejected" (rejects? "#o1+"))
 
   (test-assert "s->n rejects #x1-" (not (string->number "#x1-")))
-  ;; FAIL: #1892 (#x1- reads as 1 followed by the symbol -)
+  ;; FAIL: #1929 (#x1- reads as 1 followed by the symbol -)
   ;; (test-assert "#x1- rejected" (rejects? "#x1-"))
 
   (test-assert "s->n rejects #b1#" (not (string->number "#b1#")))
-  ;; FAIL: #1892 (#b1# reads as 1 followed by a stray # token)
+  ;; FAIL: #1929 (#b1# reads as 1 followed by a stray # token)
   ;; (test-assert "#b1# rejected" (rejects? "#b1#"))
 
   (test-assert "s->n rejects #x1'" (not (string->number "#x1'")))
-  ;; FAIL: #1892 (#x1' reads as 1 followed by a dangling quote)
+  ;; FAIL: #1929 (#x1' reads as 1 followed by a dangling quote)
   ;; (test-assert "#x1' rejected" (rejects? "#x1'"))
 
   ;; --- ordinary identifier characters ---
   (test-assert "s->n rejects #x1z"  (not (string->number "#x1z")))
-  ;; FAIL: #1892 (#x1z reads as 1 followed by the symbol z)
+  ;; FAIL: #1929 (#x1z reads as 1 followed by the symbol z)
   ;; (test-assert "#x1z rejected" (rejects? "#x1z"))
 
   (test-assert "s->n rejects #b1!"  (not (string->number "#b1!")))
-  ;; FAIL: #1892 (#b1! reads as 1 followed by the symbol !)
+  ;; FAIL: #1929 (#b1! reads as 1 followed by the symbol !)
   ;; (test-assert "#b1! rejected" (rejects? "#b1!"))
 
   (test-assert "s->n rejects #o1~"  (not (string->number "#o1~")))
-  ;; FAIL: #1892 (#o1~ reads as 1 followed by the symbol ~)
+  ;; FAIL: #1929 (#o1~ reads as 1 followed by the symbol ~)
   ;; (test-assert "#o1~ rejected" (rejects? "#o1~"))
 
   (test-assert "s->n rejects #d1:"  (not (string->number "#d1:")))
-  ;; FAIL: #1892 (#d1: reads as 1 followed by the symbol :)
+  ;; FAIL: #1929 (#d1: reads as 1 followed by the symbol :)
   ;; (test-assert "#d1: rejected" (rejects? "#d1:"))
 
   (test-assert "s->n rejects #x1@"  (not (string->number "#x1@")))
-  ;; FAIL: #1892 (#x1@ reads as 1 followed by the symbol @)
+  ;; FAIL: #1929 (#x1@ reads as 1 followed by the symbol @)
   ;; (test-assert "#x1@ rejected" (rejects? "#x1@"))
 
   ;; --- multi-character tails ---
   (test-assert "s->n rejects #b101foo" (not (string->number "#b101foo")))
-  ;; FAIL: #1892 (#b101foo reads as 5 followed by the symbol foo)
+  ;; FAIL: #1929 (#b101foo reads as 5 followed by the symbol foo)
   ;; (test-assert "#b101foo rejected" (rejects? "#b101foo"))
 
   (test-assert "s->n rejects #x1zzz" (not (string->number "#x1zzz")))
-  ;; FAIL: #1892 (#x1zzz reads as 1 followed by the symbol zzz)
+  ;; FAIL: #1929 (#x1zzz reads as 1 followed by the symbol zzz)
   ;; (test-assert "#x1zzz rejected" (rejects? "#x1zzz"))
   )
 
@@ -344,69 +344,69 @@
   ;; `reader_tokens.readNumber`.  (Phase 1A pins `#e1.5abc`, `#e12abc` and
   ;; `#d1e19/3`; these are different spellings of the same gap.)
   (test-assert "s->n rejects #e34zz" (not (string->number "#e34zz")))
-  ;; FAIL: #1892 (#e34zz reads as 34 followed by the symbol zz)
+  ;; FAIL: #1929 (#e34zz reads as 34 followed by the symbol zz)
   ;; (test-assert "#e34zz rejected" (rejects? "#e34zz"))
 
   (test-assert "s->n rejects #e1.25xyz" (not (string->number "#e1.25xyz")))
-  ;; FAIL: #1892 (#e1.25xyz reads as 5/4 followed by the symbol xyz)
+  ;; FAIL: #1929 (#e1.25xyz reads as 5/4 followed by the symbol xyz)
   ;; (test-assert "#e1.25xyz rejected" (rejects? "#e1.25xyz"))
 
   (test-assert "s->n rejects #i7q" (not (string->number "#i7q")))
-  ;; FAIL: #1892 (#i7q reads as 7.0 followed by the symbol q)
+  ;; FAIL: #1929 (#i7q reads as 7.0 followed by the symbol q)
   ;; (test-assert "#i7q rejected" (rejects? "#i7q"))
 
   (test-assert "s->n rejects #i1.5abc" (not (string->number "#i1.5abc")))
-  ;; FAIL: #1892 (#i1.5abc reads as 1.5 followed by the symbol abc)
+  ;; FAIL: #1929 (#i1.5abc reads as 1.5 followed by the symbol abc)
   ;; (test-assert "#i1.5abc rejected" (rejects? "#i1.5abc"))
 
   (test-assert "s->n rejects #d2e19/7" (not (string->number "#d2e19/7")))
-  ;; FAIL: #1892 (#d2e19/7 reads as 2e19 and silently drops the /7)
+  ;; FAIL: #1929 (#d2e19/7 reads as 2e19 and silently drops the /7)
   ;; (test-assert "#d2e19/7 rejected" (rejects? "#d2e19/7"))
 
   (test-assert "s->n rejects #e1e3x" (not (string->number "#e1e3x")))
-  ;; FAIL: #1892 (#e1e3x reads as 1000 followed by the symbol x)
+  ;; FAIL: #1929 (#e1e3x reads as 1000 followed by the symbol x)
   ;; (test-assert "#e1e3x rejected" (rejects? "#e1e3x"))
   )
 
 (test-group "two-prefix combinations, in both orders"
   (test-assert "s->n rejects #e#b12" (not (string->number "#e#b12")))
-  ;; FAIL: #1892 (#e#b12 reads as 1 followed by the symbol 2)
+  ;; FAIL: #1929 (#e#b12 reads as 1 followed by the symbol 2)
   ;; (test-assert "#e#b12 rejected" (rejects? "#e#b12"))
 
   (test-assert "s->n rejects #b#e12" (not (string->number "#b#e12")))
-  ;; FAIL: #1892 (#b#e12 reads as 1 followed by the symbol 2)
+  ;; FAIL: #1929 (#b#e12 reads as 1 followed by the symbol 2)
   ;; (test-assert "#b#e12 rejected" (rejects? "#b#e12"))
 
   (test-assert "s->n rejects #i#b1z" (not (string->number "#i#b1z")))
-  ;; FAIL: #1892 (#i#b1z reads as 1.0 followed by the symbol z)
+  ;; FAIL: #1929 (#i#b1z reads as 1.0 followed by the symbol z)
   ;; (test-assert "#i#b1z rejected" (rejects? "#i#b1z"))
 
   (test-assert "s->n rejects #b#i1z" (not (string->number "#b#i1z")))
-  ;; FAIL: #1892 (#b#i1z reads as 1.0 followed by the symbol z)
+  ;; FAIL: #1929 (#b#i1z reads as 1.0 followed by the symbol z)
   ;; (test-assert "#b#i1z rejected" (rejects? "#b#i1z"))
 
   (test-assert "s->n rejects #e#o19" (not (string->number "#e#o19")))
-  ;; FAIL: #1892 (#e#o19 reads as 1 followed by the symbol 9)
+  ;; FAIL: #1929 (#e#o19 reads as 1 followed by the symbol 9)
   ;; (test-assert "#e#o19 rejected" (rejects? "#e#o19"))
 
   (test-assert "s->n rejects #o#e19" (not (string->number "#o#e19")))
-  ;; FAIL: #1892 (#o#e19 reads as 1 followed by the symbol 9)
+  ;; FAIL: #1929 (#o#e19 reads as 1 followed by the symbol 9)
   ;; (test-assert "#o#e19 rejected" (rejects? "#o#e19"))
 
   (test-assert "s->n rejects #e#x1g" (not (string->number "#e#x1g")))
-  ;; FAIL: #1892 (#e#x1g reads as 1 followed by the symbol g)
+  ;; FAIL: #1929 (#e#x1g reads as 1 followed by the symbol g)
   ;; (test-assert "#e#x1g rejected" (rejects? "#e#x1g"))
 
   (test-assert "s->n rejects #x#e1g" (not (string->number "#x#e1g")))
-  ;; FAIL: #1892 (#x#e1g reads as 1 followed by the symbol g)
+  ;; FAIL: #1929 (#x#e1g reads as 1 followed by the symbol g)
   ;; (test-assert "#x#e1g rejected" (rejects? "#x#e1g"))
 
   (test-assert "s->n rejects #e#d1a" (not (string->number "#e#d1a")))
-  ;; FAIL: #1892 (#e#d1a reads as 1 followed by the symbol a)
+  ;; FAIL: #1929 (#e#d1a reads as 1 followed by the symbol a)
   ;; (test-assert "#e#d1a rejected" (rejects? "#e#d1a"))
 
   (test-assert "s->n rejects #d#e1a" (not (string->number "#d#e1a")))
-  ;; FAIL: #1892 (#d#e1a reads as 1 followed by the symbol a)
+  ;; FAIL: #1929 (#d#e1a reads as 1 followed by the symbol a)
   ;; (test-assert "#d#e1a rejected" (rejects? "#d#e1a"))
   )
 
@@ -415,19 +415,19 @@
   ;; (src/reader_tokens.zig:829) -- beyond the fixnum and rational returns
   ;; named in #1892.
   (test-assert "s->n rejects #x1p4z" (not (string->number "#x1p4z")))
-  ;; FAIL: #1892 (#x1p4z reads as 16.0 followed by the symbol z)
+  ;; FAIL: #1929 (#x1p4z reads as 16.0 followed by the symbol z)
   ;; (test-assert "#x1p4z rejected" (rejects? "#x1p4z"))
 
   (test-assert "s->n rejects #x1.8z" (not (string->number "#x1.8z")))
-  ;; FAIL: #1892 (#x1.8z reads as 1.5 followed by the symbol z)
+  ;; FAIL: #1929 (#x1.8z reads as 1.5 followed by the symbol z)
   ;; (test-assert "#x1.8z rejected" (rejects? "#x1.8z"))
 
   (test-assert "s->n rejects #x1.g" (not (string->number "#x1.g")))
-  ;; FAIL: #1892 (#x1.g reads as 1.0 followed by the symbol g)
+  ;; FAIL: #1929 (#x1.g reads as 1.0 followed by the symbol g)
   ;; (test-assert "#x1.g rejected" (rejects? "#x1.g"))
 
   (test-assert "s->n rejects #x1p4/3" (not (string->number "#x1p4/3")))
-  ;; FAIL: #1892 (#x1p4/3 reads as 16.0 followed by the symbol /3)
+  ;; FAIL: #1929 (#x1p4/3 reads as 16.0 followed by the symbol /3)
   ;; (test-assert "#x1p4/3 rejected" (rejects? "#x1p4/3"))
   )
 
@@ -436,45 +436,45 @@
   ;; the same function is the control in group 3 above.
   (test-assert "s->n rejects #x<bignum>z"
     (not (string->number "#x99999999999999999999z")))
-  ;; FAIL: #1892 (#x99999999999999999999z reads as a bignum plus the symbol z)
+  ;; FAIL: #1929 (#x99999999999999999999z reads as a bignum plus the symbol z)
   ;; (test-assert "#x<bignum>z rejected" (rejects? "#x99999999999999999999z"))
 
   (test-assert "s->n rejects #d<bignum>z"
     (not (string->number "#d99999999999999999999z")))
-  ;; FAIL: #1892 (#d99999999999999999999z reads as a bignum plus the symbol z)
+  ;; FAIL: #1929 (#d99999999999999999999z reads as a bignum plus the symbol z)
   ;; (test-assert "#d<bignum>z rejected" (rejects? "#d99999999999999999999z"))
 
   (test-assert "s->n rejects #e<bignum>z"
     (not (string->number "#e99999999999999999999z")))
-  ;; FAIL: #1892 (#e99999999999999999999z reads as a bignum plus the symbol z)
+  ;; FAIL: #1929 (#e99999999999999999999z reads as a bignum plus the symbol z)
   ;; (test-assert "#e<bignum>z rejected" (rejects? "#e99999999999999999999z"))
 
   ;; A binary literal one digit too wide for i64, with a `2` glued on.
   (test-assert "s->n rejects the wide binary literal"
     (not (string->number
           "#b1111111111111111111111111111111111111111111111111111111111111111112")))
-  ;; FAIL: #1892 (wide binary literal reads as a bignum plus the symbol 2)
+  ;; FAIL: #1929 (wide binary literal reads as a bignum plus the symbol 2)
   ;; (test-assert "wide binary literal rejected"
   ;;   (rejects?
   ;;    "#b1111111111111111111111111111111111111111111111111111111111111111112"))
 
   ;; Fixnum rational.
   (test-assert "s->n rejects #x1/2z" (not (string->number "#x1/2z")))
-  ;; FAIL: #1892 (#x1/2z reads as 1/2 followed by the symbol z)
+  ;; FAIL: #1929 (#x1/2z reads as 1/2 followed by the symbol z)
   ;; (test-assert "#x1/2z rejected" (rejects? "#x1/2z"))
 
   (test-assert "s->n rejects #e1/2z" (not (string->number "#e1/2z")))
-  ;; FAIL: #1892 (#e1/2z reads as 1/2 followed by the symbol z)
+  ;; FAIL: #1929 (#e1/2z reads as 1/2 followed by the symbol z)
   ;; (test-assert "#e1/2z rejected" (rejects? "#e1/2z"))
 
   (test-assert "s->n rejects #b1/1z" (not (string->number "#b1/1z")))
-  ;; FAIL: #1892 (#b1/1z reads as 1 followed by the symbol z)
+  ;; FAIL: #1929 (#b1/1z reads as 1 followed by the symbol z)
   ;; (test-assert "#b1/1z rejected" (rejects? "#b1/1z"))
 
   ;; A radix rational followed by a complex tail: the decimal path accepts
   ;; `1/2+3i`, the radix path silently splits it instead of rejecting it.
   (test-assert "s->n rejects #x1/2+3i" (not (string->number "#x1/2+3i")))
-  ;; FAIL: #1892 (#x1/2+3i reads as 1/2 followed by the symbol +3i)
+  ;; FAIL: #1929 (#x1/2+3i reads as 1/2 followed by the symbol +3i)
   ;; (test-assert "#x1/2+3i rejected or read whole" (not (splits? "#x1/2+3i")))
   )
 
@@ -487,13 +487,13 @@
   (test-eqv "(#b101) has one element (control)" 1 (length (read1 "(#b101)")))
   (test-eqv "(#x1p4) has one element (control)" 1 (length (read1 "(#x1p4)")))
 
-  ;; FAIL: #1892 ('(#b1p4) reads as the two-element list (1 p4))
+  ;; FAIL: #1929 ('(#b1p4) reads as the two-element list (1 p4))
   ;; (test-eqv "(#b1p4) is not two datums" 1 (length (read1 "(#b1p4)")))
-  ;; FAIL: #1892 ('(#o1e3) reads as the two-element list (1 e3))
+  ;; FAIL: #1929 ('(#o1e3) reads as the two-element list (1 e3))
   ;; (test-eqv "(#o1e3) is not two datums" 1 (length (read1 "(#o1e3)")))
-  ;; FAIL: #1892 ('(#e12abc) reads as the two-element list (12 abc))
+  ;; FAIL: #1929 ('(#e12abc) reads as the two-element list (12 abc))
   ;; (test-eqv "(#e12abc) is not two datums" 1 (length (read1 "(#e12abc)")))
-  ;; FAIL: #1892 ('(#x1p4z) reads as the two-element list (16.0 z))
+  ;; FAIL: #1929 ('(#x1p4z) reads as the two-element list (16.0 z))
   ;; (test-eqv "(#x1p4z) is not two datums" 1 (length (read1 "(#x1p4z)")))
   )
 
