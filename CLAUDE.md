@@ -21,6 +21,8 @@ zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one s
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 zig build -Dmax-frames=1024        # initial frame capacity (default: 480, grows to 32768)
 zig build -Dmax-registers=4096     # initial register count (default: 2048, grows to 65536)
+zig build -Dmax-handlers=256       # initial handler-stack capacity (default: 64, grows to 32768)
+zig build -Dmax-winds=256          # initial dynamic-wind stack capacity (default: 64, grows to 32768)
 zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 zig build -Dgc-stress=true         # force GC on every allocation (stress testing)
 ```
@@ -81,7 +83,17 @@ bytecode cache (`$KAAPPI_HOME/cache`), installed libraries, and REPL history.
 
 Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),
 `-Dmax-registers=N` (initial register count, default 2048, grows to 65536),
+`-Dmax-handlers=N` (initial exception-handler stack capacity, default 64, grows to 32768),
+`-Dmax-winds=N` (initial dynamic-wind stack capacity, default 64, grows to 32768),
 `-Dgc-threshold=N` (initial GC object threshold, default 8192).
+
+All four stacks grow geometrically and are hard-capped; exceeding a cap is
+`KP3008` and, unlike a program's own `raise`, is **not** catchable — a `guard`
+clause never sees it (#1886). Before that fix the handler and wind stacks were
+fixed 64-entry arrays whose overflow *was* catchable, so 65 nested `guard`s
+returned a plausible wrong value with exit 0. `errors.isUncatchable` is the
+single list of what unwinds past every handler: VM limits (`StackOverflow`,
+`ExecutionTimeout`) and control-flow signals (`Terminated`, `Yielded`).
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 

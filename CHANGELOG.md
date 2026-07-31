@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nested `guard` past 64 levels no longer returns a wrong answer** (#1886).
+  The exception-handler and dynamic-wind stacks were fixed 64-entry arrays.
+  Past that, `with-exception-handler` relabelled the overflow as
+  out-of-memory and converted it into an ordinary Scheme error object — so
+  the *enclosing* `guard` caught it, its `(#t ...)` clause returned a
+  plausible value, and the program exited 0. A recursive procedure that
+  wrapped its own recursive call in `guard` was silently incorrect rather
+  than failing: a case that must return 0 at every depth returned `(0 1 37)`
+  for depths 63/64/100. `with-exception-handler` had it worse — the overflow
+  was invisible, the handler simply receiving a bare `#<error "error">`.
+  `dynamic-wind` nested past 64 failed the same way.
+
+### Changed
+
+- **The handler and dynamic-wind stacks now grow on demand**, like the frame
+  and register stacks, from an initial 64 entries up to 32768 (#1886). The
+  initial capacities are configurable with `-Dmax-handlers` and
+  `-Dmax-winds`, alongside the existing `-Dmax-frames` / `-Dmax-registers`.
+  Fibers grow their own copies from a much smaller start, so the change also
+  drops ~2.5 KB of preallocation per live fiber.
+- **Exceeding a VM limit is no longer catchable** (#1886). A limit of the
+  implementation is not a condition the program raised, so a stack overflow
+  (`KP3008`) or an execution timeout (`KP3009`) now unwinds past every
+  handler to the top level instead of being handed to a `guard` clause as
+  `#<error "error">`. `thread-terminate!` likewise no longer runs the
+  terminated thread's `guard` clauses on its way out. Genuine program faults
+  — type errors, arity mismatches, unbound variables, division by zero — are
+  unaffected and still catchable, as is an over-large allocation request such
+  as `(make-vector 100000000000000)`.
+- **A tail-position `apply` with more than 255 arguments reports
+  `KP3007 invalid argument`, not `KP3008 stack overflow`** (#1886). The 255
+  ceiling is what the `tail_apply` opcode's `nargs` byte can encode — a limit
+  on one argument list, nothing to do with the stack — so
+  `(apply values (make-list 300 #t))` was already sending readers to hunt for
+  runaway recursion. It now says `apply: too many arguments (limit 255)`. It
+  is an ordinary argument fault rather than a VM limit, so it stays catchable:
+  it is also the bound that stops `apply` walking a circular argument list.
+
 ## [0.22.1] - 2026-07-31
 
 ### Added

@@ -5,8 +5,8 @@ const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
-const MAX_HANDLERS = vm_mod.MAX_HANDLERS;
-const MAX_WINDS = vm_mod.MAX_WINDS;
+const MAX_HANDLER_LIMIT = vm_mod.MAX_HANDLER_LIMIT;
+const MAX_WIND_LIMIT = vm_mod.MAX_WIND_LIMIT;
 
 /// Capture the current continuation state.
 /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
@@ -48,7 +48,7 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
 
     // SavedHandler *is* ExceptionHandler, so the live handler stack is passed
     // straight through — allocContinuation copies it into the snapshot's
-    // backing buffer. (An intermediate [MAX_HANDLERS]SavedHandler buffer here
+    // backing buffer. (An intermediate fixed-size SavedHandler buffer here
     // would cost a multi-kilobyte stack frame on every single call/cc.)
     //
     // The snapshot below copies the contiguous [0, max_reg) register range,
@@ -156,7 +156,7 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
     while (j < target_count) {
         const before = target_winds[j].before;
         _ = try vm.callThunk(before);
-        if (vm.wind_count >= MAX_WINDS) return VMError.StackOverflow;
+        try vm.ensureWindCapacity(vm.wind_count + 1);
         vm.wind_stack[vm.wind_count] = target_winds[j];
         vm.wind_count += 1;
         j += 1;
@@ -166,8 +166,8 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
 /// Restore a captured continuation, replacing the VM state and placing
 /// the given value at the continuation's destination register.
 pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VMError!void {
-    if (cont.handler_count > MAX_HANDLERS) return VMError.StackOverflow;
-    if (cont.wind_count > MAX_WINDS) return VMError.StackOverflow;
+    if (cont.handler_count > MAX_HANDLER_LIMIT) return VMError.StackOverflow;
+    if (cont.wind_count > MAX_WIND_LIMIT) return VMError.StackOverflow;
     if (cont.frames.len < cont.frame_count) return VMError.InvalidBytecode;
     if (cont.handlers.len < cont.handler_count) return VMError.InvalidBytecode;
     if (cont.wind_records.len < cont.wind_count) return VMError.InvalidBytecode;
@@ -176,6 +176,8 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VME
     // Grow VM capacity to fit the captured state
     try vm.ensureRegisterCapacity(cont.registers.len);
     try vm.ensureFrameCapacity(cont.frame_count);
+    try vm.ensureHandlerCapacity(cont.handler_count);
+    try vm.ensureWindCapacity(cont.wind_count);
 
     // Restore saved VM state
     @memcpy(vm.registers[0..cont.registers.len], cont.registers[0..cont.registers.len]);

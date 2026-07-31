@@ -58,7 +58,11 @@ assert_no_crash "deep non-tail recursion (growable stack)" \
 assert_error "non-tail recursion past hard limit" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)'
 
-assert_no_crash "catchable stack overflow" \
+# A stack overflow inside `guard` exits cleanly with KP3008 rather than being
+# swallowed by the clause (#1886) — what matters here is that it is a clean
+# error exit and not a crash. The code and the non-swallowing are asserted in
+# tests/scheme/errors/error-format.sh.
+assert_no_crash "stack overflow inside guard exits cleanly" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (guard (e (#t "caught")) (deep 50000))'
 
 assert_no_crash "deep tail recursion (should not overflow)" \

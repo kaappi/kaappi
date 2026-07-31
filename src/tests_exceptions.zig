@@ -3,6 +3,10 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_mod = @import("vm.zig");
+const errors = @import("errors.zig");
+const diagnostics = @import("diagnostics.zig");
+const build_options = @import("build_options");
 const VMError = th.VMError;
 
 test "guard basic catch" {
@@ -222,4 +226,158 @@ test "caught exception does not populate error detail" {
     const result = try vm.eval("(guard (e (#t 'ok)) (error \"boom\" 1))");
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("", vm.getErrorDetail());
+}
+
+// -- #1886: growable handler/wind stacks, and uncatchable VM limits ---------
+//
+// Both stacks were fixed 64-entry inline arrays, and the overflow past them
+// reached the program as an ordinary catchable error object -- so an
+// enclosing `guard` swallowed it and the program returned a wrong value with
+// exit 0. The Scheme-visible depth cases live in
+// tests/scheme/smoke/handler-wind-depth-1886.scm; what needs Zig is the
+// error *identity* (the point of the bug was that it was lost) and the hard
+// limit itself, which no Scheme program can reach before running out of
+// frames first.
+
+test "nested guard past the old 64-handler cap returns each level's own value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define (f n)
+        \\  (guard (e (#t n))
+        \\    (if (= n 0) (raise 'b) (f (- n 1)))))
+    );
+    // 63 worked before the fix; 64 returned 1 and 100 returned 37. The
+    // deepest case only exists to force several growth doublings, and each
+    // level allocates, so it comes off under gc-stress (a collection per
+    // allocation) — 100 is already past the old cap and past one doubling.
+    const deepest: i64 = if (build_options.gc_stress) 100 else 300;
+    for ([_]i64{ 63, 64, 65, 100, deepest }) |depth| {
+        var buf: [64]u8 = undefined;
+        const src = try std.fmt.bufPrint(&buf, "(f {d})", .{depth});
+        const result = try vm.eval(src);
+        try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result));
+    }
+}
+
+test "handler stack grows past its initial capacity" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const initial = vm.handler_stack.len;
+    const target = initial * 4;
+    for (0..target) |_| try vm.pushHandler(types.FALSE);
+    try std.testing.expectEqual(target, vm.handler_count);
+    try std.testing.expect(vm.handler_stack.len >= target);
+    // The entries survived the reallocations that grew the buffer.
+    for (vm.handler_stack[0..vm.handler_count]) |h| {
+        try std.testing.expectEqual(types.FALSE, h.handler);
+    }
+    for (0..target) |_| vm.popHandler();
+}
+
+test "wind stack grows past its initial capacity" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const target = vm.wind_stack.len * 4;
+    for (0..target) |_| {
+        try vm.ensureWindCapacity(vm.wind_count + 1);
+        vm.wind_stack[vm.wind_count] = .{ .before = types.FALSE, .after = types.TRUE };
+        vm.wind_count += 1;
+    }
+    try std.testing.expectEqual(target, vm.wind_count);
+    for (vm.wind_stack[0..vm.wind_count]) |wr| {
+        try std.testing.expectEqual(types.FALSE, wr.before);
+        try std.testing.expectEqual(types.TRUE, wr.after);
+    }
+    vm.wind_count = 0;
+}
+
+test "exceeding the hard handler limit is StackOverflow, not OutOfMemory" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // KP9002 out-of-memory was the reported code; nothing failed to allocate.
+    try std.testing.expectError(
+        VMError.StackOverflow,
+        vm.ensureHandlerCapacity(vm_mod.MAX_HANDLER_LIMIT + 1),
+    );
+    try std.testing.expectError(
+        VMError.StackOverflow,
+        vm.ensureWindCapacity(vm_mod.MAX_WIND_LIMIT + 1),
+    );
+    // Mapped to KP3008, the code the diagnostics registry already had for it.
+    try std.testing.expectEqual(
+        diagnostics.Code.stack_overflow,
+        diagnostics.runtimeErrorCode(VMError.StackOverflow),
+    );
+}
+
+test "a stack overflow is not catchable by guard" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Unbounded non-tail recursion exhausts the frame stack. Before #1886 the
+    // guard clause ran and this evaluated to 'caught with no error at all.
+    const result = vm.eval(
+        \\(define (deep n) (+ 1 (deep (+ n 1))))
+        \\(guard (e (#t 'caught)) (deep 0))
+    );
+    try std.testing.expectError(VMError.StackOverflow, result);
+}
+
+test "with-exception-handler does not convert a stack overflow into a condition" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval(
+        \\(define (deep n) (+ 1 (deep (+ n 1))))
+        \\(with-exception-handler (lambda (e) 'swallowed) (lambda () (deep 0)))
+    );
+    try std.testing.expectError(VMError.StackOverflow, result);
+}
+
+test "genuine program faults stay catchable" {
+    // The uncatchable set is limits and control signals only -- a type error,
+    // an unbound variable, or a bad index is still exactly what guard is for.
+    try th.expectEvalTrue("(guard (e (#t #t)) (car 5))");
+    try th.expectEvalTrue("(guard (e (#t #t)) (no-such-variable-at-all))");
+    try th.expectEvalTrue("(guard (e (#t #t)) (vector-ref (vector 1 2) 99))");
+    try th.expectEvalTrue("(guard (e (#t #t)) (/ 1 0))");
+}
+
+test "isUncatchable covers limits and signals but not program faults" {
+    // A new KaappiError tag defaults to catchable; this pins the intent so
+    // adding one is a deliberate decision rather than a silent default.
+    try std.testing.expect(errors.isUncatchable(error.StackOverflow));
+    try std.testing.expect(errors.isUncatchable(error.ExecutionTimeout));
+    try std.testing.expect(errors.isUncatchable(error.Terminated));
+    try std.testing.expect(errors.isUncatchable(error.Yielded));
+
+    try std.testing.expect(!errors.isUncatchable(error.TypeError));
+    try std.testing.expect(!errors.isUncatchable(error.ArityMismatch));
+    try std.testing.expect(!errors.isUncatchable(error.UndefinedVariable));
+    try std.testing.expect(!errors.isUncatchable(error.DivisionByZero));
+    try std.testing.expect(!errors.isUncatchable(error.IndexOutOfBounds));
+    try std.testing.expect(!errors.isUncatchable(error.InvalidArgument));
+    try std.testing.expect(!errors.isUncatchable(error.NotAProcedure));
+    try std.testing.expect(!errors.isUncatchable(error.ExceptionRaised));
+    // Handled by each catch site before this predicate is consulted.
+    try std.testing.expect(!errors.isUncatchable(error.ContinuationInvoked));
+    // Overloaded: also the payload-size cap. See isUncatchable's doc comment.
+    try std.testing.expect(!errors.isUncatchable(error.OutOfMemory));
 }

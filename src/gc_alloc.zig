@@ -1007,15 +1007,19 @@ pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber
     errdefer freeSliceNoFill(self.allocator, Value, registers);
     const frames = try allocSliceNoFill(self.allocator, types.CallFrame, types.INITIAL_FIBER_FRAME_CAPACITY);
     errdefer freeSliceNoFill(self.allocator, types.CallFrame, frames);
+    const handler_stack = try allocSliceNoFill(self.allocator, types.ExceptionHandler, types.INITIAL_FIBER_HANDLER_CAPACITY);
+    errdefer freeSliceNoFill(self.allocator, types.ExceptionHandler, handler_stack);
+    const wind_stack = try allocSliceNoFill(self.allocator, types.WindRecord, types.INITIAL_FIBER_WIND_CAPACITY);
+    errdefer freeSliceNoFill(self.allocator, types.WindRecord, wind_stack);
     const fiber = try self.allocator.create(fiber_mod.Fiber);
     fiber.* = .{
         .header = .{ .tag = .fiber },
         .registers = registers,
         .frames = frames,
         .frame_count = 0,
-        .handler_stack = undefined,
+        .handler_stack = handler_stack,
         .handler_count = 0,
-        .wind_stack = undefined,
+        .wind_stack = wind_stack,
         .wind_count = 0,
         .current_exception = null,
         .continuation_invoked = false,
@@ -1035,7 +1039,9 @@ pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber
     @memset(fiber.registers, types.UNDEFINED);
     self.finishAlloc(&fiber.header, @sizeOf(fiber_mod.Fiber) +
         registers.len * @sizeOf(Value) +
-        frames.len * @sizeOf(types.CallFrame));
+        frames.len * @sizeOf(types.CallFrame) +
+        handler_stack.len * @sizeOf(types.ExceptionHandler) +
+        wind_stack.len * @sizeOf(types.WindRecord));
     return fiber;
 }
 

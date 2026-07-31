@@ -236,6 +236,45 @@ Primitives return `PrimitiveError!Value`. The VM translates these to
 | `Yielded` | `Yielded` | Fiber yielded |
 | `ArityMismatch` | `ArityMismatch` | Wrong argument count (checked before dispatch) |
 
+### Catchable vs. uncatchable (#1886)
+
+`with-exception-handler` — and so `guard`, which desugars to it — converts a
+natively-propagating error into a Scheme error object so a clause can match
+it. `errors.isUncatchable` is the single list of errors that must *not* get
+that treatment and instead unwind past every handler to the top level:
+
+| Error | Why it is uncatchable |
+|-------|----------------------|
+| `StackOverflow` | A VM limit (frames, registers, handlers, winds, native re-entrancy) — the program didn't raise it |
+| `ExecutionTimeout` | A budget the *host* set; the guest must not swallow it |
+| `Terminated` | `thread-terminate!`; a terminated thread must not run guard clauses on its way out |
+| `Yielded` | A scheduler control signal, not a condition |
+
+`ContinuationInvoked` belongs to this set conceptually, but every catch site
+handles it *before* consulting the predicate — it needs its own non-error
+unwinding, not propagation.
+
+Until #1886 none of these were excluded, and the failure mode was a silently
+wrong answer rather than a loud one: exceeding a limit inside nested `guard`s
+handed the *enclosing* guard a bare `#<error "error">`, whose `(#t ...)`
+clause returned a plausible value with exit 0.
+
+Two tags are deliberately **not** in the set, both because they are
+overloaded — each covers a genuine VM limit *and* an ordinary program fault,
+and only the fault reading can be honored without a separate tag:
+
+- `OutOfMemory` — real exhaustion (including a `--max-memory` budget), but
+  also what `gc_alloc.max_payload_bytes` returns for
+  `(make-vector 100000000000000)`.
+- `InvalidArgument` — includes `apply`'s 255-argument ceiling, which was
+  itself mis-tagged `StackOverflow` until #1886 re-tagged it.
+
+**When adding a new limit check, tag it by which of those two it is.** A cap
+on the VM's own storage is `StackOverflow` and becomes uncatchable; a cap on
+one call's arguments or one object's size is an argument fault and stays
+catchable. Getting this backwards either makes a program unable to recover
+from its own bad input, or lets it swallow a genuine VM limit.
+
 ### Rules
 
 1. **Use the specific error variant.** Don't return `TypeError` for an
