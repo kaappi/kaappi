@@ -79,11 +79,12 @@ level has a load-bearing question behind it.
 Adopted 2026-08-01. A correctness bug does not earn `critical` no matter how
 broad or how silent — it tops out at `high`.
 
-This is not an invented rule; it describes the existing corpus. All 13 issues
+This is not an invented rule; it describes the existing corpus. All 14 issues
 ever labeled `priority: critical` are memory unsafety or a process abort:
 
 | Issue | Why critical |
 |------:|--------------|
+| [2107](https://github.com/kaappi/kaappi/issues/2107) | Printing an 848-deep list exhausts the wasm32 stack — module trap, exit 134, uncatchable |
 | [2027](https://github.com/kaappi/kaappi/issues/2027) | Deep copy aliases FFI handles across heaps; the freed slot reads back as a pair of flonums |
 | [2024](https://github.com/kaappi/kaappi/issues/2024) | A custom hash inserting into its own table double-frees the entry array |
 | [2008](https://github.com/kaappi/kaappi/issues/2008) | Cross-heap mutation of a raw `ArrayList`; silent abort or type-confused object |
@@ -121,6 +122,22 @@ in the same subsystem — a missing `in_custom_port_callback` guard at three
 `(kaappi fibers)` call sites — but the SIGBUS needs ~2500 concurrent fibers
 (2400 is clean 3/3; 2500 aborts 5/5). Below that depth the bug is real but
 non-crashing. High.
+
+[2107](https://github.com/kaappi/kaappi/issues/2107) and
+[2084](https://github.com/kaappi/kaappi/issues/2084) split the same way, and
+are the sharper pair: both are uncatchable stack exhaustion rather than a heap
+defect, so reachability is the *only* thing separating them. 2107 aborts the
+wasm32 module from a three-line program that prints an 848-deep list — below
+`printer.zig`'s own `MAX_PRINT_DEPTH` of 1024, so the program sits inside the
+envelope the implementation intends to support, and the guard that makes deep
+printing safe on every other target is simply out of reach. Critical. 2084
+needs a 200,000-bit bitvector to recurse deep enough to overflow. High.
+
+2107 is also the first critical confined to a single tier — every other row in
+the table is core-tier, reachable on the primary platform. Tier is not part of
+the rule and does not discount an entry: wasm32 backs the public playground,
+and an abort a `guard` cannot intercept is process-level whichever target it
+happens on.
 
 Every existing critical aborts from an ordinary program. That is the line.
 
