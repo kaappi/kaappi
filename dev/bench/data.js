@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785591667482,
+  "lastUpdate": 1785593452623,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "99dc2320e7707bf5a4f09b0dd7bebb5b68ceeeec",
-          "message": "Stop the native backend evaluating `apply` in the global environment (#1798)\n\n* Stop the native backend evaluating `apply` in the global environment\n\n`kaappi compile` miscompiled `apply` over any local binding — a procedure\nparameter or a `let`-bound name. The binary linked cleanly and then died at\nrun time:\n\n    (define (s xs) (apply + xs))   ; => undefined variable 'xs'\n\n`call/cc`, `call-with-current-continuation`, `call-with-values` and `eval`\ntook the same broken path.\n\nWhy: `apply` lowers to an ir `.passthrough` node, and `emitPassthrough`\nserializes those to source for `kaappi_eval_cached` — an interpreter eval that\nresolves names in the GLOBAL environment. All four native-compilation gates\n(both closure tiers, tryCompileDefineFunction, emitLet) exist to stop a lexical\nscope being split that way (#827); each asks\n`freevars.sexprNeedsEvalFallback`, which matches head keywords against the\ncomptime-derived `ir.eval_fallback_form_names`.\n\n`apply` was missing from that set. The set derives from `llvm_node_table`,\nwhere `.passthrough` carries `.capability = .native` — right for the one shape\nemitPassthrough compiles (a `(define (f ...) ...)` shorthand), wrong for every\nother, which it evals whole. And because `apply` is an `ir.isKnownGlobal`,\nfree-variable analysis passed it too, so the frame compiled natively and the\neval went looking for `xs` among the globals. A same-named global made it worse\nthan an error: `(define x 100) (define (s x) (apply + (list x)))` silently\nreturned 100.\n\n`isRejectedFormHead` (the #1496 cond/case/do gate) is a second copy of the same\nconcept and was already complete, which is why `(cond ... (else (apply + lst)))`\nworked while a plain body did not.\n\n`ir.other_special_forms` now carries a bool payload — \"an evaluated form headed\nby this keyword becomes a passthrough the interpreter runs\" — and\n`eval_fallback_form_names` appends the true entries, so one list feeds both\nviews. `else`, `=>`, `_`, `...` and `unquote` stay false on purpose:\nsexprNeedsEvalFallback recurses blindly into sub-forms, so listing `else` would\nreject every natively lowered cond/case with an else clause. `isSpecialForm`\nignores the payload, leaving vm_library.zig and compiler_macro.zig unchanged.\n\nRepublishing the frame as globals (bindParamsAsGlobals, the #1410 mechanism the\nletrec/let fallbacks use) is not an alternative: it cannot see let-locals,\naliases across activations, and clobbers same-named globals. Declining the frame\nkeeps the interpreter's lexical scope authoritative.\n\nThe cost is that a function using `apply` is no longer natively compiled at all.\nDeliberate, documented in docs/dev/llvm-backend.md, and closable later by\nlowering `apply` natively.\n\nTests: a compile-suite script running ten shapes — parameter, let-bound name,\nbare top-level let, computed operator, fixed-args-plus-list, rest parameter,\nrecursion, closure capture, global-not-clobbered, and a summary-statistics\nprogram — each comparing the compiled binary against the interpreter, so it\nstays valid if `apply` is later lowered natively. Plus six emit-level tests\nincluding a direct assertion on the derived name set and its exclusions.\nMutation-tested: 9/10 shell cases and all 6 unit tests fail without the fix.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Reference issue #1799 in the apply lexical-scope fix\n\nThe regression test, its emit-level counterparts, and the surrounding comments\ncarried no issue number: none was filed when the fix landed. Stamp #1799 in and\nrename the compile-suite script to match the repo's convention of naming a\nregression test after the bug it pins.\n\nNo behavior change.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: fail on a nonzero compile, drop future work from the guide\n\nThree findings from CodeRabbit on #1798, all in the new material:\n\n- The regression script ran `kaappi compile` under `|| true` and then judged\n  success by whether an executable existed. A compile that reported an error\n  but still left an executable behind would have passed as a green run, and a\n  genuine compiler rejection was reported as \"did not produce a binary\" with\n  its diagnostics discarded. Capture the status and the output, and fail on\n  either a nonzero exit or a missing binary, with the two spelled differently.\n\n- docs/dev/llvm-backend.md described how a future native `apply` lowering would\n  work. docs/dev/CLAUDE.md says roadmap and future work belong in issues, not\n  guides, because such sections rot. Cut it back to the limitation that exists\n  today; the design sketch lives in the PR discussion.\n\n- A line beginning `#1410` reads as an ATX heading (markdownlint MD018).\n  Reflowed, and spelled `kaappi#1410` to match the rest of the file.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T06:35:50+05:30",
-          "tree_id": "483d1ceccb31184c5662b7f86542618565d69f7f",
-          "url": "https://github.com/kaappi/kaappi/commit/99dc2320e7707bf5a4f09b0dd7bebb5b68ceeeec"
-        },
-        "date": 1785203048845,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.141848,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.54666,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.720374,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.410146,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005231,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.040702,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.394673,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053347,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.581524,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.517367,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.197731,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.37123,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.354078,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.500626,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035783,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045507,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfd8dff73d8749689a4918d4ab29549a20afbfeb",
+          "message": "Phase 3.8: ten smoke-only SRFIs — 261 assertions, and two closed issues whose regression tests pinned the valid case (#2078)\n\n* Phase 3.8: ten smoke-only SRFIs — 67 → 261 assertions\n\nAudit v2 unit 3.8. Ten SRFIs whose test files existed but held ≤12\nassertions each: 23, 46, 98, 112, 139, 149, 188, 190, 236, 244. A smoke\ntest proves the library loads; it does not test the library.\n\nFour of the ten are genuinely thin by nature — 23 is one procedure whose\nspec explicitly declines to prescribe behaviour, 46/149 are bare\n(export syntax-rules) conformance statements, 244 re-exports a core\nspecial form — so the work went into the mechanism each one *claims*\nrather than the wrapper.\n\nTwo closed issues reproduce verbatim and were reopened:\n\n  #682  A pattern variable used at a LOWER ellipsis depth than it was\n        matched silently expands to (). The fix (PR #730) added a\n        `b.depth != 1` check to instantiateEllipsis; #931 removed it —\n        correctly, since it blocked legitimate nested reduction — and\n        nothing replaced it. The regression test the issue shipped only\n        ever exercised the VALID case, so it printed PASS throughout.\n        The depth-0 half, which #730 never touched, still carries the\n        comment admitting it.\n\n  #550  Top-level define-values ignores an arity mismatch. The fix\n        (153cefd8) added its checks inside the MultipleValues arm only;\n        the single-value arm has none, so three of the issue's four\n        reproductions still exit 0 with a prefix of the formals bound.\n\nOne new issue:\n\n  #2075 A begin-wrapped internal define in a let body escapes to the\n        global environment when no enclosing procedure exists. R7RS\n        4.2.3 requires the begin to be transparent; the unwrapped form\n        is correct everywhere, and the same text inside any lambda is\n        correct — so `(define g 'global)` followed by\n        `(let ((g 'outer)) (begin (define g 'inner)) g)` answers `outer`\n        and leaves the global reading `inner`. Found while checking the\n        claim lib/srfi/188.sld's header rests on, which turns out to be\n        true only at top level.\n\nSRFI 190 inherits #2060 exactly (make-coroutine-generator is call/cc\nbased, so a resume cannot cross a returned SRFI 1 native frame); cited\nrather than re-filed, with the (scheme base) map/for-each controls\npinned enabled beside it.\n\n11 assertions are disabled behind ;; FAIL: markers and every one was\nmutation-tested — each fails today, so a fix flips it. The\nbegin-splicing probes in srfi188.scm are evaluated at true top level and\nstashed in variables, because SRFI-64's own test-equal wrapper supplies\nthe enclosing procedure scope whose absence is the defect and answers\n`inner` from inside the assertion.\n\nClean on the rest: SRFI 139's adjustment reaches a macro defined before\nthe parameterize and is restored across a macro boundary; SRFI 149's\nsemantics rule 4 over a compound template element matches Guile (chibi\n0.12 does not); SRFI 46's custom ellipsis, tail patterns and their\ncombination are correct in all 24 probed shapes; SRFI 98's alist is\nfreshly allocated per call so a caller cannot corrupt the environment;\nSRFI 112 answers string-or-#f for all six with correct arity; SRFI 236\nevaluates every expression exactly once with no template capture.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Note in srfi244.scm that fixing #550 aborts the file at load\n\nThe three top-level probes pinning #550's silent cases are definitions,\nnot assertions, so a fix makes them raise while the file is loading. Say\nso where the fixer will read it.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Pin the two-ellipses-in-one-pattern split (#2082)\n\nR7RS 4.3.2's pattern grammar admits at most one ellipsis per list or\nvector pattern; SRFI 46's tail patterns widen what may follow it, not\nhow many there may be. This expander accepts two and gives the trailing\npattern the last two elements regardless of input length, while a short\ncall fails outright. chibi 0.12 and Guile 3.0 both reject the\ndefine-syntax.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T14:34:24+05:30",
+          "tree_id": "d4d8c6c053f982707aff31235b7b05102f78b63c",
+          "url": "https://github.com/kaappi/kaappi/commit/dfd8dff73d8749689a4918d4ab29549a20afbfeb"
+        },
+        "date": 1785593450497,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.349359,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.000877,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.608617,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.987852,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004748,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046844,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315527,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057966,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.740627,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.215363,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.612104,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.291752,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.80216,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.736928,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045488,
             "unit": "seconds"
           }
         ]
