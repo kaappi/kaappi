@@ -81,9 +81,37 @@
 ;; unwinds. Joining after terminating waits for that to happen.
 (define mt (make-mutex 'terminated))
 (define (hold-mt-forever) (mutex-lock! mt) (let loop () (loop)))
+
+;; The child must genuinely hold mt before it is terminated, or there is
+;; nothing to abandon and this test silently checks the wrong thing. A fixed
+;; `thread-sleep!` guessed at how long a thread spawn plus one mutex-lock!
+;; takes, which is exactly the wall-clock assumption that makes a test flake
+;; on an emulated CI leg (audit v2 phase 5E). Poll the mutex's own state
+;; instead: it stays 'not-abandoned until the child locks it, so this
+;; synchronises on the event rather than on a duration, and the retry budget
+;; is a loud failure rather than a hang if the child never gets there.
+;;
+;; "Held" means mutex-state answers with an owner object rather than either
+;; of the two unowned symbols. It is deliberately not compared against the
+;; thread handle: SRFI 18 describes mutex-state as yielding the owning
+;; *thread*, but a mutex locked by a child here answers with that child's
+;; own fiber object, which is not eq? to the thread returned by make-thread
+;; (kaappi#2125). Excluding 'abandoned as well as 'not-abandoned is what
+;; keeps this from mistaking a child that died on the way for one that
+;; acquired the lock.
+(define (mutex-held? m)
+  (let ((s (mutex-state m)))
+    (not (or (eq? s 'not-abandoned) (eq? s 'abandoned)))))
+
+(define (wait-until-held! m tries)
+  (cond ((mutex-held? m) #t)
+        ((<= tries 0) #f)
+        (else (thread-sleep! 0.005) (wait-until-held! m (- tries 1)))))
+
 (let ((t (make-thread hold-mt-forever)))
   (thread-start! t)
-  (thread-sleep! 0.1)                   ; let it acquire mt
+  (check-true "the child acquires mt before it is terminated"
+              (wait-until-held! mt 1000))   ; up to 5 s, normally ~1 iteration
   (thread-terminate! t)
   (guard (e (#t #t)) (thread-join! t))
   (check "parent-heap mutex abandoned after thread-terminate!"
