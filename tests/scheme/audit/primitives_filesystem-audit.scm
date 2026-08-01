@@ -229,9 +229,13 @@
                          (exact-integer? (file-info:blksize fi))
                          (exact-integer? (file-info:blocks fi))
                          (exact-integer? (file-info:gid fi))))
-     ;; a regular file on a real filesystem: inode nonzero, rdev zero
+     ;; A regular file on a real filesystem: inode nonzero, and rdev is
+     ;; the "no device" sentinel.  That sentinel is NOT portable: macOS
+     ;; and Linux use 0, FreeBSD uses -1 (NODEV).  Assert only what the
+     ;; SRFI actually promises -- that a non-device file has no device
+     ;; number -- rather than baking in one platform's spelling of it.
      (test-equal #t (> (file-info:inode fi) 0))
-     (test-equal 0 (file-info:rdev fi))
+     (test-assert (memv (file-info:rdev fi) '(0 -1)))
      (test-equal #t (> (file-info:blksize fi) 0))
      (test-equal #t (>= (file-info:blocks fi) 0))
      ;; a new file takes its group either from the creating process (System V)
@@ -568,9 +572,11 @@
      ;; a directory has at least 2 links (itself and ".")
      (test-equal #t (>= (file-info:nlinks d) 2))
      (test-equal 1 (file-info:nlinks reg)))
-   ;; nonzero rdev is what distinguishes a device node; no plain file has one
-   (test-equal 0 (file-info:rdev (file-info (string-append dir "/reg") #t)))
-   (test-equal 0 (file-info:rdev (file-info (string-append dir "/fifo") #f)))))
+   ;; A device node is what has a real rdev; no plain file or fifo does.
+   ;; The "none" sentinel differs per OS (0 on macOS/Linux, -1 on FreeBSD),
+   ;; so accept either -- see the note above.
+   (test-assert (memv (file-info:rdev (file-info (string-append dir "/reg") #t)) '(0 -1)))
+   (test-assert (memv (file-info:rdev (file-info (string-append dir "/fifo") #f)) '(0 -1)))))
 
 ;; FAIL: #1976 (file-info panics — SIGABRT, not catchable — on any path whose
 ;; st_dev is negative when read as i32; on macOS that is every entry under
