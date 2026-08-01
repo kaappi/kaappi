@@ -35,6 +35,7 @@ const vm_mod = @import("vm.zig");
 const file_utils = @import("file_utils.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const test_selection = @import("test_selection.zig");
+const spec = @import("cli_spec.zig");
 
 const VM = vm_mod.VM;
 const Value = types.Value;
@@ -381,48 +382,58 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
     defer opts.deinit(allocator);
 
     while (it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) {
-            opts.json = true;
-        } else if (std.mem.eql(u8, arg, "--seed")) {
-            const val = it.next() orelse {
-                writeStderr("kaappi test: --seed requires an integer argument\n");
-                return USAGE_ERROR_EXIT;
-            };
-            opts.seed = std.fmt.parseInt(u64, val, 10) catch {
-                writeStderr("kaappi test: --seed requires a non-negative integer\n");
-                return USAGE_ERROR_EXIT;
-            };
-        } else if (std.mem.eql(u8, arg, "--lib-path")) {
-            const val = it.next() orelse {
-                writeStderr("kaappi test: --lib-path requires a path argument\n");
-                return USAGE_ERROR_EXIT;
-            };
-            opts.lib_paths.append(allocator, val) catch return oom();
-        } else if (std.mem.eql(u8, arg, "--jobs") or std.mem.eql(u8, arg, "-j")) {
-            const val = it.next() orelse {
-                writeStderr("kaappi test: --jobs requires a positive integer argument\n");
-                return USAGE_ERROR_EXIT;
-            };
-            const n = std.fmt.parseInt(usize, val, 10) catch 0;
-            if (n == 0) {
-                writeStderr("kaappi test: --jobs requires a positive integer\n");
-                return USAGE_ERROR_EXIT;
+        // Flags come from cli_spec.test_flags — the same table the shell
+        // completions are generated from. The five selection flags below
+        // (-j/--jobs, --changed, --list-affected, --since, --seed) postdate
+        // the hand-written completion scripts, and none of them offered any
+        // (#1890 6C).
+        if (spec.match(spec.TestId, &spec.test_flags, arg)) |m| {
+            switch (m.flag.id) {
+                .json => opts.json = true,
+                .seed => {
+                    const val = it.next() orelse {
+                        writeStderr("kaappi test: --seed requires an integer argument\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                    opts.seed = std.fmt.parseInt(u64, val, 10) catch {
+                        writeStderr("kaappi test: --seed requires a non-negative integer\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                },
+                .lib_path => {
+                    const val = it.next() orelse {
+                        writeStderr("kaappi test: --lib-path requires a path argument\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                    opts.lib_paths.append(allocator, val) catch return oom();
+                },
+                .jobs => {
+                    const val = it.next() orelse {
+                        writeStderr("kaappi test: --jobs requires a positive integer argument\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                    const n = std.fmt.parseInt(usize, val, 10) catch 0;
+                    if (n == 0) {
+                        writeStderr("kaappi test: --jobs requires a positive integer\n");
+                        return USAGE_ERROR_EXIT;
+                    }
+                    opts.jobs = n;
+                },
+                .changed => opts.changed = true,
+                .list_affected => opts.list_affected = true,
+                .since => {
+                    const val = it.next() orelse {
+                        writeStderr("kaappi test: --since requires a revision argument\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                    opts.since = val;
+                    opts.since_given = true;
+                },
+                .help => {
+                    printUsage();
+                    return 0;
+                },
             }
-            opts.jobs = n;
-        } else if (std.mem.eql(u8, arg, "--changed")) {
-            opts.changed = true;
-        } else if (std.mem.eql(u8, arg, "--list-affected")) {
-            opts.list_affected = true;
-        } else if (std.mem.eql(u8, arg, "--since")) {
-            const val = it.next() orelse {
-                writeStderr("kaappi test: --since requires a revision argument\n");
-                return USAGE_ERROR_EXIT;
-            };
-            opts.since = val;
-            opts.since_given = true;
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printUsage();
-            return 0;
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("kaappi test: unknown option '");
             writeStderr(arg);

@@ -29,6 +29,7 @@ const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
 const native_compiler = @import("native_compiler.zig");
 const llvm_emit = @import("llvm_emit.zig");
+const spec = @import("cli_spec.zig");
 
 pub const version = @import("build_options").version;
 
@@ -166,17 +167,23 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
 
     var req: Request = .{};
     while (it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) {
-            req.json = true;
-        } else if (std.mem.eql(u8, arg, "--lib-path")) {
-            const value = it.next() orelse {
-                writeStderr("kaappi doctor: --lib-path requires a path argument\n");
-                return USAGE_ERROR_EXIT;
-            };
-            lib_paths.append(allocator, value) catch return 1;
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printUsage();
-            return 0;
+        // Flags come from cli_spec.doctor_flags — the same table the shell
+        // completions are generated from (#1890 6C).
+        if (spec.match(spec.DoctorId, &spec.doctor_flags, arg)) |m| {
+            switch (m.flag.id) {
+                .json => req.json = true,
+                .lib_path => {
+                    const value = it.next() orelse {
+                        writeStderr("kaappi doctor: --lib-path requires a path argument\n");
+                        return USAGE_ERROR_EXIT;
+                    };
+                    lib_paths.append(allocator, value) catch return 1;
+                },
+                .help => {
+                    printUsage();
+                    return 0;
+                },
+            }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("kaappi doctor: unknown option '");
             writeStderr(arg);

@@ -2,6 +2,7 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const completions = @import("completions.zig");
 const reporting = @import("reporting.zig");
+const spec = @import("cli_spec.zig");
 
 pub const version = @import("build_options").version;
 
@@ -10,81 +11,25 @@ pub const USAGE_ERROR_EXIT: u8 = 2;
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
 
-// `--diagnostics=<format>` uses GNU `=` syntax (not a space-separated value like
-// the other value flags), so it is matched by prefix rather than via the flag
-// table. Kept as a named constant so the parse loop and the sandbox pre-scan
-// agree on the spelling.
-const diagnostics_prefix = "--diagnostics=";
-
-// `--timings[=fmt]` accepts a bare form (`--timings`, text) and the GNU `=`
-// value form (`--timings=json`), so — like `--diagnostics=` — it is matched
-// outside the value-flag table. Same spelling shared by parse + sandbox pre-scan.
-const timings_prefix = "--timings=";
-
 // ── Flag table ─────────────────────────────────────────────────────────
+//
+// The table itself lives in `cli_spec.zig`, which `completions.zig` also
+// generates all six shell scripts from. Two flags used to be matched by
+// prefix *outside* the table — `--diagnostics=` and `--timings[=fmt]`, both
+// GNU `=` syntax the old table could not express — and that escape hatch is
+// exactly how they, and later `--no-ir-opt`, drifted out of the completion
+// scripts. `ValueSyntax` now covers both spellings, so there is no way into
+// this parse loop that does not pass through the table.
 
-const FlagId = enum {
-    help,
-    version_flag,
-    completions_flag,
-    lib_path,
-    compile,
-    emit_llvm,
-    output,
-    disassemble,
-    no_ir_opt,
-    sandbox,
-    gc_stats,
-    profile,
-    profile_json,
-    coverage,
-    coverage_xml,
-    timeout,
-    max_memory,
-    deny_warnings,
-    no_opt,
-    check,
-};
+const FlagId = spec.GlobalId;
+const flags = spec.global_flags;
 
-const FlagDesc = struct {
-    long: []const u8,
-    short: ?[]const u8,
-    takes_value: bool,
-    id: FlagId,
-    value_name: []const u8,
-};
+fn matchFlag(arg: []const u8) ?spec.Matched(FlagId) {
+    return spec.match(FlagId, &flags, arg);
+}
 
-const flags = [_]FlagDesc{
-    .{ .long = "--help", .short = "-h", .takes_value = false, .id = .help, .value_name = "" },
-    .{ .long = "--version", .short = null, .takes_value = false, .id = .version_flag, .value_name = "" },
-    .{ .long = "--completions", .short = null, .takes_value = true, .id = .completions_flag, .value_name = "shell name (bash, zsh, fish)" },
-    .{ .long = "--lib-path", .short = null, .takes_value = true, .id = .lib_path, .value_name = "path" },
-    .{ .long = "--compile", .short = null, .takes_value = false, .id = .compile, .value_name = "" },
-    .{ .long = "--emit-llvm", .short = null, .takes_value = false, .id = .emit_llvm, .value_name = "" },
-    .{ .long = "-o", .short = null, .takes_value = true, .id = .output, .value_name = "file path" },
-    .{ .long = "--disassemble", .short = null, .takes_value = false, .id = .disassemble, .value_name = "" },
-    .{ .long = "--no-ir-opt", .short = null, .takes_value = false, .id = .no_ir_opt, .value_name = "" },
-    .{ .long = "--sandbox", .short = null, .takes_value = false, .id = .sandbox, .value_name = "" },
-    .{ .long = "--gc-stats", .short = null, .takes_value = false, .id = .gc_stats, .value_name = "" },
-    .{ .long = "--profile", .short = null, .takes_value = false, .id = .profile, .value_name = "" },
-    .{ .long = "--profile-json", .short = null, .takes_value = true, .id = .profile_json, .value_name = "file path" },
-    .{ .long = "--coverage", .short = null, .takes_value = false, .id = .coverage, .value_name = "" },
-    .{ .long = "--coverage-xml", .short = null, .takes_value = true, .id = .coverage_xml, .value_name = "file path" },
-    .{ .long = "--timeout", .short = null, .takes_value = true, .id = .timeout, .value_name = "milliseconds" },
-    .{ .long = "--max-memory", .short = null, .takes_value = true, .id = .max_memory, .value_name = "bytes" },
-    .{ .long = "--deny-warnings", .short = null, .takes_value = false, .id = .deny_warnings, .value_name = "" },
-    .{ .long = "--no-opt", .short = null, .takes_value = false, .id = .no_opt, .value_name = "" },
-    .{ .long = "--check", .short = null, .takes_value = false, .id = .check, .value_name = "" },
-};
-
-fn lookupFlag(arg: []const u8) ?FlagDesc {
-    inline for (flags) |f| {
-        if (std.mem.eql(u8, arg, f.long)) return f;
-        if (f.short) |s| {
-            if (std.mem.eql(u8, arg, s)) return f;
-        }
-    }
-    return null;
+fn lookupFlag(arg: []const u8) ?spec.Flag(FlagId) {
+    return if (matchFlag(arg)) |m| m.flag else null;
 }
 
 // ── Options ────────────────────────────────────────────────────────────
@@ -168,17 +113,12 @@ pub fn preScanSandbox(args: std.process.Args) bool {
     _ = iter.skip();
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--sandbox")) return true;
-        if (lookupFlag(arg)) |f| {
-            if (f.takes_value) _ = iter.skip();
-        } else if (std.mem.eql(u8, arg, "compile") or std.mem.eql(u8, arg, "check") or
-            std.mem.eql(u8, arg, "ast") or std.mem.eql(u8, arg, "expand") or
-            std.mem.eql(u8, arg, "ir") or std.mem.eql(u8, arg, "fmt"))
-        {
+        if (matchFlag(arg)) |m| {
+            // An `=`-attached value is part of the same argv word; only a
+            // `.separate` one consumes the next.
+            if (m.inline_value == null and m.flag.takesSeparateValue()) _ = iter.skip();
+        } else if (spec.isInlineSubcommand(arg)) {
             // bare subcommand — keep scanning
-        } else if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
-            // `--diagnostics=…` carries its value inline — keep scanning.
-        } else if (std.mem.eql(u8, arg, "--timings") or std.mem.startsWith(u8, arg, timings_prefix)) {
-            // `--timings` / `--timings=…` — no separate value arg, keep scanning.
         } else {
             break;
         }
@@ -228,23 +168,9 @@ pub fn parse(args: std.process.Args) Options {
             continue;
         }
 
-        if (std.mem.startsWith(u8, arg, diagnostics_prefix)) {
-            opts.diagnostics_format = parseDiagnosticsFormat(arg[diagnostics_prefix.len..]);
-            continue;
-        }
-
-        if (std.mem.eql(u8, arg, "--timings")) {
-            opts.timings_enabled = true;
-            continue;
-        }
-        if (std.mem.startsWith(u8, arg, timings_prefix)) {
-            opts.timings_enabled = true;
-            opts.timings_json = parseTimingsFormat(arg[timings_prefix.len..]);
-            continue;
-        }
-
-        if (lookupFlag(arg)) |f| {
-            const value: ?[]const u8 = if (f.takes_value) blk: {
+        if (matchFlag(arg)) |m| {
+            const f = m.flag;
+            const value: ?[]const u8 = if (m.inline_value) |v| v else if (f.takesSeparateValue()) blk: {
                 break :blk iter.next() orelse {
                     writeStderr(f.long);
                     writeStderr(" requires a ");
@@ -293,6 +219,12 @@ pub fn parse(args: std.process.Args) Options {
                 .deny_warnings => opts.deny_warnings = true,
                 .no_opt => opts.ir_no_opt = true,
                 .check => opts.fmt_check = true,
+                .diagnostics => opts.diagnostics_format = parseDiagnosticsFormat(value.?),
+                .timings => {
+                    opts.timings_enabled = true;
+                    // Bare `--timings` is text; only an attached value picks.
+                    if (value) |v| opts.timings_json = parseTimingsFormat(v);
+                },
             }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("unknown option: ");
@@ -337,72 +269,78 @@ fn oomCollectingArgs() noreturn {
     usageError("kaappi: out of memory collecting command-line arguments\n");
 }
 
+/// The `Options:` block, generated from the same table the parse loop and the
+/// completion scripts read. It used to be a fourth hand-maintained list.
+/// `--no-opt` and `--check` are `top_level = false`: the loop accepts them
+/// anywhere, but they only mean anything under `ir` / `fmt`, where the
+/// `Commands:` block above already documents them.
+const options_block = blk: {
+    @setEvalBranchQuota(100_000);
+    // One column for every spelling, so the descriptions line up.
+    var width = 0;
+    for (flags) |f| {
+        if (!f.top_level) continue;
+        const w = f.spelling().len;
+        if (w > width) width = w;
+    }
+    var out: []const u8 = "";
+    for (flags) |f| {
+        if (!f.top_level) continue;
+        const sp = f.spelling();
+        out = out ++ "  " ++ sp;
+        for (0..width - sp.len + 2) |_| out = out ++ " ";
+        out = out ++ f.desc ++ "\n";
+    }
+    break :blk out;
+};
+
 pub fn printUsage() void {
-    writeStdout(
-        "Kaappi Scheme v" ++ version ++ "\n" ++
-            "\n" ++
-            "Usage: kaappi [options] [file] [script-args...]\n" ++
-            "       kaappi compile <file.scm> [-o output]\n" ++
-            "       kaappi check <file.scm>\n" ++
-            "       kaappi explain <code>\n" ++
-            "       kaappi features [--json]\n" ++
-            "       kaappi test [paths...]\n" ++
-            "       kaappi ast|expand|ir <file.scm>\n" ++
-            "       kaappi doctor [--json]\n" ++
-            "       kaappi fmt [--check] [files...]\n" ++
-            "       kaappi cache <status|clear>\n" ++
-            "\n" ++
-            "Commands:\n" ++
-            "  compile <file>     Compile to native binary via LLVM\n" ++
-            "  check <file>       Compile-only static analysis (no execution); reports\n" ++
-            "                     read/compile errors and KP4xxx lint findings.\n" ++
-            "                     Honors --diagnostics=json; --deny-warnings\n" ++
-            "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
-            "  features           Report this build's capabilities (version, target,\n" ++
-            "                     subsystems, SRFIs, limits); --json\n" ++
-            "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
-            "                     --changed/--list-affected [--since <rev>]\n" ++
-            "  ast <file>         Print post-read datums (read + write)\n" ++
-            "  expand <file>      Print the program after full macro expansion\n" ++
-            "  ir <file> [--no-opt]  Print the IR tree; --no-opt shows it before the\n" ++
-            "                     optimization passes (default: after)\n" ++
-            "  doctor [--json]    Check the installation and environment; PASS/WARN/FAIL\n" ++
-            "                     per check with a fix for each failure\n" ++
-            "  fmt [files...]     Canonically format Scheme in place; --check reports\n" ++
-            "                     paths needing formatting (exit 1) without writing.\n" ++
-            "                     With no files, formats stdin to stdout\n" ++
-            "  cache status       Show the bytecode cache location, entries, and sizes\n" ++
-            "  cache clear        Remove all bytecode cache entries\n" ++
-            "\n" ++
-            "Options:\n" ++
-            "  -h, --help         Show this help message\n" ++
-            "  --version          Show version\n" ++
-            "  --lib-path <path>  Add library search path (repeatable)\n" ++
-            "  --compile          Compile file to bytecode (.sbc)\n" ++
-            "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
-            "  -o <file>          Output path\n" ++
-            "  --disassemble      Disassemble bytecode\n" ++
-            "  --diagnostics=<fmt> Diagnostic output format: text (default) or json\n" ++
-            "  --deny-warnings    (check) Treat lint warnings as errors for the exit code\n" ++
-            "  --no-ir-opt        Disable IR optimization passes (skips .sbc cache)\n" ++
-            "  --sandbox          Restrict filesystem and process access\n" ++
-            "  --gc-stats         Print GC statistics on exit\n" ++
-            "  --profile          Enable profiling\n" ++
-            "  --profile-json <f> Write profile JSON to file\n" ++
-            "  --timings[=fmt]    Report per-stage pipeline timings + cache HIT/MISS\n" ++
-            "                     on stderr; fmt is text (default) or json\n" ++
-            "  --coverage         Report library procedure coverage\n" ++
-            "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
-            "  --timeout <ms>     Execution timeout in milliseconds\n" ++
-            "  --max-memory <n>   Maximum heap memory in bytes\n" ++
-            "  --completions <sh> Output completion script (bash, zsh, fish)\n" ++
-            "\n" ++
-            "Environment variables:\n" ++
-            "  KAAPPI_LIB_DIR     Directory containing " ++ platform.rt_lib_name ++ " (for compile)\n" ++
-            "\n" ++
-            "With no file argument, starts an interactive REPL.\n",
-    );
+    writeStdout(usage_text);
 }
+
+const usage_text =
+    "Kaappi Scheme v" ++ version ++ "\n" ++
+    "\n" ++
+    "Usage: kaappi [options] [file] [script-args...]\n" ++
+    "       kaappi compile <file.scm> [-o output]\n" ++
+    "       kaappi check <file.scm>\n" ++
+    "       kaappi explain <code>\n" ++
+    "       kaappi features [--json]\n" ++
+    "       kaappi test [paths...]\n" ++
+    "       kaappi ast|expand|ir <file.scm>\n" ++
+    "       kaappi doctor [--json]\n" ++
+    "       kaappi fmt [--check] [files...]\n" ++
+    "       kaappi cache <status|clear>\n" ++
+    "\n" ++
+    "Commands:\n" ++
+    "  compile <file>     Compile to native binary via LLVM\n" ++
+    "  check <file>       Compile-only static analysis (no execution); reports\n" ++
+    "                     read/compile errors and KP4xxx lint findings.\n" ++
+    "                     Honors --diagnostics=json; --deny-warnings\n" ++
+    "  explain <code>     Explain a diagnostic code (e.g. KP3001); --json, --all\n" ++
+    "  features           Report this build's capabilities (version, target,\n" ++
+    "                     subsystems, SRFIs, limits); --json\n" ++
+    "  test [paths...]    Run SRFI-64 suites; --json, --seed <n>, --lib-path,\n" ++
+    "                     --changed/--list-affected [--since <rev>]\n" ++
+    "  ast <file>         Print post-read datums (read + write)\n" ++
+    "  expand <file>      Print the program after full macro expansion\n" ++
+    "  ir <file> [--no-opt]  Print the IR tree; --no-opt shows it before the\n" ++
+    "                     optimization passes (default: after)\n" ++
+    "  doctor [--json]    Check the installation and environment; PASS/WARN/FAIL\n" ++
+    "                     per check with a fix for each failure\n" ++
+    "  fmt [files...]     Canonically format Scheme in place; --check reports\n" ++
+    "                     paths needing formatting (exit 1) without writing.\n" ++
+    "                     With no files, formats stdin to stdout\n" ++
+    "  cache status       Show the bytecode cache location, entries, and sizes\n" ++
+    "  cache clear        Remove all bytecode cache entries\n" ++
+    "\n" ++
+    "Options:\n" ++
+    options_block ++
+    "\n" ++
+    "Environment variables:\n" ++
+    "  KAAPPI_LIB_DIR     Directory containing " ++ platform.rt_lib_name ++ " (for compile)\n" ++
+    "\n" ++
+    "With no file argument, starts an interactive REPL.\n";
 
 pub fn usageError(msg: []const u8) noreturn {
     writeStderr(msg);
@@ -517,11 +455,40 @@ test "lookupFlag: unknown flags" {
 test "lookupFlag: value-taking flags" {
     const lp = lookupFlag("--lib-path");
     try std.testing.expect(lp != null);
-    try std.testing.expect(lp.?.takes_value);
+    try std.testing.expect(lp.?.takesSeparateValue());
 
     const gs = lookupFlag("--gc-stats");
     try std.testing.expect(gs != null);
-    try std.testing.expect(!gs.?.takes_value);
+    try std.testing.expect(!gs.?.takesSeparateValue());
+
+    // `=`-attached values do not consume the next argv word.
+    const dg = lookupFlag("--diagnostics=json");
+    try std.testing.expect(dg != null);
+    try std.testing.expect(!dg.?.takesSeparateValue());
+}
+
+test "printUsage documents every top-level flag" {
+    // The Options: block is generated from the same table, so this asserts the
+    // generation rather than a hand-kept list — including that the flags
+    // deliberately left out of it are exactly the subcommand-scoped ones.
+    inline for (flags) |f| {
+        if (f.top_level) {
+            try std.testing.expect(std.mem.indexOf(u8, options_block, f.long) != null);
+        } else {
+            try std.testing.expect(std.mem.indexOf(u8, options_block, f.long) == null);
+        }
+    }
+    try std.testing.expect(std.mem.indexOf(u8, options_block, "--no-ir-opt") != null);
+}
+
+test "printUsage names every subcommand in the table" {
+    // The Commands: block is still hand-written prose (each subcommand has its
+    // own `--help` for the detail), so this is the one place it can drift from
+    // `cli_spec.subcommands` — which is what the completions and the parsers
+    // agree on. A new subcommand that nobody documented fails here.
+    inline for (spec.subcommands) |sub| {
+        try std.testing.expect(std.mem.indexOf(u8, usage_text, "  " ++ sub.name ++ " ") != null);
+    }
 }
 
 test "preScanSandbox: detects --sandbox" {

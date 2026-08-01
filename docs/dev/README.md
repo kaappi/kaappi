@@ -43,6 +43,7 @@ investigation produced analysis worth keeping.
 | [features.md](features.md) | `kaappi features [--json]`: machine-readable capability discovery — version/build id, subsystems (the shared `cond-expand` table), SRFIs, limits |
 | [doctor.md](doctor.md) | `kaappi doctor`: installation/environment self-check — the checks, the exit-code contract, the native-backend smoke link |
 | [cache.md](cache.md) | The `.sbc` bytecode cache: what the key contains (source hash + build id), where entries live, what invalidates them, how to inspect/clear/bypass |
+| [cli-surface.md](cli-surface.md) | `src/cli_spec.zig`, the one flag table every parser, `--help`, and all six shell completion scripts are derived from — and the comptime gate that keeps them from drifting |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
 ## Design decisions

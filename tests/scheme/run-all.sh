@@ -507,6 +507,7 @@ run_shell_suite "Doctor" tests/scheme/doctor
 run_shell_suite "Formatter" tests/scheme/fmt
 run_shell_suite "Cache" tests/scheme/cache
 run_shell_suite "Timings" tests/scheme/timings
+run_shell_suite "Shell completions" tests/scheme/completions
 run_shell_suite "Language server" tests/scheme/lsp
 # Execution-tier differential: every corpus file must give the same answer with
 # the IR optimiser off and from a warm bytecode cache as it does from a cold
