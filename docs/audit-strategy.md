@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (20 of 53 units — 2.12 still held by a FreeBSD divergence, see [#1985](https://github.com/kaappi/kaappi/pull/1985)) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (22 of 53 units, plus 2 closed as subsumed) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -240,6 +240,35 @@ Read this before every session. The phase sections say *what*; this says *how*.
   domain's pages. Never the whole spec.
 - **Do not run `kaappi cache clear` against your real `$KAAPPI_HOME`** when
   probing cache behaviour — export an isolated one, as `run-all.sh` does.
+- **Name every assertion.** `(test-equal "what it checks" expected actual)`,
+  never the two-argument form. SRFI-64's runner prints the failed assertion's
+  *value*, not its source, so an unnamed failure on a remote CI leg is literally
+  `#f` / `FAIL` with nothing to identify which of 400 assertions broke. SRFI-64
+  has a `source-line` field and nothing populates it — portable `syntax-rules`
+  cannot capture source location, so the name is the only channel. Phase 2.12
+  burned two CI rounds on this before the names went in; the round after, the
+  log said `FAIL (memv (file-info:rdev fi) '(0 -1))` and named the defect
+  outright. Deriving names mechanically from the expression under test is fine —
+  but **truncate the label before escaping backslashes**, or a cut lands between
+  `\` and the character it escapes (slicing `#\z` to `#\`) and the file no longer
+  reads.
+- **Never assert a value the spec or the platform leaves unspecified** — assert
+  the type, or the property the spec actually states. POSIX defines `st_rdev`
+  only for character- and block-special files, so two successive guesses at
+  `file-info:rdev` on a regular file both failed on CI (first `0` for
+  macOS/Linux, then `{0, -1}` adding FreeBSD's `NODEV`); FreeBSD 14.3 duly failed
+  for a regular file while *passing* for a fifo in the same run. Same rule:
+  `@intFromFloat` on NaN is UB, so assert "does not abort", not the value
+  (Phase 5D, caught only on NetBSD); and never assert wall-clock timing on the
+  emulated legs — assert relative ordering.
+- **A test's side effects must not be platform-scaled either, and
+  `( ulimit -n 256; … )` is the cheapest BSD-leg simulator you have.** Phase
+  2.12 opened 3000 directory streams without closing them; that passed on macOS
+  and Linux (`ulimit -n` 1048576) and exhausted the descriptor table on
+  `openbsd-test`/`netbsd-test`, taking down the *next* block — so the visible
+  error named a file the failing test never mentions. One subshell turned an
+  unreproducible remote failure into a deterministic local one, and produced the
+  finding underneath it ([#1993](https://github.com/kaappi/kaappi/issues/1993)).
 
 ---
 
@@ -272,7 +301,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 - [ ] 2.9: `primitives_control.zig` (14 callback sites; SRFI 248 sticky handlers are new)
 - [x] 2.10: `primitives_srfi254.zig` (new, no test) — GC-integrated; guardians are callable (2026-08-01, [#2013](https://github.com/kaappi/kaappi/pull/2013); 178 assertions, 5 disabled, green in both ReleaseSafe and `-Dgc-stress=true` — filed [#2008](https://github.com/kaappi/kaappi/issues/2008) `invokeGuardian` has **no owner check**, so a guardian shared through a global aborts the process **silently** (exit 133/134, empty stdout *and* stderr, 5/5) under concurrent registration and hands back a type-confused live object after a join; [#2006](https://github.com/kaappi/kaappi/issues/2006) transport cell keys are held **strongly**, so cells never break and every registration is permanent; [#2011](https://github.com/kaappi/kaappi/issues/2011) a second guardian watching the same object **never** resurrects it. The ephemeron fixpoint itself is **correct** — two-link chains resolve consistently in both directions, key-references-value and key-is-value both break — and all 16 error paths carry the right KP code.)
 - [x] 2.11: Batch — `parallel`, `sysinfo`, `random_port`, `srfi258`, `srfi260`, `srfi211` (~570 lines, 27 specs, none audited) (2026-08-01, [#2014](https://github.com/kaappi/kaappi/pull/2014); 230 assertions + a 17-assertion D7 sandbox suite, 7 disabled — **the six files themselves are clean**: all 27 specs correct, zero panics across ~120 adversarial calls, D1 all-reachable, D7 gate exactly as documented, and SRFI 258's uninterned-ness survives both deep-copy directions *with sharing preserved*. Every finding is in the surrounding engine: [#2003](https://github.com/kaappi/kaappi/issues/2003) a use-site `let` **captures a macro template's free reference to any global procedure**, so `(let ((car …)) …)` hijacks `car` inside any macro — the local-scope half of closed #1812, confirmed wrong against Chibi and Guile, with the def-site-local and global-non-procedure cases passing as controls; [#2005](https://github.com/kaappi/kaappi/issues/2005) `load` of a file containing `import` fails and blames the *loader's* line 1; [#2007](https://github.com/kaappi/kaappi/issues/2007) `kaappi check` calls two valid SRFI 211 transformer-specs invalid syntax; [#2009](https://github.com/kaappi/kaappi/issues/2009) doc-truth. Extended [#1913](https://github.com/kaappi/kaappi/issues/1913): the all-zero-seed port's own state fails `random-port-state?`, so it cannot be rebuilt from itself)
-- [ ] 2.12: `primitives_filesystem.zig` — 69 specs and 102 syscalls against a 177-line test
+- [x] 2.12: `primitives_filesystem.zig` — 69 specs and 102 syscalls against a 177-line test (2026-08-01, [#1985](https://github.com/kaappi/kaappi/pull/1985); 69 → 427 assertions, 18 disabled — all 68 specs now touched, 10 of which the old test never mentioned. Filed [#1976](https://github.com/kaappi/kaappi/issues/1976) `file-info` **aborts uncatchably on any devfs path** (a signed `dev_t` narrowed to `u64`; `/dev/fd` is a *directory* with `st_rdev = 0` and still aborts, isolating `st_dev`), [#1977](https://github.com/kaappi/kaappi/issues/1977) silently discarded arguments — `(nice "x")` renices the process and returns 1 — and [#1978](https://github.com/kaappi/kaappi/issues/1978) errno discarded at ~102 sites. The NUL guard is uniform across all 24 path-taking procedures and `--sandbox` gating is fully coherent at 70/70 probes. **Two more findings came from CI, not the audit**, both in an area the unit had reported clean: [#1993](https://github.com/kaappi/kaappi/issues/1993) an fd-holding object is reclaimed only when the GC's *object*-count threshold trips, never on descriptor pressure — at `ulimit -n 256`, `Collections: 0` and exactly 253 opens succeed, while the sweep arm itself is correct — and [#1994](https://github.com/kaappi/kaappi/issues/1994) script execution echoes non-void top-level values, documented only in a fuzzing doc. The unit's own "3000 unclosed streams do not exhaust the fd table" was a **false clean** from macOS's 1048576 limit; see the last three footguns, which this unit paid for)
 - [ ] 2.13: Error-taxonomy sweep (D2) + diagnostic fidelity (F10, D3)
 
 **Phase 3 — SRFI breadth** (independent)
