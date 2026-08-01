@@ -47,6 +47,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **On the WebAssembly build, `open-input-file`, `open-output-file` and
+  `delete-file` now signal a file error** (#1972). R7RS 6.13 says these signal
+  a condition satisfying `file-error?`, which is what they do on every native
+  target, but the WASM build — which has no filesystem to reach — raised a
+  *type* error instead: `expected non-WASM platform, got #<string>`, blaming a
+  valid filename for the platform. So a portable
+  `(guard (e ((file-error? e) …)) (open-input-file …))`, correct everywhere
+  else, fell straight through to its caller on the playground. They now report
+  `cannot open input file: this WebAssembly build has no filesystem access`
+  (and the output/delete equivalents), keeping the path as the irritant. A
+  non-string argument is still a type error, on every target.
+- **`fd->port` reports its range rules as `KP3007 invalid argument`, not
+  `KP3002 type error`** (#1972). `0` is a fixnum — exactly the type the
+  procedure wants — so `expected socket/pipe file descriptor (> 2)` put a rule
+  about the *value* where the expected type belongs. The two bounds are also
+  now reported separately: `fd->port: descriptor 0 is a standard stream; 0, 1
+  and 2 stay blocking`, and `fd->port: -1 is outside the file-descriptor
+  range`. Its WebAssembly gate says `raw file descriptors are unavailable in
+  this WebAssembly build` rather than naming a type. A genuinely wrong
+  argument type is unchanged.
 - **A `guard` clause now runs in its own `guard`'s dynamic environment**
   (#1988). R7RS 4.2.7 evaluates the implicit `cond` "with the continuation and
   dynamic environment of the guard expression", but a handler runs at the raise
