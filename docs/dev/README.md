@@ -81,6 +81,7 @@ investigations.
 | Document | Contents |
 |----------|----------|
 | [ecosystem-library-bar.md](ecosystem-library-bar.md) | Quality bar for `kaappi-*` packages (applies ecosystem-wide, not just this repo) |
+| [github-issues.md](github-issues.md) | Issue tracker: the four label axes, the priority rubric (what separates critical from high), severity-vs-priority, the one-priority-per-open-issue invariant |
 | [understanding-map.md](understanding-map.md) | Where theory must live in a maintainer's head (core tier) vs. where a contract fences deliberate shallowness (fenced tier); the reification ladder; comprehension practices incl. `/quiz` |
 
 ## Adding a new document
