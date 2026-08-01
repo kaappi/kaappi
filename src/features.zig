@@ -28,6 +28,7 @@
 const std = @import("std");
 const platform = @import("platform.zig");
 const builtin = @import("builtin");
+const spec = @import("cli_spec.zig");
 const build_options = @import("build_options");
 const types = @import("types.zig");
 const primitives = @import("primitives.zig");
@@ -66,11 +67,16 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
 
     var json = false;
     while (it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) {
-            json = true;
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printUsage();
-            return 0;
+        // Flags come from cli_spec.features_flags — the same table the shell
+        // completions are generated from (#1890 6C).
+        if (spec.match(spec.FeaturesId, &spec.features_flags, arg)) |m| {
+            switch (m.flag.id) {
+                .json => json = true,
+                .help => {
+                    printUsage();
+                    return 0;
+                },
+            }
         } else {
             writeStderr("kaappi features: unexpected argument '");
             writeStderr(arg);

@@ -92,5 +92,5 @@ code whose message moves — fails CI, not a user.
 | Registry (codes, names, prose, examples) | `src/diagnostics.zig` |
 | Early dispatch (before VM/GC setup) | `src/main.zig` (`explain.maybeRun`) |
 | Shared JSON string escaper | `src/lsp_diagnostic.zig` |
-| Shell completions (`explain` subcommand) | `src/completions.zig` |
+| Shell completions (`explain` subcommand) | `src/cli_spec.zig` (the flag table) — `src/completions.zig` generates the scripts from it; see `cli-surface.md` |
 | Tests | `src/explain.zig` (unit), `tests/scheme/errors/explain.sh` (end-to-end) |

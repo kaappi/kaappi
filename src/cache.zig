@@ -32,6 +32,7 @@ const bytecode_file = @import("bytecode_file.zig");
 const kaappi_paths = @import("kaappi_paths.zig");
 const file_utils = @import("file_utils.zig");
 const reporting = @import("reporting.zig");
+const spec = @import("cli_spec.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -139,13 +140,20 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
         return USAGE_ERROR_EXIT;
     };
 
-    if (std.mem.eql(u8, sub, "-h") or std.mem.eql(u8, sub, "--help")) {
-        printUsage();
-        return 0;
+    // Flags come from cli_spec.cache_flags, and the actions from
+    // cli_spec.cache_actions — the same tables the shell completions are
+    // generated from (#1890 6C).
+    if (spec.match(spec.CacheId, &spec.cache_flags, sub)) |m| {
+        switch (m.flag.id) {
+            .help => {
+                printUsage();
+                return 0;
+            },
+        }
     }
 
-    const is_status = std.mem.eql(u8, sub, "status");
-    const is_clear = std.mem.eql(u8, sub, "clear");
+    const is_status = std.mem.eql(u8, sub, spec.cache_status);
+    const is_clear = std.mem.eql(u8, sub, spec.cache_clear);
     if (!is_status and !is_clear) {
         writeStderr("kaappi cache: unknown subcommand '");
         writeStderr(sub);

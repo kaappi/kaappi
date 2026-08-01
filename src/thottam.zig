@@ -1,6 +1,7 @@
 const std = @import("std");
 const platform = @import("platform.zig");
 const builtin = @import("builtin");
+const cli_spec = @import("cli_spec.zig");
 
 const dylib_ext = if (builtin.os.tag == .macos)
     ".dylib"
@@ -825,27 +826,35 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var sub_arg: ?[]const u8 = null;
 
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--locked")) {
-            locked_mode = true;
-        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            printUsage();
-            return;
-        } else if (std.mem.eql(u8, arg, "--version")) {
-            writeStdout("thottam v" ++ version ++ "\n");
-            return;
-        } else if (std.mem.eql(u8, arg, "--completions")) {
-            if (args.next()) |shell| {
-                if (@import("completions.zig").thottam(shell)) |script| {
-                    writeStdout(script);
-                } else {
-                    writeStderr("unknown shell: ");
-                    writeStderr(shell);
-                    writeStderr("\nSupported: bash, zsh, fish\n");
-                }
-            } else {
-                writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+        // Flags come from cli_spec.thottam_flags — the same table the shell
+        // completions are generated from, and the switch below is exhaustive
+        // over its Id, so neither can lag the other (#1890 6C).
+        if (cli_spec.match(cli_spec.ThottamId, &cli_spec.thottam_flags, arg)) |m| {
+            switch (m.flag.id) {
+                .locked => locked_mode = true,
+                .help => {
+                    printUsage();
+                    return;
+                },
+                .version_flag => {
+                    writeStdout("thottam v" ++ version ++ "\n");
+                    return;
+                },
+                .completions_flag => {
+                    if (args.next()) |shell| {
+                        if (@import("completions.zig").thottam(shell)) |script| {
+                            writeStdout(script);
+                        } else {
+                            writeStderr("unknown shell: ");
+                            writeStderr(shell);
+                            writeStderr("\nSupported: bash, zsh, fish\n");
+                        }
+                    } else {
+                        writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+                    }
+                    return;
+                },
             }
-            return;
         } else if (subcommand == null) {
             subcommand = arg;
         } else if (sub_arg == null) {

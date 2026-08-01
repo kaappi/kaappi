@@ -20,6 +20,7 @@ const platform = @import("platform.zig");
 const diagnostics = @import("diagnostics.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
 const reporting = @import("reporting.zig");
+const spec = @import("cli_spec.zig");
 
 const writeStdout = reporting.writeStdout;
 const writeStderr = reporting.writeStderr;
@@ -47,13 +48,18 @@ pub fn maybeRun(allocator: std.mem.Allocator, args: std.process.Args) ?u8 {
 
     var req: Request = .{};
     while (it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--json")) {
-            req.json = true;
-        } else if (std.mem.eql(u8, arg, "--all")) {
-            req.all = true;
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printUsage();
-            return 0;
+        // Flag spellings come from cli_spec.explain_flags, which is also what
+        // the shell completions offer — the switch is exhaustive over its Id,
+        // so a new flag cannot be added to one without the other (#1890 6C).
+        if (spec.match(spec.ExplainId, &spec.explain_flags, arg)) |m| {
+            switch (m.flag.id) {
+                .json => req.json = true,
+                .all => req.all = true,
+                .help => {
+                    printUsage();
+                    return 0;
+                },
+            }
         } else if (arg.len > 1 and arg[0] == '-') {
             writeStderr("kaappi explain: unknown option '");
             writeStderr(arg);

@@ -403,6 +403,8 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version`, `pub const panic` |
+| `cli_spec.zig` | **The** CLI flag/subcommand tables. Every parse loop (`cli.zig`, `explain`, `features`, `doctor`, `test_runner`, `cache`, `thottam`) dispatches on an exhaustive `switch` over one of its `Id` enums, `cli.printUsage` generates its `Options:` block from it, and `completions.zig` generates all six shell scripts from it — so a flag cannot reach a parser without the docs and completions following. See `docs/dev/cli-surface.md` |
+| `completions.zig` | bash/zsh/fish completion scripts for `kaappi` and `thottam`, generated at comptime from `cli_spec.zig`. Nothing here is hand-maintained |
 | `crash.zig` | Custom panic handler (`PanicHandler(name)`) + pipeline breadcrumb (`noteStage`/`noteFile`); prints version/target/build-mode + stage + report URL before the trace. See `docs/dev/crash-reporting.md` |
 | `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
