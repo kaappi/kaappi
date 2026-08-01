@@ -55,6 +55,15 @@ directly in a suite directory, or wire the subdirectory up explicitly.
    resets the current runner, so `(test-runner-current)` afterwards no
    longer returns the runner and `test-runner-fail-count` raises a type
    error.
+
+   A file that deliberately provokes an **uncaught top-level error** — one
+   no `guard` can reach, e.g. a known engine limitation at a macro-definition
+   site — must also `(exit 0)` on the clean path, or the process's own exit
+   status makes the suite look failed. Both runners honour that waiver and
+   `kaappi test` prints it as a `note` rather than swallowing it, so the
+   error stays on the transcript (kaappi#1903,
+   `tests/scheme/test-runner/runner-agreement.sh`). The waiver covers only
+   the file's own top-level error: a failing assertion still fails the file.
 4. No registration needed — `run-all.sh` picks up `*.scm` files automatically.
 5. For bug regressions, name the file after the bug and add a comment:
 

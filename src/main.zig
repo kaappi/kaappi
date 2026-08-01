@@ -860,12 +860,12 @@ fn runWorkerFile(vm: *vm_mod.VM, fp: []const u8, emit_path: []const u8) !void {
     };
     const duration_ms = @as(f64, @floatFromInt(@import("vm_calls.zig").clockNs() -| start_ns)) / 1_000_000.0;
 
-    // A file-level error is an *uncaught* read/compile/runtime error at top
-    // level — SRFI-64 catches test failures internally, so those never set
-    // this. A test file's `(exit 1)` failure epilogue is deliberately NOT an
-    // error: it is redundant with the fail counts we already collected.
-    const errored = script_had_error;
-    test_runner.emitResult(vm, emit_path, fp, errored, null, duration_ms);
+    // `script_had_error` means an *uncaught* read/compile/runtime error at top
+    // level — SRFI-64 catches test failures internally, so those never set it.
+    // Whether that makes the file errored is `test_runner.resolveVerdict`'s
+    // call, not ours: `suppress_exit` above swallowed any `(exit)` the file
+    // made, and that call's semantics still have to be applied (kaappi#1903).
+    test_runner.emitResult(vm, emit_path, fp, script_had_error, null, duration_ms);
     // The result is emitted; don't let the file's error propagate to a nonzero
     // worker exit — the orchestrator uses the JSON.
     script_had_error = false;

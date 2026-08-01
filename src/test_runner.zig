@@ -149,15 +149,57 @@ pub fn installCollector(vm: *VM) !void {
     }
 }
 
+/// The file-level verdict, resolved from everything the worker observed about
+/// how the file terminated.
+///
+/// The worker suppresses `(exit)` so it can still reach its result-emission
+/// step, which means the *semantics* of that call have to be reapplied here.
+/// Left unapplied, a file whose exit status a plain run would honour gets a
+/// different verdict under `kaappi test` than under `tests/scheme/run-all.sh`,
+/// which reads exactly that status (kaappi#1903). The rule a plain run follows
+/// is pinned by `tests/scheme/errors/exit-code.sh`: an explicit `(exit N)`
+/// always wins over an already-reported top-level error.
+///
+/// The one place this runner deliberately does *not* follow the exit status is
+/// a nonzero exit the SRFI-64 counters already explain — an ordinary failure
+/// epilogue. Reporting that as a file error would replace the failure detail
+/// with a bare ERROR line and double-count it in the summary.
+const Verdict = struct {
+    errored: bool,
+    /// Set when something happened that the counts alone do not show, so it
+    /// still reaches the report instead of vanishing with the verdict.
+    note: ?[]const u8 = null,
+};
+
+/// Resolve the verdict. `counters_failed` is the same predicate the
+/// orchestrator uses to fail a file (`fail > 0 or xpass > 0`), so the two can
+/// never disagree about what "the counters already explain this" means.
+fn resolveVerdict(toplevel_error: bool, exit_requested: bool, exit_code: u8, counters_failed: bool) Verdict {
+    if (!exit_requested) return .{ .errored = toplevel_error };
+    if (exit_code == 0) return .{
+        .errored = false,
+        .note = if (toplevel_error)
+            "uncaught top-level error, acknowledged by an explicit (exit 0)"
+        else
+            null,
+    };
+    if (counters_failed) return .{ .errored = false };
+    return .{
+        .errored = true,
+        .note = "file requested a nonzero exit with no failing test to explain it",
+    };
+}
+
 /// Write the file's one JSON result object to `emit_path`. Called after the
-/// test file has run (whether it completed, errored, or asked to exit). `errored`
-/// records a file-level failure — an uncaught top-level error or a nonzero
-/// `(exit)` — distinct from ordinary test failures, which live in the counts.
-pub fn emitResult(vm: *VM, emit_path: []const u8, file_path: []const u8, errored: bool, err_msg: ?[]const u8, duration_ms: f64) void {
+/// test file has run (whether it completed, errored, or asked to exit).
+/// `toplevel_error` says an uncaught read/compile/runtime error was reported at
+/// top level; the emitted `error` flag is `resolveVerdict`'s answer, which also
+/// weighs the file's own suppressed `(exit)` request and its SRFI-64 counts.
+pub fn emitResult(vm: *VM, emit_path: []const u8, file_path: []const u8, toplevel_error: bool, err_msg: ?[]const u8, duration_ms: f64) void {
     const allocator = vm.gc.allocator;
     var aw: std.Io.Writer.Allocating = .init(allocator);
     defer aw.deinit();
-    buildFileJson(&aw.writer, vm, file_path, errored, err_msg, duration_ms) catch {
+    buildFileJson(&aw.writer, vm, file_path, toplevel_error, err_msg, duration_ms) catch {
         // Fall back to a minimal, always-valid error object so the orchestrator
         // never has to treat a write we attempted as a missing result.
         writeFile(emit_path, "{\"type\":\"file\",\"error\":true,\"error_message\":\"result serialization failed\"}\n");
@@ -167,7 +209,7 @@ pub fn emitResult(vm: *VM, emit_path: []const u8, file_path: []const u8, errored
 }
 
 /// Serialize one `{"type":"file", ...}` object from the `%kt-collect` vector.
-fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, errored: bool, err_msg: ?[]const u8, duration_ms: f64) !void {
+fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, toplevel_error: bool, err_msg: ?[]const u8, duration_ms: f64) !void {
     var collected: Value = vm.eval("(%kt-collect)") catch types.FALSE;
     vm.gc.pushRoot(&collected);
     defer vm.gc.popRoot();
@@ -194,6 +236,13 @@ fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, errored: boo
     }
     const tests = pass + fail + xpass + xfail + skip;
 
+    const verdict = resolveVerdict(
+        toplevel_error,
+        vm.exit_requested,
+        vm.exit_code,
+        fail > 0 or xpass > 0,
+    );
+
     try w.writeAll("{\"type\":\"file\",\"file\":");
     try lsp_diagnostic.writeJsonString(w, file_path);
     try w.writeAll(",\"suite\":");
@@ -203,9 +252,12 @@ fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, errored: boo
         .{ tests, pass, fail, xpass, xfail, skip },
     );
     try w.writeAll(",\"error\":");
-    try w.writeAll(if (errored) "true" else "false");
+    try w.writeAll(if (verdict.errored) "true" else "false");
+    // A caller-supplied message (only the collector-setup failure has one) wins;
+    // otherwise the verdict's note travels here, so an acknowledged top-level
+    // error is still visible on a file this runner now reports as passing.
     try w.writeAll(",\"error_message\":");
-    if (err_msg) |m| try lsp_diagnostic.writeJsonString(w, m) else try w.writeAll("null");
+    if (err_msg orelse verdict.note) |m| try lsp_diagnostic.writeJsonString(w, m) else try w.writeAll("null");
     try w.print(",\"duration_ms\":{d:.3},\"failures\":[", .{duration_ms});
 
     var first = true;
@@ -305,6 +357,9 @@ const Totals = struct {
     files: u64 = 0,
     files_failed: u64 = 0,
     errors: u64 = 0,
+    /// Files that carried a `Verdict.note` — something worth seeing that the
+    /// counts alone do not show, and that does not by itself fail the run.
+    noted: u64 = 0,
     pass: u64 = 0,
     fail: u64 = 0,
     xpass: u64 = 0,
@@ -840,6 +895,7 @@ fn accumulateAndReport(allocator: std.mem.Allocator, file: []const u8, result_js
     totals.skip += r.skip;
     const errored = r.@"error" or spawn.signaled;
     if (errored) totals.errors += 1;
+    if (!errored and r.error_message != null) totals.noted += 1;
     const failed = errored or r.fail > 0 or r.xpass > 0;
     if (failed) totals.files_failed += 1;
 
@@ -876,6 +932,15 @@ fn reportFileText(file: []const u8, r: FileResultJson, errored: bool, spawn: Spa
     } else {
         const line = std.fmt.bufPrint(&buf, "  PASS  {s}  ({d} tests, {d} skipped, {d:.0}ms)\n", .{ file, r.tests, r.skip, r.duration_ms }) catch "  PASS\n";
         writeStdout(line);
+    }
+    // A note rides along with a non-errored verdict (an acknowledged top-level
+    // error, say). Print it plus whatever the worker wrote, so the fact the
+    // verdict deliberately tolerates is still on the transcript.
+    if (r.error_message) |m| {
+        writeStdout("        note: ");
+        writeStdout(m);
+        writeStdout("\n");
+        printCapturedOutput(spawn.output);
     }
 }
 
@@ -993,8 +1058,8 @@ fn emitSummary(allocator: std.mem.Allocator, json: bool, t: *Totals, seed: u64, 
         const w = &aw.writer;
         (blk: {
             w.print(
-                "{{\"type\":\"summary\",\"files\":{d},\"files_failed\":{d},\"errors\":{d},\"tests\":{d},\"pass\":{d},\"fail\":{d},\"xpass\":{d},\"xfail\":{d},\"skip\":{d},\"seed\":{d},\"duration_ms\":{d:.3}}}\n",
-                .{ t.files, t.files_failed, t.errors, t.pass + t.fail + t.xpass + t.xfail + t.skip, t.pass, t.fail, t.xpass, t.xfail, t.skip, seed, total_ms },
+                "{{\"type\":\"summary\",\"files\":{d},\"files_failed\":{d},\"errors\":{d},\"noted\":{d},\"tests\":{d},\"pass\":{d},\"fail\":{d},\"xpass\":{d},\"xfail\":{d},\"skip\":{d},\"seed\":{d},\"duration_ms\":{d:.3}}}\n",
+                .{ t.files, t.files_failed, t.errors, t.noted, t.pass + t.fail + t.xpass + t.xfail + t.skip, t.pass, t.fail, t.xpass, t.xfail, t.skip, seed, total_ms },
             ) catch break :blk error.W;
             break :blk {};
         }) catch return;
@@ -1002,11 +1067,14 @@ fn emitSummary(allocator: std.mem.Allocator, json: bool, t: *Totals, seed: u64, 
         return;
     }
 
+    // Both lines are labelled by what they count. They used to read "Summary:"
+    // and "Files:", so `0 failed` (tests) sat directly above `1 failed` (files)
+    // with nothing saying the two words had different subjects (kaappi#1903).
     var buf: [512]u8 = undefined;
     writeStdout("\n");
-    const s1 = std.fmt.bufPrint(&buf, "Summary: {d} passed, {d} failed, {d} unexpected-pass, {d} expected-fail, {d} skipped\n", .{ t.pass, t.fail, t.xpass, t.xfail, t.skip }) catch "";
+    const s1 = std.fmt.bufPrint(&buf, "Tests:   {d} passed, {d} failed, {d} unexpected-pass, {d} expected-fail, {d} skipped\n", .{ t.pass, t.fail, t.xpass, t.xfail, t.skip }) catch "";
     writeStdout(s1);
-    const s2 = std.fmt.bufPrint(&buf, "Files:   {d} run, {d} failed, {d} errored ({d:.0}ms)\n", .{ t.files, t.files_failed, t.errors, total_ms }) catch "";
+    const s2 = std.fmt.bufPrint(&buf, "Files:   {d} run, {d} failed, {d} errored, {d} noted ({d:.0}ms)\n", .{ t.files, t.files_failed, t.errors, t.noted, total_ms }) catch "";
     writeStdout(s2);
     const s3 = std.fmt.bufPrint(&buf, "Seed:    {d}  (reproduce with: kaappi test --seed {d})\n", .{ seed, seed }) catch "";
     writeStdout(s3);
@@ -1262,6 +1330,51 @@ test "writeFileObject round-trips through the JSON parser" {
     try testing.expectEqualStrings("t.scm", parsed.value.file);
     try testing.expectEqual(@as(u64, 1), parsed.value.fail);
     try testing.expectEqualStrings("2", parsed.value.failures[0].actual.?);
+}
+
+// kaappi#1903. The worker suppresses `(exit)`, so this is where that call's
+// semantics get reapplied — and where `kaappi test` either agrees with the exit
+// status `tests/scheme/run-all.sh` reads, or does not. Every row below is a
+// verdict `run-all.sh` would reach from the process status alone.
+test "resolveVerdict: no explicit exit — a top-level error is the whole story" {
+    // run-all.sh: kaappi exits `script_had_error ? 1 : 0`, so PASS / FAIL.
+    try testing.expect(!resolveVerdict(false, false, 0, false).errored);
+    try testing.expect(resolveVerdict(true, false, 0, false).errored);
+    // Failing counts alone are a FAIL, not an ERROR — the counts carry it.
+    try testing.expect(!resolveVerdict(false, false, 0, true).errored);
+}
+
+test "resolveVerdict: an explicit (exit 0) acknowledges a top-level error" {
+    // The rule tests/scheme/errors/exit-code.sh pins for a plain run:
+    // "explicit (exit 0) after error exits 0". run-all.sh therefore says PASS,
+    // and so must this — but the fact does not get to vanish, hence the note.
+    const v = resolveVerdict(true, true, 0, false);
+    try testing.expect(!v.errored);
+    try testing.expect(v.note != null);
+    // Nothing to acknowledge, nothing to say.
+    try testing.expect(resolveVerdict(false, true, 0, false).note == null);
+}
+
+test "resolveVerdict: (exit 0) cannot bury a failing test" {
+    // A file may waive its own top-level error; it may not waive an assertion.
+    // The counts stay authoritative, so the orchestrator still fails the file.
+    const v = resolveVerdict(true, true, 0, true);
+    try testing.expect(!v.errored);
+}
+
+test "resolveVerdict: a nonzero exit the counts explain is redundant" {
+    // The ordinary SRFI-64 failure epilogue. Calling this an error would trade
+    // the per-assertion detail for a bare ERROR line and double-count the file.
+    try testing.expect(!resolveVerdict(false, true, 1, true).errored);
+    try testing.expect(!resolveVerdict(true, true, 1, true).errored);
+}
+
+test "resolveVerdict: a nonzero exit the counts do not explain is an error" {
+    // run-all.sh sees exit 1 and says FAIL. With no failing count to carry it,
+    // this is the only place the file's own verdict can survive.
+    const v = resolveVerdict(false, true, 1, false);
+    try testing.expect(v.errored);
+    try testing.expect(v.note != null);
 }
 
 test "writeFileObject uses the error-message override only when none is present" {
