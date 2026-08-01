@@ -1258,6 +1258,44 @@ every release, across `ubuntu-latest`, `ubuntu-24.04-arm`, and `macos-latest`.
 Adding a platform means teaching its `detect_platform` the `uname` spelling
 and its `rt_artifact` case — `docs/dev/porting.md` Stage 6.
 
+## Issue tracker
+
+**Every issue you file or triage gets exactly one `priority:` label** —
+`critical`, `high`, `medium`, or `low`. Set it when filing; an issue that
+arrives without one is not triaged. `docs/dev/github-issues.md` is the full
+rubric (the four label axes, worked boundary cases, the triage commands);
+this is the part you need at filing time:
+
+| Level | The question it answers |
+|-------|------------------------|
+| critical | Does this compromise the process — memory unsafety, or an abort reachable from an ordinary program? |
+| high | Does a legal program get a silently wrong answer, hang, or lose data in a path users actually reach? |
+| medium | Is behaviour wrong against a spec or a documented guarantee, but loud, narrow, or recoverable? |
+| low | Is the behaviour right and only its *description* or *diagnostic* wrong? |
+
+Four rules decide the hard cases:
+
+- **`critical` is process-level unsafety only.** A correctness bug tops out
+  at `high` however broad or silent. All 13 issues ever marked critical are
+  memory unsafety or a process abort.
+- **Reachability separates critical from high.** An abort needing a stress
+  harness is `high`; one reachable from a five-line program is `critical`.
+- **An audit header's `Severity:` is an input, not the answer.**
+  `wrong-result` spans `high` to `medium` purely on blast radius.
+- **Silence is an aggravator, not a level.** A loud failure is safer than a
+  quiet one, so silence moves an issue up *within* its level.
+
+Auto-filed `fuzz-finding` CI reports are the one exemption — they are
+triage-and-close, and carry no priority. To find what still needs a label:
+
+```bash
+gh issue list --repo kaappi/kaappi --state open --limit 400 \
+  --json number,title,labels \
+  --jq '.[] | select([.labels[].name] | any(startswith("priority:")) | not)
+            | select([.labels[].name] | index("fuzz-finding") | not)
+        | "\(.number)\t\(.title)"'
+```
+
 ## Package manager (thottam)
 
 `src/thottam.zig` is a Zig binary that installs Kaappi ecosystem libraries.
@@ -1489,6 +1527,7 @@ workspace-level `.claude/settings.json` when working from the multi-repo workspa
 | Compiler form checklist | Path-scoped rule (auto-loaded) | `.claude/rules/compiler-forms.md` |
 | Bug fixes need tests | Advisory only | This file (Tests section) |
 | Files ≤ 1500 lines | Advisory only | This file (File size policy) |
+| One `priority:` label per issue | Advisory only | This file (Issue tracker), `docs/dev/github-issues.md` |
 | Commit message format | Advisory only | Parent CLAUDE.md (Conventions) |
 
 ## Known limitations
