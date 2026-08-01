@@ -20,11 +20,28 @@
 ;;     reference gained a descriptive string label, matching every other
 ;;     test file in this directory (srfi131.scm included).
 ;;
-;; Three assertions below are wrapped or annotated as KNOWN FAILURES --
-;; see lib/srfi/150.sld's header for the underlying engine limitation
-;; (a pre-existing top-level binding same-spelled as a macro template's
-;; own field-name literal can leak through unrenamed on one of a macro's
-;; two internal expansion passes). Two of the three additionally hard-
+;; Four assertions below are annotated as KNOWN FAILURES, all four of
+;; them one defect: kaappi#2051. They were originally attributed to
+;; kaappi#1832 ("a pre-existing top-level binding same-spelled as a
+;; macro template's own field-name literal leaks through unrenamed on
+;; one of a macro's two internal expansion passes"). Audit v2 Phase 3.10
+;; established that attribution is wrong on both halves. #1832 is fixed
+;; and its own regression test passes; its exact shape works correctly
+;; under plain (scheme base) define-record-type. And a pre-existing
+;; top-level binding is not required here at all -- removing it leaves
+;; every one of these cases failing identically.
+;;
+;; The real mechanism is that lib/srfi/150.sld carries field names from
+;; expansion time to run time inside `quote`, and a hygiene rename does
+;; not survive quoting ((eq? '__hyg_2_a 'a) is #t). The expansion is
+;; correct -- `kaappi expand` shows the two field names properly
+;; distinguished as __hyg_2_a and a -- and both then strip to `a` before
+;; the runtime by-name lookup sees them, so the two fields collapse into
+;; one. The trigger is purely a spelling collision between the template's
+;; own field-name literal and the identifier the use site supplies;
+;; giving the use site a different spelling makes each case pass.
+;;
+;; Two of the four additionally hard-
 ;; error at the record-type-definition site itself, not merely at the
 ;; assertion that reads a field back -- SRFI-64's `test-expect-fail`
 ;; only covers a wrong-value assertion, not a top-level form throwing
@@ -145,9 +162,13 @@
        (a get-a)
        (b get-b)))))
 
-;; KNOWN FAILURE (see lib/srfi/150.sld header and the file header above):
-;; `def`'s own field-name literal `a` collides in spelling with the
-;; pre-existing top-level `(define a #f)` above, so this hard-errors at
+;; KNOWN FAILURE: kaappi#2051 (see the file header above). `def`'s own
+;; field-name literal `a` and the `a` this use site passes as `b` are
+;; distinct after expansion (__hyg_2_a vs a) but collapse to one name
+;; when SRFI 150 carries them through `quote` into its runtime lookup.
+;; The `(define a #f)` above is NOT the trigger -- deleting it leaves
+;; this failing identically; passing a different spelling at the use
+;; site is what makes it pass. This hard-errors at
 ;; definition time on kaappi (reported directly to stderr below) rather
 ;; than merely returning a wrong value -- `get-a`/`get-b` are therefore
 ;; never defined, and both dependent assertions below fail by reference
@@ -189,9 +210,12 @@
 
 (define-child make-child child-get x)
 
-;; KNOWN FAILURE (see lib/srfi/150.sld header): same root cause as
-;; hygiene 1 above, but this one returns a wrong value instead of
-;; hard-erroring, so plain test-expect-fail covers it.
+;; KNOWN FAILURE: kaappi#2051, same root cause as hygiene 1 above --
+;; the template's own field `x` and the inherited parent field the use
+;; site names `x` collapse to one name through `quote`. This one returns
+;; a wrong value instead of hard-erroring, so plain test-expect-fail
+;; covers it. Control: renaming the template's own field to `y` (no
+;; spelling collision) makes it return the correct (1 2).
 (test-expect-fail "hygiene 2: inherited field set via macro-introduced reference")
 (test-eqv "hygiene 2: inherited field set via macro-introduced reference"
   1 (parent-get (make-child 1 2)))
@@ -227,12 +251,14 @@
 
 (test-equal "Alex Shinn's example: default-filled tuple"
   '(0 0) (let ((pt (make-point))) (list (point-ref pt 0) (point-ref pt 1))))
-;; KNOWN FAILURE (see lib/srfi/150.sld header): same limitation family as
-;; the hygiene tests above -- both explicitly-supplied fields read back
-;; as the second argument (confirmed (2 2), not (1 2)), consistent with
-;; deftuple's per-step `tmp` template literal collapsing to one shared
-;; name across its recursive expansion, though the exact mechanism
-;; wasn't traced as precisely as the hygiene 1/2 cases above.
+;; KNOWN FAILURE: kaappi#2051, same root cause as the hygiene tests
+;; above -- both explicitly-supplied fields read back as the second
+;; argument ((2 2), not (1 2)). The earlier guess here, that deftuple's
+;; per-step `tmp` template literal collapses to one shared name across
+;; its recursive expansion, is now confirmed and its mechanism traced:
+;; `kaappi expand` shows the fields correctly distinguished as
+;; __hyg_1_tmp and __hyg_2_tmp, and both strip to `tmp` when SRFI 150
+;; carries them through `quote` into its runtime by-name lookup.
 (test-expect-fail "Alex Shinn's example: explicitly-constructed tuple")
 (test-equal "Alex Shinn's example: explicitly-constructed tuple"
   '(1 2) (let ((pt (make-point 1 2))) (list (point-ref pt 0) (point-ref pt 1))))

@@ -28,9 +28,17 @@
 | `sandbox/` | Sandbox isolation tests | no (CI runs it separately) |
 
 **The globs in `run-all.sh` are non-recursive** (`tests/scheme/srfi/*.scm`,
-not `**`). A test placed in a subdirectory of a suite is silently never run —
-`tests/scheme/srfi/slow/` is exactly that today (kaappi#1900). Put new files
-directly in a suite directory, or wire the subdirectory up explicitly.
+not `**`). A test placed in a subdirectory of a suite would be silently never
+run — `tests/scheme/srfi/slow/` was exactly that for eleven days, holding the
+two full SRFI 257 reference suites (kaappi#1900). Put new files directly in a
+suite directory, or wire the subdirectory up explicitly.
+
+This is no longer silent: `run-all.sh` opens with a **reachability check** that
+fails the run if any `.scm` file under a suite subdirectory contains
+`test-begin`. Fixtures are exempt by construction — a fixture is a library or
+an included fragment and never opens a SRFI-64 suite — so the check needs no
+allowlist to maintain. If you add a genuine fixture that must call
+`test-begin`, wire its directory into a glob rather than weakening the check.
 
 ## Adding a test
 

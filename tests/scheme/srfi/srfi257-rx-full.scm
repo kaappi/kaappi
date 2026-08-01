@@ -3,12 +3,23 @@
 ;; reference test suite by Sergei Egorov, whose second half is in turn
 ;; adapted from Alex Shinn's chibi regexp tests.
 ;;
-;; This is the FULL port (about 1½ minutes of macro expansion on an M-class
-;; laptop, over run-all.sh's 60s per-file budget), kept out of run-all.sh's
-;; non-recursive srfi/*.scm glob; CI runs the lean
-;; tests/scheme/srfi/srfi257-rx.scm smoke instead.
+;; This is the FULL port. It lived in a `slow/` subdirectory until audit v2
+;; Phase 3.10, quarantined because it cost about 1½ minutes of macro expansion
+;; against run-all.sh's 60s per-file budget. That is no longer true: it runs in
+;; ~0.4s, which #1802/#1804 (ReleaseSafe was memsetting the expander's 1MB
+;; buffers on every expansion) made obsolete eight days after the quarantine
+;; went in, with nobody re-measuring. Being in a subdirectory made it
+;; unreachable from run-all.sh's non-recursive globs (kaappi#1900), so it now
+;; sits here directly.
 ;;
-;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/slow/srfi257-rx-full.scm
+;; It does NOT supersede the lean tests/scheme/srfi/srfi257-rx.scm: 8 of that
+;; file's 25 assertions have no counterpart here, so both are kept. That is
+;; also why this file's suite name is "srfi-257-rx-full" and not
+;; "srfi-257-rx" — SRFI-64 derives its log filename from the suite name, and
+;; two files writing one log under run-all.sh's parallel dispatch was the only
+;; such collision in the tree.
+;;
+;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi257-rx-full.scm
 
 ;;;; SPDX-FileCopyrightText: Sergei Egorov
 ;;;; SPDX-License-Identifier: BSD-3-Clause
@@ -18,7 +29,7 @@
 
 ; SRFI 257 RX Tests (some of them borrowed)
 
-(test-begin "srfi-257-rx")
+(test-begin "srfi-257-rx-full")
 
 (test-equal #f
   (match 42 ((~/ "[0-9]+" a) a) (_ #f)))
