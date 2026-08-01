@@ -152,10 +152,11 @@
 #
 # So: gate on the default set, sweep the full one on demand.
 #
-# `tests/scheme/srfi/slow/` is not in either corpus — it is the pair of
-# reference suites that `run-all.sh`'s non-recursive globs already miss
-# (audit v2 finding F11); pulling it in here would hide that gap behind a
-# passing differential rather than fix it.
+# `tests/scheme/srfi/slow/` no longer exists: audit v2 Phase 3.10 found its
+# quarantine obsolete (the two full SRFI 257 reference suites now run in ~0.4s
+# each, not the minutes that put them there) and moved both files up into
+# `tests/scheme/srfi/`, so they are now in the opt-in KAAPPI_DIFF_FULL corpus
+# along with the rest of srfi/.
 
 set -uo pipefail
 

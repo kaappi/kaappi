@@ -80,20 +80,29 @@
 ;;;     a plain, hygiene-renamed symbol (see lib/srfi/211/explicit-
 ;;;     renaming.sld's own header), and SRFI 213's property storage keeps
 ;;;     a stored value exactly as given (it is not itself macro-expanded
-;;;     or re-processed), a stored field-name/accessor-name symbol
-;;;     retains its full hygienic spelling (rename prefix included) across
-;;;     the definition/lookup boundary. Plain `equal?` on that raw symbol
-;;;     therefore already implements both bound-identifier=? (within one
-;;;     form: two same-spelled-but-differently-renamed identifiers are
-;;;     literally different symbols) and free-identifier=? (across forms:
-;;;     a name written directly by the user resolves to the same bare
-;;;     symbol wherever it's written, and a macro-introduced fresh name
-;;;     never collides with it) -- verified against the exact scenario
-;;;     each SRFI 150 hygiene test group requires (a template-introduced
-;;;     field name vs. the same-spelled caller-supplied one; a fresh
-;;;     per-expansion rename never matching an unrelated same-spelled
-;;;     binding) during this investigation, so no em-bound-identifier=?-
-;;;     style machinery is needed at all. This is specific to this
+;;;     or re-processed), a stored field-name/accessor-name symbol was
+;;;     believed to retain its full hygienic spelling (rename prefix
+;;;     included) across the definition/lookup boundary, so that plain
+;;;     `equal?` on that raw symbol would already implement both
+;;;     bound-identifier=? and free-identifier=? with no
+;;;     em-bound-identifier=?-style machinery at all.
+;;;
+;;;     *** THAT IS FALSE -- see kaappi#2051. *** The rename does NOT
+;;;     survive the boundary, because this library carries field names
+;;;     across it inside `quote`, and quoting strips the hygiene prefix:
+;;;     (eq? '__hyg_2_a 'a) is #t. Expansion is correct (`kaappi expand`
+;;;     shows the two names properly distinguished), and both then strip
+;;;     to the same bare symbol before the runtime by-name lookup below
+;;;     ever sees them, so two hygienically-distinct fields collapse into
+;;;     one. This is what all four KNOWN FAILURES in
+;;;     tests/scheme/srfi/srfi150.scm are; the claim above was previously
+;;;     recorded as "verified against the exact scenario each SRFI 150
+;;;     hygiene test group requires", which is precisely the scenario
+;;;     that fails. A fix has to stop round-tripping hygienic identity
+;;;     through `quote` -- resolve field names entirely at expansion
+;;;     time, or key the property table on something that is not a quoted
+;;;     symbol. The rename-by-spelling representation described here is
+;;;     otherwise accurate, and is specific to this
 ;;;     engine's rename-by-spelling hygiene representation, noted as a
 ;;;     `(srfi 213)` conformance property already ("nominal... matching
 ;;;     this symbol-based expander's identity model") -- a portable

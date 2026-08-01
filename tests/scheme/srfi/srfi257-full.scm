@@ -10,19 +10,31 @@
 ;;     boxes is implementation-specific; Kaappi boxes compare by identity)
 ;;
 ;; The rx sublibrary has its own reference suite, ported alongside this one as
-;; tests/scheme/srfi/slow/srfi257-rx-full.scm.
+;; tests/scheme/srfi/srfi257-rx-full.scm.
 ;;
-;; This is the FULL port (about 4½ minutes of macro expansion on an M-class
-;; laptop), kept out of run-all.sh's non-recursive srfi/*.scm glob; CI runs
-;; the lean tests/scheme/srfi/srfi257.scm smoke instead.
+;; This is the FULL port. It lived in a `slow/` subdirectory until audit v2
+;; Phase 3.10, quarantined because it cost about 4½ minutes of macro expansion
+;; and run-all.sh allows 60s per file. That is no longer true: it runs in
+;; ~0.4s, which #1802/#1804 (ReleaseSafe was memsetting the expander's 1MB
+;; buffers on every expansion) made obsolete eight days after the quarantine
+;; went in, with nobody re-measuring. Five files already in this directory are
+;; slower. Being in a subdirectory made it unreachable from run-all.sh's
+;; non-recursive globs (kaappi#1900), so it now sits here directly.
 ;;
-;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/slow/srfi257-full.scm
+;; It does NOT supersede the lean tests/scheme/srfi/srfi257.scm: 18 of that
+;; file's 34 assertions have no counterpart here, so both are kept. That is
+;; also why this file's suite name is "srfi-257-full" and not "srfi-257" —
+;; SRFI-64 derives its log filename from the suite name, and two files
+;; writing one log under run-all.sh's parallel dispatch was the only such
+;; collision in the tree.
+;;
+;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi257-full.scm
 
 (import (scheme base) (srfi 64)
         (srfi 257) (srfi 257 misc)
         (srfi 111) (srfi 257 box))
 
-(test-begin "srfi-257")
+(test-begin "srfi-257-full")
 
 (define-syntax test-matcher
   (syntax-rules ()

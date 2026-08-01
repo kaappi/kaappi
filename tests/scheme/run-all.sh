@@ -404,6 +404,51 @@ run_shell_suite() {
     echo ""
 }
 
+# The .scm suite globs below are non-recursive (srfi/*.scm, not **), so a test
+# file dropped into a subdirectory of a suite is silently never run by anything.
+# tests/scheme/srfi/slow/ was exactly that for eleven days, holding the two full
+# SRFI 257 reference suites (kaappi#1900) — the quarantine that put them there
+# was obsoleted by #1804 a week later and nobody re-measured, because nothing
+# ever reported them as missing.
+#
+# Fixtures legitimately live in subdirectories (tests/scheme/CLAUDE.md requires
+# it), so the discriminator is `test-begin`: a fixture is a library or an
+# included fragment and never opens a SRFI-64 suite, while every real suite
+# file does. Verified against the whole tree — 11 fixture .scm files under
+# suite subdirectories, none containing `test-begin`, and no false positives.
+SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi audit"
+
+check_unreachable_tests() {
+    echo "=== Reachability check ==="
+    local found=0 dir f listing
+    listing=$(mktemp "${TMPDIR:-/tmp}/kaappi-reach-XXXXXX")
+    for dir in $SCM_SUITE_DIRS; do
+        [[ -d "tests/scheme/$dir" ]] || continue
+        find "tests/scheme/$dir" -type f -name '*.scm' > "$listing" 2>/dev/null || true
+        while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
+            # Top-level files are covered by the globs below; only look deeper.
+            [[ "$(dirname "$f")" = "tests/scheme/$dir" ]] && continue
+            if grep -Fq 'test-begin' "$f"; then
+                echo "  UNREACHABLE  $f"
+                found=$((found + 1))
+            fi
+        done < "$listing"
+    done
+    rm -f "$listing"
+    if [[ $found -gt 0 ]]; then
+        echo ""
+        echo "  $found test file(s) sit in a suite subdirectory, where this script's"
+        echo "  non-recursive globs cannot see them. Move each into its suite directory,"
+        echo "  or wire the subdirectory into a run_suite glob below."
+        echo "  See tests/scheme/CLAUDE.md (Directory layout)."
+        FAIL=$((FAIL + found))
+    else
+        echo "  PASS  no test files hidden in suite subdirectories"
+    fi
+    echo ""
+}
+
 echo "Running .scm suites with $JOBS parallel job(s) (override: KAAPPI_TEST_JOBS)."
 echo "Running shell suites with $SHELL_JOBS parallel job(s) (override: KAAPPI_SHELL_TEST_JOBS)."
 
@@ -425,6 +470,8 @@ if command -v zig > /dev/null 2>&1; then
     fi
 fi
 echo ""
+
+check_unreachable_tests
 
 run_suite "Smoke tests" tests/scheme/smoke/*.scm
 run_shell_suite "Smoke shell tests" tests/scheme/smoke
