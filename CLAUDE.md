@@ -1295,8 +1295,9 @@ this is the part you need at filing time:
 Four rules decide the hard cases:
 
 - **`critical` is process-level unsafety only.** A correctness bug tops out
-  at `high` however broad or silent. All 13 issues ever marked critical are
-  memory unsafety or a process abort.
+  at `high` however broad or silent. All 14 issues ever marked critical are
+  memory unsafety or a process abort — including one, kaappi#2107, whose
+  abort is reachable on wasm32 only. Tier does not discount an entry.
 - **Reachability separates critical from high.** An abort needing a stress
   harness is `high`; one reachable from a five-line program is `critical`.
 - **An audit header's `Severity:` is an input, not the answer.**
