@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785612135526,
+  "lastUpdate": 1785614875588,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b83f4c249d757257f76758ff59c58b4a9026fa2d",
-          "message": "Isolate -Dbundle test builds from the shared kaappi binary (#1826)\n\ncompile-import-error-703.sh and compile-preamble-gc-700.sh rebuilt\nzig-out/bin/kaappi in place to embed test bytecode, then rebuilt it a\nsecond time to restore the plain interpreter for later tests in the\nsame run-all.sh pass. run-all.sh and every other sequential test read\nthat same fixed path, so a test executed right after either of these\ncould race the restoring rebuild and observe a not-yet-settled binary.\n\nBoth invocations now install to a --prefix inside the test's own\ntmpdir instead, so the shared binary is never touched -- and the\nrestoring rebuild is no longer needed at all.\n\nFixes #1748\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T07:01:41Z",
-          "tree_id": "a5a9f6a1cc86666147c66238c96fe18343c71d82",
-          "url": "https://github.com/kaappi/kaappi/commit/b83f4c249d757257f76758ff59c58b4a9026fa2d"
-        },
-        "date": 1785310708270,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.417951,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.757462,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583902,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.9967,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004631,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046701,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315781,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057292,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.670374,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.237658,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.594862,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.277852,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.812756,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.65037,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043299,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04429,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04452d1ffdacacfe13b47aecead439048e86ba64",
+          "message": "Phase 4D: diff the corpus under wasmtime against the interpreter (#2122)\n\nThe WASM tier shipped in every release and backs the playground, and it\nwas checked by four hand-written programs asserting their own results\nplus an exit code. A build that ran but answered differently would pass.\n\nThis adds run-wasm-differential.sh, the sibling of the Phase 4B harness:\nthe interpreter is the oracle, and every corpus file must produce\nbyte-identical stdout, an identical exit status, and identical\nnormalised stderr under `wasmtime run --dir=.`. It exits 77 where there\nis no runtime or no module, so run-all.sh picks it up everywhere and\nonly actually runs it where it can.\n\n591 files swept. 184 agree byte-for-byte, 3 are documented degradations\nmatched on the engine's own message text, and 4 diverge:\n\n  #2107  write/display of an 848-deep car nest aborts the module with an\n         out-of-bounds memory access. MAX_PRINT_DEPTH's 1024 guard is\n         unreachable on wasm32 -- build.zig gives every native executable\n         a 64 MB stack and wasm_exe is the one with no stack_size at all.\n         Uncatchable: a `guard` with a #t clause never runs. The\n         regression test for closed #49 is itself one of the files that\n         aborts.\n  #2108  no file-backed .sld is importable even when the host mounts it,\n         because platform.openRead has no WASI branch and so\n         resolveLibraryPath's existence probe fails for every candidate.\n         This is why 401 of the 591 files cannot run on this tier at all.\n  #2109  (command-line) is '() and vm.lib_paths is empty -- main.zig's\n         WASM entry returns before both are set, leaving a now-dead\n         `if (!is_wasm)` inside the block it skips.\n  #1912  (pre-existing) index arguments truncate to u32 inside the bounds\n         check, so 2^32+1 aliases element 1 -- a silent wrong read and a\n         silent wrong write.\n\nThe 401 unrunnable files are reported as their own line rather than\nquietly excluded, so a green run cannot be mistaken for broad coverage:\nit covers 184 files, not 591. When #2108 is fixed that count collapses\nand the compared count jumps.\n\nTwo probes join the shared corpus. large-index-bounds-1912.scm pins\n#1912 with the control that attributes it to truncation rather than to a\nmissing bounds check. deep-nesting-print-tier-margin.scm is the positive\ncontrol for #2107 -- depth 500, a 40% margin under the measured 847\ncliff, so it stays green on both tiers and the harness watches the\nheadroom instead of only the known failure.\n\nKNOWN_DIFFS suppresses the four while they are open, and note_stale\nreports an entry that stops diverging -- from the agreeing, library and\nplatform buckets alike, since an entry that merely shifts bucket is\nequally stale and would otherwise keep suppressing a bucket nobody\nreviewed.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T00:32:20+05:30",
+          "tree_id": "35afde66877167fdef393b70547afa19f5c5a5be",
+          "url": "https://github.com/kaappi/kaappi/commit/04452d1ffdacacfe13b47aecead439048e86ba64"
+        },
+        "date": 1785614873202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.806739,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.064286,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.524465,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.640263,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004815,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044186,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.27265,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052811,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.761354,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.079753,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.425781,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.255476,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.657415,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.873965,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041663,
             "unit": "seconds"
           }
         ]
