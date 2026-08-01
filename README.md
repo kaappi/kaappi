@@ -413,6 +413,23 @@ observable caveats:
 Both are limited to SRFI 248; plain `call/cc`, `dynamic-wind`, and the built-in
 `guard` are unaffected unless you import `(srfi 248)`.
 
+### Exceptions
+
+A handler runs after the stack has unwound to the `with-exception-handler` (or
+`guard`) that installed it, rather than at the raise point, so a `parameterize`
+or `dynamic-wind` extent entered between the two is already gone by the time
+the handler is called. R7RS-small calls the handler in the dynamic environment
+of the `raise`. `raise-continuable` is unaffected — its handler does run in
+place, as specified.
+
+`guard` clauses are evaluated in the guard's own dynamic environment, as R7RS
+4.2.7 requires. One consequence of the above shows in the implicit re-raise:
+when no clause matches, `raise-continuable` is invoked in the *guard's* dynamic
+environment rather than the original raise's, so an outer
+`with-exception-handler` observes the guard's parameterization. Getting the
+raise point's back needs a continuation captured under the native raise frame,
+which cannot be resumed once that frame has returned.
+
 ### Fibers
 
 Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
