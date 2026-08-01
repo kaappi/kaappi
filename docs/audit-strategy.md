@@ -1,6 +1,6 @@
 # Systematic Correctness Audit Strategy (v2)
 
-**Status:** in progress (18 of 53 units — 2.12 and 5D complete but held by BSD failures, see [#1985](https://github.com/kaappi/kaappi/pull/1985)/[#1986](https://github.com/kaappi/kaappi/pull/1986)) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
+**Status:** in progress (19 of 53 units — 2.12 still held by a FreeBSD divergence, see [#1985](https://github.com/kaappi/kaappi/pull/1985)) · **Last updated:** 2026-08-01 · **Tracking issue:** [#1890](https://github.com/kaappi/kaappi/issues/1890)
 · **Supersedes:** the v1 campaign (issue [#1137](https://github.com/kaappi/kaappi/issues/1137), closed 2026-07-05, 87 findings, all fixed)
 
 ## Why a second campaign
@@ -301,7 +301,7 @@ Tick when the PR is open and issues are filed; add date and issue numbers.
 - [ ] 5A: **Validate-or-retire** the SRFI 120 corruption claim; deliver either a live repro or a PR rewriting the header plus tests pinning both rejections
 - [x] 5B: `waitForFd` park-vs-drive protocol — zero tests reference `waitForFd`, `driving_waits`, or `anyAncestorWaitResolved` (2026-08-01, [#1960](https://github.com/kaappi/kaappi/pull/1960); 26 tests, **no bugs in `waitForFd`**. Pinned the 2×2 selector and the unwind asymmetry, whose nine `false` rows had zero coverage. Filed [#1959](https://github.com/kaappi/kaappi/issues/1959) — the user-visible error names `dynamic-wind` as unparkable when it is not)
 - [x] 5C: `gc_deep_copy` promoted-stub ownership skip — an already-promoted channel stub bypasses the owner check (2026-07-31, [#1938](https://github.com/kaappi/kaappi/pull/1938); 49 assertions, 24 disabled — CLAUDE.md's sharing model confirmed verbatim, 11 sound behaviours pinned; filed [#1933](https://github.com/kaappi/kaappi/issues/1933) **parent GC reclaims objects a live child references** (gc-stress: hard UAF panic), [#1932](https://github.com/kaappi/kaappi/issues/1932) a record loses its type across `thread-join!`, [#1934](https://github.com/kaappi/kaappi/issues/1934)–[#1937](https://github.com/kaappi/kaappi/issues/1937))
-- [ ] 5D: SRFI-18 re-audit (994 → 1435 lines since v1)
+- [x] 5D: SRFI-18 re-audit (994 → 1435 lines since v1) (2026-08-01, [#1986](https://github.com/kaappi/kaappi/pull/1986); 77 → 274 assertions — filed [#1982](https://github.com/kaappi/kaappi/issues/1982) `thread-terminate!` **cannot interrupt a native wait**, a residual of closed #880 whose own verification used a `(thread-yield!)` loop — exactly the case its fix handles; [#1983](https://github.com/kaappi/kaappi/issues/1983) unguarded float→int aborts that reach `(kaappi fibers)` too; [#1984](https://github.com/kaappi/kaappi/issues/1984) four state-machine defects. **Portability lesson:** an assertion pinning `(seconds->time +nan.0)` ⟹ `0.0` failed only on CI's NetBSD — `@intFromFloat` on NaN is undefined, so never assert its *value*; assert that it does not abort, which is the real contrast with #1983's aborting cases.)
 - [ ] 5E: De-flake and arm the timing tests (76 wall-clock lines; `smoke/thread-sleep-876.scm` has no exit path at all)
 - [ ] 5F: gc-stress × concurrency — needs `/do-stress-test` (Linux, hours)
 - [ ] 5G: Reactor backend parity — needs `/do-linux-test` (epoll) and `/vm-test` (kqueue)
