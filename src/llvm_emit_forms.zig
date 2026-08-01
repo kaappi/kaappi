@@ -397,24 +397,117 @@ fn isKeyword(v: Value, name: []const u8) bool {
 // scope (they route through eval / passthrough) or deliberately declines to
 // handle here (lambda, => markers). A form containing any of these is sent to
 // the interpreter as a whole.
-fn isRejectedFormHead(name: []const u8) bool {
-    const rejected = [_][]const u8{
-        "lambda",                         "letrec",         "letrec*",
-        "guard",                          "quasiquote",     "delay",
-        "delay-force",                    "parameterize",   "define-values",
-        "let-values",                     "let*-values",    "define-syntax",
-        "let-syntax",                     "letrec-syntax",  "cond-expand",
-        "case-lambda",                    "define",         "define-record-type",
-        "call-with-current-continuation", "call/cc",        "call-with-values",
-        "eval",                           "import",         "include",
-        "include-ci",                     "define-library", "syntax-rules",
-        "syntax-error",                   "unquote",        "unquote-splicing",
-        "else",                           "=>",
-    };
-    for (rejected) |r| {
-        if (std.mem.eql(u8, name, r)) return true;
+//
+// DERIVED from `ir.eval_fallback_form_names`, not hand-maintained (kaappi#1896).
+// Until that issue this was a literal 32-name array structurally independent of
+// the comptime set, and it had drifted: `define-property` was missing, so a
+// top-level `(cond (#t (display "B") (define-property x k (begin (display "P") 1))))`
+// emitted the cond natively and left only the property registration as a
+// run-time `kaappi_eval` — moving a COMPILE-time effect after the rest of the
+// clause body (interpreter `PBC`, native `BPC`), and in a `do` failing emission
+// outright with KP9001 because `emitDo` installs loop-variable locals before the
+// deferred form is reached and `emitFormEval` refuses to eval inside a lexical
+// scope. Deriving makes a future `FormKind` join this gate automatically.
+//
+// Two explicit lists carry what the derivation cannot know; the comptime block
+// below keeps both honest.
+//
+// Heads rejected for this gate's OWN reasons, and therefore absent from the
+// derived set by design:
+const extra_rejected_heads = [_][]const u8{
+    // Lowered natively elsewhere, but not in an arbitrary sub-expression
+    // position inside a cond/case/do. Rejecting `lambda` also sidesteps `do`'s
+    // fresh-binding-per-iteration semantics (see this file's header): with no
+    // closure able to capture a loop variable, the mutable allocas `emitDo`
+    // updates in place are observably equivalent. Rejecting `define` keeps
+    // `emitDo`'s cleared `scope_define_names` from being load-bearing (#1854).
+    "lambda",
+    "define",
+    // Syntax-position markers, not expression heads: they are only meaningful
+    // inside an enclosing form (`unquote`/`unquote-splicing` inside
+    // `quasiquote`, which is itself derived-and-rejected; `else`/`=>` as
+    // cond/case clause markers, which the clause walkers handle before ever
+    // consulting this gate). All four must stay OUT of the derived set —
+    // `sexprNeedsEvalFallback` recurses blindly into clause bodies, so listing
+    // `else`/`=>` there would reject every natively-lowered cond/case that has
+    // an else clause (#1496; asserted in tests_native.zig).
+    "unquote",
+    "unquote-splicing",
+    "else",
+    "=>",
+};
+
+// Derived names this gate deliberately does NOT reject. Empty today: every
+// eval-fallback form is also un-emittable here. An entry needs a written
+// reason, and the comptime block rejects one that has gone stale.
+const derived_exclusions = [_][]const u8{};
+
+fn nameListHas(list: []const []const u8, name: []const u8) bool {
+    for (list) |n| {
+        if (std.mem.eql(u8, n, name)) return true;
     }
     return false;
+}
+
+// Counted rather than `derived.len - exclusions.len + extras.len` so that a
+// derived_exclusions entry naming a form that does not exist produces only the
+// comptime block's own diagnostic below, not a confusing bounds error first.
+fn rejectedHeadCount() usize {
+    @setEvalBranchQuota(20_000);
+    var n: usize = extra_rejected_heads.len;
+    for (ir.eval_fallback_form_names) |name| {
+        if (!nameListHas(&derived_exclusions, name)) n += 1;
+    }
+    return n;
+}
+
+pub const rejected_form_heads: [rejectedHeadCount()][]const u8 = blk: {
+    @setEvalBranchQuota(20_000);
+    var out: [rejectedHeadCount()][]const u8 = undefined;
+    var i: usize = 0;
+    for (ir.eval_fallback_form_names) |name| {
+        if (nameListHas(&derived_exclusions, name)) continue;
+        out[i] = name;
+        i += 1;
+    }
+    for (extra_rejected_heads) |name| {
+        out[i] = name;
+        i += 1;
+    }
+    break :blk out;
+};
+
+comptime {
+    // Three nested scans, each ~33 names against ~33 names, every comparison a
+    // comptime `std.mem.eql` byte loop — well past the 1000 default.
+    @setEvalBranchQuota(20_000);
+    // A stale exclusion would silently widen this gate back open, which is
+    // exactly the failure kaappi#1896 was.
+    for (derived_exclusions) |name| {
+        if (!nameListHas(&ir.eval_fallback_form_names, name))
+            @compileError("derived_exclusions names '" ++ name ++
+                "', which is not an ir.eval_fallback_form_names entry — drop it");
+    }
+    // An extra head that the derivation already supplies is a duplicate; the
+    // real question in that case is whether it wants a derived_exclusions entry.
+    for (extra_rejected_heads) |name| {
+        if (nameListHas(&ir.eval_fallback_form_names, name))
+            @compileError("extra_rejected_heads names '" ++ name ++
+                "', which ir.eval_fallback_form_names already contributes");
+    }
+    // The invariant, re-checked independently of how `rejected_form_heads` was
+    // built: derived ⊆ rejected ∪ documented-exclusions.
+    for (ir.eval_fallback_form_names) |name| {
+        if (nameListHas(&rejected_form_heads, name)) continue;
+        if (nameListHas(&derived_exclusions, name)) continue;
+        @compileError("'" ++ name ++ "' routes through kaappi_eval but is not " ++
+            "rejected by the cond/case/do gate and is not in derived_exclusions " ++
+            "(kaappi#1896)");
+    }
+}
+
+fn isRejectedFormHead(name: []const u8) bool {
+    return nameListHas(&rejected_form_heads, name);
 }
 
 // True if `expr` is an expression the emitter can lower natively while

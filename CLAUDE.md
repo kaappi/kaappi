@@ -206,12 +206,30 @@ maintenance: it walks `llvm_node_table`, then every `FormKind` field (skipping
 it automatically, and a comptime block enforces one `llvm_node_table` entry per
 `NodeTag`.
 
-The silent-miscompilation hazard is real but lives one file over, in
-`isRejectedFormHead` (`llvm_emit_forms.zig`) — a **hand-maintained** 32-name
-array gating `cond`/`case`/`do` through `exprNativeEmittable`, structurally
-independent of the derived set and already missing `define-property`
-(kaappi#1896). Add a keyword there when you add a form, until that list is
-derived too.
+The second gate — `isRejectedFormHead` (`llvm_emit_forms.zig`), which routes
+`cond`/`case`/`do` through `exprNativeEmittable` — **is derived too** as of
+kaappi#1896, and needs no maintenance either. Until then it was a
+hand-maintained 32-name array structurally independent of the derived set, and
+it had drifted by exactly one name: `define-property`. That was not theoretical.
+`define-property` is a *compile-time* form (`compileDefineProperty` evaluates
+its expression while the enclosing form is compiled), so a top-level
+`(cond (#t (display "B") (define-property x k (begin (display "P") 1)) (display "C")))`
+printed `PBC` interpreted and `BPC` compiled — the cond was emitted natively and
+the registration left behind as a run-time `kaappi_eval`. `case` diverged the
+same way; `do` did not compile at all (`KP9001`), because `emitDo` installs
+loop-variable locals before reaching the deferred form and `emitFormEval`
+refuses to eval inside a lexical scope. The lexical-scope path was never at
+risk — `sexprNeedsEvalFallback` consults the *derived* set, so any enclosing
+`let`/`lambda` already declined.
+
+`rejected_form_heads` is now `(eval_fallback_form_names \ derived_exclusions) ∪
+extra_rejected_heads`, with `derived_exclusions` empty and
+`extra_rejected_heads` holding the six names the gate rejects for its own
+reasons (`lambda`, `define`, `unquote`, `unquote-splicing`, `else`, `=>`). A
+comptime block rejects a stale exclusion, a duplicate extra, and any derived
+name that escapes the gate; a deliberately stricter runtime test in
+`tests_native.zig` fails if `derived_exclusions` gains an entry at all, so
+weakening the gate takes two edits, not one quiet line.
 
 **Always use `zig cc` (not `clang`) for linking native binaries against
 `libkaappi_rt.a`.** The Zig-compiled static library references

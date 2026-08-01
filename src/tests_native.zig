@@ -1464,6 +1464,66 @@ test "LLVM emit: a cond containing letrec falls back to the interpreter (#1496)"
     try std.testing.expect(countEvalFallbacks(ll) >= 1);
 }
 
+// -- the cond/case/do gate is DERIVED from the eval-fallback set (#1896) --
+//
+// `isRejectedFormHead` was a hand-maintained 32-name array parallel to
+// `ir.eval_fallback_form_names`, and had drifted: `define-property` was absent,
+// so a natively-lowered cond/case/do left the property registration behind as a
+// run-time eval — a compile-time effect moved past the rest of the clause body.
+// `llvm_emit_forms.rejected_form_heads` now derives from the comptime set, and
+// a comptime block there asserts derived ⊆ rejected ∪ derived_exclusions, so a
+// future FormKind cannot reopen the gap. These two tests cover what a comptime
+// assertion cannot: that the derived list is still the one the gate consults,
+// and that consulting it produces the fallback.
+
+test "cond/case/do gate rejects every eval-fallback form (#1896)" {
+    // Deliberately STRICTER than llvm_emit_forms.zig's comptime invariant,
+    // which permits `derived_exclusions` entries. That list is empty and this
+    // test is what keeps it that way: adding an entry compiles fine but fails
+    // here, so weakening the gate takes a second, deliberate edit — with the
+    // reason written down in both places — rather than one quiet line.
+    const forms = @import("llvm_emit_forms.zig");
+    for (ir_mod.eval_fallback_form_names) |name| {
+        var found = false;
+        for (forms.rejected_form_heads) |r| {
+            if (std.mem.eql(u8, r, name)) found = true;
+        }
+        if (!found) {
+            std.debug.print("\n--- eval-fallback form '{s}' is not rejected by the cond/case/do gate ---\n", .{name});
+            return error.TestExpectedEqual;
+        }
+    }
+    // The name the drift actually dropped, called out so a regression names
+    // itself rather than reporting a generic set-inclusion failure.
+    var has_define_property = false;
+    for (forms.rejected_form_heads) |r| {
+        if (std.mem.eql(u8, r, "define-property")) has_define_property = true;
+    }
+    try std.testing.expect(has_define_property);
+}
+
+test "LLVM emit: define-property makes cond/case/do fall back whole (#1896)" {
+    // Before the derivation each of these emitted the enclosing form natively
+    // and deferred only the `define-property` to run time. `do` was worse than
+    // wrong-order: emitDo installs loop-variable locals before reaching the
+    // body, and emitFormEval refuses to eval inside a lexical scope, so the
+    // whole emission failed with KP9001 on a program the interpreter runs.
+    var c = try emitMultiResult("(cond (#t (define-property x k 1) 2))");
+    defer c.deinit();
+    try expectNotContains(c.toSlice(), "cond_merge_");
+    try expectContains(c.toSlice(), "(cond (#t (define-property x k 1) 2))");
+
+    var s = try emitMultiResult("(case 1 ((1) (define-property x k 1) 2))");
+    defer s.deinit();
+    try expectNotContains(s.toSlice(), "case_merge_");
+    try expectContains(s.toSlice(), "(case 1 ((1) (define-property x k 1) 2))");
+
+    var d = try emitMultiResult("(do ((i 0 (+ i 1))) ((= i 1)) (define-property x k 1))");
+    defer d.deinit();
+    try expectNotContains(d.toSlice(), "do_header_");
+    try expectContains(d.toSlice(), "(do ((i 0 (+ i 1))) ((= i 1)) (define-property x k 1))");
+}
+
 // -- macro-use gate in natively-lowered let/lambda scopes (#1807) --
 //
 // emitLet and the lambda closure tiers (tryCompileNativeClosure,
