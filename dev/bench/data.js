@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785618578351,
+  "lastUpdate": 1785622242686,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "70450499b7bc80cee6656bcea021f8a265fe1120",
-          "message": "Add Markdown linting to CI, fixing #1837 (#1840)\n\n* Add Markdown linting to CI\n\nThe repo had 82 Markdown files and no linter, while .zig was enforced three\nways. The gap was not theoretical: CodeRabbit -- not CI -- caught an MD018\nviolation in docs/dev/fuzzing.md (#1836), where prose wrapping left an issue\nreference at the start of a line, which Markdown reads as a malformed heading.\nThat failure mode is silent -- the doc renders wrong on GitHub and nothing\nerrors anywhere.\n\nMeasuring the fallout first changed the approach. The default rules give 2792\nviolations, but MD013 (line-length, 1032) and MD060 (table pipe padding, 997)\nalone are 73% of that noise. With those and nine other cosmetic rules off, 507\nremain -- few enough to clear entirely rather than start from a deliberately\nnarrow rule set and widen it over time. Every structural rule is therefore on,\nand the repo is left at zero findings.\n\nTwo of those rules must never be autofixed blindly, which is why the five\naffected sites were corrected by hand before running --fix:\n\n  - MD018 \"fixes\" a line-initial issue reference by inserting a space,\n    promoting prose to a real top-level heading -- making the very bug that\n    motivated this check worse. Doing so newly surfaced three MD025, one\n    MD026, and one MD001 as the phantom headings took effect.\n  - MD038 strips the space from the space-character literal in\n    docs/dev/fmt.md, corrupting the Scheme literal that paragraph exists to\n    document.\n\nBoth hazards are recorded in CONTRIBUTING.md so a later --fix cannot quietly\nreintroduce them.\n\nGlobs, ignores, and the rule set live together in .markdownlint-cli2.jsonc so\na bare `npx markdownlint-cli2` lints exactly what CI lints. AGENTS.md is\nignored because it is a symlink to CLAUDE.md and would double-report every\nfinding.\n\nFixes #1837\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix the MD018 violation the new check caught on main\n\nThe first CI run of the markdownlint step failed -- on a real violation,\nin the exact file and of the exact class that motivated this work.\n\ndocs/dev/fuzzing.md carried `#1573),` at the start of a line, which\nMarkdown reads as a malformed ATX heading. CodeRabbit flagged it during\nreview of #1836 and issue #1837 was filed about it, but the line merged\nto main unfixed. CI lints the pull-request merge commit, so the check\nsaw it even though this branch's own base predates that merge.\n\nFixed by rewrapping, never by MD018's autofix, which would have inserted\na space and promoted the prose to a real heading. The first rewrap\nattempt merely moved the problem to the following line (`#1835).`),\nwhich the check also caught -- the wrap point has to be chosen so that no\nline begins with the reference. The paragraph's word sequence is\nbyte-identical to main's.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T15:03:03+05:30",
-          "tree_id": "ea76b813c4281128cc8379ea27f23f5fb25dac6c",
-          "url": "https://github.com/kaappi/kaappi/commit/70450499b7bc80cee6656bcea021f8a265fe1120"
-        },
-        "date": 1785320959688,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.006945,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.368754,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573906,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.843908,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004933,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045208,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302195,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054352,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.367794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.18058,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.519851,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302982,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.723025,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.699176,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045383,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044001,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "94ebd5a0221d36bd35e2e545051b08efa9803420",
+          "message": "Phase 4E: .sbc cache coverage — eight probes, and three things a HIT changes (#2121)\n\nPhase 4B shipped the cold-vs-warm cache differential and found zero\ndivergence across 333 corpus files.  That was a coverage result, not a\ncorrectness one: only 40 of them populate the cache at all, and the six\ntoy forms in `sbc equiv:` are the entire round-trip surface the codec\nhas ever been asked about.\n\nEstablish the population rule first, since everything else depends on\nit.  A run writes an entry iff caching is on, at least one form compiled,\nand `has_imports` stayed false — and that flag is set by ANY of the eight\nhead symbols `vm_eval.handleTopLevelForm` claims, not just `import`.\nMeasured, one isolated KAAPPI_HOME per file: 40 of 345 cached; of the 305\nuncached, 303 have a top-level `import`, one is disabled by a top-level\n`begin` and one by a top-level `define-values`; zero cached files contain\nany of the eight.  `docs/dev/cache.md` documents only the `import` case\nand `--timings` blames `imports` for all eight (#2114).\n\nThen round-trip every constant tag through a real cold/warm run rather\nthan a unit fixture.  Fixnum at both ends of the 48-bit payload, flonum\nincluding -0.0 / +-inf.0 / NaN / 1e308 / 5e-324, bignum in both signs,\nrational with bignum parts, complex with its exactness bits, non-ASCII\nstrings, #\\x10FFFF, |weird sym|, bytevectors, nested and improper\nstructure, closures and upvalues, case-lambda, named let, call/cc,\ndynamic-wind, guard, parameterize: all clean.  That is the headline\nresult and it is a real one.\n\nThree things are not.  A HIT rebuilds constants through the ordinary\nallocators, so it drops `Object.flags.immutable` and `set-car!` on a\nliteral raises cold and succeeds warm, exit 1 becoming exit 0 (#2110).\n`writeConstant` has no visited-set, so datum-label sharing is emitted\nonce per reference and `eq?` flips #t to #f — with a shared DAG going\nexponential (241 source bytes, 4.7 MB of .sbc) and a cyclic literal\nnever loading at all (#2111).  And `define-syntax` registers its\ntransformer as a compile-time side effect that a HIT never replays, so a\ntop-level macro is invisible to a run-time `eval` (#2112).\n\nThe fourth is what hid the third symptom: the writer enforces almost none\nof the reader's limits, so a constant past MAX_CONSTANT_DEPTH or a vector\npast MAX_VECTOR_LEN writes an entry that can never be loaded.  The file\nrecompiles and rewrites the same .sbc forever, `cache status` calls the\nentry \"current\", and counting entries reads it as covered (#2113).  The\nharness now runs `--timings` once per cache-populating file and fails on\nan unexpected permanent miss; across all 599 files in the full corpus\nthere are none.\n\nProbes are written to stay cacheable — sbc-population.scm carries the\nrule and the control that the four non-library heads only disable it in\ntop-level head position.\n\nDefault corpus 345 -> 353 files, cache-exercising 40 -> 48, 118s.\nFull suite green: 663 Scheme files, 1395 R7RS assertions, 0 fail.\n\nRefs #1890\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T01:05:22+05:30",
+          "tree_id": "171cf8e97cbb787c07d86a6aae46cf9abb65eaee",
+          "url": "https://github.com/kaappi/kaappi/commit/94ebd5a0221d36bd35e2e545051b08efa9803420"
+        },
+        "date": 1785622240595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.287617,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.092973,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573069,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.987546,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004713,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046061,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311168,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057369,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.785479,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.230107,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.569087,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281043,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.80023,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.622473,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044055,
             "unit": "seconds"
           }
         ]
