@@ -11,6 +11,7 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const types = @import("types.zig");
+const types_port = @import("types_port.zig");
 const memory_mod = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_buffer = @import("shared_buffer.zig");
@@ -200,9 +201,10 @@ pub fn objectSize(obj: *Object) usize {
             if (port.string_out_buf) |_| s += port.string_out_cap;
             if (port.read_buf) |rb| s += rb.len;
             if (port.write_buf) |wb| s += wb.len;
-            if (port.random_gen) |_| s += @sizeOf(types.RandomGen);
-            if (port.custom_backend) |_| s += @sizeOf(types.CustomBacking);
-            if (port.transcode) |_| s += @sizeOf(types.TranscodeState);
+            // Owned satellites (random_gen, custom_backend, transcode) are
+            // derived from types_port.satellites, so a new one is counted
+            // without editing this arm (audit v2, 7A).
+            s += types_port.satelliteBytes(port);
             break :blk s;
         },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
@@ -437,29 +439,12 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             if (port.string_out_buf) |sb| {
                 gc.allocator.free(sb);
             }
-            if (port.random_gen) |g| {
-                gc.allocator.destroy(g);
-            }
-            // SRFI 181: only free the backing struct itself here -- never
-            // call close_proc during a sweep. There is no valid VM call
-            // stack to reenter into during collection, and R7RS gives no
-            // finalization guarantee for a port that becomes unreachable
-            // without an explicit close-port anyway (same as every other
-            // port kind above, which just drops its fd/buffers here too).
-            if (port.custom_backend) |cb| {
-                gc.allocator.destroy(cb);
-            }
-            // SRFI 181: only free the TranscodeState struct itself here --
-            // never touch the wrapped port. It's a separate, independently
-            // GC-tracked Value; if it's otherwise unreachable it gets
-            // swept on its own, and if it's still reachable (e.g. held
-            // directly by other code) it must not be freed just because
-            // this transcoded view over it became garbage. closePortObj
-            // (primitives_io.zig) is what cascades a close to the wrapped
-            // port while the VM is actually live to do so.
-            if (port.transcode) |ts| {
-                gc.allocator.destroy(ts);
-            }
+            // Owned satellites (random_gen, custom_backend, transcode).
+            // Derived from types_port.satellites, so a new one is freed
+            // without editing this arm (audit v2, 7A); see
+            // destroySatellites for why a sweep frees only the structs and
+            // never calls close_proc or touches a wrapped port.
+            types_port.destroySatellites(port, gc.allocator);
             poisonAndDestroy(gc, Port, port);
         },
         .continuation => {

@@ -2,6 +2,7 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const builtin = @import("builtin");
 const types = @import("types.zig");
+const types_port = @import("types_port.zig");
 const memory_mod = @import("memory.zig");
 const GC = memory_mod.GC;
 
@@ -134,21 +135,11 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const param = obj.as(types.ParameterObject);
             if (isYoungPointer(gc, param.value) or isYoungPointer(gc, param.converter)) return true;
         },
-        .port => {
-            // SRFI 181: a custom port's callbacks and a transcoded port's
-            // wrapped_port are the only Value-bearing fields Port has --
-            // everything else is a scalar, buffer, or non-GC-tracked owned
-            // pointer (random_gen etc.). A port is never both at once.
-            const p = obj.as(Port);
-            if (p.custom_backend) |cb| {
-                if (isYoungPointer(gc, cb.read_proc) or isYoungPointer(gc, cb.write_proc) or
-                    isYoungPointer(gc, cb.get_position_proc) or isYoungPointer(gc, cb.set_position_proc) or
-                    isYoungPointer(gc, cb.close_proc) or isYoungPointer(gc, cb.flush_proc)) return true;
-            }
-            if (p.transcode) |ts| {
-                if (isYoungPointer(gc, ts.wrapped_port)) return true;
-            }
-        },
+        // Port's Value fields live behind owned satellite pointers, so they
+        // are enumerated once in types_port.forEachValue rather than by hand
+        // here, in markObjectContents and in markValueInner (audit v2, 7A).
+        // The visitor returning `true` keeps this arm's short-circuit.
+        .port => return types_port.forEachValue(obj.as(Port), gc, youngVisitor),
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
@@ -502,7 +493,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, param.value);
             markValue(gc, param.converter);
         },
-        .port => markPortValues(gc, obj.as(Port)),
+        .port => _ = types_port.forEachValue(obj.as(Port), gc, markVisitor),
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| markValue(gc, lit);
@@ -597,26 +588,38 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
     }
 }
 
-/// SRFI 181: traces a custom port's callback procedures and a transcoded
-/// port's wrapped_port. Called only from markObjectContents's .port arm --
-/// markValueInner's own .port arm independently duplicates this same field
-/// list via its own inline worklist.append calls (it cannot share this
-/// helper, since it appends to a worklist instead of recursing), and
-/// referencesYoung's .port arm is independent too (it needs isYoungPointer,
-/// not markValue). All three arms must be kept in sync by hand; Port
-/// itself can't host a shared helper (types.zig can't import memory.zig,
-/// which GC.markValue lives on, without a cycle).
-fn markPortValues(gc: *GC, port: *Port) void {
-    if (port.custom_backend) |cb| {
-        markValue(gc, cb.read_proc);
-        markValue(gc, cb.write_proc);
-        markValue(gc, cb.get_position_proc);
-        markValue(gc, cb.set_position_proc);
-        markValue(gc, cb.close_proc);
-        markValue(gc, cb.flush_proc);
-    }
-    if (port.transcode) |ts| markValue(gc, ts.wrapped_port);
+// -- The three actions types_port.forEachValue drives (audit v2, 7A) --
+//
+// One enumeration of a port's Values, three different things to do with
+// each. This is what replaced the hand-kept triplicate: markPortValues
+// (recursive, for markObjectContents), an inline worklist.append list in
+// markValueInner, and an inline isYoungPointer list in referencesYoung.
+// Each visitor keeps its own arm's exact previous semantics -- in
+// particular markValueInner still appends to the caller's worklist rather
+// than recursing through markValue, which is why it could not simply call
+// markPortValues before.
+
+/// referencesYoung: stop at the first young referent.
+fn youngVisitor(gc: *GC, v: Value) bool {
+    return isYoungPointer(gc, v);
 }
+
+/// markObjectContents: mark every referent, never stop early.
+fn markVisitor(gc: *GC, v: Value) bool {
+    markValue(gc, v);
+    return false;
+}
+
+/// markValueInner: push every referent onto the caller's worklist.
+const WorklistVisitor = struct {
+    gc: *GC,
+    worklist: *std.ArrayList(Value),
+
+    fn visit(self: WorklistVisitor, v: Value) bool {
+        self.worklist.append(self.gc.allocator, v) catch @panic("GC mark: worklist OOM");
+        return false;
+    }
+};
 
 /// Record a reachable ephemeron for the post-mark weak fixpoint without tracing
 /// its key or value — those are decided by processWeakRefs.
@@ -858,23 +861,14 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, param.value) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, param.converter) catch @panic("GC mark: worklist OOM");
         },
-        .port => {
-            // Independent of markPortValues (that one recurses via
-            // markValue; this switch drives an explicit worklist instead)
-            // -- keep this field list in sync with it by hand.
-            const p = obj.as(Port);
-            if (p.custom_backend) |cb| {
-                worklist.append(gc.allocator, cb.read_proc) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, cb.write_proc) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, cb.get_position_proc) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, cb.set_position_proc) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, cb.close_proc) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, cb.flush_proc) catch @panic("GC mark: worklist OOM");
-            }
-            if (p.transcode) |ts| {
-                worklist.append(gc.allocator, ts.wrapped_port) catch @panic("GC mark: worklist OOM");
-            }
-        },
+        // Same enumeration as markObjectContents and referencesYoung, a
+        // different action: this switch drives an explicit worklist rather
+        // than recursing (audit v2, 7A).
+        .port => _ = types_port.forEachValue(
+            obj.as(Port),
+            WorklistVisitor{ .gc = gc, .worklist = worklist },
+            WorklistVisitor.visit,
+        ),
         .hash_table => {
             const ht = obj.as(HashTable);
             if (ht.equiv_fn != 0) worklist.append(gc.allocator, ht.equiv_fn) catch @panic("GC mark: worklist OOM");
