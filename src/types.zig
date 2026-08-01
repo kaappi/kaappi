@@ -1120,15 +1120,22 @@ pub const OpCode = enum(u8) {
 // -- Doc sync gate ----------------------------------------------------------
 //
 // `docs/dev/bytecode.md` documents this table by count and per-opcode operand
-// width, and `.claude/skills/bytecode-isa/SKILL.md` quotes the count. All three
-// drifted apart — doc 29, skill 32, enum 31 — because nothing tied them
-// together (kaappi#2102). Change the number here only together with those two
-// files. The widths themselves stay pinned by `fixed_operand_bytes` in
-// `vm_dispatch.zig`, which `ensureOperands` enforces at run time.
+// width, and four other files quote the count. They drifted apart — doc 29,
+// skill 32, enum 31 — because nothing tied them together (kaappi#2102). The
+// widths themselves stay pinned by `fixed_operand_bytes` in `vm_dispatch.zig`,
+// which `ensureOperands` enforces at run time.
+//
+// The file list below is the known set at the time of writing, not a guarantee:
+// a list of filenames in a string is its own drift surface, which is exactly
+// the bug class this gate exists for. Re-run the search in the message rather
+// than trusting the list — grep the *noun*, since the count is written at least
+// four ways ("31 opcodes", "31-opcode", "(31 opcodes)", and number-after-noun).
 comptime {
     if (@typeInfo(OpCode).@"enum".fields.len != 31)
-        @compileError("OpCode count changed: update the table in docs/dev/bytecode.md " ++
-            "and the count in .claude/skills/bytecode-isa/SKILL.md, then update this number");
+        @compileError("OpCode count changed. Update the table in docs/dev/bytecode.md, then every " ++
+            "file quoting the count — known: docs/dev/architecture.md, docs/dev/README.md, " ++
+            "docs/dev/claude-code-harness.md, .claude/skills/bytecode-isa/SKILL.md. Find any others " ++
+            "with: grep -rni opcode --include='*.md' --include='*.yaml' . Then update this number.");
 }
 
 // ---------------------------------------------------------------------------

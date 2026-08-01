@@ -209,16 +209,25 @@ comptime {
 //
 // Several docs quote these two counts to describe how lowered the IR is, and
 // they went stale at 33 — the pre-`sexpr_form` tag count — for long enough to
-// give readers entirely the wrong picture (kaappi#2102). Change a number here
-// only together with `docs/dev/ir.md`, `docs/dev/architecture.md`,
-// `docs/dev/README.md`, the root `CLAUDE.md` and `README.md`.
+// give readers entirely the wrong picture (kaappi#2102).
+//
+// `.coderabbit.yaml` is in the list because it is *configuration for the
+// automated reviewer*: a stale count there does not merely misinform a human
+// who might check, it feeds the wrong model into every future PR review.
+//
+// As with the OpCode gate in `types.zig`, treat the list as the known set
+// rather than a guarantee, and re-run the search — grep the noun, not the
+// number, since the count appears as "18 node types", "**18** node tags" and
+// "node types (18)" alike, and a bare "18" collides with every SRFI number.
 comptime {
     if (@typeInfo(NodeTag).@"enum".fields.len != 18)
-        @compileError("NodeTag count changed: update docs/dev/ir.md, docs/dev/architecture.md, " ++
-            "docs/dev/README.md, CLAUDE.md and README.md, then update this number");
+        @compileError("NodeTag count changed. Update docs/dev/ir.md, docs/dev/architecture.md, " ++
+            "docs/dev/README.md, CLAUDE.md, README.md and .coderabbit.yaml. Find any others with: " ++
+            "grep -rniE 'node (type|tag)' --include='*.md' --include='*.yaml' . Then update this number.");
     if (@typeInfo(FormKind).@"enum".fields.len != 18)
-        @compileError("FormKind count changed: update the FormKind table in docs/dev/ir.md, " ++
-            "then update this number");
+        @compileError("FormKind count changed. Update the FormKind table in docs/dev/ir.md, and the " ++
+            "count in CLAUDE.md, docs/dev/architecture.md and .coderabbit.yaml. Find any others with: " ++
+            "grep -rniE 'form ?kind' --include='*.md' --include='*.yaml' . Then update this number.");
 }
 
 pub const Annotations = struct {

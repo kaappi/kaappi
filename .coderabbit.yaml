@@ -73,9 +73,15 @@ reviews:
 
     - path: "src/ir.zig"
       instructions: |
-        Intermediate representation: 33 node types, 3 analysis passes,
-        5 optimization passes. New node types need: NodeTag variant, Data union
-        field, freeNode arm, markTailPositions arm, and llvm_node_table entry.
+        Intermediate representation: 18 node types, 1 analysis pass
+        (markTailPositions), 5 optimization passes. Most special forms are NOT
+        their own node type — they share the single `sexpr_form` tag and are
+        discriminated by one of 18 `FormKind`s, so a new form normally needs
+        only the FormKind + sexpr_form_map path described for src/compiler*.zig
+        above, with no NodeTag, Data union, freeNode or analysis-pass change.
+        Only a genuinely structured node (one with IR-level children) needs:
+        NodeTag variant, Data union field, lowering, freeNode arm,
+        markTailPositions arm, and llvm_node_table entry.
         Optimization passes use `else => return node` — only add arms if the
         new form should participate in constant folding or simplification.
 
