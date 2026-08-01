@@ -79,12 +79,13 @@ level has a load-bearing question behind it.
 Adopted 2026-08-01. A correctness bug does not earn `critical` no matter how
 broad or how silent — it tops out at `high`.
 
-This is not an invented rule; it describes the existing corpus. Of the 12
-issues ever labeled `priority: critical`, 11 are memory unsafety or a process
-abort:
+This is not an invented rule; it describes the existing corpus. All 13 issues
+ever labeled `priority: critical` are memory unsafety or a process abort:
 
 | Issue | Why critical |
 |------:|--------------|
+| [2027](https://github.com/kaappi/kaappi/issues/2027) | Deep copy aliases FFI handles across heaps; the freed slot reads back as a pair of flonums |
+| [2024](https://github.com/kaappi/kaappi/issues/2024) | A custom hash inserting into its own table double-frees the entry array |
 | [2008](https://github.com/kaappi/kaappi/issues/2008) | Cross-heap mutation of a raw `ArrayList`; silent abort or type-confused object |
 | [1973](https://github.com/kaappi/kaappi/issues/1973) | A 27-field record aborts the process — `u8` overflow |
 | [1939](https://github.com/kaappi/kaappi/issues/1939) | Re-entrant custom-port read aborts the process (exit 134) |
@@ -97,10 +98,15 @@ abort:
 | [1191](https://github.com/kaappi/kaappi/issues/1191) | GC root stack overflow panics instead of raising |
 | [1181](https://github.com/kaappi/kaappi/issues/1181) | Use-after-free when a hash-table callback deletes entries |
 
-The twelfth, [1250](https://github.com/kaappi/kaappi/issues/1250)
-(macro-introduced `set!` bypasses assignment conversion), is a pure
-correctness bug and predates the rule. It is the documented exception, not a
-precedent — do not calibrate against it.
+One issue was corrected to reach that state.
+[1250](https://github.com/kaappi/kaappi/issues/1250) (macro-introduced `set!`
+bypasses assignment conversion) had been critical since long before the rule.
+Both of its reproductions *hang* — a liveness failure, not memory unsafety —
+so it moved to `high` alongside its closest precedent,
+[1954](https://github.com/kaappi/kaappi/issues/1954), where four output
+procedures hang forever on a cycle. It is closed, so the change buys nothing
+operationally; it is recorded here because a lone counter-example in the
+corpus is exactly what a future maintainer would calibrate against.
 
 ### Reachability separates critical from high
 
@@ -159,17 +165,30 @@ it**. They do not map one-to-one, and the gap is entirely blast radius:
   doubling line breaks) — the defect is identically "wrong answer"; the
   reachable surface is not.
 - `crash` is usually critical, but see the reachability rule above.
-- `doc-truth` and `diagnostic quality` are reliably low, because by
-  construction the behaviour is correct.
+- `doc-truth` and `diagnostic quality` are usually low, because the behaviour
+  is normally correct and only its description is wrong. Check that premise
+  rather than assuming it: [2038](https://github.com/kaappi/kaappi/issues/2038)
+  is filed as doc-truth and asks for a doc fix, but the behaviour it conceals
+  is a loop running 2ⁿ−1 times that past n≈20 prints nothing and exits 0. A
+  doc gap that hides a silent wrong result is not low.
 
 Read the severity as an input to the priority decision, never as the answer.
 
 ## Triage
 
-**Invariant: every open issue carries exactly one priority label.** Verified
-across all 1015 issues — no issue has ever carried two. The invariant is not
-retroactive: 766 closed issues have no priority label, and backfilling them
-would be archaeology with no consumer.
+**Invariant: every open issue carries exactly one priority label**, with one
+exemption below. No issue in the tracker has ever carried two. The invariant
+is not retroactive: 766 closed issues predate it and have no priority label —
+backfilling them would be archaeology with no consumer, and the number is
+stable because everything closed from here on was labeled while open.
+
+**Exempt: auto-filed `fuzz-finding` CI reports.** The Fuzz workflow opens a
+`Fuzz CI: infrastructure or build failure` issue whenever a job dies without
+a finding artifact. These are triage-and-close — the question is "what broke
+the runner", not "when do we fix this" — and all six filed so far have been
+handled with no priority label. Prioritizing them would be ceremony. A fuzz
+report that turns out to be a real defect gets a normal issue, which is
+labeled like any other.
 
 It needs re-checking after any filing burst. An `audit` phase lands its
 findings all at once, so the gap opens between one triage pass and the next
@@ -181,6 +200,7 @@ Find open issues missing a priority:
 gh issue list --repo kaappi/kaappi --state open --limit 400 \
   --json number,title,labels \
   --jq '.[] | select([.labels[].name] | any(startswith("priority:")) | not)
+            | select([.labels[].name] | index("fuzz-finding") | not)
         | "\(.number)\t\(.title)"'
 ```
 
