@@ -6,15 +6,26 @@
 ;;; IMPORTANT: every scheduled thunk runs on the timer's own dedicated
 ;;; thread, which has its own independent GC heap (see kaappi/CLAUDE.md's
 ;;; "OS threads" section) -- the same as any SRFI-18 `thread-start!`'d
-;;; thread. A thunk therefore CANNOT safely mutate state visible to the
-;;; thread that called `timer-schedule!` (e.g. `set-car!` on a pair the
-;;; caller also holds): Kaappi's primitives don't stop you from writing
-;;; through a pointer into another thread's heap, but doing so from a
-;;; concurrently-running thread with its own independent collector is a
-;;; data race, not a supported way to observe that a task ran. Use a
-;;; `(kaappi fibers)` channel instead -- have the thunk `channel-send` a
-;;; result and have the caller `channel-receive` it -- exactly how this
-;;; library's own request/reply plumbing works internally.
+;;; thread. A thunk therefore CANNOT be observed by mutating state the
+;;; thread that called `timer-schedule!` also holds (e.g. `set-car!` on a
+;;; pair) -- and it fails two different ways depending on how the thunk
+;;; reached the pair, which is why "just use set-car!" looks like it works
+;;; until it doesn't:
+;;;
+;;;   - a LEXICALLY captured pair was deep-copied into the timer's heap
+;;;     along with the thunk, so the thunk mutates its own private copy and
+;;;     the caller's pair is simply never written. Silently invisible, not
+;;;     racy.
+;;;   - a pair reached through a TOP-LEVEL binding was not copied (globals
+;;;     are shared by pointer), so the write really does land in the
+;;;     caller's heap -- from a concurrently-running thread with its own
+;;;     independent collector. That is a live data race and a
+;;;     use-after-free hazard (kaappi#1924), not a supported idiom.
+;;;
+;;; Use a `(kaappi fibers)` channel instead -- have the thunk `channel-send`
+;;; a result and have the caller `channel-receive` it -- exactly how this
+;;; library's own request/reply plumbing works internally. Both halves above
+;;; are pinned by `tests/scheme/srfi/srfi120-thread-boundary.scm`.
 ;;;
 ;;; IMPORTANT: every value a scheduled thunk closes over (channels
 ;;; included) must be a genuine lexical binding, never a top-level
@@ -22,58 +33,115 @@
 ;;; (`initForThread` shares `globals`), not deep-copied-and-re-owned the
 ;;; way a closure's lexical captures are, so a thunk that references a
 ;;; top-level channel/pair reaches the ORIGINAL object from the wrong
-;;; heap and either corrupts memory silently or (for a channel
-;;; specifically, whose primitives do check) fails with "channel belongs
-;;; to another thread". Note this rule is a channel rule, NOT a general
-;;; one: a mutex or condition variable is the exact opposite -- a
-;;; top-level binding is the only supported way to share one, since
+;;; heap and either writes through it unchecked (a pair: kaappi#1924) or
+;;; -- for a channel specifically, whose primitives do check -- fails with
+;;; "channel belongs to another thread". Note this rule is a channel rule,
+;;; NOT a general one: a mutex or condition variable is the exact opposite
+;;; -- a top-level binding is the only supported way to share one, since
 ;;; capturing it is what gets deep-copy-rejected. See
-;;; docs/dev/thread-value-sharing.md for the per-type matrix.
+;;; docs/dev/thread-value-sharing.md for the per-type matrix; both halves
+;;; of the channel rule and both halves of the mutex inversion are pinned
+;;; by `tests/scheme/srfi/srfi120-thread-boundary.scm`.
 ;;;
 ;;; IMPORTANT: call `make-timer` and every subsequent
 ;;; `timer-schedule!`/`timer-reschedule!`/`timer-task-remove!`/
 ;;; `timer-task-exists?`/`timer-cancel!` on a given timer from the SAME
-;;; thread throughout. This is thoroughly verified reliable (this
-;;; library's own test suite, `tests/scheme/srfi/srfi120.scm`, does
-;;; nothing else).
+;;; thread throughout. This is not merely a convention: a `<timer>` cannot
+;;; reach another thread at all, and the two routes by which any value
+;;; crosses a thread boundary each refuse it, by a *different* mechanism.
+;;; Knowing which is which matters, because a change to one leaves the
+;;; other untouched:
+;;;
+;;;   - COPY ROUTE (a `thread-start!` thunk closure, a `thread-join!`
+;;;     result, a channel message payload). `gc_deep_copy.zig`'s fourteen
+;;;     uncopyable tags govern this route. A `<timer>` holds the timer
+;;;     thread's handle, which is a `.fiber`, which is on that list -- so
+;;;     the copy fails as a whole and nothing is delivered.
+;;;   - GLOBALS ROUTE (a top-level binding, or any mutable container
+;;;     reachable from one). Nothing is copied here, so the uncopyable list
+;;;     never runs and is irrelevant. What refuses instead is the
+;;;     per-primitive `Object.owner` check -- and only two types have one:
+;;;     channels (`primitives_fiber.zig`) and thread handles
+;;;     (`primitives_srfi18.checkThreadOwner`). A `<timer>`'s two fields are
+;;;     exactly those two types, which is the entire reason this route is
+;;;     covered. Every public procedure sends on the control channel before
+;;;     touching the thread handle, so the message the caller actually sees
+;;;     is the channel one: "channel belongs to another thread".
+;;;
+;;; See `docs/dev/thread-value-sharing.md` for the general matrix. Both
+;;; refusals, and the three further entry paths listed under HISTORY, are
+;;; pinned by `tests/scheme/srfi/srfi120-thread-boundary.scm` -- so this
+;;; cannot regress silently.
 ;;;
 ;;; HISTORY: this header previously reported that a *different* thread
-;;; calling into a timer it didn't create produced nondeterministic
-;;; memory corruption (varying crash signatures -- integer overflow, bad
+;;; calling into a timer it didn't create produced nondeterministic memory
+;;; corruption (varying crash signatures -- integer overflow, bad
 ;;; alignment, bus error), and attributed it to an un-root-caused bug in
 ;;; the interaction between multi-hop channel messages and cross-thread
-;;; deep-copy. That no longer reproduces. Re-checked 2026-07-31 at
-;;; v0.22.1: both documented entry paths fail cleanly and
-;;; deterministically (10/10 runs) with a catchable error rather than
-;;; corrupting anything, because a `<timer>` holds a Fiber and
-;;; `gc_deep_copy` rejects that tag as `error.UncopyableType` -- so the
-;;; single-thread constraint is now *engine-enforced*, not merely
-;;; documented here. The separate multi-hop channel mechanism the old
-;;; note blamed was also exercised directly (~4,000 nested reply-channel
-;;; round trips, 20 soak processes) with zero failures.
+;;; deep-copy. **That claim is retired.** It was re-checked twice: on
+;;; 2026-07-31 at v0.22.1, and again on 2026-08-02 (audit v2 phase 5A,
+;;; kaappi#1890) under both ReleaseSafe and `-Dgc-stress=true`, which
+;;; stamps freed headers and quarantines freed slots so a dangling value
+;;; panics deterministically instead of corrupting by luck (kaappi#1687).
+;;; Nothing corrupted anything on either build. The multi-hop channel
+;;; mechanism the old note blamed was also exercised directly (~4,000
+;;; nested reply-channel round trips, 20 soak processes) with zero
+;;; failures.
 ;;;
-;;; Single-thread-only is still the supported usage -- this library's
-;;; request/reply design assumes it, and the checks above are a guard
-;;; rail, not a concurrency model. But do not treat the old corruption
-;;; claim as a live hazard to design around. Caveat on the re-check: it
-;;; was macOS/kqueue, ReleaseSafe, without `-Dgc-stress=true`, so it is
-;;; strong evidence the claim is stale rather than proof the bug never
-;;; existed.
+;;; The 2026-07-31 re-check gave the right verdict for a partly wrong
+;;; reason, corrected above: it credited `gc_deep_copy`'s Fiber rejection
+;;; with closing *both* entry paths, but a value reached through a
+;;; top-level binding is never deep-copied, so that list has no bearing on
+;;; it whatsoever. Two independent guards, not one.
+;;;
+;;; The 5A pass also found three entry paths neither earlier check had
+;;; enumerated -- all refused, all now pinned: a timer sent to another
+;;; thread as a channel message payload; a task thunk that closes over a
+;;; *second* timer (`timer-schedule!` ships the thunk over the control
+;;; channel, so that is a copy boundary with no `thread-start!` in sight);
+;;; and a timer reached through a top-level *container* rather than a
+;;; top-level binding of its own.
+;;;
+;;; HAZARD, and it is a real one: do not call `make-timer` from inside a
+;;; SRFI-18 thread. kaappi#2129 -- `thread-join!` frees the joined thread's
+;;; GC and VM while a thread that thread started is still in its startup
+;;; prologue, and `make-timer` returns at exactly that moment. The process
+;;; dies with a SIGSEGV or a Zig panic when the creating thread is joined
+;;; (24/30 runs on ReleaseSafe, 13/15 under `-Dgc-stress=true`). This is
+;;; not a `(srfi 120)` defect -- a bare `thread-start!` of any thread that
+;;; itself spawns one reproduces it with no timers involved -- and this
+;;; library cannot work around it, since the timer thread is meant to
+;;; outlive `make-timer`. Create timers on the thread that will use them.
+;;;
+;;; So: single-thread-only remains the supported usage, the guard rails are
+;;; real and named, and the old corruption claim is not a live hazard to
+;;; design around. #2129 is.
 ;;;
 ;;; LIMITATION: the spec requires a task to "be able to cancel or
 ;;; reschedule other tasks" on the same timer -- e.g. a health-check task
 ;;; cancelling a retry task once it succeeds. This implementation does not
-;;; support that: `%run-due-tasks` invokes thunks synchronously from
-;;; inside `%timer-loop`, so the loop is not servicing `control` while a
-;;; thunk runs, and a thunk that calls `timer-schedule!`/`timer-cancel!`/
-;;; etc. on its own timer deadlocks (it sends a request and waits on a
-;;; reply that can only ever arrive once the loop resumes -- which needs
-;;; the thunk to return first). Fixing this properly needs either
-;;; reentrant reply-channel semantics or running thunks on their own
-;;; thread, and the latter would only route through the same multi-hop
-;;; channel machinery already flagged above as unreliable across threads
-;;; -- so, like the single-thread requirement, this is documented as a
-;;; known gap rather than worked around.
+;;; support that. The gap is real, but the *symptom* is not what this
+;;; header used to say: it claimed such a thunk "deadlocks", waiting on a
+;;; reply that can only arrive once the loop resumes. Measured 2026-08-02,
+;;; it does not -- it cannot get far enough to deadlock, because a thunk
+;;; has no way to name its own timer in the first place. Capturing the
+;;; `<timer>` lexically makes the thunk itself uncopyable, so
+;;; `timer-schedule!` refuses it up front; reaching it through a top-level
+;;; binding hands the timer thread the *caller's* control channel, which
+;;; the owner check refuses with "channel belongs to another thread". Both
+;;; are immediate, catchable errors. The deadlock the old text described is
+;;; unreachable.
+;;;
+;;; (The mechanism behind the gap is still as described: `%run-due-tasks`
+;;; invokes thunks synchronously from inside `%timer-loop`, so the loop is
+;;; not servicing `control` while a thunk runs.) Fixing this properly needs
+;;; either reentrant reply-channel semantics or running thunks on their own
+;;; thread. The old text rejected the latter on the grounds that it would
+;;; route through "the same multi-hop channel machinery already flagged
+;;; above as unreliable across threads" -- that flag is retired (see
+;;; HISTORY), so that objection no longer applies and the option is open
+;;; again. This stays a documented gap because nothing needs it yet, not
+;;; because it is blocked.
 ;;;
 ;;; Design notes:
 ;;;
