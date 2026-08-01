@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785606342748,
+  "lastUpdate": 1785606558484,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "67b32bd109dc9d6aeca4a4ba9b58d8c486649d79",
-          "message": "Raise an error for a syntax-rules ellipsis with no driving pattern variable (#1822)\n\nA template subform followed by `...` whose element contains no pattern\nvariable bound under an ellipsis in the pattern previously expanded\nsilently to zero copies instead of erroring (R7RS 4.3.2). The common\ntrigger is a typo'd bare `...` where the literal-ellipsis escape\n`(... ...)` was meant -- exactly what happened in #1787, where the\nresulting malformed expansion failed far away with a misleading \"not a\nprocedure\" error instead of pointing at the real problem.\n\ninstantiateEllipsis now raises EllipsisNoPatternVariable instead of\nsilently falling through with repeat_count 0. This is safe against the\nlegitimate \"ellipsis belongs to a nested syntax-rules template's own\ngrammar\" case (the SRFI 147/148 macro-generating-macro pattern): both\ncall sites already gate on `NESTED_SR_FLAG and !ellipsisReferencesOuter`\nbefore calling here, and ellipsisReferencesOuter is exactly the same\npredicate, over the same elem_template/bindings, as the count_set\ncomputation -- so reaching `!count_set` here is only possible when that\ncarve-out does not apply.\n\nThis also closes an adjacent gap lib/srfi/149.sld had documented and\ndeliberately deferred: a single pattern variable asked for more ellipsis\nnesting in the template than its own matched depth, with no sibling\nvariable to drive the extra level, hits the same code path one recursion\nlevel down.\n\nVerified against the full test suite (all SRFI test files, R7RS suite,\nhygiene tests): 2007 pass, 0 fail -- no library anywhere in the ecosystem\ndepended on the old silent-swallow behavior.\n\nFixes #1791\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T00:53:22+05:30",
-          "tree_id": "d86f8009bf9e093d3986a1bba748b3039f0d7cc5",
-          "url": "https://github.com/kaappi/kaappi/commit/67b32bd109dc9d6aeca4a4ba9b58d8c486649d79"
-        },
-        "date": 1785269208827,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.378576,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.287525,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.609055,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.190545,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006533,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047063,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.32476,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05891,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.542245,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.237148,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.599384,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438228,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.811546,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.737392,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044536,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044891,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d81c3abeef6a3ded75c404012c5065f24c33424",
+          "message": "Phase 2.7: SRFI-18 deep-copy matrix — 122 assertions, and FFI handles are aliased across heaps into a type-confused (0.0 . 0.0) (#2030)\n\n* Phase 2.7: enumerate the cross-heap deep-copy matrix\n\nThe SRFI-18 audit files test the procedures; nothing enumerated the type\nmatrix underneath them. gc_deep_copy.zig switches on all 41 ObjectTag\nmembers, and a tag that is neither on the refusal list nor round-trip\ntested is where a silent corruption lives.\n\nThis adds the enumeration: every reachable tag against all three copy\nboundaries (thread-start! capture, thread-join! result, and the uncaught\nexception path), for type AND content fidelity rather than mere arrival.\n\nThe 22 copied arms are correct. Comparison mode, parameter converters,\npromise forced-state, error irritants, exactness and internal sharing all\nsurvive both directions. The 13 reachable refusals are clean, and their\nshape is asymmetric in a way nothing pinned before: an IN refusal arrives\nwrapped in uncaught-exception?, an OUT refusal arrives direct.\n\nTwo cells were not covered by either class. ffi_library and ffi_function\nare *aliased* — the receiving heap gets a pointer into the sending one,\nwith no promotion, refcount or owner check. A child-created handle is\nreclaimed by the child's own collector while the receiver holds it and\narrives type-confused as (0.0 . 0.0), at all three boundaries including\nchannel-send with the child still running (#2027). The parent-owned\ncontrols are correct, which isolates the cliff to which heap allocates.\n\nNames are string literals throughout: SRFI 64 logs the test-name\nexpression as written, so a computed name records the string-append form\nand a remote-leg failure identifies no type at all.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.7, and record what the deep-copy matrix found\n\nThe unit's value was the enumeration itself: 22 copied arms verified for\ncontent fidelity, 13 refusals verified clean, and two tags in neither\nclass — the aliased FFI handles of #2027.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct the class counts in the matrix header\n\nThe copied class is 24 arms, not 22: srfi18_time and random_source are\ncopied too. 22 is the reachable subset — flonum and native_closure are\nnot constructible from interpreted Scheme, which section G now states as\nthe reason rather than filing them under a fourth class that double-counts\nthem.\n\n24 + 3 + 14 = 41, matching ObjectTag exactly.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Say 22 of 24 in the tracker, matching the corrected header\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Add the guardian refusal rows the matrix was missing\n\nSection D covered 12 of the 13 reachable refused tags; guardian had only\nits IN direction tested, in Phase 5C's file. Both directions now asserted\nhere, so the refusal class is genuinely complete.\n\n122 assertions, green in ReleaseSafe and -Dgc-stress=true.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* 122, not 120, after the guardian rows\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct a false claim about SRFI 64 test names\n\nThe header said SRFI 64 records the test-name *expression* as written, so a\ncomputed `string-append` name would log the form rather than the string.\nThat is not true. Checked directly:\n\n    (test-equal (string-append \"computed \" ty) 1 2)\n\nlogs `test-name: \"computed vector\"` — the evaluated string — in both the\nconsole output and the .log file.\n\nLeft as a correction rather than a deletion because the claim contradicts\nthe strategy doc's \"name every assertion\" footgun, which tells later units\nto derive names mechanically from the expression under test. If computed\nnames were broken that guidance would be wrong, and someone would have had\nto rediscover this.\n\nThe literal-per-row style stays; its actual justification is only that one\nrow per tag is greppable and cannot drift from the tag it names.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T20:11:23+05:30",
+          "tree_id": "0a59238c2a79bb111c71466812b2aef3203cb782",
+          "url": "https://github.com/kaappi/kaappi/commit/7d81c3abeef6a3ded75c404012c5065f24c33424"
+        },
+        "date": 1785606556281,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.289563,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.629262,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.597681,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018686,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005071,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048451,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315783,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057983,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.739126,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.242187,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.615899,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.291674,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.819703,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.682686,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044749,
             "unit": "seconds"
           }
         ]
