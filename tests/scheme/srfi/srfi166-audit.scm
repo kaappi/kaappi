@@ -441,11 +441,13 @@
 ;; (test-equal "with: the spec's precision example"
 ;;   "1.5 2" (show #f 1.5 " " (with ((precision 0)) 1.5)))
 
-;; Even under this implementation's own procedural convention, `fn` never binds
-;; anything: the bound values are computed and discarded.
-;; FAIL: #2054 (fn/with are procedures, not macros; fn binds nothing)
-;; (test-equal "fn: a binding is visible to the body under the procedural form"
-;;   "0" (show #f (fn (list (list 'c col)) (lambda (st) st))))
+;; Even under this implementation's own procedural convention `fn` binds
+;; nothing — it computes the bound values, threads an `env` alist through a
+;; loop, and discards both (lib/srfi/166.sld:385-396).  No assertion pins that
+;; separately: there is no way to *name* a binding under the procedural form,
+;; so any such test would assert a value the convention never defined, and it
+;; would have to be deleted rather than re-enabled once #2054 makes `fn` a
+;; macro.  The three disabled assertions above cover it in the spec's terms.
 
 (test-equal "with: a bound state variable is visible to the body"
   "..hi" (show #f (with (list (list pad-char #\.)) (padded 4 "hi"))))
