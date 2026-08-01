@@ -1308,10 +1308,12 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "random_gen",     "nonblocking",    "write_buf",      "write_buf_start",
         "write_buf_len",  "fd_state",       "custom_backend", "transcode",
     });
+    // `has_protocol` (kaappi#1974) is a plain bool, not Value-bearing, so it
+    // adds no marking or sweeping obligation -- only this re-pin.
     expectFields(types.RecordType, &.{
         "header", "name",            "num_fields",        "own_field_count",
         "parent", "own_field_names", "own_field_mutable", "uid",
-        "sealed", "is_opaque",
+        "sealed", "is_opaque",       "has_protocol",
     });
     expectFields(types.Function, &.{
         "header",          "code",                 "constants",           "arity",

@@ -27,15 +27,23 @@
     ;; field via the parent rtd/rcd chain instead. record-constructor's
     ;; default (no-protocol) inheritance threading then naturally forwards
     ;; a subtype constructor's one argument straight through to the root's
-    ;; own constructor, so field 0 always ends up set to the given payload
-    ;; regardless of how many subtype levels it passed through.
+    ;; own constructor, so the payload always ends up set regardless of how
+    ;; many subtype levels it passed through.
+    ;;
+    ;; The accessor asks for the field BY NAME, not by index: R6RS scopes an
+    ;; integer k to the rtd's own fields ("k cannot be used to specify a
+    ;; field of any type rtd extends"), and every subtype here has none, so
+    ;; no index names the payload from a subtype's rtd. The name resolves up
+    ;; the parent chain to the root that declares it (kaappi#1974 -- this
+    ;; used to read `0` and work only because k was mis-read as an absolute
+    ;; index into the whole instance).
     (define (%make-type-impl type-payload parent-rtd parent-rcd)
       (let* ((rtd (make-record-type-descriptor 'srfi-137-type parent-rtd #f #f #f
                     (if parent-rtd #() #((immutable payload)))))
              (rcd (make-record-descriptor rtd parent-rcd #f))
              (ctor (record-constructor rcd))
              (pred (record-predicate rtd))
-             (acc (record-accessor rtd 0)))
+             (acc (record-accessor rtd 'payload)))
         (values
           (lambda () type-payload)
           ctor

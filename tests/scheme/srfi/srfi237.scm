@@ -138,7 +138,7 @@
 (test-assert "procedural: record-type-descriptor? recognizes an rtd" (record-type-descriptor? proc-point-rtd))
 (test-assert "procedural: record-type-descriptor? rejects a non-rtd" (not (record-type-descriptor? 5)))
 (test-equal "procedural: record-type-name" 'proc-point (record-type-name proc-point-rtd))
-(test-equal "procedural: record-type-field-names (own fields, in order)" '(x y) (record-type-field-names proc-point-rtd))
+(test-equal "procedural: record-type-field-names (own fields, in order)" '#(x y) (record-type-field-names proc-point-rtd))
 (test-assert "procedural: record-type-generative? true with no uid" (record-type-generative? proc-point-rtd))
 (test-assert "procedural: record-type-sealed? false by default" (not (record-type-sealed? proc-point-rtd)))
 (test-assert "procedural: record-type-opaque? false by default" (not (record-type-opaque? proc-point-rtd)))
@@ -156,7 +156,7 @@
 (let ((pp (proc-make-point 7 8)))
   (test-assert "procedural: record-constructor + record-predicate" (proc-point? pp))
   (test-equal "procedural: record-accessor by field name" 7 (proc-point-x pp))
-  (test-equal "procedural: record-accessor by absolute index" 7 (proc-point-y pp))
+  (test-equal "procedural: record-accessor by own-field index" 7 (proc-point-y pp))
   (test-assert "procedural: record? recognizes any record" (record? pp))
   (test-eq "procedural: record-rtd round-trips" proc-point-rtd (record-rtd pp)))
 (test-assert "procedural: record? rejects a non-record" (not (record? 5)))
@@ -222,6 +222,183 @@
   (raises? (lambda () (proc-point-x "not a point"))))
 (test-assert "an accessor built for one type rejects an unrelated record instance"
   (raises? (lambda () (proc-animal-name (proc-make-box 1)))))
+
+;;; --- R6RS conformance regressions (kaappi#1974) -------------------------
+;;;
+;;; Four independent deviations from R6RS 6.3, each of which had a control
+;;; in the pre-fix implementation showing the data needed was already there.
+
+;; P(a b) <- C(c d): an instance whose four fields are 1 2 3 4, so every
+;; index confusion below produces a distinguishable wrong answer.
+(define k-P (make-record-type-descriptor 'k-P #f #f #f #f '#((immutable a) (mutable b))))
+(define k-C (make-record-type-descriptor 'k-C k-P #f #f #f '#((immutable c) (mutable d))))
+(define k-inst ((record-constructor (make-record-descriptor k-C (make-record-descriptor k-P #f #f) #f))
+                1 2 3 4))
+
+;; 1. R6RS: "Returns a vector of symbols naming the fields..."
+(test-assert "1: record-type-field-names returns a vector"
+  (vector? (record-type-field-names k-C)))
+(test-equal "1: record-type-field-names holds this type's OWN fields only"
+  '#(c d) (record-type-field-names k-C))
+(test-equal "1: record-type-field-names is vector-length-able"
+  2 (vector-length (record-type-field-names k-C)))
+(test-equal "1: record-type-field-names of a parent is unaffected"
+  '#(a b) (record-type-field-names k-P))
+
+;; 2. R6RS: "Note that k cannot be used to specify a field of any type rtd
+;;    extends." Absolute indexing returned the parent's fields instead.
+(test-equal "2: integer k is own-field-relative, not absolute (k=0)"
+  3 ((record-accessor k-C 0) k-inst))
+(test-equal "2: integer k is own-field-relative, not absolute (k=1)"
+  4 ((record-accessor k-C 1) k-inst))
+(test-equal "2: integer k agrees with the same field looked up by name"
+  ((record-accessor k-C 'c) k-inst) ((record-accessor k-C 0) k-inst))
+(test-equal "2: an ancestor's own k still reads the ancestor's field"
+  1 ((record-accessor k-P 0) k-inst))
+(test-equal "2: record-field-mutable? and record-accessor agree on k's meaning"
+  #f (record-field-mutable? k-C 0))
+(test-assert "2: record-mutator's k is own-relative too"
+  (let ((m (record-mutator k-C 1)))
+    (m k-inst 'written)
+    (eq? 'written ((record-accessor k-C 1) k-inst))))
+(test-assert "2: the integer path validates the rtd (it used to skip it)"
+  (raises? (lambda () (record-accessor 5 0))))
+(test-assert "2: record-mutator's integer path validates the rtd too"
+  (raises? (lambda () (record-mutator 5 0))))
+(test-assert "2: record-predicate validates the rtd eagerly"
+  (raises? (lambda () (record-predicate 5))))
+(test-assert "2: k must be a valid field index (too large)"
+  (raises? (lambda () (record-accessor k-C 99))))
+(test-assert "2: k must be a valid field index (negative)"
+  (raises? (lambda () (record-accessor k-C -1))))
+(test-assert "2: a type with no own fields has no valid k at all"
+  (raises? (lambda ()
+             (record-accessor (make-record-type-descriptor 'k-empty k-P #f #f #f '#()) 0))))
+
+;; 3. R6RS: opaque means record? answers #f, record-rtd raises, and "the
+;;    record type is also opaque if an opaque parent is supplied".
+(define k-O (make-record-type-descriptor 'k-O #f #f #f #t '#((immutable v))))
+(define k-O-inst ((record-constructor (make-record-descriptor k-O #f #f)) 7))
+(define k-OC (make-record-type-descriptor 'k-OC k-O #f #f #f '#((immutable w))))
+(test-assert "3: record-type-opaque? still reads the flag back" (record-type-opaque? k-O))
+(test-equal "3: record? is #f for an instance of an opaque type" #f (record? k-O-inst))
+(test-assert "3: record-rtd raises for an instance of an opaque type"
+  (raises? (lambda () (record-rtd k-O-inst))))
+(test-assert "3: opacity is inherited from an opaque parent" (record-type-opaque? k-OC))
+(test-equal "3: record? is #f for an instance of a type with an opaque parent"
+  #f (record? ((record-constructor
+                 (make-record-descriptor k-OC (make-record-descriptor k-O #f #f) #f)) 7 8)))
+(test-assert "3: a non-opaque type is still a record" (record? k-inst))
+(test-assert "3: the type's own predicate still sees an opaque instance"
+  ((record-predicate k-O) k-O-inst))
+;; opacity through the syntactic layer, and inherited across it
+(define-record-type k-opaque-syn (fields (immutable v k-opaque-syn-v)) (opaque #t))
+(define-record-type (k-opaque-kid make-k-opaque-kid k-opaque-kid?)
+  (parent k-opaque-syn) (fields (immutable w k-opaque-kid-w)))
+(test-equal "3: syntactic (opaque #t) hides the instance from record?"
+  #f (record? (make-k-opaque-syn 1)))
+(test-assert "3: syntactic child of an opaque parent is opaque"
+  (record-type-opaque? k-opaque-kid))
+(test-equal "3: syntactic child of an opaque parent is hidden from record?"
+  #f (record? (make-k-opaque-kid 1 2)))
+(test-equal "3: an opaque type's own accessors keep working"
+  1 (k-opaque-syn-v (make-k-opaque-syn 1)))
+
+;; 4. R6RS: "If k specifies an immutable field, an exception with condition
+;;    type &assertion is raised."
+(test-equal "4: record-field-mutable? reports the immutable field" #f (record-field-mutable? k-C 0))
+(test-assert "4: record-mutator refuses an immutable field by index"
+  (raises? (lambda () (record-mutator k-C 0))))
+(test-assert "4: record-mutator refuses an immutable field by name"
+  (raises? (lambda () (record-mutator k-C 'c))))
+(test-assert "4: record-mutator refuses an immutable field inherited from a parent"
+  (raises? (lambda () (record-mutator k-C 'a))))
+(test-assert "4: record-mutator still accepts a mutable field"
+  (procedure? (record-mutator k-C 'd)))
+(test-assert "4: record-mutator accepts a mutable field inherited from a parent"
+  (procedure? (record-mutator k-C 'b)))
+(test-equal "4: the immutable field was left alone" 3 ((record-accessor k-C 'c) k-inst))
+(test-equal "4: record-field-mutable? accepts a field name too"
+  #t (record-field-mutable? k-C 'd))
+(test-equal "4: record-field-mutable? by name resolves into the parent"
+  #f (record-field-mutable? k-C 'a))
+
+;;; --- names the SRFI specifies that were missing (kaappi#1974) -----------
+
+(test-assert "make-record-constructor-descriptor is bound (deprecated R6RS name)"
+  (record-descriptor? (make-record-constructor-descriptor k-P #f #f)))
+(test-assert "record-constructor-descriptor? is bound (deprecated R6RS name)"
+  (record-constructor-descriptor? (make-record-descriptor k-P #f #f)))
+(test-assert "record-constructor-descriptor? rejects a non-descriptor"
+  (not (record-constructor-descriptor? 5)))
+
+;; 7-argument make-record-descriptor: specified as exactly
+;; (make-record-descriptor (make-record-type-descriptor name parent uid
+;; sealed? opaque? fields) parent protocol).
+(define k-7 (make-record-descriptor 'k-7 k-P #f #f #f '#((immutable e)) #f))
+(test-assert "7-arg make-record-descriptor returns a record descriptor" (record-descriptor? k-7))
+(test-equal "7-arg make-record-descriptor names the type" 'k-7 (record-type-name k-7))
+(test-eq "7-arg make-record-descriptor wires up the parent" k-P (record-type-parent k-7))
+(let ((inst ((record-constructor k-7) 10 20 30)))
+  (test-equal "7-arg: inherited field via the parent's own accessor" 10 ((record-accessor k-P 0) inst))
+  (test-equal "7-arg: own field via own-relative index 0" 30 ((record-accessor k-7 0) inst)))
+
+;;; --- a record descriptor is a SUBTYPE of record-type descriptor ---------
+;;;
+;;; "Whenever a syntax or procedure described below expects a record-type
+;;; descriptor, the result is equivalent to when the record-type descriptor
+;;; is replaced by its underlying simple record-type descriptor."
+
+(define k-rd (make-record-descriptor k-P #f #f))
+(test-assert "rd: record-type-descriptor? accepts a record descriptor"
+  (record-type-descriptor? k-rd))
+(test-assert "rd: record-descriptor? still rejects a simple rtd"
+  (not (record-descriptor? k-P)))
+(test-equal "rd: record-type-name accepts a record descriptor" 'k-P (record-type-name k-rd))
+(test-equal "rd: record-type-field-names accepts a record descriptor"
+  '#(a b) (record-type-field-names k-rd))
+(test-equal "rd: record-accessor accepts a record descriptor" 1 ((record-accessor k-rd 0) k-inst))
+(test-assert "rd: record-predicate accepts a record descriptor" ((record-predicate k-rd) k-inst))
+(test-equal "rd: make-record-type-descriptor accepts a record descriptor as parent"
+  'k-P (record-type-name (record-type-parent
+                           (make-record-type-descriptor 'k-sub k-rd #f #f #f '#((immutable z))))))
+(test-eq "rd: record-descriptor-rtd of a simple rtd is that rtd itself" k-P (record-descriptor-rtd k-P))
+
+;;; --- the SRFI's own worked Examples section ----------------------------
+;;;
+;;; Verbatim from the spec, minus its final `rec3` (a `(parent <expr>)`
+;;; clause naming a non-record-name expression, a documented gap -- see the
+;;; header of lib/srfi/237.sld). This is the cross-layer case that matters:
+;;; the procedural type inherits from a SYNTACTIC one whose construction is
+;;; governed by a protocol, so the parent's protocol has to run.
+
+(define-record-type rec1
+  (fields a)
+  (protocol (lambda (p) (lambda (a/2) (p (* 2 a/2))))))
+
+(define rec2
+  (make-record-descriptor 'rec2
+    rec1 #f #f #f
+    '#((immutable b))
+    (lambda (n) (lambda (a/2 b) ((n a/2) b)))))
+(define make-rec2 (record-constructor rec2))
+(define rec2? (record-predicate rec2))
+(define rec2-b (record-accessor rec2 0))
+
+(let ((r (make-rec2 5 7)))
+  (test-assert "SRFI example: rec2's own predicate" (rec2? r))
+  (test-assert "SRFI example: the syntactic parent's predicate sees it" (rec1? r))
+  (test-equal "SRFI example: the syntactic parent's PROTOCOL ran (5 doubled)" 10 (rec1-a r))
+  (test-equal "SRFI example: rec2's own field via own-relative index 0" 7 (rec2-b r)))
+(test-assert "SRFI example: a bare parent instance is not a rec2" (not (rec2? (make-rec1 1))))
+
+;; record-constructor on a record name: the type's own exposed constructor,
+;; protocol and all.
+(test-equal "record-constructor of a record name applies that type's protocol"
+  10 (rec1-a ((record-constructor rec1) 5)))
+(define-record-type k-plain (fields (immutable q k-plain-q)))
+(test-equal "record-constructor of a protocol-less record name works too"
+  4 (k-plain-q ((record-constructor k-plain) 4)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-237")

@@ -304,10 +304,13 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .record_type => {
             const rt = obj.as(types.RecordType);
             if (rt.parent == null and rt.own_field_count == 0 and rt.uid == null and
-                !rt.sealed and !rt.is_opaque)
+                !rt.sealed and !rt.is_opaque and !rt.has_protocol)
             {
                 // Plain R7RS record type (the common case) -- no SRFI 237
-                // metadata to carry across.
+                // metadata to carry across. `has_protocol` joins the guard
+                // rather than being copied afterwards: allocRecordType makes
+                // a type with no SRFI 237 metadata at all, so a type that has
+                // any must take the slow path below.
                 const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
                 try visited.put(src_ptr, new_val);
                 return new_val;
@@ -328,6 +331,12 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             if (rt.uid) |u| {
                 if (vm_mod.vm_instance) |dest_vm| {
                     if (dest_vm.record_uid_registry.get(u)) |existing| {
+                        // Only ever set, never cleared -- same conservative
+                        // rule as the nongenerative-reuse path in
+                        // vm_records.zig (see RecordType.has_protocol).
+                        if (rt.has_protocol) {
+                            types.toObject(existing).as(types.RecordType).has_protocol = true;
+                        }
                         try visited.put(src_ptr, existing);
                         return existing;
                     }
@@ -348,6 +357,10 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 error.TooManyFields => error.OutOfMemory,
                 else => |e| e,
             };
+            // Not an allocRecordTypeExtended parameter: it is set after
+            // construction on the defining path too (vm_records.zig), since
+            // only the desugarer's generated code knows a protocol was given.
+            types.toObject(new_val).as(types.RecordType).has_protocol = rt.has_protocol;
             try visited.put(src_ptr, new_val);
             if (rt.uid != null) {
                 if (vm_mod.vm_instance) |dest_vm| {

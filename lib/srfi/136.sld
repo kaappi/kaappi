@@ -125,10 +125,13 @@
                      (if (%is-mutable-field? rtd idx)
                          (record-mutator rtd name)
                          #f))))
-           (record-type-field-names rtd)))
+           ;; %record-type-field-names, not the public
+           ;; record-type-field-names: the public one answers with a vector
+           ;; (R6RS), the primitive with the list these walks want.
+           (%record-type-field-names rtd)))
 
     (define (%resolve-own-index rtd name)
-      (let loop ((names (record-type-field-names rtd)) (i 0))
+      (let loop ((names (%record-type-field-names rtd)) (i 0))
         (cond ((null? names) (error "unknown field" name))
               ((eq? (car names) name) i)
               (else (loop (cdr names) (+ i 1))))))

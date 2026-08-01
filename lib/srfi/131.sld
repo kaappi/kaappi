@@ -50,7 +50,10 @@
     (define (%absolute-index rtd name)
       (let ((parent (record-type-parent rtd)))
         (let ((parent-count (if parent (%record-type-total-field-count parent) 0)))
-          (%absolute-index-loop rtd name parent (record-type-field-names rtd) parent-count))))
+          ;; %record-type-field-names, not the public record-type-field-names:
+          ;; the public one answers with a vector (R6RS), the primitive with
+          ;; the list this walk wants.
+          (%absolute-index-loop rtd name parent (%record-type-field-names rtd) parent-count))))
 
     (define (%absolute-index-loop rtd name parent names i)
       (cond
