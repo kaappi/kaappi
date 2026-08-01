@@ -132,6 +132,11 @@
 ;;; The three top-level cases below are #550's own reproductions. Each
 ;;; produces exactly one value, which is the arm handleDefineValues never
 ;;; grew a check for; they are silently accepted with exit 0.
+;;;
+;;; NOTE for whoever fixes #550: these three are top-level definitions, not
+;;; assertions, so once they raise this file will abort while loading rather
+;;; than report a failure. That is the signal to swap the disabled block
+;;; below for the enabled one and delete the three probes.
 
 (define dv-tf-reached #f)
 (define-values (dv-tf-a dv-tf-b) (values 1))
