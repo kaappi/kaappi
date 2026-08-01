@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785557595976,
+  "lastUpdate": 1785560867807,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "129c56acf712a8da04b9282385400a8c83f95ba3",
-          "message": "Support letrec*-style mutual reference in define-values (#1780)\n\nR7RS draws no distinction between `define` and `define-values` for a\nbody's letrec* scoping (5.3.2/5.3.3): a definition may reference\nanother definition appearing later in the same body, as long as the\nreference isn't evaluated before that binding is initialized. Plain\n`define` already worked this way, but a `define-values` clause could\nnot reference a name bound by a later `define-values` (or `define`)\nclause -- the reference silently compiled as a global lookup instead\nof a local/upvalue (since the name hadn't been declared as a local\nyet), surfacing as a runtime \"undefined variable\" error once the\nenclosing procedure was actually called.\n\nThe root cause is scanBodyDefs, the shared prescan that gives `define`\nits forward visibility by declaring every leading definition's name\nas a boxed local before compiling any of their init expressions -- it\nonly recognized `define` and `define-record-type`. `define-values` now\nparticipates: BodyScan gains an ordered `DefStep` (a `.simple`\nname-to-init step, or a `.values_group` step carrying an\nalready-desugared call-with-values/set! form, since one clause can\nbind 0..N names from a single shared init that doesn't fit the\nexisting one-name-one-init shape).\n\nTwo independent, duplicated \"declare locals then compile inits\" loops\nconsume the scan's output and both needed the identical fix:\ncompiler_lambda.compileBodyForms (let-family bodies and the legacy\nlambda path) and compiler_ir.compileLambdaWithIR (the modern\nIR-pipeline lambda path, reached only via `(define name (lambda\n...))` long-hand or a bare `(lambda ...)` -- the far more common\n`(define (name args) body)` shorthand always routes through the\nformer).\n\nFixes #1719\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T11:51:25+05:30",
-          "tree_id": "2d23485e7e99d533716dea4339355876a7dc6496",
-          "url": "https://github.com/kaappi/kaappi/commit/129c56acf712a8da04b9282385400a8c83f95ba3"
-        },
-        "date": 1785137684171,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.43366,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.878428,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.968242,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.608393,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00635,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055141,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.527016,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071303,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.587695,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.035692,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.617809,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437276,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.90263,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69979,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045491,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044115,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1aedd4014ee6a3ddc5b3fc88a20b81db5f0e2228",
+          "message": "Phase 2.3: SRFI 181 audit — 196 assertions, and (read port) has never worked on a custom or transcoded port (#2015)\n\n* Phase 2.3: audit SRFI 181 custom and transcoded ports\n\nprimitives_srfi181.zig had no audit test at all. This adds one — 196\nassertions plus 17 disabled — covering all 10 native specs, the whole\nportable layer in lib/srfi/181.sld, and the SRFI's own obligations on the\nimplementation that nothing else asks about: the read!/write! argument\ncontract, the six callback sites' blocking rejection, positioning under\nlookahead, cross-heap deep copy, and the eol-style x error-mode matrix in\nboth directions.\n\nFive issues filed, none fixed here (the campaign separates discovery from\nfixing):\n\n  #1995  (read port) returns #<eof> on every custom and transcoded port —\n         readDatumFn is the one input primitive that goes around\n         readOneByte, so it never invokes read! at all. read-char,\n         read-line, read-string and read-bytevector on the same port all\n         work; a string port and a file port read the same datum fine.\n  #1996  port-position on a custom port returns get-position verbatim,\n         ignoring the port's own read-ahead. The fd path subtracts it one\n         branch below. Also breaks the spec's explicit \"must return its\n         cached position rather than calling get-position\" after a peek.\n  #1997  Transcoded output ignores #\\return as a line ending, so a crlf\n         transcoder writes CR CR LF for one CRLF and a round trip turns\n         one line break into two. The decode direction gets it right,\n         which is what makes this an internal inconsistency.\n  #1998  close-input-port closes the output side of a bidirectional\n         custom port too, and runs its close callback.\n  #2012  Not SRFI 181's: the first (environment '(srfi N)) on a\n         file-backed .sld silently abandons the rest of the enclosing\n         top-level form. Found because a probe in this suite looked like\n         it passed and had in fact never run.\n\nClean results worth recording: the blocking-callback guard is correct at\nall six callback sites and every rejection stays catchable; the eol-style\ndecode matrix is right in all nine cells, including the lf-on-input case\nnothing tested before; gc_deep_copy refuses custom and transcoded ports\ncleanly at both SRFI-18 boundaries; and every neighbouring re-entrant\ncallback shape completes, which localises #1939 to the single-slot\nread_buf rather than re-entrancy as such.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point 2.3's tracker entry at the PR that actually exists\n\nThe entry cited #1999, written before the PR was opened. The PR is #2015;\n#1999 is not a pull request at all.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T09:57:11+05:30",
+          "tree_id": "9355b4384f90d4864a87085c321de02745688913",
+          "url": "https://github.com/kaappi/kaappi/commit/1aedd4014ee6a3ddc5b3fc88a20b81db5f0e2228"
+        },
+        "date": 1785560865965,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.383034,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.277644,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57284,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.989605,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004672,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046303,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312584,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05709,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.568376,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234059,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.576814,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27986,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.794835,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.598625,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04322,
             "unit": "seconds"
           }
         ]
