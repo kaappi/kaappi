@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785604356109,
+  "lastUpdate": 1785606225232,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "218429300be8c949d615a43f067abccb535dda63",
-          "message": "Gate native let/lambda lowering on macro use, fixing miscompiled expansion (#1807) (#1819)\n\nemitLet and the lambda closure tiers (tryCompileNativeClosure,\ntryCompilePureLambdaAsNativeClosure, tryCompileDefineFunction) re-lower\ntheir raw bindings/body via a scratch IR instance with no macro table,\nso a macro use anywhere inside compiled as a call to a same-named\nglobal instead of expanding. A let body's macro use was unconditionally\nbroken; a lambda/function body's macro use was usually saved by\naccident (free-variable analysis rejects an unrecognized name) unless\nthe macro shadowed an existing global (e.g. `(define-syntax car ...)`),\nin which case it silently called the real primitive.\n\nAdds sexprHasMacroUse, mirroring sexprNeedsEvalFallback's raw-sexpr\ntraversal but checking self.isMacroName (the same gate #1496 added for\ncond/case/do), and wires it into all four gates so any macro use\nanywhere in the scope declines native compilation of the whole\nenclosing form rather than splitting it across the native/interpreted\nboundary. #1803's apply-operand emission inherits the same protection\nwith no separate fix, since it only runs after a gate has already\naccepted the enclosing scope.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T22:06:58+05:30",
-          "tree_id": "50b22991844675db65436279200a5c703abcdf7a",
-          "url": "https://github.com/kaappi/kaappi/commit/218429300be8c949d615a43f067abccb535dda63"
-        },
-        "date": 1785258706108,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.973363,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.347983,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566838,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.846169,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00669,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04508,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.299733,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055987,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.353912,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.160461,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.524225,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477227,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.709742,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.749391,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044175,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04602,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c564fe00696c8aaf929c42b371c5b67e810495d",
+          "message": "Phase 3.7: eleven untested SRFIs — 271 assertions, and a use-site local named after a keyword captures it in every macro template (#2076)\n\n* Phase 3.7: eleven untested SRFIs — 271 assertions, and a use-site local named after a keyword captures it in every macro template\n\nEleven SRFIs had no test file at all: 2, 8, 11, 16, 28, 31, 34, 111, 145,\n222, 229. All eleven now have one, and all eleven answer their `srfi-N`\ncond-expand identifier — which is what made the gaps below invisible.\n\nThree files rather than eleven. SRFI 2 and SRFI 222 each carry a filed\ndefect, so each gets a self-contained file a fix PR can re-enable whole.\nThe other nine are 1-4 exports apiece with nothing filed against them;\nthey share one hygiene harness and one set of cross-SRFI composition\nassertions, so batching them beats nine near-empty files.\n\nEight of the eleven are correct against their own spec and against\nchibi-scheme 0.12.0 on every probe: 8, 11, 16, 28, 31, 34, 111, 229 —\nincluding all of SRFI 229's three worked examples, all of SRFI 34's six,\nall three of SRFI 11's, and SRFI 16's `plus`. SRFI 145 is correct too;\nits failure path errors where chibi returns #f, which is the reference\nimplementation's own debug-mode behaviour.\n\nThree issues filed:\n\n- #2072 (srfi 222) implements 5 of the spec's 10 procedures —\n  compound-map, compound-map->list, compound-filter, compound-predicate\n  and compound-access are simply absent, and the last two are what the\n  SRFI's own rationale is built around. Of the five that exist,\n  make-compound does not flatten nested compounds and compound-subobjects\n  raises on a non-compound instead of returning a one-element list, though\n  its two siblings compound-length and compound-ref both have the\n  non-compound arm and both behave correctly.\n\n- #2073 SRFI 2's `(and-let* ((x 1)))` returns #t, not 1. The spec's own\n  denotational semantics is explicit — eval[(AND-LET* (CLAW))] =\n  eval_claw[CLAW] — and chibi returns the claw value for all three claw\n  shapes. lib/srfi/2.sld folds the no-claw and last-claw base cases into\n  one rule that always yields #t.\n\n- #2074 A use-site local binding named after a syntactic keyword captures\n  that keyword inside any macro template. 15 of 17 keywords probed —\n  including begin, lambda, quote, letrec, cond, case, and, or, do, set! —\n  so `(let ((begin 5)) (m 7))` compiles m's `(begin e)` template as the\n  procedure call `(5 7)`. Chibi gets 16 of 17 right. The guard at\n  src/ir.zig:620 states the intended exemption in its own comment but\n  cannot deliver it: a template-introduced keyword never acquires a\n  `__hyg_N_` prefix, so isLexicallyBound decides the case. This is the\n  mirror image of closed #788, whose fix added that guard. It reaches two\n  shipped libraries here — SRFI 31's `rec` (via letrec) and SRFI 8's\n  `receive` (via lambda).\n\n39 assertions are disabled behind those three plus #2003 (which SRFI 8's\nreceive and SRFI 145's assume both reproduce, via call-with-values and\nerror respectively) and #1932 (a box built on a worker thread comes back\nwith box? => #f — the same defect Phase 5C found for a user-defined\nrecord, now reaching a spec-mandated type). Every disabled block was\nmutation-tested: uncommented, exactly those assertions fail, and two\n#f-expecting SRFI 222 assertions were rewritten as `(list … 'ran)` after\nthe mutation test showed they passed vacuously on an undefined-variable\nraise.\n\nTwo behaviours pinned as observed rather than filed, because chibi\nproduces byte-identical output: SRFI 28's `format` emits a trailing tilde\nand an unknown directive literally where the SRFI's reference\nimplementation raises (the Specification prose mandates an error only for\ntoo-few values), and `~A` is not `~a` — it passes through *without*\nconsuming its object, so a later `~a` silently takes the wrong argument.\nKaappi's `~a` on a nested list is the one place it beats chibi: R7RS\n6.13.3 requires nested strings and chars to be unescaped, and only Kaappi\ndoes that.\n\nRefs #1890.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Shrink the 200k format assertion — it was 35.7s of a 36s file (#2100)\n\nThe assertion is about recursion depth, and 10,000 frames exercises that.\nBut `format` walks its argument with `string-ref`, which is O(k) here\nbecause Kaappi indexes strings by codepoint over UTF-8 bytes — so the call\nis O(n^2):\n\n    input     format    bare string-ref loop   read-char from a string port\n     10,000     88 ms                 88 ms                           1 ms\n     50,000  2,181 ms              2,173 ms                           4 ms\n    100,000  8,691 ms              8,738 ms                           7 ms\n    200,000 35,756 ms\n\nstring-ref is essentially 100% of the cost, and the doubling steps confirm\nthe exponent (2x input -> 3.98x and 4.11x time). Filed as #2100, together\nwith the 20 other portable .sld files that use the same index-loop idiom.\n\nAt 200,000 this blew the 60s per-file budget on four CI legs — ubuntu\nReleaseSafe and Debug, freebsd-test, netbsd-test — while passing on a\ndeveloper Mac in 36s. The whole file now runs in 0.165s, same 196\nassertions.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T19:28:25+05:30",
+          "tree_id": "95795263e749b8a6b00fd67de805fb5d71c75848",
+          "url": "https://github.com/kaappi/kaappi/commit/7c564fe00696c8aaf929c42b371c5b67e810495d"
+        },
+        "date": 1785606223661,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.274088,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.09732,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571379,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.975592,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004625,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046744,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313726,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057059,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.657892,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224925,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.58126,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281032,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.782276,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.596332,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045371,
             "unit": "seconds"
           }
         ]
