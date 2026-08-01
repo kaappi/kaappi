@@ -92,10 +92,11 @@ Inside the worker (`src/main.zig` `runWorkerFile` → `src/test_runner.zig`):
    factory. Multiple `test-begin`/`test-end` groups in one file each get a fresh
    runner via the factory, and all funnel into the same accumulators.
 2. **Suppress `(exit)`.** The worker sets `vm.suppress_exit`, so a file's
-   `(exit 1)` failure epilogue becomes a *recorded* no-op (`vm.exit_requested`)
-   instead of terminating the worker before it can emit its result. A test
-   file's `(exit 1)` is redundant with the fail counts we already collected, so
-   it is **not** treated as a file error.
+   `(exit 1)` failure epilogue becomes a *recorded* no-op (`vm.exit_requested`
+   / `vm.exit_code`) instead of terminating the worker before it can emit its
+   result. Because the call never happens, its *semantics* are reapplied when
+   the verdict is resolved — see [Verdicts](#verdicts-and-what-errored-means)
+   below.
 3. **Run the file** via the normal `runFile` path (so the `.sbc` cache, imports,
    and error diagnostics all behave exactly as a plain run).
 4. **Emit one JSON object** for the file to `KAAPPI_TEST_EMIT`, built by walking
@@ -109,9 +110,47 @@ worker's stdout/stderr (which the worker itself never sees, since that went to
 the pipe the orchestrator owns). A worker that writes no result (a crash) is
 reported as an errored file synthesised from the captured output.
 
-A **file-level error** (`"error": true`) means an *uncaught* read/compile/runtime
-error at top level. SRFI-64 catches ordinary test failures internally via
+## Verdicts, and what "errored" means
+
+A **file-level error** (`"error": true`) is a failure of the *file*, as opposed
+to a failure of a test. SRFI-64 catches ordinary test failures internally via
 `guard`, so those never set it — they show up in the counts and `failures`.
+
+Three inputs decide it (`resolveVerdict` in `src/test_runner.zig`): whether an
+uncaught read/compile/runtime error was reported at top level, what the file's
+suppressed `(exit)` asked for, and whether the SRFI-64 counters already show a
+failure.
+
+| The file… | `error` | Why |
+|---|---|---|
+| ran clean | `false` | — |
+| hit an uncaught top-level error, never called `(exit)` | **`true`** | a plain run would exit 1 |
+| hit an uncaught top-level error, then `(exit 0)` | `false` + a **note** | the file waived it; a plain run exits 0 |
+| called `(exit N≠0)` with a failing count | `false` | redundant — the counts carry it, and `files_failed` already counts the file |
+| called `(exit N≠0)` with nothing failing | **`true`** + a **note** | otherwise the file's own verdict is lost |
+
+An `(exit 0)` waives only the file's *own* top-level error. It can never bury a
+failing assertion: the counters stay authoritative, so a file that both errors
+and fails is still reported as a failure.
+
+**Why the exit status matters at all**, given the whole point of this runner is
+to stop scraping: `tests/scheme/run-all.sh` runs the same file as a plain
+`kaappi <file>` and reads exactly that status, and
+`tests/scheme/errors/exit-code.sh` pins the rule it follows — *an explicit
+`(exit N)` always wins over an already-reported top-level error*. A runner that
+suppressed the call and then ignored what it asked for would reach a different
+verdict than the legacy runner on the same file, which is what
+[kaappi#1903](https://github.com/kaappi/kaappi/issues/1903) was: `srfi150.scm`
+green under `run-all.sh` and `1 errored`, exit 1, under `kaappi test`.
+`tests/scheme/test-runner/runner-agreement.sh` runs a fixture matrix through
+*both* verdict rules and requires them to match.
+
+A **note** is the channel for something a verdict deliberately tolerates. It
+travels in `error_message` (with `"error": false`), prints under the file's
+`PASS`/`FAIL` line in text mode along with whatever the worker wrote to
+stdout/stderr, and is tallied as `noted` in the summary. So a waived top-level
+error is visible without being fatal, rather than either failing the run or
+disappearing from it.
 
 ## JSON schema
 
@@ -145,6 +184,9 @@ Per-file object:
 ```
 
 - `suite` — the outermost `test-begin` name, or `null`.
+- `error_message` — the diagnostic for an errored file, **or** the note for a
+  file whose verdict tolerated something (`"error": false` with a non-null
+  message). Never assume `error_message != null` implies `error`.
 - `tests` — `pass + fail + xpass + xfail + skip`.
 - `kind` — `"fail"` (an expected pass that failed) or `"xpass"` (an
   expected-fail that unexpectedly passed). `xfail` (expected fail) and `skip`
@@ -161,12 +203,15 @@ Summary object (always last):
 ```json
 {
   "type": "summary",
-  "files": 108, "files_failed": 1, "errors": 0,
+  "files": 108, "files_failed": 1, "errors": 0, "noted": 0,
   "tests": 1611, "pass": 1610, "fail": 1, "xpass": 0, "xfail": 0, "skip": 0,
   "seed": 543286,
   "duration_ms": 15825.0
 }
 ```
+
+- `noted` — files carrying a note (see [Verdicts](#verdicts-and-what-errored-means)).
+  A note never fails the run, so `noted` is independent of `files_failed`.
 
 ## `--changed`: affected-test selection over the import graph
 
@@ -292,6 +337,12 @@ runs stays meaningful at any job count.
 - `tests/scheme/test-runner/seed.sh` — `--seed` reproducibility (same seed →
   same draw, different seed → different draw, seed echoed on every run),
   observed through the JSON.
+- `tests/scheme/test-runner/runner-agreement.sh` — the guarantee that this
+  runner and `tests/scheme/run-all.sh` cannot reach different verdicts
+  (kaappi#1903). Seven fixtures — top-level errors acknowledged and not,
+  `(exit 0)` over a failing assertion, redundant and unexplained nonzero exits,
+  a plain `test-expect-fail`, and a clean control — are each run through *both*
+  verdict rules, which must agree *and* land on the expected verdict.
 - `tests/scheme/test-runner/changed.sh` — `--changed`/`--list-affected` over a
   throwaway git repo with a known dependency shape: diamond import, `include`,
   a `(load …)` escape hatch, native-artifact and unknown-revision full-run

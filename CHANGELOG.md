@@ -21,6 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`kaappi test` and `run-all.sh` now agree on every file** (#1903). A file
+  that raised an uncaught top-level error and then called `(exit 0)` was
+  reported `PASS` by `run-all.sh`, which reads the process status, and `ERROR`
+  with exit 1 by `kaappi test`, whose worker suppresses the exit and never
+  consulted what the suppressed call had asked for. `run-all.sh` was right:
+  `tests/scheme/errors/exit-code.sh` already pins "explicit `(exit 0)` wins
+  over an earlier uncaught error", and `emitResult`'s own doc comment claimed
+  `errored` covered a nonzero exit, which the code never implemented.
+  A single `resolveVerdict` now weighs the counters, the recorded exit and the
+  top-level error together. An `(exit 0)` waives only the file's *own*
+  top-level error and can never bury a failing assertion, since the counters
+  stay authoritative; the waived error is still reported, as a **note** printed
+  under the verdict and tallied separately. This also closes the opposite
+  divergence, which nobody had noticed: a file exiting nonzero with counters
+  that do not explain it was `FAIL` under `run-all.sh` and silently `PASS`
+  here. Across all 352 SRFI-64 files, disagreements went from 1 to 0. The
+  summary's first line is now labelled `Tests:`, because `0 failed` (tests) sat
+  directly above `1 failed` (files) with nothing naming the difference.
+
 - **The handler and dynamic-wind stacks now grow on demand**, like the frame
   and register stacks, from an initial 64 entries up to 32768 (#1886). The
   initial capacities are configurable with `-Dmax-handlers` and
