@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785563854794,
+  "lastUpdate": 1785564716439,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c878b6983a7fbe64db8036e2d746fcb67cfb9838",
-          "message": "Bound the set! pre-scan so macro-generating macros stop compiling exponentially (#1775) (#1784)\n\n* Bound the set! pre-scan so macro-generating macros stop compiling exponentially\n\nCompiling a macro that generates another macro — SRFI 148's em-syntax-rules,\nSRFI 257's CK-machine combinators — cost time exponential in the generated\nmacro's rule count. An 8-rule case took 31s; SRFI 257's own shipped test\nsuite spent 281s of its 289s runtime in the compiler.\n\nThe cost was never in the expander, despite --timings pointing there\n(`expand 2765.8ms`). It was compiler.collectSetTargets, the top-level `set!`\npre-scan. That scan expands macros so it can see a `set!` introduced by a\nmacro template (#1250) — which makes it a speculative evaluator of\ncompile-time macro code, and it explores branches the real compiler never\ntakes. At `(m kt kf)`, where `m` is a helper the enclosing expansion just\ndefined with define-syntax, the scan has no binding for `m`, so it treats\nboth continuations as ordinary sub-forms and expands macros inside each.\nThe real compiler registers `m` and follows exactly one. Every such fork\ndoubles the work.\n\nBound the scan at 4096 expansions per top-level form. Exceeding the bound is\nsafe by construction rather than by luck: it sets Compiler.set_targets_all,\nand both consumers then assume every name is a `set!` target — box every\nlocal, fold nothing. A truncated scan loses optimization, never correctness.\nThe pre-existing `depth > 256` cutoff now feeds the same flag; until now it\nsilently returned a partial answer, which is exactly the under-approximation\n#1168/#1250 are about.\n\n4096 is ~2.5x the highest count any non-pathological top-level form in this\nrepo's Scheme suites reaches (p99.99 = 1649; 87% of forms need none at all)\nand well below the 6299+ the macro-generating cases start at. The headroom\nis deliberate: truncation costs ~2x runtime on compute-heavy code, so\nordinary programs must never reach the limit.\n\nAlso give the pre-scan the fixed-point check expandAndCompileMacroUse\nalready has. SRFI 219 rule 3 is `(define name expr)` -> `(define name expr)`,\nso every plain `define` in a program importing it was re-expanded 257 times\nuntil the depth cap — and, once the depth cap became meaningful, would have\nsent ordinary code down the conservative path.\n\n  8-rule generating macro   31.6s -> 4.6s\n  srfi257-full.scm         280.8s -> 16.2s\n  srfi257-rx-full.scm      102.1s -> 23.5s\n  7/9-rule macro         14.9s/71.9s -> 4.8s/4.9s (flat, was exponential)\n\nNo change to compile time under the budget or to runtime: fib/tak/ack/\nheavy-arith/const-prop are unchanged.\n\ndocs/dev/timings.md gains a section on the trap that cost two earlier\nsessions: --timings names the stage, never the caller. `sample` put 99% of\nsamples under collectSetTargets on the first run.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review on the set! pre-scan bound\n\nTwo of the three findings applied:\n\n- `prescan_expansion_limit` is now `threadlocal`, matching\n  `ir.optimize_enabled`'s documented rationale (an SRFI-18 child thread\n  compiling concurrently keeps the default instead of racing on whatever a\n  test left in a shared global). `prescan_truncations` beside it was already\n  threadlocal.\n- Tagged the timings.md fence `text` so markdownlint passes.\n\nDeclined sharing compiler_macro.MAX_MACRO_EXPANSION_DEPTH as the pre-scan's\ndepth cap, and said why in the code: the two 256s count different things.\nThat one bounds the real expansion of code that will be compiled, and\nexceeding it is a user-visible KP2003 error. This one bounds a speculative\nwalk that also descends into branches the compiler discards, so it is\nreached by programs whose real expansion depth never comes close — every\nSRFI 257 suite trips it several times per run while compiling and passing\nnormally. A shared constant would assert an equivalence the measurements\ncontradict.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T10:12:33Z",
-          "tree_id": "89dcef06044fc6437283eb360b45d4a83049b153",
-          "url": "https://github.com/kaappi/kaappi/commit/c878b6983a7fbe64db8036e2d746fcb67cfb9838"
-        },
-        "date": 1785149454802,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.357223,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.347647,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.950672,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.615654,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006296,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05487,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.516252,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070482,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.513056,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.044553,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592477,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429877,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.917026,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632425,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043671,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044553,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0d03deb89134671c0b279efb70e254cddd30978",
+          "message": "Stop reporting a platform and a range rule as type errors (#2016)\n\nFive typeError sites in primitives_io.zig put a non-type in the \"expected\ntype\" slot: four `comptime is_wasm` gates said \"expected non-WASM platform,\ngot #<string>\", and fd->port rejected 0 with \"expected socket/pipe file\ndescriptor (> 2)\" — but 0 is a fixnum, exactly the type it wants.\n\nFor the three (scheme file) procedures this was not only cosmetic. R7RS 6.13\nsays they signal a condition satisfying file-error?, which is what they do on\nevery native target and what portable code guards on, so the type error fell\nstraight through such a guard on the WASM tier — the playground. They now\nraise through raiseFileError, the same helper their own native failure path\ntwo lines down already used, with the platform named in the message and the\npath still the irritant. fd->port has no spec and no file, so its gate and\nboth range rules are argError (KP3007).\n\nA comptime gate cannot be tested from a native build, so\ntests/wasm/platform-gates.scm covers those four under wasmtime in the `wasm`\nCI job; fd->port's native range rules join #1944's text assertions in the io\naudit. Both sets were mutation-tested against the reverted source.\n\nCloses #1972\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T11:13:51+05:30",
+          "tree_id": "6fdbf071b1541a34b825ceafa21d0c4d26c072c6",
+          "url": "https://github.com/kaappi/kaappi/commit/d0d03deb89134671c0b279efb70e254cddd30978"
+        },
+        "date": 1785564714098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.929649,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.282882,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.532599,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.72361,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004821,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.043845,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.274473,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053547,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.78424,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.087951,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.427751,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.261189,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.628944,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.891383,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041955,
             "unit": "seconds"
           }
         ]
