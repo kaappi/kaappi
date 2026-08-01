@@ -6,9 +6,21 @@
 //! and `freeObject` (gc_sweep.zig) each have an *arm* for all 41 tags. Nothing
 //! guarantees what is *inside* an arm: a tag whose arm forgets one of its
 //! Value fields compiles cleanly and traces nothing, and the referent is
-//! silently freed while still live. `Port`'s satellites alone are hand-written
-//! at five sites, and `markValueInner` deliberately duplicates
-//! `markPortValues` rather than calling it.
+//! silently freed while still live.
+//!
+//! `Port` used to be the worst case — its satellites were hand-written at all
+//! five sites, and `markValueInner` deliberately duplicated `markPortValues`
+//! rather than calling it. Phase 7A measured that (a third Value-bearing field
+//! was missed by 3 of the 5, or by all 5 for a brand-new satellite, in both
+//! cases an observed use-after-free) and replaced the triplicate with one
+//! enumeration, `types_port.forEachValue`, plus `satelliteBytes` /
+//! `destroySatellites` for the two sweep arms. The port cases below now guard
+//! that single walker; "port satellite walkers" at the end is its own
+//! mutation test, deriving the expected Value count from `@typeInfo`
+//! independently of the walk it checks.
+//!
+//! Every *other* tag still hand-writes its three mark arms, so the runtime
+//! cases here remain the only check on them.
 //!
 //! Two runtime shapes, because the three mark-graph switches are reached by
 //! two different paths:
@@ -1282,7 +1294,12 @@ fn expectFields(comptime T: type, comptime pinned: []const []const u8) void {
                 "If the change adds or removes a Value-bearing field, update ALL of\n" ++
                 "  gc_collect.zig: markObjectContents, markValueInner, referencesYoung\n" ++
                 "  gc_sweep.zig:   objectSize, freeObject\n" ++
-                "and add a case to src/tests_gc_tracing.zig. Then re-pin here.",
+                "and add a case to src/tests_gc_tracing.zig. Then re-pin here.\n" ++
+                "EXCEPT for Port, CustomBacking and TranscodeState: all five sites\n" ++
+                "derive from types_port.forEachValue / satelliteBytes /\n" ++
+                "destroySatellites, so a new Value field there needs no GC edit at\n" ++
+                "all -- only this re-pin. A new *satellite* (a `?*T` field on Port)\n" ++
+                "is a hard build error until it is listed in types_port.satellites.",
         );
     }
 }
@@ -1424,4 +1441,280 @@ test "gc tracing: every ObjectTag has a case in this file" {
     // tag, its struct and its five arms are vestigial). Keep this count in
     // step with ObjectTag so a new tag cannot be added without landing here.
     try std.testing.expectEqual(@as(usize, 41), @typeInfo(types.ObjectTag).@"enum".fields.len);
+}
+
+// ---------------------------------------------------------------------------
+// Port satellite walkers (audit v2, Phase 7A)
+// ---------------------------------------------------------------------------
+//
+// The three mark arms and the two sweep arms all derive from
+// `types_port.forEachValue` / `satelliteBytes` / `destroySatellites`. The
+// cases below are what stands between a dropped field and a use-after-free:
+// one enumeration means one place to break, not five places to disagree.
+//
+// The measurement that motivated the unification, re-runnable by reverting it:
+// a third Value-bearing field on `Port` compiled clean under `zig build` and
+// was missed by 3 of the 5 sites (a bare `Value`, or one on an existing
+// satellite) or by all 5 (a brand-new satellite). Each was an observed
+// `ReferentCollected` — a live use-after-free — and the satellite case leaked
+// as well. `zig build test` was never silent: the field-list pin above caught
+// all three. The gates in `types_port.zig` now catch the satellite case in the
+// *product* build too.
+//
+// "reaches every declared Value field" is the mutation test proper: it counts
+// the expectation from `@typeInfo` rather than from the walk it checks, over a
+// port carrying both satellites at once — a shape no runtime path builds, and
+// the only one that exercises the whole enumeration in a single walk.
+
+const types_port = @import("types_port.zig");
+
+/// Records every Value the walker yields, so a case can assert the exact set
+/// rather than "something was traced".
+const Collector = struct {
+    seen: *std.ArrayList(Value),
+    allocator: std.mem.Allocator,
+
+    fn visit(self: Collector, v: Value) bool {
+        self.seen.append(self.allocator, v) catch @panic("collector OOM");
+        return false;
+    }
+};
+
+/// Stops the walk once `limit` Values have been seen — exercises the
+/// short-circuit `referencesYoung` depends on.
+const Stopper = struct {
+    count: *usize,
+    limit: usize,
+
+    fn visit(self: Stopper, _: Value) bool {
+        self.count.* += 1;
+        return self.count.* >= self.limit;
+    }
+};
+
+fn collectValues(gc: *memory.GC, port: Value, out: *std.ArrayList(Value)) void {
+    _ = types_port.forEachValue(
+        types.toObject(port).as(types.Port),
+        Collector{ .seen = out, .allocator = gc.allocator },
+        Collector.visit,
+    );
+}
+
+/// Every `Value`-typed field a fully-populated port reaches, counted straight
+/// from `@typeInfo` — deliberately *not* by asking `forEachValue`, so the two
+/// disagree the moment the walker drops a field.
+fn declaredValueCount() usize {
+    comptime var n: usize = 0;
+    comptime {
+        for (@typeInfo(types.Port).@"struct".fields) |f| {
+            if (f.type == Value) n += 1;
+        }
+        for (@typeInfo(types.CustomBacking).@"struct".fields) |f| {
+            if (f.type == Value) n += 1;
+        }
+        for (@typeInfo(types.TranscodeState).@"struct".fields) |f| {
+            if (f.type == Value) n += 1;
+        }
+    }
+    return n;
+}
+
+test "gc tracing: forEachValue yields exactly the Values a port holds" {
+    var gc = newGc();
+    defer gc.deinit();
+    var seen: std.ArrayList(Value) = .empty;
+    defer seen.deinit(gc.allocator);
+
+    // A port with no satellite holds no Values at all.
+    const plain = try gc.allocStringOutputPort();
+    collectValues(&gc, plain, &seen);
+    try std.testing.expectEqual(@as(usize, 0), seen.items.len);
+
+    // A custom port yields its six callbacks, in declaration order.
+    seen.clearRetainingCapacity();
+    const cp = try gc.allocCustomPort(
+        true,
+        true,
+        false,
+        types.makeFixnum(1),
+        types.makeFixnum(2),
+        types.makeFixnum(3),
+        types.makeFixnum(4),
+        types.makeFixnum(5),
+        types.makeFixnum(6),
+    );
+    collectValues(&gc, cp, &seen);
+    try std.testing.expectEqualSlices(Value, &.{
+        types.makeFixnum(1), types.makeFixnum(2), types.makeFixnum(3),
+        types.makeFixnum(4), types.makeFixnum(5), types.makeFixnum(6),
+    }, seen.items);
+
+    // A transcoded port yields its wrapped port and nothing else — the three
+    // enum fields beside it must not be mistaken for Values.
+    seen.clearRetainingCapacity();
+    const tp = try gc.allocTranscodedPort(types.makeFixnum(9), true, false, .utf8, .lf, .replace);
+    collectValues(&gc, tp, &seen);
+    try std.testing.expectEqualSlices(Value, &.{types.makeFixnum(9)}, seen.items);
+}
+
+test "gc tracing: forEachValue reaches every declared Value field" {
+    var gc = newGc();
+    defer gc.deinit();
+
+    // Both satellites at once. No runtime path builds this port (a port is
+    // either custom or transcoded), but it is the only shape that exercises
+    // the whole enumeration in one walk — which is the point: the count comes
+    // from @typeInfo, so dropping any field from `forEachValue`, or adding one
+    // it does not visit, fails here.
+    const port = try gc.allocCustomPort(
+        true,
+        true,
+        false,
+        types.makeFixnum(1),
+        types.makeFixnum(2),
+        types.makeFixnum(3),
+        types.makeFixnum(4),
+        types.makeFixnum(5),
+        types.makeFixnum(6),
+    );
+    const p = types.toObject(port).as(types.Port);
+    const ts = try gc.allocator.create(types.TranscodeState);
+    ts.* = .{
+        .wrapped_port = types.makeFixnum(7),
+        .codec = .utf8,
+        .eol_style = .lf,
+        .error_mode = .replace,
+    };
+    p.transcode = ts; // freed by destroySatellites when the port is swept
+
+    var seen: std.ArrayList(Value) = .empty;
+    defer seen.deinit(gc.allocator);
+    collectValues(&gc, port, &seen);
+    try std.testing.expectEqual(declaredValueCount(), seen.items.len);
+
+    // ... and the count is not vacuously zero.
+    try std.testing.expect(declaredValueCount() >= 7);
+}
+
+test "gc tracing: forEachValue short-circuits when the visitor says stop" {
+    var gc = newGc();
+    defer gc.deinit();
+    const cp = try gc.allocCustomPort(
+        true,
+        true,
+        false,
+        types.FALSE,
+        types.FALSE,
+        types.FALSE,
+        types.FALSE,
+        types.FALSE,
+        types.FALSE,
+    );
+    const p = types.toObject(cp).as(types.Port);
+
+    var count: usize = 0;
+    try std.testing.expect(types_port.forEachValue(p, Stopper{ .count = &count, .limit = 3 }, Stopper.visit));
+    try std.testing.expectEqual(@as(usize, 3), count);
+
+    // A visitor that never stops walks everything and reports `false` —
+    // `referencesYoung`'s "no young referent" answer.
+    count = 0;
+    try std.testing.expect(!types_port.forEachValue(p, Stopper{ .count = &count, .limit = 99 }, Stopper.visit));
+    try std.testing.expectEqual(@as(usize, 6), count);
+}
+
+test "gc tracing: satelliteBytes accounts for each attached satellite" {
+    var gc = newGc();
+    defer gc.deinit();
+
+    const plain = try gc.allocStringOutputPort();
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        types_port.satelliteBytes(types.toObject(plain).as(types.Port)),
+    );
+
+    const cp = try gc.allocCustomPort(true, true, false, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE);
+    try std.testing.expectEqual(
+        @sizeOf(types.CustomBacking),
+        types_port.satelliteBytes(types.toObject(cp).as(types.Port)),
+    );
+
+    const tp = try gc.allocTranscodedPort(types.FALSE, true, false, .utf8, .lf, .replace);
+    try std.testing.expectEqual(
+        @sizeOf(types.TranscodeState),
+        types_port.satelliteBytes(types.toObject(tp).as(types.Port)),
+    );
+
+    const rp = try gc.allocRandomPort(.{ .kind = .determinized });
+    try std.testing.expectEqual(
+        @sizeOf(types.RandomGen),
+        types_port.satelliteBytes(types.toObject(rp).as(types.Port)),
+    );
+
+    // objectSize must report strictly more than the bare struct for a port
+    // that owns anything — the property the derived sum exists to keep.
+    try std.testing.expect(
+        @import("gc_sweep.zig").objectSize(types.toObject(cp)) > @sizeOf(types.Port),
+    );
+}
+
+test "gc tracing: destroySatellites frees every satellite a swept port owns" {
+    // std.testing.allocator's leak check is the assertion: each port below is
+    // dropped unrooted, so freeObject's .port arm must release its satellite.
+    // Before 7A the `random_gen` / `custom_backend` / `transcode` frees were
+    // three hand-written lines; a fourth satellite would have leaked here.
+    var gc = newGc();
+    defer gc.deinit();
+
+    _ = try gc.allocCustomPort(true, true, false, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE);
+    _ = try gc.allocTranscodedPort(types.FALSE, true, false, .utf8, .lf, .replace);
+    _ = try gc.allocRandomPort(.{ .kind = .determinized });
+
+    // A port carrying two satellites at once, so the walk cannot pass by
+    // freeing only the first one it finds.
+    const both = try gc.allocCustomPort(true, true, false, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE);
+    const bp = types.toObject(both).as(types.Port);
+    const ts = try gc.allocator.create(types.TranscodeState);
+    ts.* = .{ .wrapped_port = types.FALSE, .codec = .utf8, .eol_style = .lf, .error_mode = .replace };
+    bp.transcode = ts;
+
+    forceFull(&gc);
+    forceFull(&gc);
+}
+
+test "gc tracing: a port carrying both satellites traces both (all three arms)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const rd = try young(&gc, 1);
+    const fl = try young(&gc, 2);
+    const wrapped = try young(&gc, 3);
+
+    const port = try gc.allocCustomPort(true, true, false, rd, types.FALSE, types.FALSE, types.FALSE, types.FALSE, fl);
+    const p = types.toObject(port).as(types.Port);
+    const ts = try gc.allocator.create(types.TranscodeState);
+    ts.* = .{ .wrapped_port = wrapped, .codec = .utf8, .eol_style = .lf, .error_mode = .replace };
+    p.transcode = ts;
+
+    // Test A: markValueInner, via the root set.
+    try expectTraced(&gc, port, &.{ ref(rd, 1), ref(fl, 2), ref(wrapped, 3) });
+}
+
+test "gc tracing (remembered set): a port carrying both satellites" {
+    var gc = newGc();
+    defer gc.deinit();
+    const port = try gc.allocCustomPort(true, true, false, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE, types.FALSE);
+    const p = types.toObject(port).as(types.Port);
+    const ts = try gc.allocator.create(types.TranscodeState);
+    ts.* = .{ .wrapped_port = types.FALSE, .codec = .utf8, .eol_style = .lf, .error_mode = .replace };
+    p.transcode = ts;
+    try promoteToOld(&gc, port);
+
+    const rd = try young(&gc, 1);
+    const wrapped = try young(&gc, 2);
+    p.custom_backend.?.read_proc = rd;
+    p.transcode.?.wrapped_port = wrapped;
+    gc.writeBarrier(&p.header, rd);
+
+    // Test B: markObjectContents plus referencesYoung, via the remembered set.
+    try expectRememberedTrace(&gc, port, &.{ ref(rd, 1), ref(wrapped, 2) });
 }
