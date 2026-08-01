@@ -31,10 +31,14 @@
 (define (now) (time->seconds (current-time)))
 
 (define fast-done-at #f)
+(define sleeper-woke-at #f)
 (define sleep-seconds 0.3)
 (define t0 (now))
 
-(define sleeper (spawn (lambda () (thread-sleep! sleep-seconds) 'slept)))
+(define sleeper (spawn (lambda ()
+                         (thread-sleep! sleep-seconds)
+                         (set! sleeper-woke-at (now))
+                         'slept)))
 (define fast (spawn (lambda () (set! fast-done-at (now)) 'fast-done)))
 
 (define sleeper-result (fiber-join sleeper))
@@ -44,12 +48,22 @@
 (check "sleeper-result" sleeper-result 'slept)
 (check "fast-result" fast-result 'fast-done)
 (check "fast-ran" (not (eq? fast-done-at #f)) #t)
-;; The fast fiber's own work is instant; if it ran DURING the sleep
-;; (not stalled behind it) its timestamp lands close to t0, well before
-;; the sleep's own duration elapses.
+(check "sleeper-woke" (not (eq? sleeper-woke-at #f)) #t)
+;; The property under test is an ORDERING, so assert the ordering rather
+;; than a duration: the fast fiber's completion must precede the sleeper's
+;; wake-up. Under the pre-KEP-0001 behaviour (a whole-thread nanosleep) the
+;; fast fiber could not run at all until the sleeper woke, so its timestamp
+;; would land after -- the same discrimination the old assertion made, but
+;; with no wall-clock bound to blow on an emulated leg. The old form
+;; required the fast fiber to finish within sleep-seconds/2 = 150 ms of t0,
+;; which is an upper bound on how slow the machine may be (audit v2 phase
+;; 5E; cf. the campaign footgun "never assert wall-clock timing -- assert
+;; relative ordering").
 (check "fast-ran-during-the-sleep-not-after"
-       (and fast-done-at (< (- fast-done-at t0) (/ sleep-seconds 2)))
+       (and fast-done-at sleeper-woke-at (< fast-done-at sleeper-woke-at))
        #t)
+;; A lower bound is the safe direction: a slow machine can only make the
+;; measured interval longer.
 (check "sleep-actually-took-a-while" (>= (- t-end t0) (* sleep-seconds 0.8)) #t)
 
 ;; Summary

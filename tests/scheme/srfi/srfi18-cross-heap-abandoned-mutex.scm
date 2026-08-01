@@ -81,9 +81,24 @@
 ;; unwinds. Joining after terminating waits for that to happen.
 (define mt (make-mutex 'terminated))
 (define (hold-mt-forever) (mutex-lock! mt) (let loop () (loop)))
+
+;; The child must genuinely hold mt before it is terminated, or there is
+;; nothing to abandon and this test silently checks the wrong thing. A fixed
+;; `thread-sleep!` guessed at how long a thread spawn plus one mutex-lock!
+;; takes, which is exactly the wall-clock assumption that makes a test flake
+;; on an emulated CI leg (audit v2 phase 5E). Poll the mutex's own state
+;; instead: it stays 'not-abandoned until the child locks it, so this
+;; synchronises on the event rather than on a duration, and the retry budget
+;; is a loud failure rather than a hang if the child never gets there.
+(define (wait-until-held! m tries)
+  (cond ((not (eq? (mutex-state m) 'not-abandoned)) #t)
+        ((<= tries 0) #f)
+        (else (thread-sleep! 0.005) (wait-until-held! m (- tries 1)))))
+
 (let ((t (make-thread hold-mt-forever)))
   (thread-start! t)
-  (thread-sleep! 0.1)                   ; let it acquire mt
+  (check-true "the child acquires mt before it is terminated"
+              (wait-until-held! mt 1000))   ; up to 5 s, normally ~1 iteration
   (thread-terminate! t)
   (guard (e (#t #t)) (thread-join! t))
   (check "parent-heap mutex abandoned after thread-terminate!"

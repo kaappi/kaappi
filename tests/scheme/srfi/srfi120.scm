@@ -7,6 +7,39 @@
 ;; pair/box the calling thread also holds. `(channel-receive sig timeout
 ;; 'timeout)` is used throughout so a bug that makes a task never fire
 ;; times out instead of hanging the whole suite.
+;;
+;; ---------------------------------------------------------------------
+;; Timing discipline (kaappi#1870, audit v2 phase 5E)
+;;
+;; This file was the flakiest in the tree: it went red on `windows-x64-test`
+;; and later, with different assertions, on `netbsd-test` -- twice in one day
+;; on two structurally unrelated PRs. Every one of those failures was the
+;; test racing a deadline it had chosen itself, not a defect in (srfi 120).
+;; Three rules, each of which a block below used to break:
+;;
+;;   R1. Never let the test's own next statement race a deadline the test
+;;       just set. Either schedule the deadline-bearing task LAST, or make
+;;       its delay so much larger than the intervening work that no
+;;       plausible slowdown can close the gap. The intervening work is
+;;       synchronous request/reply over a channel -- ~0.1 ms healthy -- so
+;;       the delays below (600-1000 ms) leave a margin of several thousand
+;;       times, not the ~300x a 30 ms delay left.
+;;
+;;   R2. Never observe a PERIODIC task through a channel and then assert
+;;       "nothing more arrives". `make-channel` with no capacity argument is
+;;       unbounded, so every tick that fires between the first receive and
+;;       the cancel/reschedule is already queued and will be handed to the
+;;       next receive. Use one-shot tasks for those assertions; there is
+;;       then nothing to queue.
+;;
+;;   R3. A negative ("must NOT fire") wait has to outlast the deadline it is
+;;       disproving, or it proves nothing. Each one below is longer than the
+;;       delay of the task it claims never fires.
+;;
+;; The rules are exercised directly by srfi120-slow-setup.scm, which inserts
+;; artificial delays at exactly the points that used to race and asserts the
+;; outcomes are unchanged.
+;; ---------------------------------------------------------------------
 
 (import (scheme base) (scheme write) (srfi 18) (kaappi fibers) (srfi 64) (srfi 120))
 
@@ -51,7 +84,7 @@
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'fired)) 100)
   (test-equal "timer-schedule!: a one-shot task fires within its window"
-              'fired (channel-receive sig 2.0 'timeout))
+              'fired (channel-receive sig 3.0 'timeout))
   (timer-cancel! t))
 
 (test-assert "timer-schedule!: returns a readable datum (here, an exact integer id)"
@@ -65,7 +98,7 @@
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'fired)) (make-timer-delta 100 'milliseconds))
   (test-equal "timer-schedule!: accepts a timer-delta for `when`"
-              'fired (channel-receive sig 2.0 'timeout))
+              'fired (channel-receive sig 3.0 'timeout))
   (timer-cancel! t))
 
 ;;; --- periodic scheduling -------------------------------------------------
@@ -74,18 +107,24 @@
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'tick)) 40 40)
   (test-equal "timer-schedule!: periodic task fires a 1st time"
-              'tick (channel-receive sig 2.0 'timeout))
+              'tick (channel-receive sig 3.0 'timeout))
   (test-equal "timer-schedule!: periodic task fires a 2nd time"
-              'tick (channel-receive sig 2.0 'timeout))
+              'tick (channel-receive sig 3.0 'timeout))
   (test-equal "timer-schedule!: periodic task fires a 3rd time"
-              'tick (channel-receive sig 2.0 'timeout))
+              'tick (channel-receive sig 3.0 'timeout))
   (timer-cancel! t))
 
 ;;; --- timer-task-exists? / timer-task-remove! ------------------------------
 
+;; R1: the task must still be PENDING while the three queries below run, so
+;; its delay has to outlast them. They are synchronous channel round trips
+;; (~0.1 ms healthy); 800 ms leaves a margin of several thousand times,
+;; where the 300 ms this block used to allow left a few hundred.
+;; R3: the negative wait (1.2 s) outlasts that 800 ms delay, so it would
+;; genuinely observe a removal that silently did nothing.
 (let* ((sig (make-channel))
        (t (make-timer))
-       (id (timer-schedule! t (lambda () (channel-send sig 'fired)) 300)))
+       (id (timer-schedule! t (lambda () (channel-send sig 'fired)) 800)))
   (test-assert "timer-task-exists?: #t right after scheduling"
     (timer-task-exists? t id))
   (test-assert "timer-task-remove!: #t when the task was pending"
@@ -93,13 +132,15 @@
   (test-assert "timer-task-exists?: #f after removal"
     (not (timer-task-exists? t id)))
   (test-equal "timer-task-remove!: the removed task never fires"
-              'timeout (channel-receive sig 0.5 'timeout))
+              'timeout (channel-receive sig 1.2 'timeout))
   (test-assert "timer-task-remove!: #f for an id that is no longer pending"
     (not (timer-task-remove! t id)))
   (timer-cancel! t))
 
 ;;; --- timer-reschedule! ---------------------------------------------------
 
+;; R1: the reschedule must reach a still-pending task, so the original delay
+;; (1000 ms) has to outlast one channel round trip. It does, by ~10000x.
 (let* ((sig (make-channel))
        (t (make-timer))
        (id (timer-schedule! t (lambda () (channel-send sig 'fired)) 1000)))
@@ -107,33 +148,56 @@
   (test-equal "timer-reschedule!: returns the id when the task was pending"
               id (timer-reschedule! t id 50))
   (test-equal "timer-reschedule!: the task fires at the NEW time, not the original"
-              'fired (channel-receive sig 1.0 'timeout))
+              'fired (channel-receive sig 3.0 'timeout))
   (test-assert "timer-reschedule!: #f for an id that no longer exists"
     (not (timer-reschedule! t id 50)))
   (timer-cancel! t))
 
 ;; The spec's documented idiom: reschedule with period 0 turns a periodic
 ;; task into a one-shot.
+;;
+;; R2: this block used to let the periodic task fire first, receive one tick,
+;; and then assert that nothing more arrived -- but the 40 ms period kept
+;; queueing ticks into the unbounded channel in the meantime, so the "no
+;; further firing" receive could hand back a tick that predated the
+;; reschedule. Rescheduling a task that has NOT fired yet (2000 ms initial
+;; delay, R1) tests the same guarantee with nothing in the channel to
+;; confuse it: after the reschedule the task must fire exactly once, at the
+;; new time, and never again.
 (let* ((sig (make-channel))
        (t (make-timer))
-       (id (timer-schedule! t (lambda () (channel-send sig 'tick)) 40 40)))
-  (test-equal "period-0 reschedule: the task still fires once more first"
-              'tick (channel-receive sig 1.0 'timeout))
-  (timer-reschedule! t id 1000 0)
+       (id (timer-schedule! t (lambda () (channel-send sig 'tick)) 2000 40)))
+  (timer-reschedule! t id 50 0)
+  (test-equal "period-0 reschedule: the task fires once at the new time"
+              'tick (channel-receive sig 3.0 'timeout))
+  ;; R3: had period 0 been ignored, the next firing would be 40 ms later;
+  ;; 0.5 s covers a dozen of them.
   (test-equal "period-0 reschedule: no further periodic firing follows"
-              'timeout (channel-receive sig 0.3 'timeout))
+              'timeout (channel-receive sig 0.5 'timeout))
   (timer-cancel! t))
 
 ;;; --- timer-cancel! -------------------------------------------------------
 
+;; R2: this used to be one periodic 30/30 task, so ticks queued in the
+;; unbounded channel between the first receive and the timer-cancel! and the
+;; "no further firings" assertion could observe one of them -- which is
+;; exactly what went red on netbsd-test (kaappi#1870). Two one-shots give
+;; the same two guarantees with nothing to queue: `early` proves the timer
+;; was genuinely running, `late` proves cancellation stopped it.
+;; R1: `late`'s 600 ms delay has to outlast `early` firing (30 ms) plus the
+;; receive and the cancel; only the last two scale with machine speed, and
+;; they are ~0.2 ms healthy.
+;; R3: the negative wait (1.0 s) outlasts `late`'s 600 ms delay, so a
+;; cancellation that failed to stop the timer would be caught.
 (let* ((sig (make-channel))
        (t (make-timer)))
-  (timer-schedule! t (lambda () (channel-send sig 'tick)) 30 30)
+  (timer-schedule! t (lambda () (channel-send sig 'late)) 600)
+  (timer-schedule! t (lambda () (channel-send sig 'early)) 30)
   (test-equal "timer-cancel!: at least one firing happens before cancellation"
-              'tick (channel-receive sig 1.0 'timeout))
+              'early (channel-receive sig 3.0 'timeout))
   (timer-cancel! t)
   (test-equal "timer-cancel!: no further firings after cancellation"
-              'timeout (channel-receive sig 0.3 'timeout)))
+              'timeout (channel-receive sig 1.0 'timeout)))
 
 ;;; --- error-handler ---------------------------------------------------------
 
@@ -141,19 +205,31 @@
        (t (make-timer (lambda (condition) (channel-send sig 'handled)))))
   (timer-schedule! t (lambda () (error "srfi-120 test: deliberate task error")) 30)
   (test-equal "error-handler: invoked when a task's thunk raises"
-              'handled (channel-receive sig 1.0 'timeout))
+              'handled (channel-receive sig 3.0 'timeout))
+  ;; Safe to schedule after the error here (unlike the no-handler case
+  ;; below): a handled error leaves the timer running, and the receive above
+  ;; has already established that the handler ran.
   (timer-schedule! t (lambda () (channel-send sig 'still-alive)) 30)
   (test-equal "error-handler: the timer keeps running after a handled error"
-              'still-alive (channel-receive sig 1.0 'timeout))
+              'still-alive (channel-receive sig 3.0 'timeout))
   (timer-cancel! t))
 
 ;; No handler at all: the timer must stop after the first task error rather
 ;; than silently continuing (observed indirectly -- a task scheduled after
 ;; the failing one must never fire once the timer has stopped).
+;; R1: the erroring task is scheduled LAST. Once it is queued, the timer may
+;; stop at any moment and every further timer-schedule! would raise
+;; "timer is not responding" -- which is precisely what went red on
+;; netbsd-test (kaappi#1870, srfi120.scm:153 on PR #2076): the old order
+;; scheduled the erroring task first, at 30 ms, and then needed its own next
+;; line to beat that 30 ms deadline. Nothing follows the erroring schedule
+;; now, so there is no deadline left to lose.
+;; R3: the should-not-fire task's 600 ms delay is still well inside the
+;; 1.0 s negative wait, so a timer that failed to stop would be caught.
 (let* ((sig (make-channel))
        (t (make-timer)))
+  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 600)
   (timer-schedule! t (lambda () (error "srfi-120 test: unhandled")) 30)
-  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 200)
   (test-equal "no error-handler: the timer stops, so later tasks never fire"
               'timeout (channel-receive sig 1.0 'timeout))
   ;; SRFI 120: "the procedure raises the preserved error if there is" --
@@ -175,7 +251,7 @@
                          (error "srfi-120 test: handler re-raised")))))
   (timer-schedule! t (lambda () (error "srfi-120 test: original")) 30)
   (test-equal "error-handler: a re-raising handler still runs"
-              'handler-ran (channel-receive sig 2.0 'timeout))
+              'handler-ran (channel-receive sig 3.0 'timeout))
   (test-assert "timer-cancel!: raises the handler's re-raised condition, not the original"
     (guard (c (#t (and (error-object? c)
                         (string=? (error-object-message c) "srfi-120 test: handler re-raised"))))
@@ -197,7 +273,7 @@
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'about-to-raise) (raise #f)) 30)
   (test-equal "no error-handler: the task runs before we attempt to cancel"
-              'about-to-raise (channel-receive sig 2.0 'timeout))
+              'about-to-raise (channel-receive sig 3.0 'timeout))
   (test-assert "timer-cancel!: re-raises a preserved condition that is itself #f"
     (guard (c ((not c) #t) (#t #f)) (timer-cancel! t) #f)))
 
@@ -210,7 +286,7 @@
        (t (make-timer)))
   (timer-schedule! t (lambda () (channel-send sig 'about-to-raise) (raise 'srfi-120-no-error)) 30)
   (test-equal "no error-handler: the task runs before we attempt to cancel (sentinel-lookalike case)"
-              'about-to-raise (channel-receive sig 2.0 'timeout))
+              'about-to-raise (channel-receive sig 3.0 'timeout))
   (test-assert "timer-cancel!: re-raises a preserved condition equal to the old sentinel symbol"
     (guard (c ((eq? c 'srfi-120-no-error) #t) (#t #f)) (timer-cancel! t) #f)))
 
