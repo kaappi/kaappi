@@ -12,10 +12,27 @@ destroyed when done.
 
 Key differences from `/do-linux-test`:
 
-- The stress suite is CPU-bound for **1.5–3 hours** (every test VM bootstrap
-  performs tens of thousands of collections; ~40 min on an M-series Mac).
+- The stress suite is CPU-bound, but **far less so than this skill long
+  claimed**. Measured 2026-08-02 on `c5-4vcpu-8gb` at commit `94ebd5a0`:
+  **50 s plain vs 5 m 07 s stressed** (1570/1570 pass). The old figure here
+  was "1.5–3 hours, ~40 min on an M-series Mac" — roughly 30× the reality, on
+  a droplet vCPU that is *slower* than the Mac it was compared against. The
+  cost almost certainly fell with #1802/#1804 and #1809, which stopped
+  ReleaseSafe `0xAA`-filling `= undefined` buffers.
+
+  Keep the detached-launch-and-poll pattern anyway: it costs nothing when the
+  run is short, and it is what makes a genuinely slow run survivable. But do
+  **not** treat a fast finish as evidence the flag failed to apply — see the
+  next bullet.
 - It runs detached (`nohup`) on the droplet and is **polled**, never awaited
   in a single SSH command — no SSH command may outlive the Bash tool timeout.
+- **`zig build test` prints nothing on success**, so a passing stress run
+  looks like `EXIT:0` and a 7-byte results file. That is indistinguishable at
+  a glance from the flag silently not applying. Confirm with the control
+  rather than the clock: run `zig build test --summary all` with and without
+  `-Dgc-stress=true` and compare the `run test unit-tests` line — the stressed
+  run should be several times slower and report a different skip count
+  (measured: 50 s / `1567 pass, 3 skip` vs 5 m 07 s / `1570 pass`).
 - The testing allocator's metadata churn inflates RSS by gigabytes, so the
   droplet gets more memory plus a swap file.
 
@@ -275,9 +292,11 @@ they can destroy it manually via the DigitalOcean console.
 - **Cost**: `c5-4vcpu-8gb` is ~USD 0.185/hr → a full 3-hour window costs
   ~USD 0.56. Faster per-core speed typically cuts the run to ~1–1.5h, so
   actual cost is comparable to the cheaper shared-CPU droplets.
-- **Why hours**: with a collection attempted on every allocation, each test's
-  VM bootstrap alone performs tens of thousands of full collections. ~40 min
-  on an M-series Mac; budget 1.5–3 h on droplet vCPUs.
+- **Why it used to take hours**: with a collection attempted on every
+  allocation, each test's VM bootstrap performs tens of thousands of full
+  collections. That was genuinely 1.5–3 h before the allocator work in
+  #1802/#1804/#1809; it is ~5 min now. The 3-hour droplet lifetime is left as
+  headroom rather than an estimate — it costs ~USD 0.09 for a real run.
 - **Memory**: `std.testing.allocator` (DebugAllocator) metadata churn under
   stress inflates process RSS far beyond real heap use (#1401 postmortem:
   multi-GB peaks). Hence 8 GB RAM + 8 GB swap; if the run still dies to the
