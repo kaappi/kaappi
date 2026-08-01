@@ -426,9 +426,12 @@ place, as specified.
 4.2.7 requires. One consequence of the above shows in the implicit re-raise:
 when no clause matches, `raise-continuable` is invoked in the *guard's* dynamic
 environment rather than the original raise's, so an outer
-`with-exception-handler` observes the guard's parameterization. Getting the
-raise point's back needs a continuation captured under the native raise frame,
-which cannot be resumed once that frame has returned.
+`with-exception-handler` observes the guard's parameterization. Restoring the
+raise point's dynamic environment needs a continuation captured under the
+native raise frame, which cannot be resumed once that frame has returned.
+
+This applies to the built-in `guard`. `(srfi 248)` replaces `guard` with its
+own, whose separate timing caveat is above.
 
 ### Fibers
 

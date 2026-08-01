@@ -188,13 +188,12 @@ test "guard clauses run in the guard's own dynamic environment (#1988)" {
     // must see p = 1. It used to see 2: the clauses were evaluated at the raise
     // point, which for the raise-continuable a declining inner guard issues is
     // still inside the parameterize.
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(define p (make-parameter 1))");
-    const result = try vm.eval(
+    _ = try ctx.vm.eval("(define p (make-parameter 1))");
+    const result = try ctx.vm.eval(
         \\(guard (e (#t (p)))
         \\  (parameterize ((p 2))
         \\    (guard (e ((number? e) 'no-match))
@@ -206,20 +205,19 @@ test "guard clauses run in the guard's own dynamic environment (#1988)" {
 test "a declining guard's after-thunks run before the outer clauses (#1988)" {
     // Same defect through dynamic-wind: the after thunk belongs to an extent
     // the outer clause is outside of, so it runs on the way out, not after.
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
-    _ = try vm.eval("(define log '())");
-    _ = try vm.eval(
+    _ = try ctx.vm.eval("(define log '())");
+    _ = try ctx.vm.eval(
         \\(guard (e (#t (set! log (cons 'clause log))))
         \\  (dynamic-wind
         \\    (lambda () (set! log (cons 'before log)))
         \\    (lambda () (guard (e ((number? e) 'no-match)) (raise 'x)))
         \\    (lambda () (set! log (cons 'after log)))))
     );
-    const ordered = try vm.eval("(equal? (reverse log) '(before after clause))");
+    const ordered = try ctx.vm.eval("(equal? (reverse log) '(before after clause))");
     try std.testing.expectEqual(types.TRUE, ordered);
 }
 
@@ -227,39 +225,27 @@ test "a declining guard strands no exception handler (#1988)" {
     // The implicit re-raise pops the guard's handler and the outer one escapes,
     // so the pop stands. Re-pushing left one stale entry per declining guard:
     // the next raise found it and called an escape whose extent had ended.
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-
-    const result = try vm.eval(
+    try th.expectEval(
         \\(with-exception-handler
         \\  (lambda (e) 7)
         \\  (lambda ()
         \\    (guard (e (#t 'caught)) (raise-continuable 'x))
         \\    (raise-continuable 'y)))
-    );
-    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+    , 7);
 }
 
 test "a guard clause can still reinstate a continuation from the body (#1988)" {
     // The unwind that puts the clauses in the guard's dynamic environment must
     // leave the call stack alone: (srfi 255)'s restarters escape from a clause
     // into a continuation captured inside the guard body.
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-
-    const result = try vm.eval(
+    try th.expectEval(
         \\(guard (c (#t ((cdr c) 99)))
         \\  (call-with-current-continuation
         \\    (lambda (k)
         \\      (with-exception-handler
         \\        (lambda (e) (raise-continuable (cons e k)))
         \\        (lambda () (error "boom") 'not-reached)))))
-    );
-    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+    , 99);
 }
 
 test "uncaught (error ...) formats message and irritants into error detail" {

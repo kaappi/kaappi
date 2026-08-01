@@ -69,11 +69,15 @@
       (parameterize ((p 2))
         (raise 'boom)))))
 
-(test-equal "clause of a guard that handles"
+;; The whole cond moves, not just the body of whichever clause wins: a test
+;; expression that reads the environment has to see the guard's too, or no
+;; clause matches at all and the condition escapes.
+(test-equal "a clause's test expression sees it as well as its body"
   1
-  (guard (e (#t (p)))
+  (guard (e ((= (p) 1) (p)))
     (parameterize ((p 2))
-      (raise 'boom))))
+      (guard (e ((number? e) 'no-match))
+        (raise 'boom)))))
 
 (test-equal "parameter restored after the guard returns" 1 (p))
 
