@@ -8,6 +8,10 @@ provides a clean lowering target for a future native backend.
 **Source:** `src/ir.zig` (~1,400 lines)
 **Tests:** `src/tests_ir.zig` (~850 lines)
 
+**See also:** [KEP-0008](https://github.com/kaappi/keps/blob/main/keps/0008-shared-ir-contract.md)
+documents the core-form set, optimization set, and shadowing-safety
+invariant this IR shares with paal's and chaaya's independent IRs.
+
 ---
 
 ## Pipeline
@@ -196,6 +200,15 @@ Propagation rules:
 All passes take `(ir: *IR, node: *Node) -> *Node`. They return a new node
 if the tree was transformed, or the original node if unchanged. Applied in
 this order:
+
+**Shadowing safety:** `foldConstants`, `eliminateIdentity`, and the `not`
+case in `simplifyBooleans` each call `ir.isRedefined(name)` before treating
+a call as a known primitive, so `(define (+ a b) 'user-plus) (+ 1 2)` calls
+the user's procedure instead of folding to `3`. Lexical shadowing (e.g. a
+lambda parameter named `+`) never reaches these checks in the first place —
+`foldConstants` only fires on a `.global_ref` operator, and lowering
+already resolves a shadowed name to something other than `.global_ref`
+before the IR optimization passes run.
 
 ### 1. foldConstants
 
