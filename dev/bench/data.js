@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785623808687,
+  "lastUpdate": 1785624560733,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4f0e04165903f96704c1ea8a9ede4085d4dfb2a3",
-          "message": "Use list? instead of pair? for user-supplementary-gids audit test (#1845)\n\nSRFI 170 only promises user-supplementary-gids returns a list, not a\nnon-empty one. pair? fails for any process with no supplementary\ngroups, such as root in a minimal container image. The two other\ntests of this primitive (src/tests_filesystem.zig, coverage/\nfilesystem-coverage.scm) already use list?; this brings the audit\ntest in line with them.\n\nFixes #1844\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T12:52:04Z",
-          "tree_id": "44ceb0e5a1e83dd91dd133b93297aa0b7c810e5a",
-          "url": "https://github.com/kaappi/kaappi/commit/4f0e04165903f96704c1ea8a9ede4085d4dfb2a3"
-        },
-        "date": 1785332436286,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.262318,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.344864,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.585604,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.017051,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004642,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045906,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313121,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057236,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.731045,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.224679,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.575115,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282595,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.778713,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.714679,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046558,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035092,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "910f7c75e0c204bb6fd64407361f9165cd29628b",
+          "message": "Phase 7C: the big-endian canary — it ran the unit suite and r7rs-tests.scm, and SRFI 74's one endian assertion compared a function to its own definition (#2145)\n\n* Phase 7C: make the big-endian canary able to fail\n\ns390x exists to catch byte-order bugs (#1654), but `ci.yml`'s `s390x-test`\njob ran three steps -- the cross-compile, the unit suite, and\n`r7rs-tests.scm` -- and `r7rs-tests.scm` imports no SRFI with a\nbyte-order-sensitive surface. So SRFI 74 (blobs), SRFI 160 (host-native\nnumeric-vector storage) and SRFI 135 (UTF-16) had never executed on a\nbig-endian machine, and `ppc64le-test` is not a second canary: POWER is\nlittle-endian in this configuration.\n\nThe one assertion that claimed to cover this could not fail. Under the\nheading \"native accessors agree with explicit-endianness accessors\",\nsrfi74.scm compared `blob-u32-native-set!` against\n`(blob-u32-set! (endianness native) ...)` -- which is how lib/srfi/74.sld\n*defines* it. Measured: hardcoding the `endianness` macro's native arm to\n'big leaves srfi74.scm at 30/30 pass, while the replacement suite reports 7\nfailures.\n\nNo Scheme test can close the gap by itself. `(endianness native)` is\n`(if (%host-big-endian?) 'big 'little)` and that primitive is the only\nScheme-visible witness of host byte order -- SRFI 160 exposes no byte view\nof a NumericVector -- so a Scheme assertion can only re-derive its\nexpectation from the same primitive. The chain is therefore split:\n\n- src/tests_endian.zig (11 tests) pins what Scheme cannot: `%host-big-endian?`\n  against an actual memory probe, and the `.sbc` codec's canonical\n  little-endian scalars. Every `.sbc` test until now wrote and read on the\n  same host, so a paired byte-swap cancelled out; these check the writer\n  against literal expected bytes and the reader against a hand-assembled\n  literal-little-endian header, one direction at a time. #438 (writeF64\n  omitted the conversion) was exactly this class of bug, found by\n  inspection rather than by a test. The unit suite already runs on s390x,\n  so these need no CI change.\n- tests/scheme/audit/endianness-audit.scm (99 assertions) pins the\n  explicit big/little byte layouts at every width, native's *selection*\n  between them relative to `%host-big-endian?` (never a hardcoded order),\n  SRFI 160's encoder-vs-ref-vs-printer agreement, SRFI 135's UTF-16BE/LE\n  including surrogate pairs and BOM dispatch -- srfi135.scm had zero utf16\n  coverage -- and, as controls, the byte-oriented surfaces that must not\n  vary at all.\n- tools/run-endian-suite.sh runs that file plus the nine pre-existing\n  suites carrying endian assertions: one command, ~1s natively, now a step\n  on all three QEMU legs (riscv64 and ppc64le as little-endian controls).\n\nsrfi74.scm's tautology is replaced and all 31 of its assertions are named:\nSRFI-64 prints a failed assertion's value, not its source, so an unnamed\nfailure on an emulated leg is a bare `#f`.\n\nTwo things `docs/dev/porting.md` now states rather than implies: what the\ncanary actually runs, and that a local `zig build test -Dtarget=s390x-linux`\nproves nothing about behaviour -- `skip_foreign_checks` makes it exit 0\nhaving skipped the run, and it only executes in CI because\nsetup-qemu-action registers binfmt_misc.\n\nCloses #2139.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Make the endian suite independent of /proc/self/exe and of the caller's cwd\n\nThe exe-relative library default (<exe_dir>/../lib) reads /proc/self/exe on\nLinux, and the three legs this script exists for run the binary through\nbinfmt_misc, where that path is the emulator's to define. Naming --lib-path\nlib explicitly costs nothing and removes the failure mode. The script now\nalso resolves its argument against the caller's cwd before cd-ing to the\nrepo root, so a relative path means what the caller meant.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Drop an unused import from tests_endian.zig\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Add SRFI 271 to the endian suite\n\nA byte-punning sweep of src/ turned up one surface the first pass missed:\ndeterminized random ports move u64s in and out of a bytevector with an\nexplicit .little (primitives_random_port.zig, types_port.zig), so a seeded\nstream is meant to be byte-identical on every host. srfi271.scm's own\nassertions compare two ports on the SAME host -- the same cancelling pairing\nthe .sbc tests have -- so running it big-endian is what catches a write and\nread side disagreeing. A cross-host golden byte sequence is still missing,\nthe same shape of gap Phase 7D owns for .sbc.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T03:53:15+05:30",
+          "tree_id": "7e37477d9dd5b5985a19b178fecc7848e8e35e26",
+          "url": "https://github.com/kaappi/kaappi/commit/910f7c75e0c204bb6fd64407361f9165cd29628b"
+        },
+        "date": 1785624558615,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.994159,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.073724,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.596413,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.557119,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004719,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047538,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.374961,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058475,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.739161,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.44034,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.602785,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279247,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.80389,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.570769,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043278,
             "unit": "seconds"
           }
         ]
