@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785561315502,
+  "lastUpdate": 1785561813616,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c9ce6cffd9a44d50aa2f9bb2bb5871184e5ebafa",
-          "message": "Fix literal let/if matching in macro-generated nested syntax-rules (#1720) (#1782)\n\nlet and if are deliberately excluded from well_known_forms so a macro's\nown executable use of them stays hygienic under use-site shadowing, but\nthat exclusion meant a nested syntax-rules's let/if LITERAL (e.g. a\ngenerated dispatch macro's syntax-rules (let) ...) also got hygiene-\nrenamed by the generating macro's expansion. matchPattern's literal\nfallback only stripped a hygiene rename off the input side (for the\nreverse case, e.g. SRFI 257's cm-match), never off the literal side, so\na renamed literal could never match a real, unrenamed token typed at the\ngenerated macro's own use site. Strip both sides before comparing.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T13:39:24+05:30",
-          "tree_id": "6bbab6baa07bd8094071a6b07e45cc815011efe0",
-          "url": "https://github.com/kaappi/kaappi/commit/c9ce6cffd9a44d50aa2f9bb2bb5871184e5ebafa"
-        },
-        "date": 1785142078322,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.043022,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.804879,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931135,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.469486,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006701,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054179,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.515231,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068757,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.283002,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.973155,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.540703,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471939,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.706167,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.816634,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045194,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044194,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "940368ca69d1b97be0e12a274e7409351819c359",
+          "message": "Phase 2.11: six unaudited primitives files — 247 assertions, and a use-site (let ((car ...))) hijacks car inside any macro (#2014)\n\n* Phase 2.11: audit the six unaudited small primitives files\n\nparallel, sysinfo, random_port, srfi258, srfi260 and srfi211 — ~570\nlines and 27 specs, all postdating the v1 campaign, none with an audit\ntest. 230 SRFI-64 assertions plus a 17-assertion --sandbox suite for\ndimension D7.\n\nThe six files are clean. All 27 specs behave correctly, every %-name is\nreachable with no import (D1) and none panics, the --sandbox gate matches\nits documented per-name split exactly, and SRFI 258's uninterned-ness\nsurvives both deep-copy directions with object sharing preserved.\n\nEvery finding is in the surrounding engine, reached through these files'\nown documented claims:\n\n  #2003  a use-site local binding captures a macro template's free\n         reference to a global procedure, so (let ((car ...)) ...)\n         hijacks car inside any macro. The local-scope half of closed\n         #1812; syntax-rules and ER alike, wrong against Chibi and Guile.\n  #2005  load of a file containing import fails, blaming the loader's\n         own line 1.\n  #2007  kaappi check calls two valid SRFI 211 transformer-specs\n         invalid syntax.\n  #2009  doc-truth: SRFI 260's rationale still says Kaappi has no\n         uninterned symbols, 51 minutes after SRFI 258 gave it some.\n\nExtended #1913: the all-zero-seed port's own state fails\nrandom-port-state?, so it cannot be rebuilt from itself.\n\nSeven assertions are staged disabled behind #2003 and #1913. The\nhygiene section keeps its parity assertions enabled, so a fix that\nlands on only one of the two macro paths fails here.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point the 2.11 tracker entry at the real PR number\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T09:57:52+05:30",
+          "tree_id": "054c2f0d6a87030b8b47945ccfde25d0931fbff4",
+          "url": "https://github.com/kaappi/kaappi/commit/940368ca69d1b97be0e12a274e7409351819c359"
+        },
+        "date": 1785561811859,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.079073,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.245033,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.456125,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.200223,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004234,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035077,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.230393,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042727,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.860285,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.90167,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.187181,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.24118,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.353094,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.442884,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036042,
             "unit": "seconds"
           }
         ]
