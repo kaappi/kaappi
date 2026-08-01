@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785601221543,
+  "lastUpdate": 1785601244441,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "180d1e26a5ebfa4a526487f2ec9eb1c1fe87a438",
-          "message": "Stamp cache_version in call_global/tail_call_global so the global cache can hit (#1817)\n\n`call_global` and `tail_call_global` populated a Function's global inline\ncache but never assigned `cache_version`, leaving it at its `types.zig`\ndefault of 0. `global_version` is bumped past 0 before any user code runs --\nby `vm_bootstrap.install` and by every library import (`vm_library.zig`) --\nso the fast-path guard `func.cache_version == self.global_version` was false\nforever. Every call to a global therefore fell through to a full hash-map\nlookup, and the cache could never hit even once.\n\n`get_global` already self-healed (memset the cache, then re-stamp) at\nvm_dispatch.zig:220; the two call opcodes were missed. Apply the same\npattern: heal a stale cache before refilling a slot, and stamp when the\ncache is first allocated. The memset-before-stamp preserves #812's rule\nthat a version bump must not re-bless entries cached before the rebinding.\n\nMeasured on x86_64 Linux, a 20M-iteration call-dense loop, external wall\nclock: 2.45s -> 1.72s (1.42x). Instrumented cache counters over the same\nloop went from 0 hits / 40,000,000 misses to 40,000,000 hits / 1 miss.\n\nChild SRFI-18 threads masked this: `VM.initForThread` leaves the child's\n`global_version` at 0, which accidentally matches the un-stamped default,\nso child threads hit the cache while the main thread never did. That\ndiscrepancy -- a child OS thread running identical bytecode ~1.5x faster\nthan the main thread -- is how the bug surfaced, during a parallelism audit.\n\nRegression tests assert the stamp directly rather than timing anything, and\ncover the heal path against #812's stale-callee rule.\n\n\nClaude-Session: https://claude.ai/code/session_01UooWXnqjfoy7HmCoY8kovD\n\nCo-authored-by: Claude <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T18:59:02+05:30",
-          "tree_id": "78775dfe3aa7c84a4de3ac1f0c4ed4ffc14bdb94",
-          "url": "https://github.com/kaappi/kaappi/commit/180d1e26a5ebfa4a526487f2ec9eb1c1fe87a438"
-        },
-        "date": 1785247247810,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.338903,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.174796,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.597738,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.108078,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006308,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046338,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.319121,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057661,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.555689,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231911,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.676587,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.439386,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.787239,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695773,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045505,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04595,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70675ffae061552ebbb9a2373e45dae431353560",
+          "message": "Phase 6B: reconcile kaappi test with run-all.sh — a suppressed (exit 0) still meant exit 0 (#2081)\n\n* Phase 6B: reconcile kaappi test with run-all.sh — a suppressed (exit) still has semantics\n\nThe two runners disagreed on tests/scheme/srfi/srfi150.scm: green under\nrun-all.sh, `1 errored` and exit 1 under `kaappi test`, with a summary that\nread as self-contradictory (`0 failed` tests above `1 failed` files). Every\nunit of the audit campaign has been reporting it as noise, and it is what\nblocks `kaappi test` from replacing the legacy runner.\n\nThe cause is not `test-expect-fail`, where the finding pointed — those\nannotations only decide whether the orphaned assertions land in `xfail`\nrather than `fail`. It is the file's own exit status. srfi150.scm provokes an\nuncaught top-level error and then calls `(exit 0)` on the SRFI-64-clean path,\ndeliberately. A plain run honours that, so run-all.sh reads 0 and says PASS.\nThe `kaappi test` worker sets `suppress_exit` so the file's `(exit)` cannot\nrob it of the chance to emit a result — but it then reported `script_had_error`\ndirectly, never consulting what the suppressed call had asked for.\n\nrun-all.sh was right. tests/scheme/errors/exit-code.sh already pins the rule a\nplain run follows, with its own regression test: an explicit `(exit N)` wins\nover an already-reported top-level error. And this was a gap rather than a\npolicy — `emitResult`'s own doc comment claimed `errored` covered \"a nonzero\n`(exit)`\", which the code never did. Suppressing the termination was never\nmeant to also discard the status.\n\nSo the semantics are reapplied where the verdict is formed, in one function\nwith all three facts in hand. An `(exit 0)` waives the file's own top-level\nerror; it can never bury a failing assertion, because the counters stay\nauthoritative. A nonzero exit the counters already explain stays redundant, as\nbefore — calling it an error would trade per-assertion detail for a bare ERROR\nline. A nonzero exit they do not explain is now an error, which closes the\nopposite-direction divergence nobody had noticed: such a file was FAIL under\nrun-all.sh and silently PASS here.\n\nNothing goes quiet. A waived error becomes a note — carried in error_message\nwith error:false, printed under the file's verdict line with the worker's own\ndiagnostic, and tallied as `noted` in both summaries. The first summary line is\nrelabelled `Tests:`, since it counts tests and the line under it counts files.\n\nVerified by running both runners' verdict rules over all 352 SRFI-64 files:\n1 disagreement before, 0 after. srfi150.scm is the only file repo-wide in this\nstate, and it is untouched by this change.\n\nrunner-agreement.sh is the gate that keeps it that way: seven fixtures, each run\nthrough both rules, which must agree and land on the expected verdict. Its first\nfixture rebuilds srfi150's shape from scratch, so the guarantee outlives #2051\nfixing SRFI 150. Reverting resolveVerdict kills 3 of its 10 assertions, in both\ndirections.\n\nCloses #1903.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Record the runner-agreement fix in the changelog\n\nThe changelog gate is right to fire here: this changes what `kaappi test`\nreports for a real class of file, which is user-visible behaviour, not a\nrefactor.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T18:29:58+05:30",
+          "tree_id": "a20f5d30d65ea1222a32cdc4d69cc923a5e1e4d9",
+          "url": "https://github.com/kaappi/kaappi/commit/70675ffae061552ebbb9a2373e45dae431353560"
+        },
+        "date": 1785601242778,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.268112,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.567725,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.569836,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.977499,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00466,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046511,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314248,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0571,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.695347,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224677,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.57476,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282775,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.768204,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.464813,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044264,
             "unit": "seconds"
           }
         ]
