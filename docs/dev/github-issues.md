@@ -194,12 +194,16 @@ It needs re-checking after any filing burst. An `audit` phase lands its
 findings all at once, so the gap opens between one triage pass and the next
 rather than drifting gradually.
 
-Find open issues missing a priority:
+Find every issue that violates the rule. "Exactly one" has two failure modes,
+so this counts the priority labels and reports anything that is not 1 — a
+missing label and a double label are equally worth knowing about, and only the
+first is the common case:
 
 ```bash
 gh issue list --repo kaappi/kaappi --state open --limit 400 \
   --json number,title,labels \
-  --jq '.[] | select([.labels[].name] | any(startswith("priority:")) | not)
+  --jq '.[] | ([.labels[].name | select(startswith("priority:"))] | length) as $n
+            | select($n != 1)
             | select([.labels[].name] | index("fuzz-finding") | not)
         | "\(.number)\t\(.title)"'
 ```
