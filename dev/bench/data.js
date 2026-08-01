@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785594473643,
+  "lastUpdate": 1785595428294,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "82da81378c730bfd21d68861d6174d3b7ad27c07",
-          "message": "Lower apply natively in the LLVM backend (#1803) (#1805)\n\nOne apply anywhere in a body used to send the whole enclosing function to\nthe interpreter (the #1799 fix was correct but all-or-nothing): ~19x on\nthe issue's arithmetic-loop reproducer, hit precisely by idiomatic code\nlike (apply + xs). Only apply itself needs the runtime — the enclosing\nframe can keep its native compilation.\n\nA new C-ABI entry point, kaappi_apply, is primitives.applyFn minus the\nargument shuffling: same procedure validation, same tortoise-and-hare\nproper-list check (a circular list raises instead of hanging), same\ntypeError texts, then callWithArgs on the spliced arguments.\nemitPassthrough routes an (apply …) head inside a lexical scope to\nemitApplyForm, which mirrors the interpreter's dispatch case for case:\ntail + unshadowed + ≥2 operands is structural builtin apply (the\ntail_apply opcode ignores a top-level rebinding of apply, so the fast\npath deliberately does too — an earlier draft that honored the rebinding\neverywhere diverged from the interpreter); tail with too few operands\nabandons native compilation so the interpreter raises its compile-time\nInvalidSyntax; every other resolvable shape is an ordinary indirect call\nthrough whatever apply denotes in scope. Tail sites balance the frame's\nGC roots before the ret, as emitCallNode does.\n\nFlipping apply out of eval_fallback_form_names exposed a latent trap:\nthe free-variable analyses treated every .passthrough node as\ncapture-free, sound only while all passthrough keywords also declined\nthe enclosing scope. Both walks now descend into apply operands, so a\nclosure capturing a variable used inside one gets its upvalue instead\nof a silent global lookup — #1799's failure mode in a new spot.\n\nThe #1799 parity suite passes unchanged, as designed. The new 1803 suite\nadds rebinding/shadowing/error/GC-stress shapes plus the structural\nconvergence check (zero eval fallbacks in the reproducer's IR); the\nissue's heavy pair now times identically (0.12s vs 0.12s, was ~19x).\nThe 1376 callback test's case 8 gets a transparent (letrec ()) wrapper:\napply no longer forces the eval fallback it relied on to exercise\nbytecode tail_apply against a NativeClosure (do stopped forcing it back\nin #1496), so the wrapper restores the documented coverage.\n\nCloses #1803\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T10:25:56+05:30",
-          "tree_id": "b9c6be37e0c710d8e6a4b000ca9f22c23d9b5322",
-          "url": "https://github.com/kaappi/kaappi/commit/82da81378c730bfd21d68861d6174d3b7ad27c07"
-        },
-        "date": 1785217240742,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.620529,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.602131,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.949782,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.665131,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006392,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055096,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.547801,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071313,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.489774,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.067353,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.607374,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436683,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.806248,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632656,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044128,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.030387,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80553427120c666d034fcfa11af4268ae09f7552",
+          "message": "Phase 3.4: SRFI 146 audit — 668 assertions over all 161 exports, and (srfi 146 hash) never uses the comparator it is given (#2070)\n\n* Phase 3.4: SRFI 146 audit — 668 assertions over all 161 exports\n\nSRFI 146's two libraries exported 161 names and its one manual-counter test\nfile touched 53 of them. Two new SRFI-64 files close that gap completely.\n\ntests/scheme/srfi/srfi146-reference.scm ports the SRFI's own reference suite\n(srfi/146/test.sld and srfi/146/hash/test.sld, MIT, Marc Nieper-Wisskirchen)\nverbatim apart from the library wrapper — 167 assertions, 7 disabled.\n\ntests/scheme/srfi/srfi146-differential.scm runs one parameterised body over\nboth libraries through an operation table, so the 66 names they share are\nchecked for agreement rather than against a hand-written expectation — 501\nassertions, 26 disabled. Nothing asserts hashmap iteration order.\n\nThe differential is what found most of it. (srfi 146 hash) discards its\ncomparator argument outright and keys every hashmap by equal?, so a\ncomparator whose equality is `=` merges 1 and 1.0 in the ordered library and\nsplits them in the hash one. Both constructors also give the LAST duplicate\nkey precedence where the spec says the first — the one distinction the spec\ngoes out of its way to contrast with mapping-set, and mapping-adjoin and\nalist->mapping are both correct, which is what makes it a defect rather than\na convention.\n\nFiled #2044 (comparator discarded), #2045 (duplicate-key precedence), #2046\n(mapping-key-predecessor/-successor invoke failure unconditionally), #2047\n(=? omits the key-comparator identity check), #2048 (make-mapping-comparator\nsupplies no ordering and make-hashmap-comparator no hash), #2049\n(hashmap-ref/default calls a procedural default), #2050 (any?/every? return\nthe predicate's value), #2052 (the single-mapping comparison form), #2053\n(mapping-map and mapping-find run their fold twice). Commented on #2023 with\nthe wider blast radius through this SRFI's own API.\n\nClean and now pinned rather than assumed: all four mapping-search\ncontinuations on both libraries, escaping continuations out of every\nhigher-order entry point, the purity of all eight pure/linear pairs, the\nwhole ordered surface (min/max, predecessor/successor, the five ranges,\nsplit, catenate, map/monotone, fold/reverse), set algebra on disjoint,\nidentical and overlapping inputs, mixed-type default-comparator keys, and\n1000 inserts plus 1500 interleaved insert/delete rounds against a red-black\ndelete that never rebalances.\n\nFound by: Systematic audit v2, Phase 3.4 (tracking #1890)\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Pin the #2023 cliff, not a miss count — the Debug leg found the keys\n\n`(> (hash-misses 12 40) 0)` asserted that the bug is still present. It\npassed on macOS ReleaseSafe and failed on CI's `ubuntu-latest, Debug` leg,\nreproduced locally in a Debug build.\n\nPast the depth limit the hash degenerates to the key's pointer, so whether\ntwo structurally-equal keys collide is an accident of allocation. Measured\non one ReleaseSafe binary: 31 and 32 misses of 40 at `deep 8` across two\nruns, then 3 vs 40 of 40 at `deep 9`. Debug finds far more. No miss count\nis assertable past the limit, in either direction.\n\nWhat is stable in every run and both builds is the cliff itself, so that is\nwhat this pins now: 0/40 misses at every depth from 1 to 7.\n\nNote `deep` builds a FLAT list of length depth+1, not a nested structure,\nand the hash walks the spine — so the limit is reached at `deep 8`\n(length 9), and `deep 7` (length 8) is the last fully findable case. The\nfirst attempt at this fix used `deep 8` and failed for that reason.\n\nVerified: Debug 501/501, and 0 misses at depths 1-7 across runs in both\nbuild modes.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T15:09:16+05:30",
+          "tree_id": "a9dbc360b8ceac0347872608c15025ebb4e5a8c8",
+          "url": "https://github.com/kaappi/kaappi/commit/80553427120c666d034fcfa11af4268ae09f7552"
+        },
+        "date": 1785595426327,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.910995,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.799274,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568073,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.804383,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004907,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044907,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291523,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05549,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.295892,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.15296,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.512446,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.306443,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.677539,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.802883,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045463,
             "unit": "seconds"
           }
         ]
