@@ -23,9 +23,25 @@ skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 
 KAAPPI="${1:-zig-out/bin/kaappi}"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+FIXTURE="$REPO_DIR/tests/scheme/compile/fixtures/bundle-replay"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
+
+EXPECTED="700: 21 10"
+
+# The interpreter is the oracle: the bundled tier replays the preamble from an
+# embedded .sbc, the interpreter loads the same libraries directly, and the two
+# must agree. The golden string documents intent and still catches a value both
+# tiers get wrong. See the "interpreter as the native tier's oracle" block in
+# ../shell-common.sh.
+INTERP_OUTPUT=$("$KAAPPI" --lib-path "$FIXTURE/lib" "$FIXTURE/main.scm" 2>/dev/null)
+INTERP_LINE=$(printf '%s\n' "$INTERP_OUTPUT" | grep '^700: ' || true)
+if [[ "$INTERP_LINE" != "$EXPECTED" ]]; then
+    echo "FAIL: interpreter mode — expected '$EXPECTED', got '$INTERP_LINE'" >&2
+    echo "full output: $INTERP_OUTPUT" >&2
+    exit 1
+fi
 
 BUNDLE_BIN="$DIR/main-standalone"
 bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
@@ -37,8 +53,8 @@ if grep -q "preamble error" <<< "$OUTPUT"; then
     exit 1
 fi
 LINE=$(printf '%s\n' "$OUTPUT" | grep '^700: ' || true)
-if [[ "$LINE" != "700: 21 10" ]]; then
-    echo "FAIL: expected '700: 21 10', got '$LINE'" >&2
+if [[ "$LINE" != "$INTERP_LINE" ]]; then
+    echo "FAIL: standalone '$LINE' != interpreter '$INTERP_LINE'" >&2
     echo "full output: $OUTPUT" >&2
     exit 1
 fi

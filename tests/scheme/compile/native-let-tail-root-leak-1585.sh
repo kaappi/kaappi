@@ -42,13 +42,32 @@ trap 'rm -rf "$DIR"' EXIT
 
 fail=0
 
-# Compile natively, run, and compare output. Also assert a native user function
-# was actually emitted, so a silent fallback to the interpreter (which never had
-# the bug) can never make this test pass vacuously.
+# Compile natively, run, and require the output to match the interpreter's —
+# the oracle: it never leaked a root here, and printed the right answer while
+# the native binary panicked with "GC root stack overflow". `expect_out`
+# documents intent and still catches an answer both tiers get wrong. See the
+# "interpreter as the native tier's oracle" block in ../shell-common.sh.
+#
+# Also assert a native user function was actually emitted, so a silent fallback
+# to the interpreter can never make this test pass vacuously — that pin has no
+# interpreter counterpart, being about which tier ran rather than the answer.
 check() {
     local name="$1" src="$2" expect_out="$3"
 
     printf '%s' "$src" > "$DIR/$name.scm"
+
+    local interp_out interp_status=0
+    interp_out=$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$DIR/$name.scm") || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $name — interpreter exited $interp_status (output: '$interp_out')" >&2
+        fail=1
+        return
+    fi
+    if [[ "$interp_out" != "$expect_out" ]]; then
+        echo "FAIL: $name — interpreter expected '$expect_out', got '$interp_out'" >&2
+        fail=1
+        return
+    fi
 
     if ! (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$DIR/$name.scm" -o "$DIR/$name" > /dev/null 2>&1); then
         echo "FAIL: $name — native compilation failed" >&2
@@ -58,19 +77,13 @@ check() {
 
     local out status
     set +e
-    out=$("$DIR/$name" 2>&1)
+    out=$("$DIR/$name" 2>/dev/null)
     status=$?
     set -e
-    if [[ $status -ne 0 ]]; then
-        echo "FAIL: $name — binary aborted (exit $status): $out" >&2
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || {
         fail=1
         return
-    fi
-    if [[ "$out" != "$expect_out" ]]; then
-        echo "FAIL: $name — expected '$expect_out', got '$out'" >&2
-        fail=1
-        return
-    fi
+    }
 
     # Confirm this exercised native codegen rather than a fallback.
     (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1) || true

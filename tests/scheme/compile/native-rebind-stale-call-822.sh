@@ -32,10 +32,29 @@ trap 'rm -rf "$DIR"' EXIT
 
 fail=0
 
+# Compile a program natively and require its stdout + exit status to match the
+# interpreter's — the oracle: a rebound global is looked up afresh on every
+# call in the VM, and the bug was the native emitter inlining the binding it
+# saw at compile time. `expect_out`/`expect_status` document intent and still
+# catch an answer both tiers get wrong. See the "interpreter as the native
+# tier's oracle" block in ../shell-common.sh.
 check() {
     local name="$1" src="$2" expect_out="$3" expect_status="$4"
 
     printf '%s' "$src" > "$DIR/$name.scm"
+
+    local interp_out interp_status=0
+    interp_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$name.scm") || interp_status=$?
+    if [[ "$interp_out" != "$expect_out" ]]; then
+        echo "FAIL: $name — interpreter stdout '$interp_out' != expected '$expect_out'" >&2
+        fail=1
+        return
+    fi
+    if [[ "$interp_status" -ne "$expect_status" ]]; then
+        echo "FAIL: $name — interpreter exit $interp_status != expected $expect_status" >&2
+        fail=1
+        return
+    fi
 
     if ! (cd "$DIR" && "$KAAPPI_ABS" compile "$name.scm" -o "$name" > /dev/null 2>&1); then
         echo "FAIL: $name — native compilation failed" >&2
@@ -49,14 +68,7 @@ check() {
     status=$?
     set -e
 
-    if [[ "$out" != "$expect_out" ]]; then
-        echo "FAIL: $name — native stdout '$out' != expected '$expect_out'" >&2
-        fail=1
-    fi
-    if [[ "$status" -ne "$expect_status" ]]; then
-        echo "FAIL: $name — native exit $status != expected $expect_status" >&2
-        fail=1
-    fi
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || fail=1
 }
 
 # 1. set! replacing a natively compiled function.

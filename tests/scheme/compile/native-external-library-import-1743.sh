@@ -66,26 +66,39 @@ expect_refused() {
 }
 
 # A program using only built-in libraries, or a self-contained
-# define-library, must keep compiling and running exactly as before.
+# define-library, must keep compiling and running exactly as before — and must
+# agree with the interpreter, which is the oracle. `expect_out` documents
+# intent and still catches an answer both tiers get wrong. See the "interpreter
+# as the native tier's oracle" block in ../shell-common.sh.
+#
+# The refusal cases above have no interpreter counterpart at all: the assertion
+# there is that COMPILATION fails, while the interpreter runs the very same
+# program successfully. That is the point of the guard, not a divergence.
 expect_compiles_and_runs() {
     local name="$1" src="$2" expect_out="$3"; shift 3
     printf '%s' "$src" > "$DIR/$name.scm"
+
+    local interp_out interp_status=0
+    interp_out=$(cd "$REPO_DIR" && "$KAAPPI_ABS" "$@" "$DIR/$name.scm" 2>/dev/null) || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $name — interpreter exited $interp_status (output: '$interp_out')" >&2
+        fail=1
+        return
+    fi
+    if [[ "$interp_out" != "$expect_out" ]]; then
+        echo "FAIL: $name — interpreter expected '$expect_out', got '$interp_out'" >&2
+        fail=1
+        return
+    fi
 
     if ! (cd "$REPO_DIR" && "$KAAPPI_ABS" "$@" compile "$DIR/$name.scm" -o "$DIR/$name" > /dev/null 2>&1); then
         echo "FAIL: $name — native compilation failed" >&2
         fail=1
         return
     fi
-    local out
-    if ! out=$("$DIR/$name" 2>/dev/null); then
-        echo "FAIL: $name — binary exited nonzero" >&2
-        fail=1
-        return
-    fi
-    if [[ "$out" != "$expect_out" ]]; then
-        echo "FAIL: $name — expected '$expect_out', got '$out'" >&2
-        fail=1
-    fi
+    local out status=0
+    out=$("$DIR/$name" 2>/dev/null) || status=$?
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || fail=1
 }
 
 # --- Case 1: third-party-style library, resolved via --lib-path, mirrors

@@ -62,13 +62,36 @@ run_bounded() {
 
 fail=0
 
-# Compile natively and check output.  When expect_native is "yes", also
-# verify that at least one user-defined native function was emitted; when
-# "no", verify that none were (the whole program fell back to eval).
+# Compile natively and require the output to match the interpreter's — the
+# oracle, since name resolution checking the innermost lexical binding first is
+# exactly what the VM always did and the native emitter did not. `expect_out`
+# documents intent and still catches an answer both tiers get wrong. See the
+# "interpreter as the native tier's oracle" block in ../shell-common.sh.
+#
+# The interpreter run is bounded too: case 5's pre-fix native failure was an
+# infinite loop, and a hang on either tier must fail rather than stall the run.
+#
+# When expect_native is "yes", also verify that at least one user-defined
+# native function was emitted; when "no", verify that none were (the whole
+# program fell back to eval). That pin has no interpreter counterpart by
+# construction — it is about which tier ran, not what it answered.
 check() {
     local name="$1" src="$2" expect_out="$3" expect_native="${4:-}"
 
     printf '%s' "$src" > "$DIR/$name.scm"
+
+    local interp_out interp_status=0
+    interp_out=$(cd "$REPO_DIR" && run_bounded "$KAAPPI_ABS" "$DIR/$name.scm" 2>/dev/null) || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $name — interpreter exited $interp_status or timed out (output: '$interp_out')" >&2
+        fail=1
+        return
+    fi
+    if [[ "$interp_out" != "$expect_out" ]]; then
+        echo "FAIL: $name — interpreter expected '$expect_out', got '$interp_out'" >&2
+        fail=1
+        return
+    fi
 
     if ! (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$DIR/$name.scm" -o "$DIR/$name" > /dev/null 2>&1); then
         echo "FAIL: $name — native compilation failed" >&2
@@ -76,17 +99,9 @@ check() {
         return
     fi
 
-    local out
-    if ! out=$(run_bounded "$DIR/$name" 2>/dev/null); then
-        echo "FAIL: $name — binary exited nonzero or timed out" >&2
-        fail=1
-        return
-    fi
-
-    if [[ "$out" != "$expect_out" ]]; then
-        echo "FAIL: $name — expected '$expect_out', got '$out'" >&2
-        fail=1
-    fi
+    local out status=0
+    out=$(run_bounded "$DIR/$name" 2>/dev/null) || status=$?
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || fail=1
 
     if [[ -n "$expect_native" ]]; then
         (cd "$REPO_DIR" && "$KAAPPI_ABS" --emit-llvm -o "$DIR/$name.ll" "$DIR/$name.scm" > /dev/null 2>&1) || true

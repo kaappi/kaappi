@@ -41,23 +41,35 @@ cat > "$DIR/define.scm" << 'SCHEME'
 (newline)
 SCHEME
 
-check_native() {
+# The interpreter is the oracle (it never folded a shadowed name); `expected`
+# documents intent and still catches a fold both tiers get wrong. See the
+# "interpreter as the native tier's oracle" block in ../shell-common.sh.
+check_both() {
     local src="$1" expected="$2" label="$3"
     local bin="$DIR/${label}.bin"
+
+    local interp_out interp_status=0
+    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $label — interpreter exited $interp_status (output: '$interp_out')" >&2
+        exit 1
+    fi
+    if [[ "$interp_out" != "$expected" ]]; then
+        echo "FAIL: $label — interpreter expected '$expected', got '$interp_out'" >&2
+        exit 1
+    fi
+
     (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" > /dev/null 2>&1)
     if [[ ! -x "$bin" ]]; then
         echo "FAIL: $label — native compile did not produce a binary" >&2
         exit 1
     fi
-    local out
-    out="$("$bin")"
-    if [[ "$out" != "$expected" ]]; then
-        echo "FAIL: $label — expected '$expected', got '$out'" >&2
-        exit 1
-    fi
+    local out status=0
+    out="$("$bin" 2> /dev/null)" || status=$?
+    assert_tiers_agree "$label" "$interp_out" "$interp_status" "$out" "$status" || exit 1
 }
 
-check_native "$DIR/lambda.scm" "-1" "lambda-param-shadow"
-check_native "$DIR/define.scm" "-1" "define-param-shadow"
+check_both "$DIR/lambda.scm" "-1" "lambda-param-shadow"
+check_both "$DIR/define.scm" "-1" "define-param-shadow"
 
 echo "PASS"

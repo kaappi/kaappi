@@ -32,11 +32,13 @@ trap 'rm -rf "$DIR"' EXIT
 
 EXPECTED="703: Hello, world! #t"
 
-# Run in interpreter mode — must succeed
+# The interpreter is the oracle; the golden string documents intent and still
+# catches a value both tiers get wrong. See the "interpreter as the native
+# tier's oracle" block in ../shell-common.sh.
 OUTPUT=$("$KAAPPI" --lib-path "$FIXTURE/lib" "$FIXTURE/main.scm" 2>/dev/null)
-LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)
-if [[ "$LINE" != "$EXPECTED" ]]; then
-    echo "FAIL: interpreter mode — expected '$EXPECTED', got '$LINE'" >&2
+INTERP_LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)
+if [[ "$INTERP_LINE" != "$EXPECTED" ]]; then
+    echo "FAIL: interpreter mode — expected '$EXPECTED', got '$INTERP_LINE'" >&2
     echo "full output: $OUTPUT" >&2
     exit 1
 fi
@@ -48,8 +50,8 @@ bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
 
 OUTPUT=$("$BUNDLE_BIN" 2>/dev/null)
 LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)
-if [[ "$LINE" != "$EXPECTED" ]]; then
-    echo "FAIL: standalone mode — expected '$EXPECTED', got '$LINE'" >&2
+if [[ "$LINE" != "$INTERP_LINE" ]]; then
+    echo "FAIL: standalone '$LINE' != interpreter '$INTERP_LINE'" >&2
     echo "full output: $OUTPUT" >&2
     exit 1
 fi

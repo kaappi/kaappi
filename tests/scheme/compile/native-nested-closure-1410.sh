@@ -34,23 +34,33 @@ ensure_runtime_lib "$REPO_DIR"
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-check_native() {
+# The interpreter is the oracle — closure capture was always right there, and
+# the bug was the native emitter losing the upvalue. `expected` documents
+# intent and still catches a value both tiers get wrong. See the "interpreter
+# as the native tier's oracle" block in ../shell-common.sh.
+check_both() {
     local label="$1" expected="$2"
     local src="$DIR/${label}.scm" bin="$DIR/${label}.bin"
+
+    local interp_out interp_status=0
+    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $label — interpreter exited $interp_status (output: '$interp_out')" >&2
+        exit 1
+    fi
+    if [[ "$interp_out" != "$expected" ]]; then
+        echo "FAIL: $label — interpreter expected '$expected', got '$interp_out'" >&2
+        exit 1
+    fi
+
     (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" > /dev/null 2>&1)
     if [[ ! -x "$bin" ]]; then
         echo "FAIL: $label — native compile did not produce a binary" >&2
         exit 1
     fi
-    local out
-    if ! out="$("$bin")"; then
-        echo "FAIL: $label — binary exited nonzero (output: '$out')" >&2
-        exit 1
-    fi
-    if [[ "$out" != "$expected" ]]; then
-        echo "FAIL: $label — expected '$expected', got '$out'" >&2
-        exit 1
-    fi
+    local out status=0
+    out="$("$bin" 2> /dev/null)" || status=$?
+    assert_tiers_agree "$label" "$interp_out" "$interp_status" "$out" "$status" || exit 1
 }
 
 # 1. The issue's reproducer: capture reaches u only through an inner lambda.
@@ -59,7 +69,7 @@ cat > "$DIR/nested.scm" << 'SCHEME'
 (write ((g0 5) 0))
 (newline)
 SCHEME
-check_native "nested" "5"
+check_both "nested" "5"
 
 # 2. The let-wrapped variant from the issue.
 cat > "$DIR/nested-let.scm" << 'SCHEME'
@@ -67,7 +77,7 @@ cat > "$DIR/nested-let.scm" << 'SCHEME'
 (write ((g0 5) 0))
 (newline)
 SCHEME
-check_native "nested-let" "5"
+check_both "nested-let" "5"
 
 # 3. Chained captures are per-instance copies: closures made by separate
 #    calls must not alias (this is what distinguishes real upvalue chaining
@@ -84,7 +94,7 @@ cat > "$DIR/retention.scm" << 'SCHEME'
 (write (h3 0)) (newline)
 (write (h9 0)) (newline)
 SCHEME
-check_native "retention" "$(printf '5\n7\n3\n9')"
+check_both "retention" "$(printf '5\n7\n3\n9')"
 
 # 4. A variadic inner lambda can never be a native closure; its eval
 #    fallback must republish the captured upvalue u.
@@ -93,7 +103,7 @@ cat > "$DIR/variadic-inner.scm" << 'SCHEME'
 (write ((g0 5) 0))
 (newline)
 SCHEME
-check_native "variadic-inner" "5"
+check_both "variadic-inner" "5"
 
 # 5. Capture of both a let-local and the outer param: the let's eval
 #    fallback (#827) must republish the upvalue u alongside the params.
@@ -102,7 +112,7 @@ cat > "$DIR/let-mixed.scm" << 'SCHEME'
 (write ((g0 5) 0))
 (newline)
 SCHEME
-check_native "let-mixed" "(5 . 2)"
+check_both "let-mixed" "(5 . 2)"
 
 # 6. The rest parameter must be republished at eval boundaries too.
 cat > "$DIR/rest-capture.scm" << 'SCHEME'
@@ -110,7 +120,7 @@ cat > "$DIR/rest-capture.scm" << 'SCHEME'
 (write ((f 5 1 2) 0))
 (newline)
 SCHEME
-check_native "rest-capture" "(1 2)"
+check_both "rest-capture" "(1 2)"
 
 # 7. emitLetFallback must republish the enclosing function's params before
 #    evaluating the let form (here u is referenced by a binding init).
@@ -119,7 +129,7 @@ cat > "$DIR/let-fallback-param.scm" << 'SCHEME'
 (write ((f 5) 0))
 (newline)
 SCHEME
-check_native "let-fallback-param" "5"
+check_both "let-fallback-param" "5"
 
 # 8. A closed lambda inside a capturing closure: its own eval fallback must
 #    NOT inherit the enclosing closure's upvalue map (a closed function
@@ -130,7 +140,7 @@ cat > "$DIR/closed-inside-closure.scm" << 'SCHEME'
 (write (car pair)) (newline)
 (write ((cdr pair) 0)) (newline)
 SCHEME
-check_native "closed-inside-closure" "$(printf '5\n2')"
+check_both "closed-inside-closure" "$(printf '5\n2')"
 
 # 9. An abandoned native let (body lambda exceeds the 16-param tier cap)
 #    must pop the GC roots pushed for its bindings: 2000 calls would
@@ -146,7 +156,7 @@ cat > "$DIR/root-balance.scm" << 'SCHEME'
 (write (loop 2000))
 (newline)
 SCHEME
-check_native "root-balance" "done"
+check_both "root-balance" "done"
 
 # 10. A lambda in a let *binding init* previously aborted native compilation
 #     outright (the emission error escaped emitLet); it must fall back.
@@ -154,6 +164,6 @@ cat > "$DIR/init-lambda.scm" << 'SCHEME'
 (define glob 9)
 (let ((b (lambda (c) glob))) (write (b 0)) (newline))
 SCHEME
-check_native "init-lambda" "9"
+check_both "init-lambda" "9"
 
 echo "PASS"

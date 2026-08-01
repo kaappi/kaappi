@@ -72,6 +72,63 @@ skip_on_debug_build() {
     fi
 }
 
+# --- the interpreter as the native tier's oracle -------------------------
+#
+# A native-backend regression test whose expected value is a hand-typed string
+# checks the compiled tier against *a human's belief about what the program
+# should print* — not against the reference implementation. It also rots: when
+# the golden value is wrong, the test pins the wrong answer forever.
+#
+# The interpreter is the oracle. Run the same source both ways and require them
+# to agree; keep the golden string too, as documentation of intent and as the
+# one thing that still catches a bug BOTH tiers share. kaappi#2092 is the
+# worked example: `define-property` inside a top-level cond/case/do evaluated
+# at the wrong *time* natively, so the native binary printed `BPC` where the
+# interpreter printed `PBC` — a plausible permutation of the right characters
+# that only a tier comparison catches by construction.
+#
+# THREE differences between the two tiers are by design, documented in
+# docs/dev/fuzzing.md ("The VM-vs-native differential batch"). A comparison
+# must not trip over them:
+#
+#   1. The VM echoes the value of a non-void bare top-level expression; a
+#      native binary does not. Test programs must print every observable
+#      explicitly (`display`/`write`) rather than leaning on the echo.
+#   2. After a top-level error the VM reports it and continues with the next
+#      form, while the native binary exits at the first one — so for an
+#      erroring program compare stdout and exit status, never stderr.
+#   3. A procedure value prints as `#<procedure name>` in the VM and
+#      `#<procedure>` natively.
+#
+# interp_stdout <kaappi> <workdir> <src>: run <src> through the interpreter
+# from <workdir>, print its stdout, and return its own exit status. stderr is
+# dropped deliberately: the two tiers' diagnostics differ in framing by design
+# (the VM prefixes file:line and a source excerpt, the native runtime does
+# not), so a script asserting on a diagnostic's text does that separately,
+# against whichever tier it means.
+interp_stdout() {
+    (cd "$2" && "$1" "$3" 2> /dev/null)
+}
+
+# assert_tiers_agree <label> <interp-out> <interp-status> <native-out> <native-status>
+# Return 0 when the two tiers agree on both stdout and exit status; otherwise
+# print a FAIL: line naming both and return 1.
+assert_tiers_agree() {
+    local label="$1" interp_out="$2" interp_status="$3" native_out="$4" native_status="$5"
+    local ok=0
+    if [ "$native_out" != "$interp_out" ]; then
+        printf "FAIL: %s — native stdout '%s' != interpreter '%s'\n" \
+            "$label" "$native_out" "$interp_out" >&2
+        ok=1
+    fi
+    if [ "$native_status" -ne "$interp_status" ]; then
+        printf 'FAIL: %s — native exit %s != interpreter exit %s\n' \
+            "$label" "$native_status" "$interp_status" >&2
+        ok=1
+    fi
+    return "$ok"
+}
+
 # --- build serialisation -------------------------------------------------
 #
 # Several scripts shell out to `zig build …`, which installs into the repo's
