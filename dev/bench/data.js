@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785569452331,
+  "lastUpdate": 1785576575256,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "053f03d0831eb1d2c41dc19e74dd9bf5a94a364c",
-          "message": "Re-unwrap usertext markers mid-match in matchListPattern's loop (#1788)\n\nmatchPattern unwraps its own pattern_in/input_in parameters once, at\nentry, but matchListPattern's internal loop advanced pat/inp on every\niteration without re-unwrapping. A usertext marker pair spliced into a\ndotted-tail position (e.g. a generated macro's pattern `(_ head . p)`\nwhere p's substituted value is a list) is only caught by the entry-level\nunwrap when it sits in the very first position; anything preceding it in\nthe pattern forces the marker to surface mid-loop as a bogus extra list\nelement, shifting every subsequent position and failing the match.\n\nFound while resuming SRFI 148 (eager syntax-rules, #1699), whose\ngenerated macro pattern is always exactly this dotted-tail shape. Fixes\none of two remaining blockers for that SRFI; the other (#1787) is a\nseparate, deeper bug in identifier-comparison against compound values.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T17:59:20+05:30",
-          "tree_id": "f4f82e850f3b5572ab9826e3829ecadf6130e8c0",
-          "url": "https://github.com/kaappi/kaappi/commit/053f03d0831eb1d2c41dc19e74dd9bf5a94a364c"
-        },
-        "date": 1785157701733,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.641222,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.625905,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.508683,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.682333,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004981,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033721,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.285418,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0411,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.585004,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.138538,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.998893,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.318675,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.123621,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.82917,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.028901,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039169,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "08828884cdbbc3529a373c39f3b5b3405f6bc46a",
+          "message": "Phase 2.13: error taxonomy and diagnostic fidelity — 98 assertions, and the bare-return path CI forbids produces a better message than the one it enforces (#2029)\n\n* Phase 2.13: audit the error taxonomy and diagnostic fidelity\n\nCross-cutting sweep over all 31 primitives_*.zig files plus src/ffi.zig,\nagainst the codebase's own written contract: docs/dev/adding-features.md's\ntypeError/indexError/argError table and the explanation text that\n`kaappi explain` prints for KP3002/KP3006/KP3007.\n\n98 assertions on the code and the message content, never on `raises?` alone\n-- that is the documented lesson from #1944 and the central hazard of this\nunit. 64 further assertions are disabled behind `;; FAIL:` markers; each was\nverified to fail when enabled and to pass nowhere else.\n\nFour issues filed:\n\n  #2020  33 bounds failures report KP3002 instead of KP3006. The largest\n         contributor is parseOptionalRange, shared by 20 procedures.\n         `substring` and `string-copy` are the same operation by R7RS\n         definition and return different codes.\n  #2021  72 sites reject a correctly-typed value as KP3002 rather than\n         KP3007, because the type branch and the range branch of one check\n         share a single message string.\n  #2022  31 procedures misreport which procedure failed: shared helpers\n         hardcode 'string' (a real, working procedure), 'arithmetic', and\n         'string operation'.\n  #2026  CI's bare-TypeError gate misses src/ffi.zig on both axes at once --\n         wrong path glob and wrong spelling -- so 27 bare returns there have\n         never been reported.\n\n#1899 (F10) was extended rather than re-filed. Its stated rationale for the\nopacity does not hold: mapNativeError runs the full allocating printer on the\nsame error path, so `(sqrt 'the-key)` names the symbol while\n`(magnitude 'the-key)` reports `#<symbol>`. The suite pins that pair.\n\n13 of 31 primitives files are clean on both taxonomy axes and are asserted as\nsuch, along with the codes that are already granular -- KP3001/3003/3004/3005\neach stay distinct from KP3002.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.13, and record what the taxonomy sweep found\n\nCites PR #2029 and the four issues it filed. Deliberately does not touch the\nStatus count line -- the orchestrator reconciles that.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T13:07:42+05:30",
+          "tree_id": "b684d75f680ac976f646d387f1e7fdeffe92a84a",
+          "url": "https://github.com/kaappi/kaappi/commit/08828884cdbbc3529a373c39f3b5b3405f6bc46a"
+        },
+        "date": 1785576573261,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.961075,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.346625,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.424688,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.103577,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004223,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03522,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.226383,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.040699,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.079597,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.916972,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.189519,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225746,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.287636,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.734572,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034903,
             "unit": "seconds"
           }
         ]
