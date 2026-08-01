@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785565418797,
+  "lastUpdate": 1785569452331,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "370d8e85cac4ca3a532b1c634eabec9f33c6f555",
-          "message": "Name the library whose own import declaration collides (#1726 follow-up) (#1786)\n\nThe KP2001 import-collision diagnostic cites the file:line of the\ntop-level form that triggered the library load, so when the colliding\nimport declaration lives inside a library's .sld, the reader is pointed\nat the wrong file entirely: kaappi-mpl's sin.sld collision surfaced as\n\"test-mpl.scm:8: identifier 'sqrt' is imported with different bindings\nfrom both (except (scheme base) ...) and (mpl sqrt)\" -- naming\nimport-sets that appear nowhere near test-mpl.scm line 8. During the\n2026-07-27 nightly triage this masqueraded as a core import-resolution\nregression and cost two wrong root-cause theories before the real one\n(fixed in kaappi-mpl#2).\n\nhandleDefineLibrary now records the library name in a save/restored\nvm.loading_library_name while its declarations are processed (nesting\nvia the call stack), and the collision message names it: \"... imported\nwith different bindings inside library (mpl.sin)'s own import\ndeclaration, from both ...\". The name sits early in the message because\nthe 256-byte detail buffer truncates the tail. Top-level import forms\nkeep the original message.\n\nThe regression test also checks the context is restored after a failed\nload, so a subsequent top-level collision is not misattributed to the\nlibrary that failed before it.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T16:56:33+05:30",
-          "tree_id": "346a9da9410e1a828259541a41577d5e83b6e851",
-          "url": "https://github.com/kaappi/kaappi/commit/370d8e85cac4ca3a532b1c634eabec9f33c6f555"
-        },
-        "date": 1785153869757,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.299649,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.266447,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.930896,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.643098,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00633,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.055136,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511519,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06957,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.665713,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.201206,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.577296,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43111,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.81663,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.63555,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044759,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044301,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a66a85cc689ed2c29e050bd29be9cc5b7af6cc29",
+          "message": "Document the issue-tracker label taxonomy and priority rubric (#2032)\n\nThe four priority labels carry one-line GitHub descriptions that are too\ncoarse to settle real triage, so the working rubric existed only as\nprecedent spread across ~1000 issues. Labeling a new issue meant reading\nits neighbours and inferring the rule, which is fine for a maintainer who\nfiled those neighbours and useless to everyone else.\n\nRecords the rule adopted today — `critical` is reserved for process-level\nunsafety, and a correctness bug tops out at `high` however broad or silent\nit is. This is not invented: 11 of the 12 issues ever labeled critical are\nmemory unsafety or a process abort, and the twelfth (#1250) is called out\nas a pre-rule exception so nobody calibrates against it.\n\nAlso captures the two distinctions the precedent encodes but never states:\nreachability separates critical from high (#1939 aborts from five lines and\nis critical; #2000 is the same abort class but needs ~2500 fibers and is\nhigh), and an audit header's severity is an input to the priority decision\nrather than the answer, since `wrong-result` spans high to medium purely on\nblast radius.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T11:54:29+05:30",
+          "tree_id": "54919109d67526e4135bcb2734600c417ae43580",
+          "url": "https://github.com/kaappi/kaappi/commit/a66a85cc689ed2c29e050bd29be9cc5b7af6cc29"
+        },
+        "date": 1785569450453,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.44251,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.332419,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.489069,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.408022,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004834,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041235,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.256969,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.047529,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.390818,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.038192,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.368223,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276819,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.486866,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.913231,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039169,
             "unit": "seconds"
           }
         ]
