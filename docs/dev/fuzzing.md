@@ -193,18 +193,44 @@ Remaining marker-less failures — toolchain flakes, build failures,
 job-level timeouts (a possible hang), and runners reclaimed mid-job — are
 collected under a single shared issue titled `Fuzz CI: infrastructure or
 build failure` instead. That issue carries a **per-job verdict read from
-the run's own logs** (the report job holds `actions: read`, so it fetches
-each failed job's log over the API and quotes its `##[error]` lines),
-because an artifact-less failure is exactly the case whose cause exists
-nowhere else: a reclaimed runner *cancels* the job, so even the
-`if: failure()` upload step is skipped and nothing is uploaded. The verdict
-is what separates the three lookalikes — a runner shutdown (`The runner has
-received a shutdown signal`, exit 143) is pure infrastructure and wants a
-re-run, whereas a job cancelled at its own `timeout-minutes` is worth
-investigating as a hang, since every generated program is individually
-time-bounded. #2040 was the first kind, mistakable for the second: an arm64
-leg killed 46 min into its 55-min budget, which took a manual
-`gh api repos/kaappi/kaappi/actions/jobs/<id>/logs` to tell apart.
+the run's own logs and check-run annotations** (the report job holds
+`actions: read`, so it fetches both over the API and quotes them), because
+an artifact-less failure is exactly the case whose cause exists nowhere
+else: a job that is *cancelled* rather than failed skips even the
+`if: failure()` upload step, so nothing is uploaded. Both evidence sources
+are load-bearing — the runner-shutdown line appears only in the log, the
+job-timeout message only in the annotations, and **a cancelled job's log
+blob is frequently never archived at all** (the logs endpoint answers
+`BlobNotFound`).
+
+The verdict separates three lookalikes, and the ordering matters:
+
+1. **`The job has exceeded the maximum execution time`** — the job hit its
+   own `timeout-minutes`. This is the only one of the three that indicts
+   the code. Every generated program is individually time-bounded, so a
+   whole job overrunning should not be possible — but that bound guards
+   only the bytecode loop; read/expand/lower/emit are unchecked (see the
+   deadline comment in `src/tests_fuzz.zig`).
+2. **`The runner has received a shutdown signal`** (exit 143) — the runner
+   was reclaimed. Infrastructure, but it does *not* certify the job was
+   healthy: a reclaimed runner kills an overrunning job just as readily as
+   a fine one. Always compare the leg's elapsed time against its history.
+3. Cancelled with neither signature — a manual or concurrency cancellation.
+   Deliberately files nothing.
+
+Issue #2040 is why the ordering and the caveat exist. It presented as (2) — an
+arm64 leg killed 46 min into a 55-min budget — and was closed as
+infrastructure on that reading. Re-running the job put the *same* leg at
+(1): it burned the full 55 minutes with no output, while the x86_64
+`default` and arm64 `gc-stress` legs on the same commit finished normally.
+The shutdown had masked an overrun already in progress. That re-run also
+exposed the reporting hole this section now describes: a job killed by
+`timeout-minutes` is `cancelled`, which cancels the run, which made the
+report job's original bare `if: failure()` false — so the single outcome
+the workflow most wants to hear about filed nothing at all. The condition
+is now `failure() || cancelled()`, gated inside the step on the timeout
+annotation so an ordinary manual cancellation stays silent.
+
 Marker detection must not assume where inside
 `artifacts/` a file lands: `download-artifact` normally extracts each
 artifact into its own named subdirectory, but a run with exactly one

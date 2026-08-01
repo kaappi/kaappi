@@ -429,8 +429,8 @@ jobs:
   # job-level timeouts — a possible hang — and runners reclaimed mid-job) are
   # collected under a single "Fuzz CI: infrastructure or build failure" issue
   # instead of wearing a divergence title, each carrying a verdict read from
-  # its own job log so the three are told apart without opening the run
-  # (#2040).
+  # its own job log and check-run annotations so the three are told apart
+  # without opening the run (#2040).
   #
   # This is a SEPARATE job so the write-capable token never coexists with
   # execution of fuzzer-generated programs — the four jobs above keep
@@ -440,10 +440,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [fuzz, native-diff, oracle-diff, cross-diff]
-    if: failure()
+    # `cancelled()` as well as `failure()`, because a job killed by its own
+    # `timeout-minutes` is CANCELLED, not failed — and it cancels the whole
+    # run with it. Under a bare `failure()` this job was therefore skipped
+    # for exactly the outcome the workflow most wants to hear about: a fuzz
+    # leg overrunning its budget, i.e. the possible hang. That is not
+    # hypothetical — it silently dropped #2040's re-run. A plain manual or
+    # concurrency cancellation is also `cancelled()`, so the step itself
+    # files nothing unless a job carries the job-timeout annotation.
+    if: failure() || cancelled()
     permissions:
       issues: write
-      actions: read # this run's failure artifacts, and its job logs for the verdict
+      actions: read # this run's failure artifacts, plus its job logs and annotations
     steps:
       # No checkout: the job needs nothing from the repo, and gh targets it
       # via -R. Artifacts usually land in per-name subdirectories of
@@ -559,8 +567,12 @@ jobs:
           }
 
           # run_log_diagnosis OUT — append a per-failed-job verdict read from
-          # this run's OWN logs, via the `actions: read` token this job
-          # already holds. Artifact-less failures are exactly the ones whose
+          # this run's OWN logs and check-run annotations, via the
+          # `actions: read` token this job already holds. Both sources are
+          # needed: the runner-shutdown line appears only in the log, the
+          # job-timeout message only in the annotations, and a cancelled job
+          # often has no archived log at all.
+          # Artifact-less failures are exactly the ones whose
           # cause exists nowhere else: a runner reclaimed mid-job CANCELS the
           # job, so even the `if: failure()` upload step is skipped and
           # nothing is uploaded — leaving the issue able to say no more than
@@ -579,18 +591,26 @@ jobs:
                                 .name]
                              | @tsv' 2>/dev/null || true)
             [ -n "$failed" ] || return 0
-            printf '**Why the job(s) failed** (read from the run logs):\n\n' >> "$rout"
+            printf '**Why the job(s) failed** (read from the run logs and job annotations):\n\n' >> "$rout"
             while IFS=$'\t' read -r jid jconc jdur jname; do
               [ -n "$jid" ] || continue
               case "$jdur" in '' | *[!0-9]*) jdur=0 ;; esac
               jlog="job-$jid.log"
               gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$jid/logs" > "$jlog" 2>/dev/null || true
-              # Most- to least-specific: a reclaimed runner can also print the
-              # generic cancellation line, so its own line must be tested first.
-              if grep -qF 'The runner has received a shutdown signal' "$jlog" 2>/dev/null; then
-                verdict='the **GitHub-hosted runner was shut down mid-job** and the step was SIGTERMed (exit 143). That is runner infrastructure, not a build failure and not a hang; a shutdown cancels rather than fails the job, which is why the `if: failure()` upload step never ran and no artifact reached this issue. Re-run the job.'
+              # A cancelled job's log blob is often never archived, but its
+              # annotations survive — and the job-timeout message lives ONLY
+              # there. Read both, so a timed-out job still gets a verdict and
+              # quotable evidence.
+              anns=$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$jid/annotations" --jq '.[].message' 2>/dev/null || true)
+              # Most- to least-specific. The timeout is first because it is the
+              # only one of these that indicts the code; a reclaimed runner can
+              # also print the generic cancellation line, so it precedes that.
+              if printf '%s' "$anns" | grep -qF 'exceeded the maximum execution time'; then
+                verdict='the job **exceeded its `timeout-minutes` budget** and was killed. This is the one verdict here that points at the code rather than the infrastructure: every generated program is individually time-bounded, so a whole job overrunning should not be possible — but that bound guards only the bytecode loop, and read/expand/lower/emit are unchecked (see the deadline comment in `src/tests_fuzz.zig`). Compare this leg'"'"'s duration against its recent history, and check whether sibling legs on the same commit were normal.'
+              elif grep -qF 'The runner has received a shutdown signal' "$jlog" 2>/dev/null; then
+                verdict='the **GitHub-hosted runner was shut down mid-job** and the step was SIGTERMed (exit 143). The shutdown is runner infrastructure, and it cancels rather than fails the job, which is why no artifact reached this issue. It does **not** prove the job was otherwise healthy: a reclaimed runner kills whatever happened to be running, so check this leg'"'"'s elapsed time against its recent history before writing it off — #2040 read as pure infrastructure until its re-run hit the 55-minute timeout on the very same leg.'
               elif grep -qF 'The operation was canceled' "$jlog" 2>/dev/null; then
-                verdict='the job was **cancelled** — it hit its `timeout-minutes`, or the run was cancelled. A fuzz leg reaching its own timeout deserves a second look: every generated program is individually time-bounded, so a whole job overrunning is itself suspicious.'
+                verdict='the job was **cancelled** without a timeout annotation — most likely the run was cancelled manually or by a concurrency rule.'
               elif [ -s "$jlog" ]; then
                 verdict='a step failed; the runner diagnostics are below.'
               else
@@ -598,7 +618,8 @@ jobs:
               fi
               printf -- '- `%s` — %s after %dm%02ds: %s\n' \
                 "$jname" "$jconc" "$((jdur / 60))" "$((jdur % 60))" "$verdict" >> "$rout"
-              errs=$(grep -oE '##\[error\].*' "$jlog" 2>/dev/null | sed 's/^##\[error\]//' | tail -5 || true)
+              errs=$( { grep -oE '##\[error\].*' "$jlog" 2>/dev/null | sed 's/^##\[error\]//'
+                        printf '%s\n' "$anns"; } | awk 'NF && !seen[$0]++' | tail -5 || true)
               if [ -n "$errs" ]; then
                 # No trailing newline on the body: command substitution already
                 # stripped it, and the closing fence supplies its own.
@@ -718,6 +739,41 @@ jobs:
             file_or_append "Fuzz CI: unit-test failure ($ut_label)" unit-test-preamble.md "$utbody"
           }
 
+          # Names of jobs killed by their own `timeout-minutes`. The check-run
+          # ANNOTATION is the only durable evidence: a cancelled job's log blob
+          # is frequently never archived at all (verified on #2040's re-run —
+          # the logs endpoint answered BlobNotFound while the annotation was
+          # intact), and the timeout message appears nowhere else. This list is
+          # also what keeps `cancelled()` above from turning every manual or
+          # concurrency cancellation into an issue: no annotation, no report.
+          timed_out_names=$(
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --paginate \
+              --jq '.jobs[] | select(.conclusion == "cancelled" or .conclusion == "failure") | [.id, .name] | @tsv' \
+              2>/dev/null \
+            | while IFS=$'\t' read -r tid tname; do
+                [ -n "$tid" ] || continue
+                if gh api "repos/$GITHUB_REPOSITORY/check-runs/$tid/annotations" --jq '.[].message' 2>/dev/null \
+                     | grep -qF 'exceeded the maximum execution time'; then
+                  printf '%s\n' "$tname"
+                fi
+              done || true
+          )
+
+          # group_timed_out GROUP — did a job of this matrix group time out?
+          # Anchored so a group name can only match a whole leading job name.
+          group_timed_out() {
+            [ -n "$timed_out_names" ] || return 1
+            printf '%s\n' "$timed_out_names" | grep -qE "^$1( |\(|\$)"
+          }
+
+          # reportable RESULT GROUP — a failed group always reports; a cancelled
+          # one reports only when the cancellation was its own timeout.
+          reportable() {
+            [ "$1" = failure ] && return 0
+            { [ "$1" = cancelled ] && group_timed_out "$2"; } && return 0
+            return 1
+          }
+
           infra_jobs=""
           fuzz_dir="artifacts/fuzz-absent"
 
@@ -731,7 +787,7 @@ jobs:
           # confuses one job's files for another's.
 
           # ---- fuzz (native x86_64 + arm64 matrix) — three routes per leg ----
-          if [ "$RESULT_FUZZ" = failure ]; then
+          if reportable "$RESULT_FUZZ" fuzz; then
             crashes=$(find artifacts -type f -path '*/.zig-cache/f/crash' 2>/dev/null | sort || true)
             crash_dirs=""
             if [ -n "$crashes" ]; then
@@ -767,7 +823,7 @@ jobs:
           fi
 
           # ---- native-diff (one finding per arch that diverged) ----
-          if [ "$RESULT_NATIVE" = failure ]; then
+          if reportable "$RESULT_NATIVE" native-diff; then
             ndirs=$(find artifacts -type f \( -name 'seed-*.vm.*' -o -name 'seed-*.nat.*' \) 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
             if [ -n "$ndirs" ]; then
               while IFS= read -r nd; do
@@ -781,7 +837,7 @@ jobs:
           fi
 
           # ---- oracle-diff (one finding per arch that diverged) ----
-          if [ "$RESULT_ORACLE" = failure ]; then
+          if reportable "$RESULT_ORACLE" oracle-diff; then
             odirs=$(find artifacts -type f -name 'seed-*.kaappi.*' 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
             if [ -n "$odirs" ]; then
               while IFS= read -r od; do
@@ -795,7 +851,7 @@ jobs:
           fi
 
           # ---- cross-diff (host vs foreign arch under QEMU; one per target) ----
-          if [ "$RESULT_CROSSDIFF" = failure ]; then
+          if reportable "$RESULT_CROSSDIFF" cross-diff; then
             tdirs=$(find artifacts -type f -name 'seed-*.host.*' 2>/dev/null | sed 's#/[^/]*$##' | sort -u || true)
             if [ -n "$tdirs" ]; then
               while IFS= read -r td; do
@@ -808,14 +864,25 @@ jobs:
             fi
           fi
 
+          # A leg killed by its own timeout always reaches the infra issue, even
+          # when a SIBLING leg produced a real finding artifact in the same run:
+          # every route above is artifact-driven, and a cancelled job uploads
+          # nothing, so without this a timeout standing beside a crash would be
+          # filed as the crash alone and the overrun would vanish.
+          for g in fuzz native-diff oracle-diff cross-diff; do
+            if group_timed_out "$g"; then
+              case " $infra_jobs " in *" $g "*) ;; *) infra_jobs="$infra_jobs $g" ;; esac
+            fi
+          done
+
           # ---- shared infrastructure issue for marker-less failures ----
           if [ -n "$infra_jobs" ]; then
-            printf 'Automated report from the [Fuzz workflow](%s): a job failed WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM, a runner reclaimed mid-job), a build failure, or a job-level timeout. (A fuzz-job unit-test failure is recognized from its log and filed separately as `Fuzz CI: unit-test failure (<platform> <variant>)`.) A timeout can be a genuine hang: every generated program is individually time-bounded, so a whole job hitting its timeout is itself suspicious — the per-job verdict below distinguishes that from a runner shutdown, which is pure infrastructure noise.\n\n' \
+            printf 'Automated report from the [Fuzz workflow](%s): a job failed — or was killed by its own `timeout-minutes` — WITHOUT producing a finding artifact. That usually means an infrastructure problem (toolchain download, apt flake, runner OOM, a runner reclaimed mid-job), a build failure, or a job-level timeout. (A fuzz-job unit-test failure is recognized from its log and filed separately as `Fuzz CI: unit-test failure (<platform> <variant>)`.) The per-job verdict below says which. **Treat a timeout as the serious one**: every generated program is individually time-bounded, so a whole job overrunning is itself suspicious — and a runner shutdown does not rule one out, since a reclaimed runner kills a healthy job and an overrunning one alike (#2040).\n\n' \
               "$run_url" > infra-preamble.md
             printf '> [!NOTE]\n> Close this issue once the failed run is explained (or the underlying breakage is fixed); further artifact-less failures append comments here.\n\n' \
               >> infra-preamble.md
             body_start "${infra_jobs# }" \
-              'The failed job(s) uploaded no finding artifact, so this is not (necessarily) a fuzz finding.' \
+              'The job(s) below uploaded no finding artifact, so this is not (necessarily) a fuzz finding.' \
               body-infra.md
             run_log_diagnosis body-infra.md
             case " $infra_jobs " in
