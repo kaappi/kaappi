@@ -11,6 +11,7 @@
 
 (import (scheme base) (scheme write) (scheme read) (scheme file) (scheme char))
 (import (scheme process-context) (srfi 64) (srfi 181) (srfi 192))
+(import (only (kaappi ffi) fd->port))
 (import (only (srfi 18) thread-sleep! thread-start! thread-join! make-thread))
 
 (test-begin "primitives_io audit")
@@ -744,6 +745,45 @@
 ;; CONTROL: a valid sub-range still writes exactly that slice.
 (test-equal "bc"
   (let ((o (open-output-string))) (write-string "abcde" o 1 3) (get-output-string o)))
+
+;;; --- #1972: fd->port range constraints are not type errors -----------------
+;; 0/1/2 and an out-of-range number are all fixnums — the type fd->port wants —
+;; so "expected socket/pipe file descriptor (> 2)" put a range rule where the
+;; expected *type* belongs. They are argError (KP3007), not indexError: neither
+;; bound is an index into anything with a length.
+;;
+;; The four sibling sites this issue covers are `comptime is_wasm` gates, so
+;; they cannot be reached from a native build at all — tests/wasm/platform-gates.scm
+;; covers those under wasmtime.
+(test-equal "fd->port: descriptor 0 is a standard stream; 0, 1 and 2 stay blocking"
+  (err-message (lambda () (fd->port 0))))
+(test-equal "fd->port: descriptor 2 is a standard stream; 0, 1 and 2 stay blocking"
+  (err-message (lambda () (fd->port 2))))
+(test-equal "fd->port: -1 is outside the file-descriptor range"
+  (err-message (lambda () (fd->port -1))))
+(test-equal "fd->port: 999999999999 is outside the file-descriptor range"
+  (err-message (lambda () (fd->port 999999999999))))
+;; CONTROL: a genuinely wrong type is still a type error, so the fix drew the
+;; distinction rather than flattening every rejection into one kind.
+(test-equal "type error in 'fd->port': expected file descriptor, got #<symbol>"
+  (err-message (lambda () (fd->port 'nope))))
+(test-equal "type error in 'fd->port': expected file descriptor, got 3.0"
+  (err-message (lambda () (fd->port 3.0))))
+;; CONTROL: a number past the reserved range is accepted — the lower bound is
+;; the rule being enforced, not a blanket rejection. fd->port never probes the
+;; descriptor, so the number need not be open, and it deliberately is *not*:
+;; the port takes ownership and gc_sweep closes any fd > 2 it collects, which
+;; over a live descriptor would silently close something this run still needs.
+;;
+;; POSIX-only, because the eventual close is what makes the number matter.
+;; close(2) on an unopened descriptor is a plain EBADF, but the Windows CRT's
+;; _close invokes the invalid-parameter handler, whose default terminates the
+;; process — so this control would turn a passing suite into a crash there.
+(cond-expand
+  (windows)
+  (else
+   (test-equal #t (let ((p (fd->port 4096)))
+                    (and (port? p) (binary-port? p))))))
 
 ;; with-output-to-file restores current-output-port even when the thunk raises.
 (let ((path "/tmp/kaappi-audit-io-wo.txt"))

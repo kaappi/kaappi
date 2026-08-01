@@ -936,6 +936,9 @@ jobs:
       - name: Parallel pool test (fiber-degraded, KEP-0002 Phase 5)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/parallel.scm
 
+      - name: Platform gate diagnostics (kaappi#1972)
+        run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/platform-gates.scm
+
   coverage:
     needs: test
     runs-on: ubuntu-22.04
