@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785564716439,
+  "lastUpdate": 1785565418797,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "71569effd2b3b3da93737f5f2fc004d46825dae2",
-          "message": "Stop the reactor timer tests failing on a poll() that returns a tick early (#1785)\n\n`tests_reactor.test.addTimer fires when its deadline passes` failed once on\nwindows-x64-test during CI for #1784 (expected 1, found 0) and passed on\nre-run.\n\nThe test asserted that a single `poll()` would fire a timer 1ms out. It does\nnot have to. `effectiveTimeout` bounds the wait at the nearest deadline, and\nan OS wait requested for an interval near the scheduler's tick can return a\nfraction of a tick early; `clockNs()` then still reads below the deadline, so\n`popExpiredTimers` moves nothing and `poll()` returns empty.\n`WindowsEventBackend.wait` ceils its millisecond conversion so a timer never\nfires *early*, but nothing can stop the underlying wait from returning early\n— which is why only the 1ms deadlines here were exposed, and why the 5s waits\nelsewhere in this file never were.\n\nThat is `poll()`'s documented contract, not a bug in it:\n`FiberScheduler.parkOnReactor` treats an empty return as ordinary and\nre-checks after each capped return. The tests were the only callers assuming\none poll suffices, so they now loop the same way.\n\nTwo neighbours had the same defect latent:\n\n- \"the nearer of an fd timeout and a timer deadline bounds the wait\" polls a\n  1ms timer identically and could fail the same way.\n- \"removeTimer cancels a pending timer so it never fires\" fails in the other\n  direction: a poll() cut short before the deadline let it pass without ever\n  proving the cancellation. It now sleeps past the deadline before looking.\n\nRetrying alone would have *weakened* the first two — the loop would quietly\nwait out a badly late timer — so both keep an explicit upper bound on how\npromptly the timer fired (1s: ~60x the coarsest tick behind the flake, and\nthe bound the notify test in this file already uses). Mutation-tested against\nthree breakages: timers that never expire, a wait bound that ignores timers,\nand a no-op removeTimer are each caught.\n\n40 consecutive runs of the reactor suite, clean.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T16:35:49+05:30",
-          "tree_id": "d19869db2df242274fa74227591efd661a9fc2b1",
-          "url": "https://github.com/kaappi/kaappi/commit/71569effd2b3b3da93737f5f2fc004d46825dae2"
-        },
-        "date": 1785153038765,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.052286,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.725277,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.925688,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.65764,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006649,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053297,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.532912,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068733,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.260215,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.975266,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.537761,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471671,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.706136,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.778072,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044666,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041955,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50fa0f2da37df7e58297fa03cbe34b809af87b1e",
+          "message": "Tick 2.12, reconcile the batch count, and record three footguns (#2017)\n\nFive units landed together (#1985, #2004, #2013, #2014, #2015), taking the\ncampaign to 22 of 53. Each unit ticked its own box; this reconciles the\nstatus line, which four of them raced on, and ticks 2.12, whose PR carried\nonly the test file.\n\nThe three footguns are what 2.12 paid for. It needed three CI rounds and\nnot one of them was a defect in the code under test:\n\n- Name every assertion. SRFI-64 prints a failed assertion's value, not its\n  source, so an unnamed failure on a remote BSD leg is `#f` / `FAIL` with\n  nothing to identify it among 400. The round after names went in, the log\n  read `FAIL (memv (file-info:rdev fi) '(0 -1))` and named the defect.\n- Never assert a value the spec leaves unspecified. POSIX defines st_rdev\n  only for character- and block-special files; two guesses were both wrong,\n  and FreeBSD 14.3 failed for a regular file while passing for a fifo in\n  the same run.\n- A test's side effects must not be platform-scaled either, and\n  `( ulimit -n 256; ... )` is the cheapest BSD-leg simulator available.\n\nThat last one also corrects a finding. 2.12 reported \"3000 unclosed\ndirectory streams do not exhaust the fd table\" as confirmed-correct; it is\na false clean, true only at macOS and Linux CI's ulimit of 1048576. At 256,\n`--gc-stats` reports Collections: 0 and exactly 253 opens succeed. That is\nnow #1993, alongside #1994, and the entry says so rather than repeating the\nclaim.",
+          "timestamp": "2026-08-01T11:25:08+05:30",
+          "tree_id": "c92205b39fd178636c86390bd008e75d53f8d827",
+          "url": "https://github.com/kaappi/kaappi/commit/50fa0f2da37df7e58297fa03cbe34b809af87b1e"
+        },
+        "date": 1785565417114,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.34943,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.783095,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57195,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.990335,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004603,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047032,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314862,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057081,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.697569,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.214074,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.573769,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276672,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.790047,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.607832,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044301,
             "unit": "seconds"
           }
         ]
