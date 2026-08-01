@@ -79,92 +79,79 @@ level has a load-bearing question behind it.
 Adopted 2026-08-01. A correctness bug does not earn `critical` no matter how
 broad or how silent — it tops out at `high`.
 
-This is not an invented rule; it describes the existing corpus. All 14 issues
-ever labeled `priority: critical` are memory unsafety or a process abort:
+Two classes qualify, and nothing else does:
 
-| Issue | Why critical |
-|------:|--------------|
-| [2107](https://github.com/kaappi/kaappi/issues/2107) | Printing an 848-deep list exhausts the wasm32 stack — module trap, exit 134, uncatchable |
-| [2027](https://github.com/kaappi/kaappi/issues/2027) | Deep copy aliases FFI handles across heaps; the freed slot reads back as a pair of flonums |
-| [2024](https://github.com/kaappi/kaappi/issues/2024) | A custom hash inserting into its own table double-frees the entry array |
-| [2008](https://github.com/kaappi/kaappi/issues/2008) | Cross-heap mutation of a raw `ArrayList`; silent abort or type-confused object |
-| [1973](https://github.com/kaappi/kaappi/issues/1973) | A 27-field record aborts the process — `u8` overflow |
-| [1939](https://github.com/kaappi/kaappi/issues/1939) | Re-entrant custom-port read aborts the process (exit 134) |
-| [1933](https://github.com/kaappi/kaappi/issues/1933) | Parent collector reclaims objects a live child thread references |
-| [1924](https://github.com/kaappi/kaappi/issues/1924) | Use-after-free: child-heap pointer dangles after join |
-| [1907](https://github.com/kaappi/kaappi/issues/1907) | Reader panics (exit 134) on an `#e` literal |
-| [1267](https://github.com/kaappi/kaappi/issues/1267) | Missing GC write barriers — old→young edges lost |
-| [1256](https://github.com/kaappi/kaappi/issues/1256) | Stale registers in the tail-call window |
-| [1245](https://github.com/kaappi/kaappi/issues/1245) | Epic: native VM re-entrancy, the class behind several of the above |
-| [1191](https://github.com/kaappi/kaappi/issues/1191) | GC root stack overflow panics instead of raising |
-| [1181](https://github.com/kaappi/kaappi/issues/1181) | Use-after-free when a hash-table callback deletes entries |
+- **Memory unsafety** — use-after-free, double free, a missing GC write
+  barrier, cross-heap aliasing or mutation, stale registers, type confusion.
+  The defect need not have been observed corrupting anything; the unsafety is
+  the finding.
+- **A process abort reachable from an ordinary program** — a panic, an
+  uncatchable exhaustion, a module trap. What makes it process-level is that
+  no `guard` can intercept it and the program cannot continue.
 
-One issue was corrected to reach that state.
-[1250](https://github.com/kaappi/kaappi/issues/1250) (macro-introduced `set!`
-bypasses assignment conversion) had been critical since long before the rule.
-Both of its reproductions *hang* — a liveness failure, not memory unsafety —
-so it moved to `high` alongside its closest precedent,
-[1954](https://github.com/kaappi/kaappi/issues/1954), where four output
-procedures hang forever on a cycle. It is closed, so the change buys nothing
-operationally; it is recorded here because a lone counter-example in the
-corpus is exactly what a future maintainer would calibrate against.
+A *hang* is neither. It is a liveness failure, and it stays at `high` however
+reliably it reproduces. Likewise a wrong answer, however silent and however
+wide its blast radius: silence and breadth are arguments about where an issue
+sits within `high`, not arguments for promoting it out of it.
 
 ### Reachability separates critical from high
 
 Two issues can share an abort class and still land a level apart, because
 "aborts the process" is not the whole question — *from what program* is.
 
-[1939](https://github.com/kaappi/kaappi/issues/1939) aborts from a five-line
-program: a custom-port `read!` callback that reads its own port. Critical.
+An abort reachable from a handful of lines of ordinary code is `critical`. The
+same abort class reached only by an extreme input — hundreds of thousands of
+nesting levels, thousands of concurrent tasks, an allocation large enough to
+recurse a stack to exhaustion — is `high`. The defect is equally real; the
+program that provokes it sits far outside the envelope the implementation
+intends to support.
 
-[2000](https://github.com/kaappi/kaappi/issues/2000) is the same abort class
-in the same subsystem — a missing `in_custom_port_callback` guard at three
-`(kaappi fibers)` call sites — but the SIGBUS needs ~2500 concurrent fibers
-(2400 is clean 3/3; 2500 aborts 5/5). Below that depth the bug is real but
-non-crashing. High.
+The sharpest form of the test compares the triggering input against whatever
+limit the implementation documents for that path:
 
-[2107](https://github.com/kaappi/kaappi/issues/2107) and
-[2084](https://github.com/kaappi/kaappi/issues/2084) split the same way, and
-are the sharper pair: both are uncatchable stack exhaustion rather than a heap
-defect, so reachability is the *only* thing separating them. 2107 aborts the
-wasm32 module from a three-line program that prints an 848-deep list — below
-`printer.zig`'s own `MAX_PRINT_DEPTH` of 1024, so the program sits inside the
-envelope the implementation intends to support, and the guard that makes deep
-printing safe on every other target is simply out of reach. Critical. 2084
-needs a 200,000-bit bitvector to recurse deep enough to overflow. High.
+- A program **inside** the documented envelope that aborts anyway is
+  `critical` — the guard that should have caught it is out of reach, and a
+  user obeying the documented limit still loses the process.
+- A program that only aborts far **past** the documented cap is `high` — the
+  guard works, and the input is not one anybody writes.
 
-2107 is also the first critical confined to a single tier — every other row in
-the table is core-tier, reachable on the primary platform. Tier is not part of
-the rule and does not discount an entry: wasm32 backs the public playground,
-and an abort a `guard` cannot intercept is process-level whichever target it
-happens on.
-
-Every existing critical aborts from an ordinary program. That is the line.
+Tier is not part of the rule and does not discount an entry. An abort a
+`guard` cannot intercept is process-level whichever target it happens on, and
+a non-primary target may still back something users touch directly. Ask
+whether the abort is reachable, not where.
 
 ### Silence is an aggravator, not a level
 
 A loud failure is strictly safer than a quiet one: the user sees it, and it
 cannot corrupt downstream output. So silence pushes an issue *up* within its
-level, and a loud failure pulls it down.
+level, and a loud failure pulls it down. It never moves one across a level
+boundary — that is what the rubric questions decide.
 
-| Issue | Failure mode | Level |
-|------:|--------------|-------|
-| [2012](https://github.com/kaappi/kaappi/issues/2012) | A top-level form is abandoned mid-way, keeping partial side effects, exit 0 | high |
-| [2005](https://github.com/kaappi/kaappi/issues/2005) | `load` of a file with an `import` fails — loudly, with a wrong file attributed | medium |
+Two functional gaps of identical scope in the same procedure can still split,
+on nothing but how they announce themselves:
 
-Both are functional gaps in a core R7RS procedure. The first is silent and
-order-dependent; the second raises immediately and is discoverable on the
-first run.
+| Failure mode | Pull |
+|--------------|------|
+| Partial side effects retained, wrong answer propagates, exit 0 | up within the level |
+| Raises immediately, discoverable on the first run, nothing downstream sees it | down within the level |
+
+The question to ask is whether a user could ship on top of the defect without
+noticing it. A silent failure earns its aggravation because the answer is that
+they could.
 
 ### low means the behaviour is right
 
 Reserve `low` for issues where the code does the correct thing and only its
 *description* is wrong — `doc-truth`, diagnostic wording, error-taxonomy
-tidying, `refactor`. An edge case whose behaviour is genuinely wrong is
-`medium`, unless the issue itself argues for less: the reporter of
-[1998](https://github.com/kaappi/kaappi/issues/1998) asked for low on the
-grounds that a bidirectional port is reachable only through a single SRFI 181
-constructor, and that reasoning is on the issue.
+tidying, `refactor`. Also `low`: a diagnostic that misattributes a real,
+correctly-refused failure, where the tool declined to act and nothing was
+corrupted.
+
+An edge case whose behaviour is genuinely wrong is `medium` — unless the
+issue itself argues for less and shows its work. A reporter who explains why
+a defect is reachable through only one narrow constructor has made a case
+worth honouring; the reasoning belongs on the issue, where the next
+maintainer can weigh it.
 
 ## Severity is not priority
 
@@ -176,40 +163,42 @@ Audit issues carry a **severity** in their header, drawn from
 Severity describes **what the defect is**; priority describes **when we fix
 it**. They do not map one-to-one, and the gap is entirely blast radius:
 
-- `wrong-result` spans high ([2012](https://github.com/kaappi/kaappi/issues/2012),
-  a silently abandoned top-level form) down to medium
-  ([1997](https://github.com/kaappi/kaappi/issues/1997), a `crlf` transcoder
-  doubling line breaks) — the defect is identically "wrong answer"; the
-  reachable surface is not.
-- `crash` is usually critical, but see the reachability rule above.
-- `doc-truth` and `diagnostic quality` are usually low, because the behaviour
-  is normally correct and only its description is wrong. Check that premise
-  rather than assuming it: [2038](https://github.com/kaappi/kaappi/issues/2038)
-  is filed as doc-truth and asks for a doc fix, but the behaviour it conceals
-  is a loop running 2ⁿ−1 times that past n≈20 prints nothing and exits 0. A
-  doc gap that hides a silent wrong result is not low.
+- `wrong-result` spans `high` down to `medium`. The defect is identically
+  "wrong answer" at both ends; the reachable surface is not. A wrong answer on
+  a path every program crosses and a wrong answer behind one option of one
+  constructor share a severity and share nothing else.
+- `crash` is usually `critical`, but see the reachability rule above. It is
+  never lower than `high`: an unreachable-in-practice abort is still an abort.
+- `doc-truth` and `diagnostic quality` are usually `low`, because the
+  behaviour is normally correct and only its description is wrong. **Check
+  that premise rather than assuming it.** An issue can be filed as `doc-truth`
+  and ask only for a doc fix while the behaviour it conceals is a silent wrong
+  result. A doc gap that hides one is not `low`.
 
 Read the severity as an input to the priority decision, never as the answer.
+The reporter chose it to describe the defect, usually before knowing how far
+it reaches.
 
 ## Triage
 
 **Invariant: every open issue carries exactly one priority label**, with one
-exemption below. No issue in the tracker has ever carried two. The invariant
-is not retroactive: 766 closed issues predate it and have no priority label —
-backfilling them would be archaeology with no consumer, and the number is
-stable because everything closed from here on was labeled while open.
+exemption below. The invariant is not retroactive: issues closed before it was
+adopted have no priority label, and backfilling them would be archaeology with
+no consumer. That population is fixed — everything closed from here on was
+labeled while it was open.
 
 **Exempt: auto-filed `fuzz-finding` CI reports.** The Fuzz workflow opens a
 `Fuzz CI: infrastructure or build failure` issue whenever a job dies without
 a finding artifact. These are triage-and-close — the question is "what broke
-the runner", not "when do we fix this" — and all six filed so far have been
-handled with no priority label. Prioritizing them would be ceremony. A fuzz
-report that turns out to be a real defect gets a normal issue, which is
-labeled like any other.
+the runner", not "when do we fix this" — so prioritizing them would be
+ceremony. A fuzz report that turns out to be a real defect gets a normal
+issue, which is labeled like any other.
 
 It needs re-checking after any filing burst. An `audit` phase lands its
 findings all at once, so the gap opens between one triage pass and the next
-rather than drifting gradually.
+rather than drifting gradually. Re-run the sweep at the *end* of a pass as
+well as the start: a burst can land while the pass is in progress, and the
+first sweep is only a snapshot of the moment it ran.
 
 Find every issue that violates the rule. "Exactly one" has two failure modes,
 so this counts the priority labels and reports anything that is not 1 — a
@@ -239,15 +228,17 @@ Changing a level is a remove plus an add, so the invariant is never
 transiently violated in the other direction:
 
 ```bash
-gh issue edit 2003 --repo kaappi/kaappi \
+gh issue edit <number> --repo kaappi/kaappi \
   --remove-label "priority: critical" --add-label "priority: high"
 ```
 
 ### Calibrate before labeling
 
-The rubric above is a summary of decisions already made, so the fastest way
-to label a new issue correctly is to read how comparable ones were labeled
-rather than to reason from the four one-line descriptions:
+This document deliberately holds no worked examples. The rubric is a summary
+of decisions already made, and the decisions themselves live in the tracker,
+where they stay current without anyone maintaining a second copy of them here.
+So the tracker is the calibration source, and reading it is a step of the
+triage, not an optional extra:
 
 ```bash
 gh issue list --repo kaappi/kaappi --state all --limit 12 \
@@ -255,7 +246,18 @@ gh issue list --repo kaappi/kaappi --state all --limit 12 \
   --jq '.[] | "\(.number)\t[\([.labels[].name] | join(", "))]\t\(.title[0:110])"'
 ```
 
+Swap the label to bracket a candidate from both sides. Finding the nearest
+`low` and the nearest `medium` for something you were about to call `medium`
+is worth more than reading either level's description again.
+
 An `audit` campaign files issues in bursts from one subsystem, which makes
 the corpus lopsided by area but well-calibrated by level — the neighbours of
 a new fibers issue are the other fibers issues, filed the same week against
 the same rubric.
+
+Two cautions on precedent. A neighbour can be mislabeled, so use the rubric
+text as the authority and neighbours as a contradiction check: when several
+comparable issues disagree with the criterion, the criterion wins and the
+neighbours are the thing to fix. And match on *failure shape* rather than
+subsystem — a tool that reports success while checking nothing has more in
+common with another vacuous checker than with the rest of its own subsystem.
