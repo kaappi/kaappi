@@ -198,6 +198,28 @@ program source.
   `core.autocrlf=true` checkout — exactly the Windows configuration those cases
   exist to cover — leaving the test asserting nothing.
 
+* **`tests/scheme/fmt/fmt-adversarial.sh`** — comment placement where the
+  layout engine has a decision to make (between `define` and its name, after a
+  dotted `.`, inside a `case` datum list, `#|` inside a `;` and vice versa, a
+  comment as a file's only content, one with no trailing newline, …). Each case
+  asserts all three of: `fmt` accepts it, every comment survives in order, and a
+  second pass changes nothing. Plus the parser-depth property — an input deeper
+  than any reader accepts must be *rejected*, not fatal.
+
+* **`tools/fmt_fuzz.py`** — the fuzzer those cases came from, run on demand.
+  Not in `run-all.sh`: a useful run takes minutes, past that suite's 60 s
+  per-file budget. Four modes over the repo's own corpus — random byte
+  mutation, whitespace-run resizing (which must not change the output at all),
+  comment and blank-line insertion, and an exhaustive comment × blank-line
+  grid. Nothing is written over a corpus file: every mutant reaches `fmt` on
+  stdin. Run it when changing `fmt.zig` or `fmt_print.zig`.
+
+  Why a fuzzer earns its keep here specifically: the round-trip guard proves
+  the *program* is unchanged, and comments are not part of the program, so
+  comment handling and idempotence are exactly the two properties nothing else
+  checks. Both of the bugs the first campaign found live there
+  (kaappi#2142, kaappi#2143), along with a parser-depth crash (kaappi#2141).
+
 ## CI adoption
 
 Ecosystem repos can gate formatting in CI with the check form:
