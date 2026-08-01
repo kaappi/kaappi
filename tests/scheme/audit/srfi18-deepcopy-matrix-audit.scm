@@ -12,17 +12,28 @@
 ;; specification of the copy route) plus docs/dev/thread-value-sharing.md,
 ;; which documents the two routes and is the table this file keeps honest.
 ;;
-;; THE MATRIX. src/types.zig's ObjectTag has 41 members. Each falls in
-;; exactly one of four classes, and this file covers every REACHABLE cell:
+;; THE MATRIX. src/types.zig's ObjectTag has 41 members, and gc_deep_copy's
+;; switch puts each in exactly one of three classes — 24 + 3 + 14 = 41.
+;; This file covers every REACHABLE cell:
 ;;
-;;   copied    22 arms — round-tripped here for type AND content fidelity
-;;   aliased    3 tags — ffi_library, ffi_function (unsafe: see section E)
-;;                       and channel (safe, KEP-0002; covered by Phase 2.6)
-;;   refused   14 tags — 13 reachable, asserted here at both boundaries
-;;   vestigial  2 tags — flonum (no allocator at all: allocFlonum returns a
-;;                       NaN-boxed immediate) and native_closure (created
-;;                       only by the LLVM backend's runtime_exports.zig).
-;;                       Neither is constructible from interpreted Scheme.
+;;   copied   24 arms — 22 reachable from interpreted Scheme and
+;;                      round-tripped below for type AND content fidelity.
+;;                      The 2 unreachable ones are `flonum` (vestigial:
+;;                      allocFlonum returns a NaN-boxed immediate, so no
+;;                      heap Flonum is ever created) and `native_closure`
+;;                      (built only by the LLVM backend's
+;;                      runtime_exports.zig). Section G pins both claims.
+;;                      `function` and `multiple_values` are reachable only
+;;                      *inside* another value — a Function rides along in
+;;                      every closure test; MultipleValues never survives
+;;                      to a boundary at all.
+;;   aliased   3 tags — ffi_library and ffi_function (UNSAFE — section E,
+;;                      kaappi#2027) plus channel (safe, KEP-0002, and
+;;                      Phase 2.6's subject rather than this file's).
+;;   refused  14 tags — 13 reachable, each asserted at BOTH copy
+;;                      boundaries in section D. `transport_cell` is
+;;                      unreachable: a transport-cell guardian on this
+;;                      non-moving collector always yields #f.
 ;;
 ;; Three tags are covered elsewhere and are NOT re-tested here, by design:
 ;; ephemeron/guardian/transport_cell (Phase 2.10, #2013) and channel
