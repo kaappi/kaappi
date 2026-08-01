@@ -851,9 +851,17 @@
   (time? (seconds->time 9.2e18)))
 (test-assert "CONTROL: 2^62 works" (time? (seconds->time (expt 2 62))))
 
-;; NaN is not a panic but is silently wrong: it produces the epoch.
-(test-equal "TODAY: seconds->time +nan.0 collapses to 0"
-  0.0 (time->seconds (seconds->time +nan.0)))
+;; NaN is silently wrong rather than a panic -- which is the point worth
+;; pinning, because +inf.0 and |x| >= 2^63 DO abort the process (#1983).
+;;
+;; Do NOT assert the resulting value.  It comes from @intFromFloat on a
+;; NaN, which is undefined -- macOS and this NetBSD box both happen to
+;; yield 0.0, but CI's NetBSD produced something else and failed an
+;; earlier version of this assertion that pinned 0.0.  Assert only that
+;; a time object comes back at all: that is the real contrast with the
+;; aborting cases, and it is true wherever the conversion lands.
+(test-assert "TODAY: seconds->time +nan.0 does not abort (value undefined)"
+  (time? (seconds->time +nan.0)))
 
 ;; ---------------------------------------------------------------------
 ;; 8. Timeouts, expressed as bare numbers and as time objects
