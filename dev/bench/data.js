@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785616404771,
+  "lastUpdate": 1785618578351,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5f74d6663b888e7dff3f672873d87050d4027c85",
-          "message": "Comptime-gate lever-D bytevector checks in gc_collect.zig, fixing #1794 (#1838)\n\n`Bytevector.shared` is only ever set by `allocBytevectorShared`, called\nsolely from gc_deep_copy.zig's `if (comptime instrument.enabled)` block\n(KEP-0002 Phase 7 lever D, kaappi#1472). In a shipped build the field is\nprovably always null, but `freeObject` and `objectSize` in gc_collect.zig\nstill branched on it at runtime. Wrap both in the same `comptime\ninstrument.enabled` gate gc_deep_copy.zig already uses, so a shipped\nbinary never loads the field and a reader can tell from the code that\nthe branch is dead there.\n\nBehavior is unchanged in both build modes -- verified via `zig build\ntest` under the default and -Dchannel-instrument=true configs (including\ntests_shared_channel.zig's lever-D test, which exercises both changed\nsites), plus the full `tests/scheme/run-all.sh` suite (2009 pass, 0\nfail). This is a comptime dead-code-elimination clarity fix with no\nbehavioral change, so no new regression test is added.",
-          "timestamp": "2026-07-29T15:02:39+05:30",
-          "tree_id": "05f766564c8d5773e840fbf30f6d3f034972ff9b",
-          "url": "https://github.com/kaappi/kaappi/commit/5f74d6663b888e7dff3f672873d87050d4027c85"
-        },
-        "date": 1785320365649,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.037525,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.282572,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57214,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.841028,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004951,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045263,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302667,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054359,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.338138,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.181388,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.525819,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.310515,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.729496,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.769617,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047117,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045756,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbd92a14e3821a534eb02c20f1bd97c21ca3c193",
+          "message": "Document ir.isRedefined() shadowing guard, link KEP-0008 (#2126)\n\nfoldConstants, eliminateIdentity, and simplifyBooleans all guard against\nfolding a user-shadowed primitive via ir.isRedefined(), but docs/dev/ir.md\nnever mentioned it. Also links to KEP-0008, the new cross-repo IR contract\nshared with paal and chaaya.",
+          "timestamp": "2026-08-02T00:51:22+05:30",
+          "tree_id": "854d991c4b763128ca94c54eeb420102fb4dc4e8",
+          "url": "https://github.com/kaappi/kaappi/commit/fbd92a14e3821a534eb02c20f1bd97c21ca3c193"
+        },
+        "date": 1785618575921,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329578,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.969168,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.570863,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.968826,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004733,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046348,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311713,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05739,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.834583,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233841,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.569442,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280226,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802077,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.641921,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044001,
             "unit": "seconds"
           }
         ]
