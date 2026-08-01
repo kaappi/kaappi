@@ -62,6 +62,13 @@ fi
 #   srfi66/srfi63     u8vector and prototype-typed arrays over SRFI 160
 #   srfi135           UTF-16BE/LE conversions
 #   srfi178           bit order (spec-defined, asserted not to drift)
+#   srfi271           determinized random ports: `primitives_random_port.zig`
+#                     and `types_port.zig` move u64s in and out of a bytevector
+#                     with an explicit `.little`, so a seeded stream is meant
+#                     to be identical on every host. Its own assertions compare
+#                     two ports *on the same host*, which is the same
+#                     cancelling pairing the `.sbc` tests have -- running it
+#                     big-endian at least catches a write/read side disagreeing
 #   internal-primitives-audit
 #                     %host-big-endian? reachability and arity
 FILES=(
@@ -73,6 +80,7 @@ FILES=(
     tests/scheme/srfi/srfi63.scm
     tests/scheme/srfi/srfi135.scm
     tests/scheme/srfi/srfi178-audit.scm
+    tests/scheme/srfi/srfi271.scm
     tests/scheme/audit/primitives_srfi160-audit.scm
     tests/scheme/audit/internal-primitives-audit.scm
 )
