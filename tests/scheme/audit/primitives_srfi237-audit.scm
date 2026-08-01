@@ -164,23 +164,18 @@
 ;;; of parent types)."
 ;;; ===================================================================
 
-;; Enabled control: the "not including parent fields" half is correct, and
-;; the element order and symbol-ness are correct — only the container is wrong.
-(test-equal "field-names: own fields only, in declaration order (as a list)"
-            '(c d) (record-type-field-names C))
-(test-equal "field-names: parent reports its own two" '(a b) (record-type-field-names P))
+;; Fixed in #1974 — the container was the only wrong part; the "not including
+;; parent fields" half, the element order, and symbol-ness were already right.
+(test-assert "field-names: R6RS requires a vector" (vector? (record-type-field-names C)))
+(test-equal "field-names: own fields only, in declaration order"
+            '#(c d) (record-type-field-names C))
+(test-equal "field-names: parent reports its own two" '#(a b) (record-type-field-names P))
 (test-equal "field-names: a zero-field type reports empty"
-            '() (record-type-field-names (make-record-type-descriptor 'E #f #f #f #f #())))
+            '#() (record-type-field-names (make-record-type-descriptor 'E #f #f #f #f #())))
 (test-assert "field-names: elements are symbols"
-             (symbol? (car (record-type-field-names C))))
-
-;; FAIL: #1974 (record-type-field-names returns a list; R6RS requires a vector)
-;; (test-assert "field-names: R6RS requires a vector" (vector? (record-type-field-names C)))
-;; FAIL: #1974 (record-type-field-names returns a list; R6RS requires a vector)
-;; (test-equal "field-names: vector contents" #(c d) (record-type-field-names C))
-;; FAIL: #1974 (record-type-field-names returns a list, so vector-length raises)
-;; (test-equal "field-names: vector-length is the own-field count"
-;;             2 (vector-length (record-type-field-names C)))
+             (symbol? (vector-ref (record-type-field-names C) 0)))
+(test-equal "field-names: vector-length is the own-field count"
+            2 (vector-length (record-type-field-names C)))
 
 ;; Discriminating control: make-record-type-descriptor *consumes* a vector for
 ;; the same field list, so the library is asymmetric rather than uniformly
@@ -197,8 +192,8 @@
 ;;; that created rtd. Note that k cannot be used to specify a field of any
 ;;; type rtd extends."
 ;;;
-;;; Kaappi treats an integer k as an ABSOLUTE index into the full
-;;; inherited-then-own layout instead.
+;;; Kaappi treated an integer k as an ABSOLUTE index into the full
+;;; inherited-then-own layout instead, until #1974.
 ;;; ===================================================================
 
 ;; Enabled controls: the by-NAME path resolves per level exactly as R6RS
@@ -213,8 +208,9 @@
              (raises? (lambda () (record-accessor C 'nope))))
 
 ;; Second discriminating control: record-field-mutable? on the SAME rtd with
-;; the SAME k already uses own-field indexing, so the two are internally
-;; inconsistent — this is not a deliberate library-wide convention.
+;; the SAME k already used own-field indexing, so the two were internally
+;; inconsistent — which is what showed this was not a deliberate library-wide
+;; convention. They agree now.
 (test-assert "index control: record-field-mutable? k=0 is C's OWN field c (immutable)"
              (not (record-field-mutable? C 0)))
 (test-assert "index control: record-field-mutable? k=1 is C's OWN field d (mutable)"
@@ -222,29 +218,27 @@
 (test-assert "index control: record-field-mutable? on the parent's own field 0"
              (not (record-field-mutable? P 0)))
 
-;; FAIL: #1974 (record-accessor integer k is absolute, not own-field-relative)
-;; (test-equal "accessor by index: k=0 selects C's OWN first field"
-;;             3 ((record-accessor C 0) c-inst))
-;; FAIL: #1974 (record-accessor integer k is absolute, not own-field-relative)
-;; (test-equal "accessor by index: k=1 selects C's OWN second field"
-;;             4 ((record-accessor C 1) c-inst))
-;; FAIL: #1974 (record-accessor integer k is absolute — k=2 is past C's own field count)
-;; (test-assert "accessor by index: k beyond the own-field count is invalid"
-;;              (raises? (lambda () ((record-accessor C 2) c-inst))))
-;; FAIL: #1974 (record-mutator integer k is absolute, not own-field-relative)
-;; (test-equal "mutator by index: k=1 writes C's OWN mutable field d"
-;;             77 (let ((i ((record-constructor
-;;                            (make-record-descriptor C (make-record-descriptor P #f #f) #f))
-;;                          1 2 3 4)))
-;;                  ((record-mutator C 1) i 77)
-;;                  ((record-accessor C 'd) i)))
+;; Fixed in #1974 — k is own-field-relative on both the read and write paths.
+(test-equal "accessor by index: k=0 selects C's OWN first field"
+            3 ((record-accessor C 0) c-inst))
+(test-equal "accessor by index: k=1 selects C's OWN second field"
+            4 ((record-accessor C 1) c-inst))
+(test-assert "accessor by index: k beyond the own-field count is invalid"
+             (raises? (lambda () ((record-accessor C 2) c-inst))))
+(test-equal "mutator by index: k=1 writes C's OWN mutable field d"
+            77 (let ((i ((record-constructor
+                           (make-record-descriptor C (make-record-descriptor P #f #f) #f))
+                         1 2 3 4)))
+                 ((record-mutator C 1) i 77)
+                 ((record-accessor C 'd) i)))
+;; The ancestor's own k still reads the ancestor's field — the parent's rtd is
+;; how R6RS says to reach an inherited field, since k cannot name one.
+(test-equal "accessor by index: k=0 on the PARENT rtd reads the root's field a"
+            1 ((record-accessor P 0) c-inst))
 
-;; Enabled: what the absolute-index reading actually does today, so the fix
-;; PR has a pinned "before".
-(test-equal "accessor by index (current absolute semantics): k=0 reads the root's field a"
-            1 ((record-accessor C 0) c-inst))
-
-;; Index validation on the absolute layout is itself sound.
+;; Index validation. `record-accessor` now rejects an invalid k when the
+;; accessor is BUILT, not when it is called, so these raise a step earlier
+;; than they used to; `raises?` covers both.
 (test-assert "accessor: out-of-range positive index raises catchably"
              (raises? (lambda () ((record-accessor C 99) c-inst))))
 (test-assert "accessor: negative index raises catchably"
@@ -252,10 +246,13 @@
 (test-assert "accessor: inexact index is rejected (integer? admits 2.0)"
              (raises? (lambda () ((record-accessor P 2.0) c-inst))))
 
-;; FAIL: #1914 (negative index reports a bare TypeError naming args[0], the record)
-;; (test-assert "accessor: negative index reports an index error, not a type error"
-;;              (let ((m (message-of (lambda () ((record-accessor C -1) c-inst)))))
-;;                (and (string? m) (string-search m "out of range"))))
+;; This entry point left #1914's scope in #1974: record-accessor validates k
+;; itself, so a bad index never reaches the primitive that reported a bare
+;; TypeError blaming the record. #1914's remaining case here is the 255-field
+;; limit further down.
+(test-assert "accessor: a bad index names the index, not the record's type"
+             (let ((m (message-of (lambda () (record-accessor C -1)))))
+               (and (string? m) (string-search m "own-field index"))))
 
 
 ;;; ===================================================================
@@ -312,10 +309,15 @@
 
 (define (chain-fields mask)
   (let* ((built (build-chain mask))
-         (rtd (car built))
+         (l3 (car built))
+         (l2 (record-type-parent l3))
+         (l1 (record-type-parent l2))
+         (l0 (record-type-parent l1))
          (inst ((cdr built) 1 2 3 4)))
-    ;; absolute indices 0..3 == the flat inherited-then-own layout
-    (map (lambda (i) ((record-accessor rtd i) inst)) '(0 1 2 3))))
+    ;; k is scoped to an rtd's OWN fields (#1974), and each level here declares
+    ;; exactly one, so every level's field is k=0 on that level's own rtd --
+    ;; reached by walking the parent chain rather than by a flat 0..3 index.
+    (map (lambda (r) ((record-accessor r 0) inst)) (list l0 l1 l2 l3))))
 
 (define (chain-want mask)
   (let ((bump (lambda (base bit) (+ base (if (odd? (quotient mask bit)) 100 0)))))
@@ -364,14 +366,18 @@
 ;; Enabled controls pinning the current behaviour so #1915's fix flips them.
 (let* ((A (make-record-type-descriptor 'AR #f #f #f #f #((immutable a))))
        (B (make-record-type-descriptor 'BR A #f #f #f #((immutable b))))
-       (ctor (record-constructor (make-record-descriptor B (make-record-descriptor A #f #f) #f))))
+       (ctor (record-constructor (make-record-descriptor B (make-record-descriptor A #f #f) #f)))
+       ;; Each level's single field is k=0 on that level's own rtd (#1974),
+       ;; so `a` is read through A and `b` through B -- same two instance
+       ;; slots the flat 0/1 pair used to name.
+       (a+b (lambda (inst) (list ((record-accessor A 0) inst) ((record-accessor B 0) inst)))))
   (test-equal "arity control: the correct argument count lays fields out correctly" '(1 2)
-              (map (lambda (i) ((record-accessor B i) (ctor 1 2))) '(0 1)))
+              (a+b (ctor 1 2)))
   (test-equal "arity: an EXTRA constructor argument is accepted and shifts the layout (#1915)"
               '(1 3)
-              (map (lambda (i) ((record-accessor B i) (ctor 1 2 3))) '(0 1)))
+              (a+b (ctor 1 2 3)))
   (test-assert "arity: too FEW constructor arguments leaks an uninitialized field (#1915)"
-               (not (equal? 1 ((record-accessor B 0) (ctor 1)))))
+               (not (equal? 1 ((record-accessor A 0) (ctor 1)))))
 
   ;; FAIL: #1915 (%make-record ignores the declared field count)
   ;; (test-assert "arity: too many subtype constructor arguments raises catchably"
@@ -391,9 +397,9 @@
 (define sc-inst
   ((record-constructor (make-record-descriptor SC (make-record-descriptor SP #f #f) #f)) 1 2 3))
 
-(test-equal "shadowing: parent still reports its own two field names" '(v w)
+(test-equal "shadowing: parent still reports its own two field names" '#(v w)
             (record-type-field-names SP))
-(test-equal "shadowing: child reports only its own shadowing name" '(v)
+(test-equal "shadowing: child reports only its own shadowing name" '#(v)
             (record-type-field-names SC))
 (test-equal "shadowing: child's own v wins on the child rtd" 3 ((record-accessor SC 'v) sc-inst))
 (test-equal "shadowing: parent's v is still reachable through the parent rtd"
@@ -471,21 +477,23 @@
              (record-type-opaque?
                (make-record-type-descriptor 'OPQC2 P #f #f #t #((immutable w)))))
 
-;; FAIL: #1974 (record? does not consult the opaque flag)
-;; (test-assert "opaque: record? is #f for an instance of an opaque type"
-;;              (not (record? opq-inst)))
-;; FAIL: #1974 (record-rtd does not consult the opaque flag)
-;; (test-assert "opaque: record-rtd raises for an instance of an opaque type"
-;;              (raises? (lambda () (record-rtd opq-inst))))
-;; FAIL: #1974 (opacity is not inherited from an opaque parent)
-;; (test-assert "opaque: a child of an opaque parent is itself opaque"
-;;              (record-type-opaque? OPQ-CHILD))
-;; FAIL: #1974 (opacity is not inherited, so record? leaks the subtype too)
-;; (test-assert "opaque: record? is #f for an instance of a child of an opaque type"
-;;              (not (record? ((record-constructor
-;;                               (make-record-descriptor OPQ-CHILD
-;;                                                       (make-record-descriptor OPQ #f #f) #f))
-;;                             1 2))))
+;; Enforced as of #1974. Opacity is folded in at construction, so
+;; record-type-opaque? on the child answers #t without a parent walk.
+(test-assert "opaque: record? is #f for an instance of an opaque type"
+             (not (record? opq-inst)))
+(test-assert "opaque: record-rtd raises for an instance of an opaque type"
+             (raises? (lambda () (record-rtd opq-inst))))
+(test-assert "opaque: a child of an opaque parent is itself opaque"
+             (record-type-opaque? OPQ-CHILD))
+(test-assert "opaque: record? is #f for an instance of a child of an opaque type"
+             (not (record? ((record-constructor
+                              (make-record-descriptor OPQ-CHILD
+                                                      (make-record-descriptor OPQ #f #f) #f))
+                            1 2))))
+;; The syntactic layer shares the same helper, so it must agree.
+(test-assert "opaque: the syntactic layer inherits opacity too"
+             (record-type-opaque?
+               (make-record-type-descriptor 'OPQGC OPQ-CHILD #f #f #f #((immutable u)))))
 
 
 ;;; ===================================================================
@@ -513,14 +521,20 @@
 (test-assert "immutable: record-field-mutable? negative index raises catchably"
              (raises? (lambda () (record-field-mutable? IMM -1))))
 
-;; FAIL: #1974 (record-mutator does not check field mutability)
-;; (test-assert "immutable: record-mutator on an immutable field raises"
-;;              (raises? (lambda () (record-mutator IMM 0))))
-;; FAIL: #1974 (record-mutator does not check field mutability — the write lands)
-;; (test-equal "immutable: an immutable field cannot be written" 1
-;;             (let ((i ((root-ctor IMM) 1 2)))
-;;               (guard (e (#t #t)) ((record-mutator IMM 'x) i 99))
-;;               ((record-accessor IMM 'x) i)))
+;; Enforced as of #1974, by index and by name, at the level the field is
+;; actually declared at.
+(test-assert "immutable: record-mutator on an immutable field raises"
+             (raises? (lambda () (record-mutator IMM 0))))
+(test-assert "immutable: record-mutator on an immutable field by NAME raises"
+             (raises? (lambda () (record-mutator IMM 'x))))
+(test-equal "immutable: an immutable field cannot be written" 1
+            (let ((i ((root-ctor IMM) 1 2)))
+              (guard (e (#t #t)) ((record-mutator IMM 'x) i 99))
+              ((record-accessor IMM 'x) i)))
+(test-assert "immutable: an immutable field INHERITED from a parent is refused too"
+             (raises? (lambda () (record-mutator C 'a))))
+(test-assert "immutable: a mutable field inherited from a parent is still allowed"
+             (procedure? (record-mutator C 'd)))
 
 
 ;;; ===================================================================
@@ -718,7 +732,7 @@
              (record-type-descriptor? (record-rtd syn-inst)))
 (test-equal "cross-layer: record-type-name of a syntactic type" 'syn-rec
             (record-type-name (record-rtd syn-inst)))
-(test-equal "cross-layer: record-type-field-names of a syntactic type" '(a b)
+(test-equal "cross-layer: record-type-field-names of a syntactic type" '#(a b)
             (record-type-field-names (record-rtd syn-inst)))
 (test-assert "cross-layer: field mutability survives the syntactic path"
              (and (not (record-field-mutable? (record-rtd syn-inst) 0))
@@ -823,21 +837,17 @@
 (test-assert "malformed: record-constructor on a non-descriptor raises catchably"
              (raises? (lambda () (record-constructor 5))))
 (test-assert "malformed: record-predicate on a non-rtd raises catchably"
-             (raises? (lambda () ((record-predicate 5) 1))))
-;; A SYMBOL field name forces %resolve-field-index to walk the rtd, so the
-;; bad rtd is caught. An INTEGER is returned unexamined (the same passthrough
-;; that makes integer k absolute rather than own-relative), so no validation
-;; happens until the returned closure is applied.
+             (raises? (lambda () (record-predicate 5))))
+;; Both designator kinds now validate the rtd eagerly. The INTEGER path used
+;; to return the index unexamined -- the same passthrough that made integer k
+;; absolute rather than own-relative -- so it handed back a working-looking
+;; procedure for a non-rtd and only failed once that was applied (#1974).
 (test-assert "malformed: record-accessor on a non-rtd with a field NAME raises catchably"
              (raises? (lambda () (record-accessor 5 'x))))
-(test-assert "malformed: record-accessor on a non-rtd with an INTEGER defers validation"
-             (procedure? (record-accessor 5 0)))
-(test-assert "malformed: the deferred closure does raise when applied"
-             (raises? (lambda () ((record-accessor 5 0) c-inst))))
-
-;; FAIL: #1974 (integer k bypasses rtd validation in %resolve-field-index)
-;; (test-assert "malformed: record-accessor on a non-rtd raises eagerly"
-;;              (raises? (lambda () (record-accessor 5 0))))
+(test-assert "malformed: record-accessor on a non-rtd raises eagerly"
+             (raises? (lambda () (record-accessor 5 0))))
+(test-assert "malformed: record-mutator on a non-rtd raises eagerly"
+             (raises? (lambda () (record-mutator 5 0))))
 (test-assert "malformed: record-uid->rtd on a non-symbol raises catchably"
              (raises? (lambda () (record-uid->rtd "a-string"))))
 
@@ -846,7 +856,7 @@
        (zi ((root-ctor Z))))
   (test-assert "zero fields: instance is a record" (record? zi))
   (test-assert "zero fields: predicate holds" ((record-predicate Z) zi))
-  (test-equal "zero fields: field-names is empty" '() (record-type-field-names Z))
+  (test-equal "zero fields: field-names is empty" '#() (record-type-field-names Z))
   (test-equal "zero fields: total field count is 0" 0 (%record-type-total-field-count Z)))
 
 
@@ -859,21 +869,25 @@
 ;;; three specified names are absent without being among them.
 ;;; ===================================================================
 
-;; FAIL: #1974 (the 7-argument make-record-descriptor variant is not implemented)
-;; (test-assert "exports: the 7-argument make-record-descriptor variant"
-;;              (record-descriptor?
-;;                (make-record-descriptor 'Z #f #f #f #f #((immutable v)) #f)))
-;; FAIL: #1974 (make-record-constructor-descriptor is not exported)
-;; (test-assert "exports: make-record-constructor-descriptor" (procedure? make-record-constructor-descriptor))
-;; FAIL: #1974 (record-constructor-descriptor? is not exported)
-;; (test-assert "exports: record-constructor-descriptor?" (procedure? record-constructor-descriptor?))
-
-;; Enabled control: the 3-argument form these are aliases of works fine, so
-;; the gap is in the export surface, not the underlying mechanism.
+;; All three shipped in #1974; the gap was in the export surface, not the
+;; underlying mechanism -- the 3-argument form these alias always worked.
 (test-assert "exports control: the 3-argument make-record-descriptor works"
              (record-descriptor? (make-record-descriptor P #f #f)))
-(test-assert "exports control: the 7-argument call raises an arity error, not a type error"
-             (raises? (lambda () (make-record-descriptor 'Z #f #f #f #f #((immutable v)) #f))))
+(test-assert "exports: the 7-argument make-record-descriptor variant"
+             (record-descriptor?
+               (make-record-descriptor 'Z7 #f #f #f #f #((immutable v)) #f)))
+(test-assert "exports: make-record-constructor-descriptor" (procedure? make-record-constructor-descriptor))
+(test-assert "exports: record-constructor-descriptor?" (procedure? record-constructor-descriptor?))
+
+;; The 7-argument form is specified as exactly
+;; (make-record-descriptor (make-record-type-descriptor name parent uid sealed?
+;; opaque? fields) parent protocol) -- `parent` feeding both slots.
+(let* ((rd (make-record-descriptor 'Z7C P #f #f #f #((immutable v)) #f))
+       (inst ((record-constructor rd) 1 2 3)))
+  (test-equal "7-arg: names the type" 'Z7C (record-type-name rd))
+  (test-eq "7-arg: wires up the parent rtd" P (record-type-parent rd))
+  (test-equal "7-arg: inherited field through the parent's own k" 1 ((record-accessor P 0) inst))
+  (test-equal "7-arg: own field through its own k=0" 3 ((record-accessor rd 0) inst)))
 
 
 (let ((runner (test-runner-current)))
