@@ -157,10 +157,47 @@ any local scripting — must check for that file; the workflow fails the run
 when it exists and uploads it, the run log, and `libfuzzer.log` as the
 `fuzz-artifacts-<variant>` artifact, retained for 90 days.
 
-The job persists `.zig-cache/f` (corpus) and `.zig-cache/v` (coverage)
-across runs via `actions/cache` with a rolling key, so nightly coverage
-accumulates instead of restarting from the seeds; the cache is only saved
-on success, so crash state never leaks into the next run.
+The job *intends* to persist `.zig-cache/f` (corpus) and `.zig-cache/v`
+(coverage) across runs via `actions/cache` with a rolling key, so that
+nightly coverage accumulates instead of restarting from the seeds; the cache
+is only saved on success, so crash state never leaks into the next run.
+
+**In practice this has never worked.** Every arm64 `default` run checked
+(six consecutive nightlies, #2040) logs `Cache not found for input keys:
+fuzz-corpus-arm64-default-…` — the restore has never once hit. Saving works
+(an entry does appear after a green run), so the entry is being evicted
+between nightlies: it is ~365 KB, touched once a day, and competes with the
+100–400 MB `setup-zig` caches this repo churns continuously against the
+10 GB per-repo limit, which GitHub reclaims least-recently-used. So the
+coverage-guided fuzzer has effectively been running as an undirected one,
+from an empty corpus, every night. Do not read a "corpus" explanation into
+a fuzz result without checking that log line first — the size figure printed
+just above it belongs to the `setup-zig` cache, not this one, and reading it
+as the corpus is exactly the mistake #2040's investigation made.
+
+**Overrun handling — why the fuzz command has its own timeout.** The step
+bounds `zig build test --fuzz` with `timeout`, set to the job's
+`timeout-minutes` minus 8 (derived from `matrix.timeout`, so the two cannot
+drift). This is not belt-and-braces: reaching `timeout-minutes` *cancels*
+the job, and a cancelled job skips its `if: failure()` upload step, so the
+run's entire fuzzer state is lost — while the cache entry it started from is
+never updated (save-on-success) and is eventually LRU-evicted. #2040 is what
+that costs. Its arm64 leg overran twice; by the time it was investigated,
+the corpus that could have reproduced it existed nowhere, and the cause is
+still unknown. A step that fails on its own terms keeps the job alive long
+enough to upload, so a failing run now ships **the whole corpus and coverage
+map** plus `fuzz-state.txt` — an mtime-ordered corpus listing whose newest
+entries are what the fuzzer was working on when it stalled, i.e. the inputs
+to replay first. The step also prints a one-minute heartbeat, because
+`zig build` emits nothing until it finishes on a runner (no TTY): without
+it, a stalled job and a healthy one look identical for the entire budget.
+
+What this does *not* do is bound an individual generated program outside the
+bytecode loop. The per-program deadline in `src/tests_fuzz.zig` guards
+`vm.eval`; read, expand, lower, emit — and the harness's own printing of the
+result and every global — are unchecked, so a single pathological input can
+still consume the whole budget. The timeout makes that diagnosable, not
+impossible.
 
 **How findings reach you:** any failed job in the workflow (the bounded
 fuzz pass, `native-diff`, `oracle-diff`, or `cross-diff`) is auto-filed as
@@ -193,18 +230,87 @@ Remaining marker-less failures — toolchain flakes, build failures,
 job-level timeouts (a possible hang), and runners reclaimed mid-job — are
 collected under a single shared issue titled `Fuzz CI: infrastructure or
 build failure` instead. That issue carries a **per-job verdict read from
-the run's own logs** (the report job holds `actions: read`, so it fetches
-each failed job's log over the API and quotes its `##[error]` lines),
-because an artifact-less failure is exactly the case whose cause exists
-nowhere else: a reclaimed runner *cancels* the job, so even the
-`if: failure()` upload step is skipped and nothing is uploaded. The verdict
-is what separates the three lookalikes — a runner shutdown (`The runner has
-received a shutdown signal`, exit 143) is pure infrastructure and wants a
-re-run, whereas a job cancelled at its own `timeout-minutes` is worth
-investigating as a hang, since every generated program is individually
-time-bounded. #2040 was the first kind, mistakable for the second: an arm64
-leg killed 46 min into its 55-min budget, which took a manual
-`gh api repos/kaappi/kaappi/actions/jobs/<id>/logs` to tell apart.
+the run's own logs and check-run annotations** (the report job holds
+`actions: read`, so it fetches both over the API and quotes them), because
+an artifact-less failure is exactly the case whose cause exists nowhere
+else: a job that is *cancelled* rather than failed skips even the
+`if: failure()` upload step, so nothing is uploaded. Both evidence sources
+are load-bearing — the runner-shutdown line appears only in the log, the
+job-timeout message only in the annotations, and **a cancelled job's log
+blob is frequently never archived at all** (the logs endpoint answers
+`BlobNotFound`).
+
+The verdict separates four lookalikes, and the ordering matters:
+
+1. **`exceeded its <N>-minute step budget`** — the fuzz command hit the
+   timeout the step imposes on itself, so the job stayed alive and its
+   artifacts were uploaded. This is the good case: the corpus, coverage
+   map, and `fuzz-state.txt` are all attached, and replaying the newest
+   corpus entries is the first move.
+2. **`The job has exceeded the maximum execution time`** — the job hit its
+   own `timeout-minutes`, outside the step's control (a build or checkout
+   that overran, or a step budget mis-derived). Like (1) it indicts the
+   code rather than the infrastructure, but unlike (1) nothing was
+   uploaded, so there is far less to go on.
+3. **`The runner has received a shutdown signal`** (exit 143) — the runner
+   was reclaimed. Infrastructure, but it does *not* certify the job was
+   healthy: a reclaimed runner kills an overrunning job just as readily as
+   a fine one. Always compare the leg's elapsed time against its history.
+4. Cancelled with neither signature — a manual or concurrency cancellation.
+   Deliberately files nothing.
+
+Issue #2040 is why the ordering and the caveat exist. It presented as (3) — an
+arm64 leg killed 46 min into a 55-min budget — and was closed as
+infrastructure on that reading. Re-running the job put the *same* leg at
+(2): it burned the full 55 minutes with no output, while the x86_64
+`default` and arm64 `gc-stress` legs on the same commit finished normally.
+The shutdown had masked an overrun already in progress. That re-run also
+exposed the reporting hole this section now describes: a job killed by
+`timeout-minutes` is `cancelled`, which cancels the run, which made the
+report job's original bare `if: failure()` false — so the single outcome
+the workflow most wants to hear about filed nothing at all. The condition
+is now `failure() || cancelled()`, gated inside the step on the timeout
+annotation so an ordinary manual cancellation stays silent.
+
+**The arm64 overrun itself remains unexplained.** If it recurs, do not
+re-tread this ground — the following were each checked and ruled out at
+`abb036b4` (the leg went from a stable 1762–1910s across ten runs to
+exceeding 55 minutes, twice):
+
+- *A code regression.* A local aarch64 A/B of the last-green and failing
+  commits, all seven targets, same limit, cold corpus, is flat: 759s vs
+  738s — the failing commit is marginally **faster**. `src/tests_fuzz.zig`
+  and `src/fuzz_gen*.zig` are byte-identical across the window.
+- *The fuzzer's accumulated corpus.* Both the failing run and the last green
+  one logged `Cache not found` for `fuzz-corpus-arm64-default-` — they each
+  started from an **empty** corpus, so it cannot be the difference. (See the
+  eviction note above; an earlier reading of this as a 49 MB restored corpus
+  was a misattribution of the `setup-zig` cache line.)
+- *Unit-suite growth.* On arm64 Linux the unit suite is 142s of the ~1850s;
+  the fuzz phase is what doubled.
+- *Slow arm64 hardware that day.* The arm64 `gc-stress` leg on the **same
+  run** was 812s, mid-range for its 735–976s history — though that is a
+  different, shorter job on a different runner VM, so it weakens rather than
+  refutes a bad-VM explanation.
+- *A printer hang on a cyclic value.* The generators do emit `set-car!` and
+  `vector-set!`, but the printer emits `#0=(#0# 2 3)` correctly and
+  instantly.
+
+**It does not currently reproduce.** A dispatched run on later `main`
+(30696041228), same leg, same empty-corpus conditions, finished in 1826s —
+squarely inside the historical band. With the code and the corpus both
+excluded and the failure gone, the standing explanation is something
+transient in the runner environment that morning; GitHub Actions was
+visibly capacity-constrained the same day (unrelated runs in this repo sat
+queued for 50+ minutes). That is unsatisfying rather than proven, which is
+what the upload-on-failure above exists to fix: a recurrence will ship the
+state needed to settle it.
+
+One stale claim was corrected along the way: `fuzz.yml` used to justify the
+2K limit with "locally 200 per target is a ~2 minute pass". Measured on an
+M-series Mac, a single all-targets invocation at 200 takes **13 minutes**
+(~7.5 of them fuzzing, the rest the unit suite).
+
 Marker detection must not assume where inside
 `artifacts/` a file lands: `download-artifact` normally extracts each
 artifact into its own named subdirectory, but a run with exactly one
