@@ -157,10 +157,23 @@ any local scripting — must check for that file; the workflow fails the run
 when it exists and uploads it, the run log, and `libfuzzer.log` as the
 `fuzz-artifacts-<variant>` artifact, retained for 90 days.
 
-The job persists `.zig-cache/f` (corpus) and `.zig-cache/v` (coverage)
-across runs via `actions/cache` with a rolling key, so nightly coverage
-accumulates instead of restarting from the seeds; the cache is only saved
-on success, so crash state never leaks into the next run.
+The job *intends* to persist `.zig-cache/f` (corpus) and `.zig-cache/v`
+(coverage) across runs via `actions/cache` with a rolling key, so that
+nightly coverage accumulates instead of restarting from the seeds; the cache
+is only saved on success, so crash state never leaks into the next run.
+
+**In practice this has never worked.** Every arm64 `default` run checked
+(six consecutive nightlies, #2040) logs `Cache not found for input keys:
+fuzz-corpus-arm64-default-…` — the restore has never once hit. Saving works
+(an entry does appear after a green run), so the entry is being evicted
+between nightlies: it is ~365 KB, touched once a day, and competes with the
+100–400 MB `setup-zig` caches this repo churns continuously against the
+10 GB per-repo limit, which GitHub reclaims least-recently-used. So the
+coverage-guided fuzzer has effectively been running as an undirected one,
+from an empty corpus, every night. Do not read a "corpus" explanation into
+a fuzz result without checking that log line first — the size figure printed
+just above it belongs to the `setup-zig` cache, not this one, and reading it
+as the corpus is exactly the mistake #2040's investigation made.
 
 **Overrun handling — why the fuzz command has its own timeout.** The step
 bounds `zig build test --fuzz` with `timeout`, set to the job's
@@ -268,21 +281,30 @@ exceeding 55 minutes, twice):
   commits, all seven targets, same limit, cold corpus, is flat: 759s vs
   738s — the failing commit is marginally **faster**. `src/tests_fuzz.zig`
   and `src/fuzz_gen*.zig` are byte-identical across the window.
-- *Corpus size.* The x86_64 leg restored a **larger** corpus (53 MB vs
-  49 MB) on the same run and posted its fastest time ever, 988s.
+- *The fuzzer's accumulated corpus.* Both the failing run and the last green
+  one logged `Cache not found` for `fuzz-corpus-arm64-default-` — they each
+  started from an **empty** corpus, so it cannot be the difference. (See the
+  eviction note above; an earlier reading of this as a 49 MB restored corpus
+  was a misattribution of the `setup-zig` cache line.)
 - *Unit-suite growth.* On arm64 Linux the unit suite is 142s of the ~1850s;
   the fuzz phase is what doubled.
 - *Slow arm64 hardware that day.* The arm64 `gc-stress` leg on the **same
-  run** was 812s, mid-range for its 735–976s history.
+  run** was 812s, mid-range for its 735–976s history — though that is a
+  different, shorter job on a different runner VM, so it weakens rather than
+  refutes a bad-VM explanation.
 - *A printer hang on a cyclic value.* The generators do emit `set-car!` and
   `vector-set!`, but the printer emits `#0=(#0# 2 3)` correctly and
   instantly.
 
-What that leaves is the leg's own persistent fuzzer state — the
-`fuzz-corpus-arm64-default-` corpus and coverage map, the one variable that
-is unique to exactly the leg that failed and shared by both attempts. It
-could not be confirmed, because that state no longer exists anywhere; the
-upload-on-failure above is precisely so the next occurrence can be.
+**It does not currently reproduce.** A dispatched run on later `main`
+(30696041228), same leg, same empty-corpus conditions, finished in 1826s —
+squarely inside the historical band. With the code and the corpus both
+excluded and the failure gone, the standing explanation is something
+transient in the runner environment that morning; GitHub Actions was
+visibly capacity-constrained the same day (unrelated runs in this repo sat
+queued for 50+ minutes). That is unsatisfying rather than proven, which is
+what the upload-on-failure above exists to fix: a recurrence will ship the
+state needed to settle it.
 
 One stale claim was corrected along the way: `fuzz.yml` used to justify the
 2K limit with "locally 200 per target is a ~2 minute pass". Measured on an

@@ -128,11 +128,21 @@ jobs:
           version: 0.16.0
           cache-key: fuzz-${{ matrix.platform }}-${{ matrix.variant }}
 
-      # Fuzzer state accumulates across runs when the cache is preserved:
-      # f/ holds the discovered corpus, v/ the coverage bitmap. The rolling
-      # key restores the newest previous corpus and saves an updated one
-      # (only on success, so crash state is never cached — the crash marker
-      # is uploaded as an artifact instead).
+      # Fuzzer state is MEANT to accumulate across runs: f/ holds the
+      # discovered corpus, v/ the coverage bitmap, and the rolling key
+      # restores the newest previous corpus and saves an updated one (only
+      # on success, so crash state is never cached — the crash marker is
+      # uploaded as an artifact instead).
+      #
+      # It does not actually accumulate. Every run checked logs "Cache not
+      # found for input keys: fuzz-corpus-<platform>-<variant>-" — the save
+      # works, but a ~365 KB entry touched once a day loses the repo's 10 GB
+      # LRU race against the 100-400 MB setup-zig caches CI churns all day,
+      # so each nightly fuzzes from an empty corpus (#2040). Fixing that
+      # means giving the corpus storage that isn't the Actions cache; until
+      # then, do not reason about "the accumulated corpus" when triaging a
+      # fuzz result. Note the "Cache Size: ~49 MB" line printed just ABOVE
+      # this step's output belongs to setup-zig, not to the corpus.
       - name: Restore fuzz corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
