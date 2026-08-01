@@ -435,15 +435,25 @@ development. **Single calling thread only** is a requirement of this
 implementation: its request/reply design assumes it. This header used to
 report that a second thread calling into a timer produced nondeterministic
 memory corruption, blamed on an un-root-caused interaction between
-multi-hop channel messages and cross-thread deep-copy. **That no longer
-reproduces** — re-checked 2026-07-31 at v0.22.1, both documented entry
-paths fail cleanly and deterministically (10/10 runs) with a catchable
-error, because a `<timer>` holds a Fiber and `gc_deep_copy` rejects that
-tag as `error.UncopyableType`, making the constraint engine-enforced. The
-multi-hop mechanism itself survived ~4,000 nested reply-channel round
-trips. Treat single-thread-only as the supported usage, not as a live
-corruption hazard; see `lib/srfi/120.sld`'s header for the caveats on
-that re-check. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
+multi-hop channel messages and cross-thread deep-copy. **That claim is
+retired** — re-checked 2026-07-31 at v0.22.1 and again 2026-08-02 (audit
+v2 phase 5A) under both ReleaseSafe and `-Dgc-stress=true`; nothing
+corrupts, and the multi-hop mechanism itself survived ~4,000 nested
+reply-channel round trips. A `<timer>` simply cannot reach another thread,
+and it is refused by **two independent guards, not one** — the earlier
+re-check credited `gc_deep_copy`'s `.fiber` rejection with closing both
+entry paths, but a value reached through a top-level binding is never
+deep-copied at all, so that list has no bearing on it; what refuses there
+is the control channel's `Object.owner` check. Five entry paths (both
+copy-route and globals-route, plus a channel payload, a task thunk closing
+over a second timer, and a top-level *container*) are pinned by
+`tests/scheme/srfi/srfi120-thread-boundary.scm`. What *is* a live hazard
+is **kaappi#2129**: do not call `make-timer` from inside a SRFI-18 thread
+— `thread-join!` frees the joined thread's GC/VM while a thread it spawned
+is still in its startup prologue, and the process dies (24/30 runs) when
+the creating thread is joined. That is an engine bug reproducible with no
+timers at all, and `(srfi 120)` cannot work around it. See
+`lib/srfi/120.sld`'s header. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
 SRFI 237 (R6RS Records, refined) is the one record-system SRFI needing real
 engine changes: `RecordType` (`types.zig`) gained `parent`/`own_field_names`/
 `own_field_mutable`/`uid`/`sealed`/`is_opaque`/`has_protocol` fields (`parent`
