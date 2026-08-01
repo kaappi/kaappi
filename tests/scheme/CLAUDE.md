@@ -170,6 +170,37 @@ Conventions:
   matching the last line of the output hides it, matching the first line
   exposes it. The here-string has no pipeline for `pipefail` to judge.
 
+### The interpreter is the oracle (`compile/`)
+
+A test for a non-interpreter execution tier — a natively compiled binary, a
+`-Dbundle` standalone — asserts `native output == interpreter output`, not
+`native output == a string someone typed`. `shell-common.sh` provides
+`interp_stdout` and `assert_tiers_agree`; its "interpreter as the native tier's
+oracle" block is the full rationale and lists the three tier differences that
+are **by design** (documented in `docs/dev/fuzzing.md`) and must not be
+compared: the VM echoes a bare top-level expression's value and a native binary
+does not, the VM continues past a top-level error while a native binary exits
+at the first, and a procedure prints as `#<procedure name>` vs `#<procedure>`.
+
+Keep the golden string too, as a second assertion against the *interpreter* —
+it documents intent and still catches a bug both tiers share. What it must not
+be is the only thing between a miscompilation and a green run: kaappi#2092 was
+a form evaluated at the wrong *time* natively, printing `BPC` where the
+interpreter printed `PBC`, and a golden only catches that if someone thought to
+write `PBC` down. Converting the suite (kaappi#2110) found four live tier
+divergences the golden strings had been silent about: kaappi#2115, kaappi#2117,
+kaappi#2118, and kaappi#2119.
+
+Three things genuinely have no interpreter counterpart, and stay golden:
+assertions that **compilation fails** (`native-external-library-import-1743.sh`),
+assertions about **emitted LLVM IR** — which tier ran, root-stack balance
+(`native-let-internal-define-root-1854.sh`, `-1861`, `-1862`) — and the **text
+of a native diagnostic**, since the VM frames one with file:line and a source
+excerpt and the native runtime does not. A named `.sbc` is a fourth: nothing
+can execute one (`kaappi out.sbc` reads it as source), so
+`compile-preamble-699.sh` has no runnable second tier short of a ~180s
+`-Dbundle` rebuild.
+
 ## Quirks
 
 - `run-all.sh` parses R7RS suite output with awk — don't change its output format.

@@ -31,13 +31,34 @@ trap 'rm -rf "$DIR"' EXIT
 
 fail=0
 
-# Compile a program natively and check its stdout + exit status match the
-# interpreter. For the error case we match the interpreter's exit status and a
-# substring (native diagnostics are terser than the interpreter's).
+# Compile a program natively and require its stdout + exit status to match the
+# interpreter's — which is the oracle here; every one of these is plain lexical
+# scoping the VM always got right. `expect_out`/`expect_status` document intent
+# and still catch an answer both tiers get wrong, but the comparison no longer
+# rests on them. See the "interpreter as the native tier's oracle" block in
+# ../shell-common.sh.
+#
+# stdout and exit status, never stderr: case 4 errors, and after a top-level
+# error the VM reports it and moves to the next form while the native binary
+# exits at the first — so the two tiers' diagnostics legitimately differ in
+# both count and framing.
 check() {
     local name="$1" src="$2" expect_out="$3" expect_status="$4"
 
     printf '%s' "$src" > "$DIR/$name.scm"
+
+    local interp_out interp_status=0
+    interp_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$name.scm") || interp_status=$?
+    if [[ "$interp_out" != "$expect_out" ]]; then
+        echo "FAIL: $name — interpreter stdout '$interp_out' != expected '$expect_out'" >&2
+        fail=1
+        return
+    fi
+    if [[ "$interp_status" -ne "$expect_status" ]]; then
+        echo "FAIL: $name — interpreter exit $interp_status != expected $expect_status" >&2
+        fail=1
+        return
+    fi
 
     if ! (cd "$DIR" && "$KAAPPI_ABS" compile "$name.scm" -o "$name" > /dev/null 2>&1); then
         echo "FAIL: $name — native compilation failed" >&2
@@ -51,14 +72,7 @@ check() {
     status=$?
     set -e
 
-    if [[ "$out" != "$expect_out" ]]; then
-        echo "FAIL: $name — native stdout '$out' != expected '$expect_out'" >&2
-        fail=1
-    fi
-    if [[ "$status" -ne "$expect_status" ]]; then
-        echo "FAIL: $name — native exit $status != expected $expect_status" >&2
-        fail=1
-    fi
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || fail=1
 }
 
 # 1. set! on a parameter must mutate the parameter slot, not define a global.

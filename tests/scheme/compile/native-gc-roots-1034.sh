@@ -30,20 +30,37 @@ ensure_runtime_lib "$REPO_DIR"
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-check_native() {
+# The interpreter is the oracle — it roots these intermediates correctly and
+# never had the bug. `expected` documents intent and still catches a value both
+# tiers get wrong. See the "interpreter as the native tier's oracle" block in
+# ../shell-common.sh.
+#
+# KAAPPI_GC_THRESHOLD is read only by the native runtime (runtime_exports.zig),
+# so it is set on the compiled binary alone; the interpreter's own equivalent
+# is the -Dgc-stress build option, which does not apply to native codegen.
+check_both() {
     local src="$1" expected="$2" label="$3"
     local bin="$DIR/${label}.bin"
+
+    local interp_out interp_status=0
+    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $label — interpreter exited $interp_status (output: '$interp_out')" >&2
+        exit 1
+    fi
+    if [[ "$interp_out" != "$expected" ]]; then
+        echo "FAIL: $label — interpreter expected '$expected', got '$interp_out'" >&2
+        exit 1
+    fi
+
     (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" > /dev/null 2>&1)
     if [[ ! -x "$bin" ]]; then
         echo "FAIL: $label — native compile did not produce a binary" >&2
         exit 1
     fi
-    local out
-    out="$(KAAPPI_GC_THRESHOLD=1 "$bin")"
-    if [[ "$out" != "$expected" ]]; then
-        echo "FAIL: $label — expected '$expected', got '$out'" >&2
-        exit 1
-    fi
+    local out status=0
+    out="$(KAAPPI_GC_THRESHOLD=1 "$bin" 2> /dev/null)" || status=$?
+    assert_tiers_agree "$label" "$interp_out" "$interp_status" "$out" "$status" || exit 1
 }
 
 # --- Case 1: nested cons with allocating arguments ---
@@ -58,7 +75,7 @@ cat > "$DIR/nested-cons.scm" << 'SCHEME'
   (newline))
 SCHEME
 
-check_native "$DIR/nested-cons.scm" "1234" "nested-cons"
+check_both "$DIR/nested-cons.scm" "1234" "nested-cons"
 
 # --- Case 2: let bindings with allocating inits ---
 cat > "$DIR/let-alloc.scm" << 'SCHEME'
@@ -73,7 +90,7 @@ cat > "$DIR/let-alloc.scm" << 'SCHEME'
 (f)
 SCHEME
 
-check_native "$DIR/let-alloc.scm" "10203040" "let-alloc"
+check_both "$DIR/let-alloc.scm" "10203040" "let-alloc"
 
 # --- Case 3: let* bindings with allocating inits ---
 cat > "$DIR/let-star-alloc.scm" << 'SCHEME'
@@ -86,7 +103,7 @@ cat > "$DIR/let-star-alloc.scm" << 'SCHEME'
 (g)
 SCHEME
 
-check_native "$DIR/let-star-alloc.scm" "57" "let-star-alloc"
+check_both "$DIR/let-star-alloc.scm" "57" "let-star-alloc"
 
 # --- Case 4: deeply nested calls building a list ---
 cat > "$DIR/deep-nest.scm" << 'SCHEME'
@@ -99,7 +116,7 @@ cat > "$DIR/deep-nest.scm" << 'SCHEME'
   (newline))
 SCHEME
 
-check_native "$DIR/deep-nest.scm" "135" "deep-nest"
+check_both "$DIR/deep-nest.scm" "135" "deep-nest"
 
 # --- Case 5: inline binary (cons) with call arguments ---
 cat > "$DIR/inline-cons.scm" << 'SCHEME'
@@ -110,7 +127,7 @@ cat > "$DIR/inline-cons.scm" << 'SCHEME'
   (newline))
 SCHEME
 
-check_native "$DIR/inline-cons.scm" "13" "inline-cons"
+check_both "$DIR/inline-cons.scm" "13" "inline-cons"
 
 # --- Case 6: allocation-heavy recursive function ---
 cat > "$DIR/recursive-alloc.scm" << 'SCHEME'
@@ -128,6 +145,6 @@ cat > "$DIR/recursive-alloc.scm" << 'SCHEME'
 (newline)
 SCHEME
 
-check_native "$DIR/recursive-alloc.scm" "1275" "recursive-alloc"
+check_both "$DIR/recursive-alloc.scm" "1275" "recursive-alloc"
 
 echo "PASS"

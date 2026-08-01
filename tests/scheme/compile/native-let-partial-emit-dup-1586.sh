@@ -86,8 +86,14 @@ check() {
         fail=1
         return
     fi
-    if [[ "$out" != "$expect" ]]; then
-        echo "FAIL: $name — native gave '$out', expected '$expect' (side effect duplicated?)" >&2
+    # The tier comparison, on the one line the tiers can be compared on: the
+    # native binary's whole output must equal the interpreter's final line.
+    # Full-output equality is impossible here by construction — these must be
+    # bare top-level lets to reach the incremental-emit path, and the VM echoes
+    # a bare top-level form's value while a native binary does not (documented
+    # in docs/dev/fuzzing.md, and repeated in ../shell-common.sh).
+    if [[ "$out" != "$interp_last" ]]; then
+        echo "FAIL: $name — native '$out' != interpreter's final line '$interp_last' (side effect duplicated?)" >&2
         fail=1
     fi
 }

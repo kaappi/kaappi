@@ -10,6 +10,16 @@
 # the bundle tests (compile-preamble-gc-700.sh, compile-import-error-703.sh),
 # which embed the .sbc and replay its preamble via readFromBuffer.
 #
+# This is one of the compile suite's genuine exceptions to the
+# interpreter-oracle rule (kaappi#2110): the tier under test is a NAMED .sbc,
+# and nothing can execute one. `kaappi out.sbc` reads it as source and dies at
+# the `KPBC` magic; the only executor is `zig build -Dbundle`, a ~180s whole-
+# interpreter rebuild that 700/703 already pay for once, via a shared fixture
+# with a different program. So the assertion below is a golden value, and the
+# comparison it is standing in for is made by those two scripts instead. What
+# this script can still check, and now does, is that `--compile` produced a
+# non-empty artifact rather than claiming success and writing nothing.
+#
 # Usage: bash tests/scheme/compile/compile-preamble-699.sh [path-to-kaappi]
 
 set -euo pipefail
@@ -35,6 +45,11 @@ cat > "$COMPILE_DIR/test.scm" << 'SCHEME'
 SCHEME
 
 "$KAAPPI" --compile -o "$COMPILE_DIR/test.sbc" "$COMPILE_DIR/test.scm" > /dev/null 2>&1
+
+if [[ ! -s "$COMPILE_DIR/test.sbc" ]]; then
+    echo "FAIL: --compile exited 0 but wrote no (or an empty) .sbc" >&2
+    exit 1
+fi
 
 REPLAY_OUTPUT=$("$KAAPPI" "$COMPILE_DIR/test.scm" 2>/dev/null)
 if [[ "$REPLAY_OUTPUT" != "HELLO 42" ]]; then
