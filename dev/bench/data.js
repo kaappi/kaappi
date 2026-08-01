@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785606303296,
+  "lastUpdate": 1785606322028,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a4fd71032b33cd7be4dfb7cf71c08e2941683055",
-          "message": "Make nstore prefixes byte-prefix-free, fixing tuple leaks across stores (#1717) (#1818)\n\n* Make nstore prefixes byte-prefix-free, fixing tuple leaks across stores (#1717)\n\nSRFI 168's %all-tuples prefix-scanned the packed key bytes directly, and\nengine-pack concatenates items with no \"prefix ends here\" marker. Two\nnstores sharing an engine/store whose prefixes were initial subsequences\nof each other (e.g. (list 0) vs (list 0 0)) would have the shorter\nprefix's scan also match the longer prefix's tuples.\n\nEvery nstore's packed prefix is now wrapped in a length header (the\npacked prefix's own byte length, itself packed via engine-pack) before\nuse as a key prefix or scan key. engine-pack's integer encoding is\nprefix-free across distinct non-negative integers, so this guarantees\none nstore's tag can never be a byte-prefix of a different nstore's tag.\nConfined to 168.sld; 167.sld's engine-pack/unpack are unchanged.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Qualify the CHANGELOG isolation claim for identical nstore prefixes\n\nPer CodeRabbit review on #1818: the prior wording (\"regardless of how\ntheir logical prefixes relate\") overclaimed — two nstores given the\nexact same logical prefix are still indistinguishable by design, as the\n168.sld header comment already notes. Narrow the claim to distinct\nprefixes and state that limitation explicitly.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T23:14:11+05:30",
-          "tree_id": "059e5969e6e89571734523987eb7576262c426ea",
-          "url": "https://github.com/kaappi/kaappi/commit/a4fd71032b33cd7be4dfb7cf71c08e2941683055"
-        },
-        "date": 1785263915861,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.364288,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.056709,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.592597,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.18654,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006371,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047801,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.325845,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058991,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.570497,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.239449,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.579008,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43841,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.81338,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.670125,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044184,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045445,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5681053f9c173173264bb359f8cbf024f94f85f3",
+          "message": "Make a fuzz overrun reportable, and stop it destroying its own evidence (#2094)\n\n* Report a fuzz job killed by its own timeout\n\nA job killed by `timeout-minutes` is CANCELLED, not failed, and it cancels the\nwhole run with it — so the report job's bare `if: failure()` was false and the\njob was skipped. The single outcome this workflow most wants to hear about, a\nfuzz leg overrunning its budget, filed nothing at all. Verified live: #2040's\nre-run burned its full 55 minutes and produced no issue.\n\nGate the job on `failure() || cancelled()`, and inside the step decide by the\ncheck-run annotation: a leg carrying `exceeded the maximum execution time`\nreaches the infra issue (including when a sibling leg's crash artifact would\notherwise have been the only thing filed), while a plain manual or concurrency\ncancellation still files nothing.\n\nThe annotation is also the only durable evidence a timeout leaves — a cancelled\njob's log blob is frequently never archived, and #2040's re-run answered\nBlobNotFound while its annotation was intact — so the verdict now reads logs\nand annotations together. The runner-shutdown line lives only in the former,\nthe timeout message only in the latter.\n\nThat same re-run disproved the shutdown verdict this file shipped hours ago:\nit claimed a reclaimed runner meant \"not a hang… re-run the job\", when in fact\nthe shutdown had masked an overrun already in progress on that very leg. It now\nsays a shutdown does not certify the job was healthy, and to check the leg's\nelapsed time against its history.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Keep a fuzz overrun's evidence instead of destroying it\n\nAn overrunning fuzz job erased everything needed to diagnose it. Reaching\n`timeout-minutes` cancels the job; a cancelled job skips its `if: failure()`\nupload, so nothing is captured — and the corpus it started from is never\nwritten back (save-on-success) and is eventually LRU-evicted. By the time\n#2040's arm64 overrun was investigated, no copy of the input set that\nprovoked it existed anywhere, and it is still unexplained.\n\nBound the fuzz command itself with `timeout`, derived as the job budget minus\n8 minutes so the two cannot drift. The step now fails on its own terms while\nthe job is still alive, so the upload runs — and it carries the whole corpus\nand coverage map plus `fuzz-state.txt`, an mtime-ordered corpus listing whose\nnewest entries are what the fuzzer was working on when it stalled.\n\nAdd a one-minute heartbeat: `zig build` writes nothing until it finishes on a\nrunner, so a stalled job and a healthy one were indistinguishable for the\nwhole budget — #2040 burned 55 minutes of silence twice.\n\nThe report job gets a matching verdict, ordered ahead of the job-level\ntimeout, so an issue says which of the two happened and where to look.\n\nAlso record what the investigation ruled out, so a recurrence does not repeat\nit: no code regression (a local aarch64 A/B of the two commits is flat, the\nfailing one marginally faster, with the harness byte-identical), not corpus\nsize (x86_64 restored a larger one and ran fastest), not unit-suite growth,\nnot slow arm64 hardware (the gc-stress leg on the same run was normal), not a\nprinter cycle hang. And correct the matrix comment's headroom figure: one\nall-targets `--fuzz=200` pass measures ~13 min, not the \"~2 minute pass\" the\n2K limit was justified with.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct the corpus claims: it is evicted nightly and never restored\n\nInvestigating #2040 mis-attributed a \"Cache Size: ~49 MB / restored\" line to\nthe fuzz corpus. It belongs to the setup-zig cache, which the corpus step's\noutput happens to follow. The corpus step's own line, on every arm64 default\nrun checked — six consecutive nightlies, including both the failing run and\nthe last green one — reads \"Cache not found for input keys:\nfuzz-corpus-arm64-default-\".\n\nSo the corpus has never once been restored. Saving works (an entry appears\nafter a green run), but ~365 KB touched once a day loses the repo's 10 GB LRU\nrace against the 100-400 MB setup-zig caches CI churns continuously. The\ncoverage-guided fuzzer has been running undirected, from an empty corpus,\nevery night — the workflow comment and the runbook both claimed the opposite.\n\nFor #2040 this settles one thing and unsettles another: the accumulated\ncorpus cannot explain the arm64 overrun, because both runs had none, which\nremoves the last standing hypothesis. A dispatched run on later main then\nfinished the same leg in 1826s, inside the historical band, so it does not\ncurrently reproduce. What is left is transient runner environment — recorded\nas such, not as a conclusion.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T20:03:21+05:30",
+          "tree_id": "72bf0c75156055504cfc889a397a3ab441d51858",
+          "url": "https://github.com/kaappi/kaappi/commit/5681053f9c173173264bb359f8cbf024f94f85f3"
+        },
+        "date": 1785606319631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.262877,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.001142,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.5898,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.979079,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004676,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046998,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313906,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057224,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.676322,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23042,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592305,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.2795,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.774578,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.637088,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044365,
             "unit": "seconds"
           }
         ]
