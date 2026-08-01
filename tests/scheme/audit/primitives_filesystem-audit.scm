@@ -749,18 +749,43 @@
      (delete-file t))
 
    ;; -- set-file-times --
+   ;;
+   ;; NOTE ON atime (#2077).  An exact access time is not assertable.  Any read
+   ;; of the file by any process — a filesystem indexer, a backup agent, an AV
+   ;; scanner, the periodic /tmp cleaner — moves st_atime to "now", and nothing
+   ;; the test does can prevent it.  Pinning it exactly flaked in ~2 of 9
+   ;; parallel corpus runs, reporting the current epoch second in place of the
+   ;; value that had just been set.
+   ;;
+   ;; mtime carries the discrimination instead: no reader changes it, and it
+   ;; alone distinguishes all three cases below (set / both sentinels / atime
+   ;; sentinel with a real mtime).  atime is asserted only as "not earlier than
+   ;; what we set", which is the strongest true statement available — an
+   ;; intervening reader can move it forward, never backward.
+   ;;
+   ;; Each case takes ONE file-info and reads both fields from it, rather than
+   ;; stat'ing twice for the two halves of one assertion.
    (write-file (string-append dir "/t") "x")
    (let ((p (string-append dir "/t")))
      (set-file-times p 1000000 2000000)
-     (test-equal "(list (file-info:atime (file-info p #t)) (file-info:mtime..." '(1000000 2000000)
-                 (list (file-info:atime (file-info p #t)) (file-info:mtime (file-info p #t))))
+     (let ((fi (file-info p #t)))
+       (test-equal "(file-info:mtime fi) after (set-file-times p 1000000 2000000)"
+                   2000000 (file-info:mtime fi))
+       (test-assert "(>= (file-info:atime fi) 1000000) after set-file-times"
+                    (>= (file-info:atime fi) 1000000)))
      ;; the two sentinels work: -2 = leave alone, -1 = now
      (set-file-times p -2 -2)
-     (test-equal "(list (file-info:atime (file-info p #t)) (file-info:mtime..." '(1000000 2000000)
-                 (list (file-info:atime (file-info p #t)) (file-info:mtime (file-info p #t))))
+     (let ((fi (file-info p #t)))
+       (test-equal "(file-info:mtime fi) unchanged by (set-file-times p -2 -2)"
+                   2000000 (file-info:mtime fi))
+       (test-assert "(>= (file-info:atime fi) 1000000) after (set-file-times p -2 -2)"
+                    (>= (file-info:atime fi) 1000000)))
      (set-file-times p -2 3000000)
-     (test-equal "(list (file-info:atime (file-info p #t)) (file-info:mtime..." '(1000000 3000000)
-                 (list (file-info:atime (file-info p #t)) (file-info:mtime (file-info p #t))))
+     (let ((fi (file-info p #t)))
+       (test-equal "(file-info:mtime fi) after (set-file-times p -2 3000000)"
+                   3000000 (file-info:mtime fi))
+       (test-assert "(>= (file-info:atime fi) 1000000) after (set-file-times p -2 3000000)"
+                    (>= (file-info:atime fi) 1000000)))
      ;; FAIL: #1977 (a non-fixnum, non-time argument falls through to UTIME_NOW
      ;; in timeArgToTimespec, so a mistyped time silently stamps the file with
      ;; the current clock instead of raising)
