@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785609582982,
+  "lastUpdate": 1785609707367,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "55e1bf32cd510d33f21db3c28dac84b5c3b25ca0",
-          "message": "Bypass ReleaseSafe allocator 0xAA fill on hot, size-proportional buffers (#1830)\n\n* Bypass the ReleaseSafe allocator fill for GC object payload buffers\n\nZig 0.16's std.mem.Allocator.alloc/.free/.dupe unconditionally\nmemset(..., 0xAA) new and freed memory in ReleaseSafe, inside their\nown generic bodies rather than the vtable functions they call into.\nThis makes the fill unavoidable via a backing-allocator swap or\n@setRuntimeSafety(false) at the call site (confirmed by disassembly)\n- the only way around it is to call rawAlloc/rawFree directly.\n\nAdd allocSliceNoFill/freeSliceNoFill/dupeSliceNoFill to memory.zig\nand use them for every GC object's variable-length payload: vector,\nstring, and bytevector data, closure/native-closure upvalues, record\ninstance fields, continuation backing buffers, multiple-values\narrays, hash table entries (including rehash's growth), numeric\nvectors, and fiber register/frame arrays. Both the constructors in\nmemory.zig and the matching frees in gc_collect.zig's freeObject are\nconverted together, since a mismatched pair would silently keep\npaying the tax on whichever end was missed.\n\nKaappi's own Debug-mode poisoning, FREED_OWNER stamping, and\ngc-stress quarantine are unaffected - they're implemented\nindependently of whatever the underlying allocator does.\n\n* Bypass the ReleaseSafe allocator fill for bignum arithmetic buffers\n\nEvery bignum add/sub/mul/quotient/remainder allocates a scratch\nlimbs buffer, uses it briefly, then frees it - paying the\nalloc-fill and free-fill back to back on every operation. Convert\naddMagnitude/subMagnitude/mulMagnitude/divMagnitudeBySingleLimb/\ndivMagnitudeMulti and their call sites, plus the bignum-to-string\ndupe sites, to the allocSliceNoFill/freeSliceNoFill/dupeSliceNoFill\nhelpers from memory.zig.\n\nparseBignumString is deliberately left alone: it's a cold,\nnumber-literal-parsing path (not the arithmetic hot loop) built\naround realloc, which would need a fourth helper for one path that\ndoesn't earn it.\n\n* Bypass the ReleaseSafe allocator fill for VM growth and call/cc capture\n\nensureFrameCapacity/ensureRegisterCapacity double the register file\nand call frame stack on overflow, copying live data into a fresh\nbuffer before freeing the old one - both ends were paying the\nallocator fill. captureContinuation's scratch SavedFrame buffer is\nsimilar: allocated, copied into the continuation's own backing\nbuffer, and immediately freed.\n\nvm_continuations.zig didn't previously import memory.zig directly\n(it only reached it transitively through vm.zig, which doesn't\nre-export it), so add that import alongside the two converted call\nsites.\n\n* Bypass the ReleaseSafe allocator fill for string/bytevector builders\n\nTwo recurring shapes in these files pay the allocator fill: a\nmutation primitive (string-set!, string-copy!, string-fill!) that\nrebuilds and frees a string's backing buffer when the new content's\nUTF-8 byte width changes, and a \"double-alloc\" builder pattern where\na primitive fills a scratch buffer and immediately hands it to\ngc.allocString/allocBytevector, which copies it again. Convert both\nshapes wherever the buffer size is proportional to the string or\nbytevector being built, across string, make-string, list->string,\nstring-set!, string-copy!, string-fill!, string->list's >4096\ncodepoint fallback, string->vector, the SRFI-13 join/concatenate/pad/\nreverse/replace family, and the bytevector constructor, append, and\nread-bytevector paths.\n\n* Bypass the ReleaseSafe allocator fill for vector builders\n\nSame double-alloc builder pattern as the string/bytevector\nprimitives: list->vector, vector-append, vector->string,\nvector-reverse-copy, vector-unfold(-right), vector-concatenate,\nvector-cumulate, vector-partition, reverse-list->vector, and\nvector-append-subvectors each fill a scratch buffer before handing\nit to gc.allocVector, which copies it again.\n\nThe ~14 call sites gated behind \"only allocate past a 256-element\nstack buffer\" (vector-count, vector-any, vector-every, etc.) are\ndeliberately left alone: converting them is safe but their hot path\nnever touches the allocator, so there's no measurable benefit.\n\n* Document the allocator-fill finding and measured results\n\nExtend performance.md's \"when the profile bottoms out in memset\"\nsection with the second, distinct fill source this issue found\n(allocator convenience methods, not stack declarations) and why the\nexisting declaration-scope fix doesn't apply to it. Add a\nlessons-learned.md #11 entry with the measured benchmark deltas.",
-          "timestamp": "2026-07-29T08:29:49+05:30",
-          "tree_id": "10559fc909ec86234fb8833288f98d8fdb7a382b",
-          "url": "https://github.com/kaappi/kaappi/commit/55e1bf32cd510d33f21db3c28dac84b5c3b25ca0"
-        },
-        "date": 1785296389432,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.358271,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.066969,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.58685,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.986204,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00469,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047266,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315617,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057174,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.657842,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.258564,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.613749,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283593,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.831632,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.61627,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043424,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044684,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f429bdf22e32ce032d3c51142e1c286745b8e57f",
+          "message": "Tick the twelve merged units; record two footguns and retire a stale reason (#2106)\n\nPhases 0, 1, 2 and 3 are complete — 38 of 53. The twelve units ticked here\n(3.4-3.10, 4A, 6A, 6B, 6C, 7A) were all told not to edit the tracker, since\nevery batch before them lost time to conflicts on this one file, so their\nentries are written here from their reports plus my own re-verification.\n\nWhere the two disagree, the entry says so. Three cases worth naming:\n\n- 3.6's #2055 and #2057 are reference-implementation defects chibi\n  reproduces identically, not Kaappi porting errors. That changes whether\n  fixing them is even desirable, so the entry records it.\n- 3.7's \"15 of 17 keywords\" is load-bearing: a spot-check using `if` and\n  `let` reproduces nothing and matches chibi, because those are among the\n  two unaffected.\n- 3.10 was handed two premises and both were false — the slow/ files run in\n  0.4s, and SRFI 150's failures are neither #1832 nor stale annotations.\n\nTwo new footguns, both paid for today:\n\n- Never assert that a bug is still PRESENT. Three such pins were written\n  after real bugs were found, and all three failed on a platform other than\n  their author's, because the symptom depends on the allocator. #2027's\n  reached main and left it red on five legs.\n- A rebase followed quickly by a merge can land on stale green: the checks\n  you read may belong to the previous push.\n\nAnd step 7's rationale is corrected rather than deleted. Preferring\n`;; FAIL:` markers over `test-expect-fail` is still right — an expected-fail\ncase that never returns wedges the suite — but it cited the F13 divergence,\nwhich 6B showed was never about `test-expect-fail` at all.",
+          "timestamp": "2026-08-01T22:55:26+05:30",
+          "tree_id": "bab2ee004b276761c8ea03659b27306c0a2ea0a1",
+          "url": "https://github.com/kaappi/kaappi/commit/f429bdf22e32ce032d3c51142e1c286745b8e57f"
+        },
+        "date": 1785609705880,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.421561,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.399748,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.472121,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.432565,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004785,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.040303,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.254047,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.047138,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.388259,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.023744,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.348202,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27333,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.484838,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.864355,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037487,
             "unit": "seconds"
           }
         ]
