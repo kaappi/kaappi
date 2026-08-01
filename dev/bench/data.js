@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785601101634,
+  "lastUpdate": 1785601123027,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8ada9e7f3ccc4edf5005d9cc894d50fb7478ed9c",
-          "message": "Reclaim per-iteration alloca stack growth in native loops (#1808) (#1813)\n\nLLVM's alloca frees its stack space only at function return, never at\n\"next loop iteration\" — but the native backend compiles self-tail-call\nloops and do-loops as backward branches within a single function, and\nseveral paths (emitRootPush's shadow-stack slots, the generic n-ary\ncall path's argument-array alloca, let/do-bound variable slots) emit\nalloca instructions inside that repeatable loop body. Every pass adds\nmore stack that's never reclaimed, so a long-running loop eventually\noverflows the OS thread stack — independent of whether bignums are\ninvolved, despite the issue's reproducer happening to cross into\nbignum range partway through (confirmed by reproducing the identical\ncrash with a pure-fixnum loop and with a plain do-loop).\n\nBracket each native loop's body with llvm.stacksave/llvm.stackrestore:\ncaptured once at the loop header, restored right before the back-edge,\nreclaiming that pass's allocas without needing to rewrite every\nindividual alloca-emitting call site.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T14:51:58+05:30",
-          "tree_id": "b10447aa537f95a8ac9ce0892780e742c52c5889",
-          "url": "https://github.com/kaappi/kaappi/commit/8ada9e7f3ccc4edf5005d9cc894d50fb7478ed9c"
-        },
-        "date": 1785233091608,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.980724,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.821688,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.913838,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.402091,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006651,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052532,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.506253,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06837,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.397947,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.945088,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.518912,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.474984,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.707082,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.776107,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044327,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044827,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b5c4e21be3a1f4aba2816a19ef925b2db2b02f6",
+          "message": "Phase 2.8: hash-table audit — 201 assertions, and equal? tables lose any key deeper than 8 (#2031)\n\nThe 268-line audit test asked its hash/equality-consistency questions only\nat depth <= 2, so a green suite never noticed that `valueHashDepth` stops\nrecursing at MAX_HASH_DEPTH = 8 and returns the *pointer* of whatever sits\nat the cutoff. A nine-cons-cell key is enough: 200 of 200 freshly-built\ntwelve-element keys are unfindable, while the eight-element control misses\nnone. Closed #1180 named this exact residue in its own suggested fix and\nshipped only the bignum/rational half.\n\nTwo more, both new: a custom hash procedure that inserts into its own table\nmakes `rehash` keep iterating an entry array the nested rehash already\nfreed, aborting the process with empty stdout *and* stderr; and all four\nhash procedures mask to 62 bits and then hand the result to a 48-bit\n`makeFixnum`, so about half of them come back negative.\n\nEvery assertion now carries a name string, and the file states two standing\nportability rules for itself: never assert a hash value derived from a\npointer or from `usize`, and never assert iteration order.\n\nAll 8 callback sites were probed under mutation, raise, re-entry and\nblocking. Only the custom-hash site is unsafe. walk and fold are correct on\nevery route tried, and the path needs no blocking guard — a channel call\n6000 native frames deep inside a walk callback works, where the custom-port\npath aborts at 3000.\n\nIssues: #2023, #2024, #2025. D2 taxonomy for this file is already #2021.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T18:05:41+05:30",
+          "tree_id": "aae5667abea94253644f4bc9d78b6cbffeee55c0",
+          "url": "https://github.com/kaappi/kaappi/commit/6b5c4e21be3a1f4aba2816a19ef925b2db2b02f6"
+        },
+        "date": 1785601121553,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.038887,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.67648,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.441208,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.175095,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004384,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03764,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.227322,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.043156,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.132385,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.931104,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.210737,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.231549,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.319837,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.733514,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035748,
             "unit": "seconds"
           }
         ]
