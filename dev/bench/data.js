@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785589573089,
+  "lastUpdate": 1785591667482,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d04dc522591d8e94e17690febd578f048178e4eb",
-          "message": "Iterate head-position macro chains instead of recursing (#1796) (#1797)\n\n* Iterate head-position macro chains instead of recursing (#1796)\n\nAn expansion that is directly another macro use in the same position —\nSRFI 148's CK-machine steps, or a degenerate (loop) → (loop) — used to\ncompile by native recursion, one compileForm → expandAndCompileMacroUse\n→ compileExpr cycle per link, which made MAX_MACRO_EXPANSION_DEPTH an\nimplicit native-stack guard. Raising it to 4096 (what SRFI 148 seemed\nto need) overflowed the stack; the segfault fired inside the Debug test\nallocator's own stack capture while it held the std.debug SelfInfo\nlock, and the segfault handler then deadlocked on that same lock —\nthe unit suite's eternal 0%-CPU \"hang\". The pre-scan hypothesis from\nthe issue was refuted by profiling: collectSetTargets' own caps are\nindependent of this constant.\n\nexpandAndCompileMacroUse now loops over head-position chain links at\nO(1) native stack, bounded by MAX_MACRO_EXPANSION_STEPS (10,000);\nMAX_MACRO_EXPANSION_DEPTH stays 256 and guards only genuinely nested\nexpansions, which are what actually recurses natively. Per-link\nbookkeeping (temp-globals hygiene dance, injected captured-local\naliases, let-syntax peer swaps, lint suppression) accumulates in\nheap-side undo stacks and unwinds LIFO after the final form compiles,\npreserving the exact lifetimes the nested frames provided — an early\nlink's template identifiers can survive into the final form. Chain\nlinks are rooted via extra_roots; the fixed 1024-slot root stack was a\nsecond latent cliff at one pushRoot per nested level.\n\nDeep chains now just work at the shipped constant: em-member and\nem-set-union from the drafted SRFI 148 port run correctly at 256,\nremoving #1699's final blocker without touching the constant. Runaway\nchains still fail with the same deterministic KP2003, via the step\nlimit.\n\nFixes #1796.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: flat per-link cost, emit-failure propagation, temp-globals test\n\n- Rebuild the chain's merged macro view only after a link that actually\n  performed a let-syntax peer swap: nothing else can change any macro\n  table between links (no compilation runs inside the loop), and the\n  unconditional per-link rebuild made a runaway chain's failure path\n  O(links x macros in scope) now that links are bounded by the\n  10,000-step budget instead of 256 nesting levels.\n- Propagate failures in the global-alias emit sequence instead of\n  swallowing them: emitOp(.get_global) succeeding and a later emitU16\n  failing left a truncated instruction in the chunk for the VM to\n  decode as garbage. Register exhaustion stays non-fatal (skips the\n  injection), as before.\n- The divergent-chain test now also asserts the temp-globals dance's\n  chain-wide undo: kick's template references a non-procedure global\n  that expansion temporarily marks VOID (#1208), and the failed compile\n  must restore its value.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T21:06:58Z",
-          "tree_id": "a804da82f3586fbe6324008264aecdebaf18be66",
-          "url": "https://github.com/kaappi/kaappi/commit/d04dc522591d8e94e17690febd578f048178e4eb"
-        },
-        "date": 1785188877188,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.308292,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.089748,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.925309,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.452204,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006671,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052892,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512063,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068454,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.38422,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.076868,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.531838,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.473256,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.8625,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.760718,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046137,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04535,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fad68505ef5ff7553608a2c119340300f3542d93",
+          "message": "Phase 2.9: control-flow audit — 171 assertions, and a wrong-arity exception handler runs anyway with a leftover register as its third argument (#2039)\n\n* Phase 2.9: control-flow audit — 35 → 171 assertions\n\nprimitives_control.zig had 35 unnamed assertions from the v1 campaign and\nnothing at all for the mechanism that postdates it: SRFI 248's sticky\nexception handlers. This restates the old assertions with names and adds\nthe dimensions v1 did not have — the sticky-handler interactions with\ndynamic-wind, nested guard and resume; D1 (internal-primitive\nreachability); D2 (KP codes); D5 (which native callback sites can park a\nfiber).\n\nThe oracles are documents, as the campaign prefers: R7RS §4.2.7's two\nguard examples, §6.11's two worked examples, and all three of §6.10's\ndynamic-wind ordering rules are now pinned verbatim, with the two\nre-entry rules cross-checked against chibi-scheme.\n\nSix issues filed, none fixed here:\n\n  #2034  callHandler/callThunk skip the arity check, so a wrong-arity\n         exception handler, with-exception-handler thunk, call-with-values\n         producer or call/cc/call/ec receiver runs anyway, with surplus\n         parameters bound to leftover register contents\n  #2033  a top-level redefinition of call/cc, apply, eval or\n         call-with-values is ignored in tail position only\n  #2035  819 nested dynamic-wind extents abort with KP9001 \"internal\n         error\", and the failure is catchable\n  #2036  three diverging diagnostic paths in the control primitives\n  #2037  %unwind-to-escape is missing from internal_helpers\n  #2038  doc-truth: README and CONFORMANCE claim SRFI 248 has exactly\n         two caveats\n\n15 assertions are disabled with ;; FAIL: markers naming those issues, each\nsitting next to the enabled control that discriminates it — the\ndynamic-wind arity checks beside #2034, non-tail call/cc beside #2036,\nlocal shadowing beside #2033.\n\nGreen in ReleaseSafe, Debug, and -Dgc-stress=true.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.9 in the audit tracker\n\nCites PR #2039 and the six issues it filed. The Status count line is\nleft to the orchestrator.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T14:18:33+05:30",
+          "tree_id": "ecd40955e73b780518d2175ea8855fc0bd670e5f",
+          "url": "https://github.com/kaappi/kaappi/commit/fad68505ef5ff7553608a2c119340300f3542d93"
+        },
+        "date": 1785591666234,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355716,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.594232,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.606951,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.997794,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004737,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04833,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315134,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057245,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.702092,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216488,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.582252,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287607,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815795,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.544461,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045507,
             "unit": "seconds"
           }
         ]
