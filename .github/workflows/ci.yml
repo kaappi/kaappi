@@ -865,7 +865,9 @@ jobs:
   wasm:
     needs: format
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20, not 10: this job now also builds the native binary and runs the
+    # cross-tier differential over the shared corpus (~60s locally).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -897,6 +899,18 @@ jobs:
 
       - name: Platform gate diagnostics (kaappi#1972)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/platform-gates.scm
+
+      # The four steps above are hand-written WASM-only programs that assert
+      # their own results. The differential below instead runs the SHARED
+      # corpus on both tiers and requires the WASM output to match the
+      # interpreter's byte-for-byte, which is what catches a WASM build that
+      # runs but answers differently (audit v2, Phase 4D). Needs the native
+      # binary as the oracle, hence the extra build.
+      - name: Build native oracle
+        run: zig build
+
+      - name: WASM cross-tier differential (audit v2, Phase 4D)
+        run: bash tests/scheme/differential/run-wasm-differential.sh
 
   coverage:
     needs: test

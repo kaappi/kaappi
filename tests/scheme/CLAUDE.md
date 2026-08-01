@@ -23,7 +23,7 @@
 | `timings/` | `--timings` stage reporting | yes |
 | `completions/` | `--completions` scripts vs. the flag table (`docs/dev/cli-surface.md`) | yes |
 | `lsp/` | `kaappi-lsp` end-to-end JSON-RPC session over stdio | yes |
-| `differential/` | Execution-tier differential harness (`--no-ir-opt`, cold-vs-warm cache) + its `probes/` | yes |
+| `differential/` | Execution-tier differential harnesses (`--no-ir-opt`, cold-vs-warm cache; WASM-vs-interpreter) + its `probes/` | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
 | `robustness/` | Stress tests | no (CI runs it separately) |
 | `sandbox/` | Sandbox isolation tests | no (CI runs it separately) |
