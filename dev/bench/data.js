@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785609292876,
+  "lastUpdate": 1785609582982,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d9c38fefd0443641edb311d0cb49f05af9354c6",
-          "message": "Split src/types.zig into 11 domain files, fixing #1731 (#1827)\n\ntypes.zig had grown to 1871 lines (already 1605 before #1730, both over\nthe 1500-line policy), one heap-type addition at a time across 105\ncommits. Splits struct/enum definitions by domain (types_ffi.zig,\ntypes_port.zig, types_continuation.zig, ...) while types.zig re-exports\nevery name (`pub const Foo = types_x.Foo;`), so the dozens of existing\n`types.Foo` call sites across primitives_*.zig, vm*.zig, gc_collect.zig,\ngc_deep_copy.zig, and printer.zig need no changes. Object.expectedTag()'s\nswitch is also untouched — it already referenced bare names, which now\nresolve through the re-export aliases.\n\ntypes.zig drops to ~1200 lines; each new file is 35-190 lines. Verified\nwith zig build, zig build test, the full Scheme suite (2008 pass), and\nzig build test -Dgc-stress=true, per the issue's own re-verification\nchecklist for the GC mark/sweep switches.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T21:12:31Z",
-          "tree_id": "311a2f08ec9f5cbf0f3e0bd9c60a43262728ebfe",
-          "url": "https://github.com/kaappi/kaappi/commit/5d9c38fefd0443641edb311d0cb49f05af9354c6"
-        },
-        "date": 1785275449153,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.774613,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.015899,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.543421,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.667183,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006797,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044669,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.286428,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054396,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.679593,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.085522,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.489511,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.404505,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.637716,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.939072,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040679,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034744,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c1a56beb44ed9e46d514b0e207b7de098cec218",
+          "message": "Stop pinning #2027's presence — whether a freed alias still works is luck (#2105)\n\n`(not (procedure? r))` asserted that the bug is still THERE: that a\nchild-created FFI handle, aliased across heaps and freed under the receiver,\narrives unusable. Whether a freed pointer still behaves like a live one is\nan accident of the allocator, not a property of the code. It held on macOS\nand failed on freebsd-test, where the handle arrives callable.\n\nThis is the third bug-presence pin in this campaign to fail on a platform\nother than the author's:\n\n  #2023  held on ReleaseSafe, failed on the Debug leg (94/200 deep keys\n         found under Debug vs 6/200 under ReleaseSafe)\n  #2027  this one — macOS vs freebsd\n  and both were written because a real bug was found and pinning it seemed\n  like the responsible thing to do.\n\nThe assertion directly above it is the stable half, and is the one the\nmatrix actually needs: ffi_function is in the ALIASED class, not the\nREFUSED class, and \"the join does not refuse it\" IS that classification.\nWhen #2027 is fixed that assertion flips, because a correct implementation\nmust refuse or copy rather than alias — so the row keeps a tripwire without\ndepending on how a freed pointer happens to behave.\n\n122 -> 121 assertions.\n\nNote on how this reached main: #2030 merged at 14:41 on checks that were\ngreen for an earlier push; the rebase-triggered run finished at 15:03-15:45\nand failed on five platform legs. Worth knowing that a rebase-and-merge in\nquick succession can merge on stale green.",
+          "timestamp": "2026-08-01T22:09:09+05:30",
+          "tree_id": "a04b10f334f375738c5ddf6573855f77de14848c",
+          "url": "https://github.com/kaappi/kaappi/commit/3c1a56beb44ed9e46d514b0e207b7de098cec218"
+        },
+        "date": 1785609580580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.271602,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.018506,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.608864,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.988776,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004984,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046133,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312628,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057541,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.799071,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231056,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.593496,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.294442,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.812014,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.665437,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044684,
             "unit": "seconds"
           }
         ]
