@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785609707367,
+  "lastUpdate": 1785611549064,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "26334d245d9316529485ceed693cf50be343dfdd",
-          "message": "Fix syntax-rules wholesale re-collection of sibling ellipsis variable, fixing #1721 (#1833)\n\nA template like `(list (list formal (list binding ...)) ...)` where\n`formal` and `binding` come from independent pattern groups\n`(_ (formal ...) (binding ...))` failed with EllipsisCountMismatch when\nthe groups had different lengths, and silently consumed `binding`\nper-iteration (instead of replicating it wholesale) when lengths matched.\n\nRoot cause: `templateReferencesVar` recurses into ALL sub-expressions\nincluding inner `(x ...)` sub-templates, so it wrongly marked inner-only\nbindings as driving the outer repeat count.\n\nFix: two-pass repeat-count determination. Pass 1 finds \"direct\" drivers\nvia `templateReferencesVarDirectly` (which skips sub-expressions consumed\nby inner ellipses) and deep (depth > 1) bindings. Pass 2 classifies\nremaining indirect-only bindings using `sharesInnerEllipsisWithDriver`:\nif a binding shares an inner `(elem ...)` sub-template with a Pass-1\ndriver, it belongs to the same pattern group and is consumed per-iteration\n(SRFI 149 excess-ellipsis replication); otherwise it's from an independent\ngroup and is passed through wholesale with its full list state intact.\n\nAlso tightens `ellipsisReferencesOuter` to use the same direct-reference\ncriterion, so a binding appearing only inside an inner ellipsis of a\nnested syntax-rules doesn't wrongly claim the ellipsis for the outer macro.\n\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T10:50:36+05:30",
-          "tree_id": "a5dc876a82b46de62a3b54c4c53d26e0775ec50e",
-          "url": "https://github.com/kaappi/kaappi/commit/26334d245d9316529485ceed693cf50be343dfdd"
-        },
-        "date": 1785304857018,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.344853,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.543324,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.612053,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.000421,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004796,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046801,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.316304,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057665,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.665755,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23366,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.59588,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286026,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.831379,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.623996,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043457,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037487,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58a05751c562c5dfe7b3e5542f5a36b2c935c762",
+          "message": "Re-derive the bytecode and IR docs from source, and gate the counts at comptime (#2104)\n\n* Re-derive the bytecode and IR docs from source, and gate the counts at comptime\n\nBoth documents described an earlier design confidently enough that a careful\nreader would not think to check, and both document exactly the kind of detail\ntaken on faith: counts, operand widths, struct fields.\n\nbytecode.md said 29 opcodes (31), and called register operands u8 when the\ndispatch loop reads u16 for every one of them — so every byte count in its\ntable was wrong, and a reader computing instruction widths from it produced a\nstream validateCode rejects. Closure capture descriptors are 3 bytes\n(is_local:u8 + index:u16), not 2. The table is now re-derived from the OpCode\nenum and the fixed_operand_bytes switch, and the disassembly example is real\noutput rather than a hand-computed one (its offsets had the old widths baked\nin, it showed a \"; Bytecode (N bytes):\" header the disassembler never emits,\nand offsets are decimal, not hex).\n\nir.md said 33 node tags. NodeTag has 18: the doc predates the collapse of\ncond/case/guard/... into the single sexpr_form tag with its 18 FormKinds,\nwhich is the one thing a reader most needs from it — how lowered the IR\nalready is. Three documented Annotations fields, and the two analysis passes\nthat set them, do not exist; identifyPrimitives and markConstants were removed\nin v0.13.0 and markTailPositions is the only pass left. The standalone Emitter\nand its bytecode-parity tests went with them.\n\nThree findings the issue did not list, all the same defect:\n\n- architecture.md carried a second, undeclared copy of the opcode table\n  describing three opcodes that do not exist (get_local, set_local,\n  close_upvalue) while omitting three that do (self_tail_call, tail_call_cc,\n  tail_eval) — a wrong table whose row count happened to stay right at 31, so\n  counting it would not have caught it. Removed rather than corrected:\n  bytecode.md is the declared single source of truth, and duplicating it is\n  how this drifted.\n- adding-features.md instructed the reader to add a NodeTag variant, a Data\n  union variant, and switch arms in identifyPrimitives and markConstants —\n  the pre-sexpr_form procedure, contradicting .claude/rules/compiler-forms.md.\n  A reader following it would not have compiled.\n- The OpCode enum's own inline comments claimed u8 operands too, so the\n  source read as wrong as the doc.\n\nThe counts are now pinned at comptime, in the diagnostics.zig style: changing\nOpCode, NodeTag or FormKind fails the build with a message naming the files to\nupdate. Each gate was mutation-tested. This would have caught all of it —\nexcept architecture.md's table, which is why that one is gone instead.\n\nAlso swept README.md, CLAUDE.md, docs/dev/README.md, understanding-map.md,\nclaude-code-harness.md and the /bytecode-isa skill, which stated the same\ncounts a third and fourth way (the skill said 32 — doc 29, skill 32, enum 31).\nCHANGELOG entries are left alone as historical record.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Close the review's two stale sites, and four more the gate lists missed\n\nReview of #2104 found docs/dev/README.md:74 still saying 32 opcodes and\n.coderabbit.yaml:76 still saying 33 node types / 3 analysis passes. Both\nconfirmed against source. An exhaustive sweep across every file type — not\njust *.md and *.zig, which is what missed .coderabbit.yaml in the first place —\nshows these were the only two left.\n\nThe diagnosis was the useful part: docs/dev/README.md is named in the NodeTag\ngate's file list and absent from OpCode's, and correspondingly its node-type\nrow got fixed while its opcode row did not. The gap in the list and the miss\nare the same gap.\n\nChecking the rest of the lists against the sweep, they had four more gaps the\nreview did not reach: OpCode omitted docs/dev/claude-code-harness.md as well,\nand FormKind named only docs/dev/ir.md while CLAUDE.md and\ndocs/dev/architecture.md both state \"18 FormKinds\". Six gaps in three\nhand-written lists is the point: a list of filenames inside an error message\nis its own drift surface, which is the bug class the gate exists for. So each\nmessage now carries a search as well as the list, and says the list is the\nknown set rather than a guarantee.\n\nThe search greps the *noun*, not the number. Grepping the number does not\nwork in either direction: \"31-opcode\" and \"31 opcodes\" need different\npatterns — that separator variance is what hid README.md:74 from the original\nsweep — and a bare \"18\" collides with every SRFI number, 43 hits for \"31\"\nalone. Each search was verified to be a superset of its known sites.\n\n.coderabbit.yaml is the worst of the two stale copies, as the review argued:\nit is configuration for the automated reviewer, so it would carry the\ncorrected-away model into future PRs. Its instruction also contradicted its\nown sibling block for src/compiler*.zig, which already described the FormKind\npath correctly. Fixed less bluntly than suggested, though — the NodeTag /\nData union / freeNode list it carries is still correct for a genuinely\nstructured node, so it is kept and labelled as that path rather than deleted,\nwith the FormKind path named as the normal one.\n\nEvery count claim in the repo now matches the source. Gates re-mutation-tested.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T23:08:18+05:30",
+          "tree_id": "d401a9e2c8f3a5687694a264dedd4b98d208fd33",
+          "url": "https://github.com/kaappi/kaappi/commit/58a05751c562c5dfe7b3e5542f5a36b2c935c762"
+        },
+        "date": 1785611547693,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.937205,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.752373,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561085,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.946049,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004852,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044717,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.300907,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054764,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.295967,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.156094,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.514663,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.299873,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.686475,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.636992,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04503,
             "unit": "seconds"
           }
         ]
