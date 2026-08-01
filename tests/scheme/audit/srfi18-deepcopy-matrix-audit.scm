@@ -530,8 +530,13 @@
   (eval '(make-ephemeron (list 1) (list 2))
         (environment '(scheme base) '(srfi 254))))
 
+(define (make-grd)
+  (eval '(make-guardian) (environment '(scheme base) '(srfi 254))))
+
 (test-assert "IN ephemeron: refused child-side (wrapped)" (refuses-in? make-eph))
 (test-assert "OUT ephemeron: refused at the join (direct)" (refuses-out? make-eph))
+(test-assert "IN guardian: refused child-side (wrapped)" (refuses-in? make-grd))
+(test-assert "OUT guardian: refused at the join (direct)" (refuses-out? make-grd))
 
 ;; SRFI 170 record types. user-info/group-info raise "unsupported" on
 ;; Windows and open-directory is degraded there, so each constructor is
