@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785615951943,
+  "lastUpdate": 1785616404771,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6e9043b3f3e2faf8f03b8a0e14507943faaf4374",
-          "message": "Hygiene-rename free-global macro references to avoid arg collisions (#1839)\n\nexpandAndCompileMacroUse implemented R7RS 4.3.1 referential\ntransparency for a template's free reference to a global that already\nexisted at the macro's definition time by temporarily marking that\nglobal VOID, signaling renameForHygiene to leave the reference\nunrenamed so an injected register alias could pierce use-site\nshadowing under that bare name.\n\nA bare, unrenamed reference is indistinguishable from any other\nidentifier of the same spelling introduced elsewhere in the same\nexpansion -- including a pattern-variable argument the caller supplied\nwith that exact spelling. `(def a)`, where `def`'s own template\nfree-referenced a pre-existing global `a` while also taking `a` as an\nargument, collapsed both to the same bare symbol: `(let ((a 5)) (def2\na))` returned `(999 999)` instead of `(999 5)`, and a set!-based\nvariant could overwrite an unrelated use-site local instead of leaving\nit untouched.\n\nThe reference is now hygiene-renamed like any other\ntemplate-introduced identifier (mirroring what a set!-target prescan\nalready did, and how injectHygienicCapturedLocals already handles the\nanalogous captured-local case from #1288), and its\nreferential-transparency alias is injected under that renamed name --\nfound by walking the expansion, in injectHygienicGlobalAliases --\ninstead of the bare one. compileSet's write-through (both the legacy\nand IR compile paths) now targets the real global name via a new\nLocal.alias_global_name field rather than assuming the alias local's\nown name matches it.\n\nFixes #1832\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T15:02:17+05:30",
-          "tree_id": "eef0e2eb41b2a93876a602c273fad9e0674b6ee6",
-          "url": "https://github.com/kaappi/kaappi/commit/6e9043b3f3e2faf8f03b8a0e14507943faaf4374"
-        },
-        "date": 1785319783802,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.839922,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.03053,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.548895,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.743858,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00494,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04479,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.28397,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053472,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.766567,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.11009,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.485242,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.263151,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.665809,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.921716,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04088,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044467,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c2e8a2c1c714397140c0755a6d33244fe53380",
+          "message": "Phase 5E: de-flake the timing tests — five racing blocks in srfi120.scm, and a regression test that could not fail (#2120)\n\n* Phase 5E: de-flake the timing tests — five racing blocks in srfi120.scm, and a regression test that could not fail\n\nThe audit's timing unit. Every fix here removes a place where a test raced a\ndeadline it had chosen itself, or could not report a failure at all.\n\nsrfi120.scm is the flakiest file in the tree: red on windows-x64-test, then\ntwice in one day on netbsd-test (#2076, #2093) with different assertions each\ntime, on two structurally unrelated PRs. Five blocks were racing, not the two\nCI happened to catch. Reproduced deterministically by injecting a delay where\nan emulated leg is slow, rather than by hoping an idle laptop goes red:\n\n  timer-task-remove!  300 ms margin — exists?/remove! must beat the deadline\n  timer-reschedule!  1000 ms margin — already adequate, left alone, now pinned\n  period-0 reschedule  40 ms period — queued ticks answer the next receive\n  timer-cancel!        30 ms period — likewise; this is #2093's failure\n  no error-handler     30 ms margin — this is #2076's KP3000 at :156\n\nThe last two are fixed structurally rather than by widening a number. The\ncancel block now uses two one-shots, so there is nothing to queue. The\nno-handler block schedules the erroring task LAST, so nothing calls into the\ntimer after it may stop — the ordering removes the deadline instead of\noutrunning it. The other three get margins of several thousand times the work\nthat must fit inside them, and every negative wait now outlasts the deadline it\ndisproves, so widening did not weaken detection. Three rules are written into\nthe file header so the next edit does not reintroduce them.\n\nsrfi120-slow-setup.scm is new and is the evidence: it mirrors each block with\nthe delay injected. Against the old shapes 6 of its 10 assertions fail —\nincluding \"no further firings after a delayed cancellation\" and \"scheduling the\nerroring task last never raises\", i.e. both netbsd failures by name. Against the\nnew shapes, 12/12 pass.\n\nthread-sleep-876.scm had no exit path: it displayed the answer and exited 0.\nSubstituting (thread-sleep! 0) — the exact #876 regression — printed #f and\nstill passed. Now SRFI-64 with the exit-on-fail epilogue, and mutation-tested:\nthe substitution fails both assertions and exits 1. It is one of 54 such files;\nthe rest are #2116.\n\nfiber-sleep-does-not-stall-sibling.scm asserted the fast fiber finishes within\n150 ms of the start — an upper bound on how slow the machine may be. It now\ncompares two measured timestamps (fast-done-at < sleeper-woke-at), which is the\nproperty under test and carries no wall-clock bound. Mutation-tested: a sleeper\nthat busy-waits instead of parking fails it.\n\nsrfi18-cross-heap-abandoned-mutex.scm slept 100 ms to \"let it acquire mt\". It\nnow polls the mutex's own state, so it synchronises on the event; if the child\nnever gets there the retry budget reports it instead of testing the wrong thing.\n\nRefs #1870, #2116.\n\n* Address review: require a real owner in the mutex poll, and import (scheme process-context) explicitly\n\nCodeRabbit raised three points on #2120.\n\nDeclined one: converting srfi18-cross-heap-abandoned-mutex.scm to SRFI-64 is a\nrepo-wide style migration of a pre-existing manual-counter file, and that file\ndoes have a working exit path.\n\nDeclined the substance of a second while taking its intent. The suggestion was\nto have wait-until-held! return #t only when (mutex-state m) is eq? to the child\nthread. That would never be true: mutex-state answers with the child's own\nFIBER, not the thread make-thread returned, so the poll would spin to its retry\nbudget and the test would fail. Filed as #2125 with the probe. The underlying\nconcern — that \"not 'not-abandoned\" also accepts 'abandoned, i.e. a child that\ndied on the way — is real, so the predicate now requires an owner object and\nexcludes both unowned symbols.\n\nTook the third: (exit …) is R7RS's (scheme process-context), and although\nkaappi happens to provide it from (scheme base) alone, the documented template\nin tests/scheme/CLAUDE.md imports it. Added to both new/rewritten SRFI-64 files.\n\nRefs #2125.",
+          "timestamp": "2026-08-02T00:48:26+05:30",
+          "tree_id": "aa452e4d817b6da85e141f14c30bc6c3d1a9a2f6",
+          "url": "https://github.com/kaappi/kaappi/commit/a6c2e8a2c1c714397140c0755a6d33244fe53380"
+        },
+        "date": 1785616402868,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.280897,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.273057,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576622,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.767128,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004756,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046171,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311138,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057417,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.751656,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.229463,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.563158,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277047,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.808897,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.621009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045756,
             "unit": "seconds"
           }
         ]
