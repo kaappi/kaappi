@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785622563646,
+  "lastUpdate": 1785623234341,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "425c5d8f348b203cf2458401e22b31f68a7466a1",
-          "message": "Cover macro-generated top-level define read-back, fixing #1829 (#1842)\n\nAn em-syntax-rules macro whose expansion defined a fresh top-level\nbinding and read it back in the same generated `begin` got a previous\nexpansion's same-spelled binding instead of its own. The issue was filed\nbefore #1839 landed and is already fixed by it -- A/B confirmed against\n07adabaf (fails) and 70450499 (passes) -- but nothing in the suite\ncovered the shape, so a future change to the free-global alias mechanism\ncould silently reintroduce it.\n\nThe issue's own hypothesis (a global inline cache keyed more coarsely\nthan binding identity) was not the cause. Because the CK machine builds\nits output as plain data, a macro-generated top-level define lands under\nits BARE name -- unlike a syntax-rules template, whose introduced define\nis hygienically renamed. That makes the bare name a real global, so the\nnext expansion's own reference to it is a free reference to an\nalready-bound non-procedure global, which the pre-#1839 code left\nunrenamed so an injected alias could pierce use-site shadowing (R7RS\n4.3.1). The bare reference was then indistinguishable from the parent's\nown symbol threaded back in by the `=>` query: the collision of #1832,\nreached through a generated define rather than a pattern variable.\n\nThe test asserts both the reported four-use sequence and a tighter case\nfound while isolating it -- pre-binding the storage name makes the\npre-fix build fail on the very FIRST parent-having use rather than the\nfourth. Read-backs are recorded through a procedure, which the alias\nmechanism excludes, so the recorder cannot perturb what it measures.\nBoth assertions were verified to fail pre-fix and pass post-fix.\n\nCLAUDE.md and lib/srfi/150.sld both described #1829 as a live bug;\nthey now record it as fixed with the real mechanism. #1828, re-checked\nand still reproducing, is untouched by that fix and on its own still\nrules out the query-macro approach SRFI 150 rejected, so no design note\nbelow it changes.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T17:29:30+05:30",
-          "tree_id": "fb8c8b038244ccdcb15a3f20b1e533267105aaef",
-          "url": "https://github.com/kaappi/kaappi/commit/425c5d8f348b203cf2458401e22b31f68a7466a1"
-        },
-        "date": 1785328451325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.004731,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.456413,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566613,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.834439,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004893,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04518,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302746,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054359,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.371465,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.182313,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.51821,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302276,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.717729,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.739912,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044865,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043854,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46e637039e30eba5c1a12562ff2131b7207b237c",
+          "message": "Retire the SRFI 120 corruption claim, and pin why it cannot come back (#2140)\n\nThe most alarming statement in the tree was that a second thread calling\ninto a timer produced nondeterministic memory corruption, \"not\nroot-caused\". It does not reproduce -- not on ReleaseSafe and not under\n-Dgc-stress=true, which stamps freed headers and quarantines freed slots\nso a dangling value panics deterministically rather than corrupting by\nluck. A claim retired without a test is a claim that comes back, so the\nrewrite ships with 18 assertions pinning every way a <timer> can reach\nanother thread and which guard refuses it.\n\nThe earlier re-check reached the right verdict for a partly wrong reason,\nand that mattered: it credited gc_deep_copy's .fiber rejection with\nclosing both entry paths. A value reached through a top-level binding is\nnever deep-copied, so that list has no bearing on it at all -- what\nrefuses there is the control channel's Object.owner check. Two\nindependent guards, and a change to either one alone would have left a\nhole nobody was watching.\n\nThree further entry paths that neither earlier check enumerated turn out\nto be refused too, and are pinned as well: a timer sent as a channel\nmessage payload, a task thunk closing over a second timer (timer-schedule!\nships the thunk over the control channel, so that is a copy boundary with\nno thread-start! in sight), and a timer reached through a top-level\ncontainer rather than a binding of its own.\n\nTwo other header claims were measured and were wrong. A thunk calling back\ninto its own timer was documented as deadlocking; it cannot -- it has no\nway to name the timer at all, and both spellings fail immediately with a\ncatchable error. And the reason given for not fixing that gap cited the\ncorruption claim being retired here, so it no longer applies.\n\nWhat did turn up is a real crash, filed as #2129 and not fixed here:\nthread-join! frees the joined thread's GC/VM while a thread it spawned is\nstill in its startup prologue. make-timer inside a SRFI-18 thread returns\nat exactly that moment, so it dies 24/30 runs. That is an engine bug --\nreproducible with no timers involved -- and the header now says so\ninstead of gesturing at unlocated corruption.\n\nRefs #1890, #2129.",
+          "timestamp": "2026-08-02T02:18:05+05:30",
+          "tree_id": "44fda5edabc10dcec3e3b9ff7adf22963b647557",
+          "url": "https://github.com/kaappi/kaappi/commit/46e637039e30eba5c1a12562ff2131b7207b237c"
+        },
+        "date": 1785623232979,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.291694,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.451056,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590639,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.97412,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004765,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046436,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311242,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057596,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.741387,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.231008,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.567025,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286835,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799114,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.647719,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043816,
             "unit": "seconds"
           }
         ]
