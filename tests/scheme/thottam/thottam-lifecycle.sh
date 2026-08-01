@@ -39,6 +39,29 @@ if ! command -v git > /dev/null 2>&1; then
     exit 77
 fi
 
+# This suite's whole method is "point KAAPPI_ORG at local bare repositories",
+# which needs git to clone a plain filesystem path.  That holds on macOS and
+# Linux and does NOT hold on the three BSD CI legs, where thottam reports
+# `Failed to clone repository` for a fixture the setup created successfully
+# (kaappi#2150).  The cause is not yet known, so rather than assert a
+# precondition we cannot explain, probe it directly and skip when it does not
+# hold -- the same shape as skip_without_zig in shell-common.sh.
+#
+# Probing beats hardcoding a platform list: if the underlying issue is fixed,
+# or if it turns out to be a git-version rather than an OS boundary, this
+# starts running again on its own with no allowlist to maintain.
+_probe="$(mktemp -d)"
+if ! ( cd "$_probe" && git init -q bare-src > /dev/null 2>&1 \
+        && cd bare-src && git -c user.email=t@example.com -c user.name=Test \
+             commit -q --allow-empty -m probe > /dev/null 2>&1 \
+        && cd .. && git clone -q --bare bare-src probe.git > /dev/null 2>&1 \
+        && git clone -q -- "$_probe/probe.git" clone-out > /dev/null 2>&1 ); then
+    rm -rf "$_probe"
+    echo "SKIP: git cannot clone a local bare repository here (see kaappi#2150)"
+    exit 77
+fi
+rm -rf "$_probe"
+
 PASS=0
 FAIL=0
 
