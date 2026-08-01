@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785606225232,
+  "lastUpdate": 1785606303296,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8c1b1431649a2913c819a514ab9e8d80892d5824",
-          "message": "Surface the real cause behind cross-thread channel/thread failures (#1742) (#1820)\n\nThe cross-thread channel mechanism itself is correct: a channel only\ncrosses a thread boundary when lexically captured by the thread's thunk,\nand a top-level define (a shared, pointer-shared global) is rightly\nrejected rather than promoted. Two diagnostics bugs made that hard to\nsee, both traced in #1742's own investigation comment:\n\n1. thread-join! wraps a child's failure in a generic \"uncaught exception\n   in thread\" ErrorObject and stashes the real cause in its\n   uncaught_reason field -- a field the default top-level report never\n   looked at, so the one sentence that explains everything (e.g. \"channel\n   belongs to another thread; pass it through the thread thunk to share\n   it\") was reachable only via `(error-object-message\n   (uncaught-exception-reason e))` inside a guard.\n   VM.noteUncaughtException now unwraps uncaught_reason (bounded, for\n   nested thread-join! chains), gated strictly on error_type ==\n   .uncaught_exception so it never fires for the unrelated io_decoding/\n   io_encoding error types that reuse the same field slot.\n\n2. channel-receive/channel-send's deadlock message for a channel that was\n   never shared with another thread read \"...and all fibers are blocked\"\n   even when another OS thread was alive and well, implying fiber\n   scheduling was the whole story. The four local (unpromoted-channel)\n   deadlock sites now name that thread explicitly via a new\n   localChannelDeadlockMsg helper, reusing the existing\n   crossThreadWaitPossible() predicate the sibling shared-channel path\n   already relies on for the same distinction. Pure wording change: a\n   local channel's deadlock decision was already immediate regardless of\n   crossThreadWaitPossible(), traced through fiber.zig's parkOnReactor/\n   runSchedulerStep.\n\nRegression coverage: unit tests in tests_shared_channel.zig and\ntests_fibers.zig, plus end-to-end shell assertions in error-format.sh\ncovering the issue's exact repro.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T22:41:42+05:30",
-          "tree_id": "019b05148a0c1fbc4a623d2bd3e110e0fe54bae6",
-          "url": "https://github.com/kaappi/kaappi/commit/8c1b1431649a2913c819a514ab9e8d80892d5824"
-        },
-        "date": 1785261916986,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.070491,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.768923,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.461313,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.220488,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00536,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034756,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.231135,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.043184,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.614463,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.889634,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.186344,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.376403,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.323158,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.376923,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035513,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045371,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f04aa5a75fa7bfe12381d1732ebaeb88787f7b7e",
+          "message": "Phase 4A: derive isRejectedFormHead — the one missing name was define-property, and it was live on cond/case/do (#2092)\n\n* Phase 4A: derive isRejectedFormHead from the eval-fallback set\n\nThe native backend had two gates against splitting a lexical scope across\nthe native/interpreted boundary, and only one of them was derived.\n`ir.eval_fallback_form_names` is comptime-built from `llvm_node_table`,\nevery `FormKind` field, and `other_special_forms`; `isRejectedFormHead` —\nwhich gates cond/case/do through `exprNativeEmittable` — was a literal\n32-name array standing parallel to it. Parallel lists drift, and this one\nhad: `define-property` was in the derived set and absent from the array.\n\nThat was not latent. `define-property` is a compile-time form —\n`compileDefineProperty` evaluates its expression and stores the property\nwhile the enclosing form is compiled — and the interpreter compiles a\ntop-level `cond` whole, so the effect lands ahead of the clause body. With\nthe name missing, the backend emitted the cond natively and left only the\nregistration behind as a run-time `kaappi_eval`, moving that effect after\nthe rest of the body: `PBC` interpreted, `BPC` compiled. `case` diverged\nthe same way, and `do` did not compile at all (KP9001), because `emitDo`\ninstalls loop-variable locals before reaching the deferred form and\n`emitFormEval` refuses to eval inside a lexical scope.\n\n`rejected_form_heads` is now\n`(eval_fallback_form_names \\ derived_exclusions) ∪ extra_rejected_heads`.\n`derived_exclusions` is empty. `extra_rejected_heads` holds the six names\nthis gate rejects for its own reasons — `lambda` and `define`, lowered\nnatively elsewhere but not in sub-expression position here, and the four\nsyntax-position markers `unquote`/`unquote-splicing`/`else`/`=>`, which\nmust stay out of the derived set or `sexprNeedsEvalFallback`'s blind\nrecursion would reject every natively-lowered cond with an else clause.\nBoth lists now carry their reasons in code.\n\nA comptime block rejects a stale exclusion, an extra that duplicates a\nderived name, and any derived name that escapes the gate. The runtime test\nis deliberately stricter than the comptime invariant: it permits no\nexclusions at all, so weakening the gate takes two deliberate edits rather\nthan one quiet line. A second runtime test asserts the emitter behaviour,\nsince a correct list nothing reads would pass every list-level check.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Record the isRejectedFormHead fix in the changelog\n\nThis changes what the native backend emits for a real form, which is\nuser-visible behaviour rather than a refactor, so the gate is right to\nrequire an entry.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T19:52:25+05:30",
+          "tree_id": "9ad05ae621efe0d3e61d5136c28e57b32aaf7a7e",
+          "url": "https://github.com/kaappi/kaappi/commit/f04aa5a75fa7bfe12381d1732ebaeb88787f7b7e"
+        },
+        "date": 1785606301182,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.961793,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.753976,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.575551,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.823901,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004882,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044619,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297449,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054999,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.305794,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.156004,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.618274,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.312044,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.682164,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.827887,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045445,
             "unit": "seconds"
           }
         ]
