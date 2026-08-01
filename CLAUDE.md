@@ -1292,8 +1292,8 @@ and its `rt_artifact` case — `docs/dev/porting.md` Stage 6.
 **Every issue you file or triage gets exactly one `priority:` label** —
 `critical`, `high`, `medium`, or `low`. Set it when filing; an issue that
 arrives without one is not triaged. `docs/dev/github-issues.md` is the full
-rubric (the four label axes, worked boundary cases, the triage commands);
-this is the part you need at filing time:
+rubric (the four label axes, the boundary rules, the triage commands); this
+is the part you need at filing time:
 
 | Level | The question it answers |
 |-------|------------------------|
@@ -1305,11 +1305,13 @@ this is the part you need at filing time:
 Four rules decide the hard cases:
 
 - **`critical` is process-level unsafety only.** A correctness bug tops out
-  at `high` however broad or silent. All 14 issues ever marked critical are
-  memory unsafety or a process abort — including one, kaappi#2107, whose
-  abort is reachable on wasm32 only. Tier does not discount an entry.
+  at `high` however broad or silent, and a hang tops out there too. Only two
+  classes qualify: memory unsafety, and a process abort reachable from an
+  ordinary program. Tier does not discount an entry.
 - **Reachability separates critical from high.** An abort needing a stress
-  harness is `high`; one reachable from a five-line program is `critical`.
+  harness or an extreme input is `high`; one reachable from a five-line
+  program is `critical`. Compare the trigger against the limit that path
+  documents — inside the envelope is `critical`, far past it is `high`.
 - **An audit header's `Severity:` is an input, not the answer.**
   `wrong-result` spans `high` to `medium` purely on blast radius.
 - **Silence is an aggravator, not a level.** A loud failure is safer than a
