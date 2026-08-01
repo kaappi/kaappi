@@ -590,7 +590,12 @@ test "#1478: fd->port rejects the standard streams and non-fixnums" {
 
     _ = try vm.eval("(import (kaappi ffi))");
     // fd 0/1/2 keep their blocking semantics -- fd->port must refuse them.
-    try std.testing.expectError(error.TypeError, vm.eval("(fd->port 1)"));
+    // The refusal is InvalidArgument (KP3007), not TypeError: 1 is a fixnum,
+    // which is exactly the type fd->port wants, so the fault is the value
+    // (kaappi#1972). Same for a number outside fd_t's range.
+    try std.testing.expectError(error.InvalidArgument, vm.eval("(fd->port 1)"));
+    try std.testing.expectError(error.InvalidArgument, vm.eval("(fd->port -1)"));
+    // A genuinely wrong type still is one -- the two are not the same check.
     try std.testing.expectError(error.TypeError, vm.eval("(fd->port \"nope\")"));
 }
 

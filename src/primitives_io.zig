@@ -707,10 +707,29 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
     return PrimitiveError.ExceptionRaised;
 }
 
+/// Appended to the ordinary failure message of the three `(scheme file)`
+/// procedures the WASM build compiles out (there is no POSIX `openat`/`unlink`
+/// to call), so the platform limit is reported as the *same condition* their
+/// native failure paths raise a few lines further down: a file error,
+/// satisfying `file-error?`. `primitives_filesystem.raiseUnsupportedOnWindows`
+/// is the same mechanism for SRFI 170's POSIX-only half; this one keeps the
+/// path as the irritant rather than `#f`, matching what the native failure
+/// paths here already report.
+///
+/// Until kaappi#1972 all three reported `type error in 'open-input-file':
+/// expected non-WASM platform, got #<string>` — a valid filename blamed for the
+/// platform, with a non-type in the "expected type" slot, and (the part that is
+/// not merely cosmetic) a condition no `(file-error? e)` guard clause ever
+/// caught, so portable R7RS code that handles a missing file correctly on every
+/// native target fell through to its caller on the playground.
+const wasm_no_fs = ": this WebAssembly build has no filesystem access";
+
 fn openInputFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return primitives.typeError("open-input-file", "non-WASM platform", args[0]);
+    // The type check runs first even on WASM: a non-string argument is a type
+    // error on every target, and only a well-formed call reaches the gate.
     if (!types.isString(args[0])) return primitives.typeError("open-input-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (comptime is_wasm) return raiseFileError(gc, "cannot open input file" ++ wasm_no_fs, args[0]);
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -730,9 +749,9 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
 }
 
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return primitives.typeError("open-output-file", "non-WASM platform", args[0]);
     if (!types.isString(args[0])) return primitives.typeError("open-output-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (comptime is_wasm) return raiseFileError(gc, "cannot open output file" ++ wasm_no_fs, args[0]);
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -777,12 +796,22 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
 /// must not also close the fd through its own path, or the number could be
 /// recycled onto an unrelated port.
 fn fdToPort(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return primitives.typeError("fd->port", "non-WASM platform", args[0]);
     if (!types.isFixnum(args[0])) return primitives.typeError("fd->port", "file descriptor", args[0]);
+    // Unlike the three `(scheme file)` procedures above, this one is a Kaappi
+    // extension over `(kaappi ffi)` with no R7RS condition to raise: there is
+    // no file, and nothing here satisfies `file-error?`. So the platform limit
+    // is an argument fault (KP3007) rather than a type error over a fixnum
+    // that is a perfectly good descriptor number (kaappi#1972).
+    if (comptime is_wasm) return primitives.argError("fd->port", "raw file descriptors are unavailable in this WebAssembly build", .{});
     const fd_i = types.toFixnum(args[0]);
     // Reject the standard streams (whose blocking semantics other code
-    // relies on) and anything outside fd_t's range.
-    if (fd_i < 3 or fd_i > std.math.maxInt(i32)) return primitives.typeError("fd->port", "socket/pipe file descriptor (> 2)", args[0]);
+    // relies on) and anything outside fd_t's range. Both are range rules over
+    // an argument of the right type, not type errors — and neither is an
+    // index into anything with a length, which is what rules out `indexError`.
+    if (fd_i >= 0 and fd_i <= 2)
+        return primitives.argError("fd->port", "descriptor {d} is a standard stream; 0, 1 and 2 stay blocking", .{fd_i});
+    if (fd_i < 0 or fd_i > std.math.maxInt(i32))
+        return primitives.argError("fd->port", "{d} is outside the file-descriptor range", .{fd_i});
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port_val = gc.allocPort(@intCast(fd_i), true, true, "fd", false) catch return PrimitiveError.OutOfMemory;
     types.toObject(port_val).as(types.Port).is_binary = true;
@@ -1832,9 +1861,9 @@ fn flushOutputPort(args: []const Value) PrimitiveError!Value {
 }
 
 fn deleteFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return primitives.typeError("delete-file", "non-WASM platform", args[0]);
     if (!types.isString(args[0])) return primitives.typeError("delete-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (comptime is_wasm) return raiseFileError(gc, "cannot delete file" ++ wasm_no_fs, args[0]);
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 

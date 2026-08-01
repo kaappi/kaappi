@@ -300,6 +300,57 @@ from its own bad input, or lets it swallow a genuine VM limit.
    - Debug info (source line tracking, line tables)
    - Error-path recovery where the primary error takes precedence
 
+### Nothing but a type belongs in the "expected type" slot (#1972)
+
+`typeError`'s third argument is printed as `expected <that>, got <value>`, so
+whatever goes there is read as a type. Two things kept ending up there that are
+not:
+
+- **A range rule.** `fd->port` rejected `0` with `expected socket/pipe file
+  descriptor (> 2)` — but `0` *is* a fixnum, the type it wants; the fault is the
+  value. That is `argError` (KP3007), not `indexError`: the reserved-stdio bound
+  is a semantic rule, and `indexError`'s wording (`index N out of range for
+  length L`) needs a length that does not exist here.
+- **A platform.** Four `comptime is_wasm` gates read `expected non-WASM
+  platform, got #<string>`, blaming a valid filename for the build it was
+  compiled into.
+
+The platform gates split two ways, and the seam is worth knowing because it
+looks like drift:
+
+| Procedure | Reports | Why |
+|---|---|---|
+| `open-input-file`, `open-output-file`, `delete-file` | a **file error** (`file-error?` → `#t`) | R7RS 6.13 already says what these signal when the file cannot be opened or deleted, and the WASM build cannot |
+| `fd->port` | `argError` (KP3007) | a Kaappi extension over `(kaappi ffi)`; no file, so nothing satisfies `file-error?` |
+
+That split is the same one SRFI 170 already makes: its POSIX-only procedures
+report `not supported on Windows` through `raiseUnsupportedOnWindows`, a file
+error, because the SRFI's own text says its procedures signal file errors — not
+because "unsupported platform" is generically a file error. Where no spec asks
+for one, don't borrow it.
+
+The first row is not a cosmetic choice. A type error is not a file error, so
+until #1972 a portable `(guard (e ((file-error? e) …)) (open-input-file …))` —
+correct on every native target — fell through to its caller on the WASM tier,
+which is the playground at kaappi-lang.org. The gate now raises through
+`raiseFileError`, the same helper the procedure's *own* native failure path two
+lines down already used; the platform is named in the message and the path stays
+the irritant. That neighbour is the general tell: **before inventing a phrasing
+for a failure, check what the same procedure raises for the same failure on a
+target where it can actually run.**
+
+Two ordering consequences. The type check now runs *before* the platform gate,
+so a non-string argument is a type error on every target rather than whatever
+the gate said. And the gate has to stay above the first POSIX call, since a
+comptime-true early return is what keeps `openat`/`unlink` out of the WASM
+build's analysis at all.
+
+A `comptime` gate cannot be tested from a native build — an assertion for one
+would compile away and silently never run, passing forever. They are covered by
+`tests/wasm/platform-gates.scm`, which the `wasm` CI job runs under wasmtime;
+the native half (`fd->port`'s range rules) lives in
+`tests/scheme/audit/primitives_io-audit.scm` next to #1944's.
+
 ### Tagging the `vm_instance` / `gc_instance` guards (#1874)
 
 Roughly 450 sites open with one of:
