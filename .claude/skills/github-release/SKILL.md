@@ -40,9 +40,21 @@ Present the analysis and recommendation, then ask for confirmation before contin
 
 ## Step 2: Generate release notes
 
-Combine the `[Unreleased]` section from `CHANGELOG.md` (primary source) with any
-commits not already reflected in it. Present draft notes to the user for review.
-Wait for confirmation.
+**Derive the notes from `git log` since the previous tag** — that is the primary
+source. There is no CI gate requiring a `CHANGELOG.md` entry per PR (it was
+removed: it conflicted constantly across concurrent branches, since every PR
+edited the same few lines at the top of one file), so `[Unreleased]` is
+normally sparse or empty and cannot be relied on.
+
+```bash
+git log --no-merges --pretty='%h %s' "$(git describe --tags --abbrev=0)"..HEAD
+```
+
+Read the commit bodies, not just the subjects — this project's convention is
+that the body explains *why*, which is what a release note needs. Fold in
+anything `[Unreleased]` does happen to carry. Group by user-visible effect
+rather than by commit, and drop pure test/CI/refactor commits. Present draft
+notes to the user for review. Wait for confirmation.
 
 ## Step 3: Update CHANGELOG.md
 

@@ -55,50 +55,6 @@ jobs:
   # than written as the work lands -- v0.22.0 shipped with 14 of 100 commits
   # reflected in it, v0.22.1 with 5 of 16. Ask for the entry here, while the
   # change is fresh and its author is present to write it.
-  changelog:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Require a CHANGELOG entry for user-visible changes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          # Labels are read live rather than from github.event, because
-          # re-running a job replays the ORIGINAL event payload -- a
-          # `no-changelog` label added in response to this job failing would
-          # be invisible to it, making the documented escape hatch a dead end.
-          if gh pr view "$PR" --repo "$REPO" --json labels \
-               --jq '.labels[].name' | grep -qx 'no-changelog'; then
-            echo "Labelled 'no-changelog' -- skipping."
-            exit 0
-          fi
-
-          files=$(gh pr view "$PR" --repo "$REPO" --json files --jq '.files[].path')
-
-          if ! grep -qE '^(src/|lib/srfi/)' <<<"$files"; then
-            echo "No src/ or lib/srfi/ changes -- CHANGELOG entry not required."
-            exit 0
-          fi
-          if grep -qx 'CHANGELOG.md' <<<"$files"; then
-            echo "CHANGELOG.md updated."
-            exit 0
-          fi
-
-          echo "::error::This PR changes src/ or lib/srfi/ but does not touch CHANGELOG.md."
-          echo "::error::Add an entry under [Unreleased] describing the user-visible effect."
-          echo "::error::If the change is not user-visible (refactor, tests, CI), apply the"
-          echo "::error::'no-changelog' label and re-run this job -- labels are read live, so"
-          echo "::error::a re-run picks it up without pushing a commit."
-          exit 1
-
   test:
     needs: format
     # Explicit name, deliberately NOT including matrix.timeout: this job's
