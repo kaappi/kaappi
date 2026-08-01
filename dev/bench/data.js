@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785593452623,
+  "lastUpdate": 1785594473643,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ea71d9a5d04053bd2df83be7fd25b5fd8d5f1303",
-          "message": "Stop ReleaseSafe memsetting the expander's 1MB buffers on every expansion (#1802) (#1804)\n\n* Stop ReleaseSafe memsetting the expander's 1MB buffers on every expansion (#1802)\n\nCompiling SRFI 148's 134-definition library took 80 seconds before a\nsingle combinator ran. A sample profile put 96% of it in _memset: Zig\n0.16's ReleaseSafe fills every plain `= undefined` local with 0xAA, and\nthe expander declares three ~1MB [MAX_BINDINGS]Binding scratch buffers\nper call (expandMacro, matchEllipsis, instantiateEllipsis). The\n`b: { @setRuntimeSafety(false); break :b undefined; }` initializer those\nsites used to suppress the fill now does the opposite: it materializes a\nruntime undefined value whose store into the local gets the fill anyway.\nThe only shape that works is @setRuntimeSafety(false) at the scope of\nthe declaration, so each function now declares its buffers under a\nsafety-off function scope and runs its entire body in a\n@setRuntimeSafety(true) block, keeping index/overflow checks intact.\n\nThe remaining cost was the set! pre-scan (#1775) treating transformer\nspecs as runtime code: `(define-syntax em-cadr (em-syntax-rules ...))`\nspeculatively ran the whole CK machine per definition, burning the full\n4096-expansion budget - and with it the truncation fallback that boxes\nevery local - on forms that produce no runtime code at all. A spec only\never resolves to a transformer object, so collectSetTargets now walks\ndefine-syntax/let-syntax/letrec-syntax spec positions without expanding\nmacros (still catching literal set!s in templates); let-syntax bodies\nkeep the budgeted scan. A set! that only materializes when the spec's\nown macros run is caught at the macro's real use site - the same\ncorrect-late Part B path every divergent best-effort expansion already\ntakes.\n\nImport of the drafted (srfi 148): 86.6s -> 0.07s; its full upstream\nreference suite now runs in 0.85s (134 expected passes, 8 known\nxfails), far under run-all.sh's 60s per-file timeout that blocked it.\nBoth prescan regression tests fail without the collectSetTargets change\n(verified by mutation); the buffer-fill half is pinned by disassembly\n(no 0xAA memset in the three functions) and documented in\ndocs/dev/performance.md's new \"profile bottoms out in memset\" entry.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Walk let-syntax specs per binding so special-form names can't derail the scan\n\nCodeRabbit review follow-up on #1804: collectSetTargets' let-syntax\nbranch walked the whole bindings list, so a binding pair whose NAME is a\nspecial-form identifier was misread as a form - a binding literally\nnamed `quote` early-returned before its own transformer spec was\nscanned. Iterate the binding pairs and walk only each spec.\n\nVerified end-to-end before committing: the review's predicted\nmiscompilation does not actually reproduce today - its proposed\ntemplate `(set! a b)` holds only pattern variables (nothing literal to\nfind), and with a literal `(set! + -)` template the sibling\n`(+ 5 2)` still isn't folded because a let-syntax body compiles through\nthe passthrough path, while a late-discovered set! target is still\nboxed correctly via the box_local transition. So this is scan hygiene,\nnot a user-visible fix. The new hygiene suite file pins the late-boxing\nself-heal this relies on (it hangs, not fails, if that regresses) plus\nthe quote-named-macro rebinding shape.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T10:11:45+05:30",
-          "tree_id": "46f30bc26e89b778ba25e1564e4c21b81ce39d5e",
-          "url": "https://github.com/kaappi/kaappi/commit/ea71d9a5d04053bd2df83be7fd25b5fd8d5f1303"
-        },
-        "date": 1785216074884,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343984,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.460086,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.935018,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.496567,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006335,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.054797,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.521714,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071824,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.666616,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.018021,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.619229,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431582,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.814259,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.661657,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044358,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045488,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae45e7871208e8399ebdf40600c290e7bec19a06",
+          "message": "Require a priority label on every issue (#2090)\n\n* Require a priority label on every issue\n\nThe rubric landed in docs/dev/github-issues.md (#2032, #2041), but nothing\ntold a filer to apply it. The evidence that a document alone is not enough:\n41 issues were filed unlabeled while those two PRs were open, in bursts of\n6-27 as each audit phase completed. Triage after the fact means re-reading\nevery issue body to recover a judgement the filer had already made.\n\nPuts the decision table where it is needed at filing time, plus the four\nrules that settle the hard cases — critical is process-level unsafety only,\nreachability separates critical from high, an audit header's Severity is an\ninput rather than the answer, and silence moves an issue up within its level\nrather than between levels. The full rubric, worked boundary cases, and the\nlabel taxonomy stay in docs/dev/github-issues.md; this is the filing-time\nsubset.\n\nAdvisory only, like the neighbouring test and file-size rules: a CI gate\nwould have to run against the tracker rather than the diff, and the failure\nmode here is a missing label rather than broken code.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Make the priority-label audit catch double labels too\n\nReview of #2090: the prose requires exactly one `priority:` label, but the\ncommand only reported issues with zero. An issue carrying two was invisible\nto the very check meant to enforce the rule. Counts the labels and reports\nanything that is not 1, keeping the fuzz-finding exemption.\n\nFixed in docs/dev/github-issues.md as well as CLAUDE.md — the snippet was\ncopied from there, so the same blind spot shipped in #2032.\n\nNo issue in the tracker has ever carried two, so this finds nothing today;\nthat is the point. A check that cannot observe half of what it asserts would\nhave gone on reporting a clean tracker either way.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T15:03:55+05:30",
+          "tree_id": "7e3074d63cf4ab1467be4765740eec1cddabb01f",
+          "url": "https://github.com/kaappi/kaappi/commit/ae45e7871208e8399ebdf40600c290e7bec19a06"
+        },
+        "date": 1785594471481,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.548942,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.903786,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.362164,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.935329,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003779,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030209,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.192009,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.03609,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.768757,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.772884,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.016314,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219299,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.132917,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.897927,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.030387,
             "unit": "seconds"
           }
         ]
