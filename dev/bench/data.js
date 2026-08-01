@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785611549064,
+  "lastUpdate": 1785612135526,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1ef8268df43960aa38758a2746c032d93e77e1a0",
-          "message": "Implement SRFI 150 (Hygienic ERR5RS Record Syntax), fixing #1810 (#1834)\n\nBuilds on SRFI 131's runtime substrate: a type name is bound directly to\nan ordinary SRFI 237 record-type-descriptor, with inheritance and\nfield/accessor/mutator resolution handled at run time by SRFI 237's own\nby-name introspection. The one piece SRFI 131 lacks -- hygienic\nfield/accessor-name matching for named constructor specs -- uses SRFI\n213 (identifier properties) instead of a query macro, so\ndefine-record-type itself is a SRFI 211 er-macro-transformer rather than\nan em-syntax-rules macro.\n\nTwo earlier designs (porting the reference's own SRFI 137 make-subtype\nclosures, then a from-scratch rewrite using a :secret descriptor macro\nover SRFI 237) both broke once more than one cross-expansion query\nrelationship existed side by side in the same program, isolated to\nem-syntax-rules engine bugs kaappi#1828 and kaappi#1829. This design\navoids that whole pattern by never threading anything across separate\ndefine-record-type expansions via a macro call.\n\n21 of 25 tests ported from the reference suite pass; the other 4 are\nmarked test-expect-fail/annotated, hitting a precise, minimal,\nrecord-free reproduction (kaappi#1832) of the already-documented\n\"top-level redefinition reaches the expansion\" hygiene limitation. A\nsecond new engine quirk (kaappi#1831) was found and worked around:\ncadar specifically fails when called from a helper function invoked\nduring an er-macro-transformer's expansion.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T10:50:53+05:30",
-          "tree_id": "96c5f9a89acc11c428968eda72321dba0d5991f7",
-          "url": "https://github.com/kaappi/kaappi/commit/1ef8268df43960aa38758a2746c032d93e77e1a0"
-        },
-        "date": 1785305368206,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.801842,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.202766,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.386289,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.039391,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004223,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034061,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.212214,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040091,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.005934,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.840427,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.126569,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.221222,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.23975,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.696117,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.032836,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04503,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e43f0f5b9b6186c8068d348df67f7c599540dbfd",
+          "message": "Record the wasm32 print-depth abort as the 14th critical (#2124)\n\nTriaging the 16 unlabelled open issues put kaappi#2107 at `priority:\ncritical` — an 848-deep print exhausts the wasm32 stack and traps the\nmodule, uncatchably, from a three-line program.\n\nThe rubric doc keeps a table of every critical specifically so future\ntriage has something to calibrate against, so an entry that is missing\nfrom it is worse than no table at all. Two things would have drifted:\nthe corpus count, which is stated in the doc and again in CLAUDE.md's\nsummary of it, and the table itself.\n\nThe new entry is worth more than a row. It is the first critical whose\nabort is confined to one tier, and the first that is stack exhaustion\nrather than a heap defect — so it forms a sharper reachability pair with\nkaappi#2084 than the existing #1939/#2000 one does: both are uncatchable\nstack exhaustion, leaving reachability as the only variable between them.\nThe line that decides it is that 848 sits below printer.zig's own\nMAX_PRINT_DEPTH of 1024, i.e. inside the envelope the implementation\nintends to support, while #2084 needs a 200,000-bit bitvector.\n\nState explicitly that tier does not discount an entry. Without it the\nnext reader sees twelve core-tier heap defects plus one WASM row and\ninfers a discount the rule does not contain.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T23:40:59+05:30",
+          "tree_id": "b130044f3c39ccda23409fe7c86bb9732b77c766",
+          "url": "https://github.com/kaappi/kaappi/commit/e43f0f5b9b6186c8068d348df67f7c599540dbfd"
+        },
+        "date": 1785612133181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.28931,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.306088,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583991,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.748606,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004756,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046029,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.31142,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057332,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.764952,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.227745,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.572355,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28573,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.8096,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.676541,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04429,
             "unit": "seconds"
           }
         ]
