@@ -39,28 +39,26 @@ if ! command -v git > /dev/null 2>&1; then
     exit 77
 fi
 
-# This suite's whole method is "point KAAPPI_ORG at local bare repositories",
-# which needs git to clone a plain filesystem path.  That holds on macOS and
-# Linux and does NOT hold on the three BSD CI legs, where thottam reports
-# `Failed to clone repository` for a fixture the setup created successfully
-# (kaappi#2150).  The cause is not yet known, so rather than assert a
-# precondition we cannot explain, probe it directly and skip when it does not
-# hold -- the same shape as skip_without_zig in shell-common.sh.
+# thottam invokes git as the absolute path /usr/bin/git (thottam_proc.zig:148),
+# not through PATH. That path exists on macOS and on CI's Linux images, and on
+# none of the three BSDs -- FreeBSD and OpenBSD put git in /usr/local/bin,
+# NetBSD in /usr/pkg/bin -- so every git-backed thottam operation fails there
+# (kaappi#2152). This suite is entirely git-backed, so it cannot run.
 #
-# Probing beats hardcoding a platform list: if the underlying issue is fixed,
-# or if it turns out to be a git-version rather than an OS boundary, this
-# starts running again on its own with no allowlist to maintain.
-_probe="$(mktemp -d)"
-if ! ( cd "$_probe" && git init -q bare-src > /dev/null 2>&1 \
-        && cd bare-src && git -c user.email=t@example.com -c user.name=Test \
-             commit -q --allow-empty -m probe > /dev/null 2>&1 \
-        && cd .. && git clone -q --bare bare-src probe.git > /dev/null 2>&1 \
-        && git clone -q -- "$_probe/probe.git" clone-out > /dev/null 2>&1 ); then
-    rm -rf "$_probe"
-    echo "SKIP: git cannot clone a local bare repository here (see kaappi#2150)"
+# Probe for the exact precondition rather than listing platforms: when #2152 is
+# fixed to search PATH, this check should be replaced by `command -v git`,
+# which is already asserted above. Until then, testing for the very path
+# thottam will execute is the honest gate -- it skips exactly where thottam is
+# broken and nowhere else.
+#
+# An earlier version of this probe created a bare repo and cloned it, on the
+# hypothesis that local-bare-clone was unsupported there. It PASSED on OpenBSD
+# while the suite still failed, because the probe used PATH and thottam does
+# not. That falsified hypothesis is what located #2152.
+if [[ ! -x /usr/bin/git ]]; then
+    echo "SKIP: thottam hardcodes /usr/bin/git, which does not exist here (kaappi#2152)"
     exit 77
 fi
-rm -rf "$_probe"
 
 PASS=0
 FAIL=0
