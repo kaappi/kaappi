@@ -47,6 +47,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A `guard` clause now runs in its own `guard`'s dynamic environment**
+  (#1988). R7RS 4.2.7 evaluates the implicit `cond` "with the continuation and
+  dynamic environment of the guard expression", but a handler runs at the raise
+  point, where every `parameterize` and `dynamic-wind` extent entered since is
+  still live — and the clauses were evaluated there. A plain `raise` hid it,
+  because this VM unwinds before calling any handler; the `raise-continuable`
+  that a *declining* `guard` issues for its implicit re-raise does not, so an
+  extent between an inner guard that declines and an outer one leaked into the
+  outer guard's clauses. A `parameterize` between the two was visible to them —
+  `(guard (e (#t (p))) (parameterize ((p 2)) (guard (e ((number? e) 'no))
+  (raise 'boom))))` answered 2 where the same expression without the inner
+  guard answered 1 — and a `dynamic-wind`'s after-thunk ran *after* the clauses
+  instead of before them. Both extents are now left before the clauses run,
+  without disturbing the frames the clauses stand on, so a clause may still
+  reinstate a continuation captured inside the guard body — how `(srfi 255)`'s
+  restarters work. One deviation remains, now written up under "Known
+  limitations → Exceptions" in README.md: when no clause matches, the implicit
+  re-raise happens in the guard's dynamic environment rather than the original
+  raise's, which is what a plain `raise` already does here.
+- **A `guard` that declines no longer strands an exception handler** (#1988).
+  Its implicit re-raise popped the guard's own handler, called the outer one,
+  and that handler escaped — but the popped handler was put back anyway, on top
+  of a handler stack the escape had already restored. Every declining `guard`
+  leaked one slot, so 32768 of them in a program hit the `KP3008` handler-stack
+  cap, and a later `raise-continuable` that reached a stranded entry died with
+  "escape continuation invoked outside its dynamic extent" instead of finding
+  the real handler.
 - **The "port I/O abandoned" error no longer blames `dynamic-wind`** (#1959).
   It named "guard, dynamic-wind, callbacks" as the frames a fiber cannot
   suspend under, but `dynamic-wind` is bootstrapped Scheme: its body runs in

@@ -36,6 +36,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%unwind-to-escape", .func = &unwindToEscapeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
     // SRFI 248 (minimal delimited continuations): building blocks for the
     // portable (srfi 248) library. Not for direct use — see lib/srfi/248.sld.
     .{ .name = "%call-with-unwind-handler", .func = &callWithUnwindHandlerFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_248_primitives) },
@@ -141,7 +142,16 @@ pub fn raiseContinuable(vm: *vm_mod.VM, obj: Value) PrimitiveError!Value {
     // Both re-pushes below restore the slot popped a line above, so the
     // capacity is already there and neither can actually overflow.
     const result = vm.callHandler(handler, obj, 0) catch |err| {
-        vm.pushHandler(handler) catch {};
+        // A continuation invoked from inside the handler has already reset the
+        // handler stack to its own captured depth, and control is not coming
+        // back here — re-pushing would strand this handler on top of that
+        // restored stack. `guard`'s handler always leaves this way, so every
+        // declining guard used to leak one slot, and 32768 of them in one
+        // program hit the KP3008 cap; a later raise reaching a stranded entry
+        // calls an escape whose extent has ended. Same reasoning as
+        // %call-with-unwind-handler's skipped pop. On every other error this
+        // frame really is being unwound through, so the handler goes back.
+        if (err != vm_mod.VMError.ContinuationInvoked) vm.pushHandler(handler) catch {};
         return err;
     };
     try vm.pushHandler(handler);
@@ -527,5 +537,38 @@ fn popWindFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (vm.wind_count == 0) return PrimitiveError.TypeError; // bare-ok: underflow
     vm.wind_count -= 1;
+    return types.VOID;
+}
+
+/// Run the dynamic-wind after-thunks standing between here and where `k` — an
+/// escape continuation — was captured, without unwinding the call stack. It is
+/// the dynamic-environment half of invoking `k`, on its own.
+///
+/// `guard` (`compiler_advanced.compileGuard`) is the caller this exists for.
+/// R7RS 4.2.7 evaluates a guard's clauses in the *guard's* dynamic environment,
+/// but the handler runs at the raise point, with every `parameterize` and
+/// `dynamic-wind` extent since still live — so the clauses have to be moved
+/// into that environment before they run (#1988). Escaping to `k` first would
+/// do it, except that it also discards the frames the clauses may still need:
+/// a clause is allowed to reinstate a continuation captured inside the guard
+/// body, and this VM cannot resume one whose native frame has returned. So the
+/// two halves are split, and only this one happens up front. The escape that
+/// follows finds the wind stack already at its target and runs nothing more.
+///
+/// No-op when `k` is not an escape continuation, has outlived its extent, or is
+/// no shallower than the current wind stack — the caller has no repair to make
+/// in any of those cases, and `invokeEscape` reports an expired extent itself.
+fn unwindToEscapeFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    if (!types.isContinuation(args[0])) return primitives.typeError("%unwind-to-escape", "escape continuation", args[0]);
+    const cont = types.toObject(args[0]).as(types.Continuation);
+    if (!cont.is_escape or !cont.valid) return types.VOID;
+    // Drop each record before running its thunk, so an after-thunk that raises
+    // and unwinds through here again does not re-run it (same discipline as
+    // performWindTransition).
+    while (vm.wind_count > cont.target_wind_count) {
+        vm.wind_count -= 1;
+        _ = try vm.callThunk(vm.wind_stack[vm.wind_count].after);
+    }
     return types.VOID;
 }

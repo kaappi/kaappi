@@ -13,9 +13,39 @@ const CompileError = compiler_mod.CompileError;
 /// Compile (guard (var clause ...) body ...)
 ///
 /// Transforms into:
-///   (with-exception-handler
-///     (lambda (var) (cond clause ... [else (raise var)]))
-///     (lambda () body ...))
+///   (call-with-escape-continuation
+///     (lambda (gk)
+///       (with-exception-handler
+///         (lambda (var)
+///           (%unwind-to-escape gk)
+///           (gk (cond clause ... [else (raise-continuable var)])))
+///         (lambda () body ...))))
+///
+/// The `%unwind-to-escape` is what puts the clauses in the right dynamic
+/// environment. R7RS 4.2.7 evaluates them "with the continuation and dynamic
+/// environment of the guard expression", but a handler runs at the raise point,
+/// where every `parameterize`/`dynamic-wind` extent entered since is still live
+/// — so those extents have to be left before the `cond` runs, not after it
+/// produces a value (#1988). A plain `raise` hides this by unwinding before the
+/// handler is called at all; the `raise-continuable` a declining inner `guard`
+/// issues does not, and the intervening extent leaks into the outer guard's
+/// clauses.
+///
+/// Unwinding the dynamic environment without also escaping looks redundant —
+/// invoking `gk` would do both — but the escape must come after the clauses,
+/// not before: a clause may reinstate a continuation captured inside the guard
+/// body, and this VM cannot resume one whose native frame has already returned
+/// (`(srfi 255)`'s restarters are exactly that shape). Splitting the two halves
+/// keeps those frames alive across the clauses. By the time `gk` is invoked the
+/// wind stack is already at its target, so the escape runs no thunk twice.
+///
+/// Known deviation: when no clause matches, R7RS re-raises in the dynamic
+/// environment of the original raise. Here the environment has already been
+/// unwound to the guard's, and getting back needs a re-entrant continuation
+/// captured under the native raise frame — the resume this VM cannot do. R7RS's
+/// own sample implementation relies on precisely that, and ported here verbatim
+/// it corrupts the frame it returns into. The re-raise therefore happens in the
+/// guard's environment, which is what a plain `raise` already does here.
 pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const guard_clause = types.car(args);
@@ -77,8 +107,14 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
         const cond_sym = gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
         const cond_form = gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
         const k_call = gc.allocPair(gk, gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        // (%unwind-to-escape gk) — leave every extent entered since the guard
+        // before the cond runs, so the clauses see the guard's own dynamic
+        // environment (#1988).
+        const unwind_sym = globals_mod.baseBindingSymbol(gc, "%unwind-to-escape") catch return CompileError.OutOfMemory;
+        const unwind_call = gc.allocPair(unwind_sym, gc.allocPair(gk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const h_body = gc.allocPair(unwind_call, gc.allocPair(k_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         const h_formals = gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
-        const handler = gc.allocPair(lambda_sym, gc.allocPair(h_formals, gc.allocPair(k_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const handler = gc.allocPair(lambda_sym, gc.allocPair(h_formals, h_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         const thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         const weh_sym = gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
         const weh = gc.allocPair(weh_sym, gc.allocPair(handler, gc.allocPair(thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
