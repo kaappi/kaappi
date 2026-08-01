@@ -66,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`define-property` inside a top-level `cond`, `case` or `do` is no longer
+  miscompiled by the native backend** (#1896). `isRejectedFormHead` was a
+  hand-maintained list parallel to the comptime-derived
+  `ir.eval_fallback_form_names`, and was missing that one name — so the form
+  was emitted natively instead of deferring to the interpreter. The effect was
+  observable with `display`: the property expression ran *after* the clause
+  body under `kaappi compile` and *before* it under the interpreter, and a
+  `do` loop containing one failed to compile at all (`KP9001`), since `emitDo`
+  installs loop-variable locals before the eval fallback can run. The gate is
+  now derived from the same comptime set, with six deliberate exclusions each
+  carrying its reason in code, and a comptime block asserts
+  `derived ⊆ rejected ∪ exclusions` so it cannot drift again.
+
 - **On the WebAssembly build, `open-input-file`, `open-output-file` and
   `delete-file` now signal a file error** (#1972). R7RS 6.13 says these signal
   a condition satisfying `file-error?`, which is what they do on every native
