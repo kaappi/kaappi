@@ -205,6 +205,22 @@ comptime {
     }
 }
 
+// -- Doc sync gate ----------------------------------------------------------
+//
+// Several docs quote these two counts to describe how lowered the IR is, and
+// they went stale at 33 — the pre-`sexpr_form` tag count — for long enough to
+// give readers entirely the wrong picture (kaappi#2102). Change a number here
+// only together with `docs/dev/ir.md`, `docs/dev/architecture.md`,
+// `docs/dev/README.md`, the root `CLAUDE.md` and `README.md`.
+comptime {
+    if (@typeInfo(NodeTag).@"enum".fields.len != 18)
+        @compileError("NodeTag count changed: update docs/dev/ir.md, docs/dev/architecture.md, " ++
+            "docs/dev/README.md, CLAUDE.md and README.md, then update this number");
+    if (@typeInfo(FormKind).@"enum".fields.len != 18)
+        @compileError("FormKind count changed: update the FormKind table in docs/dev/ir.md, " ++
+            "then update this number");
+}
+
 pub const Annotations = struct {
     is_tail: bool = false,
     /// Source span of the form this node was lowered from, if it was a datum the
@@ -1070,7 +1086,13 @@ pub fn markTailPositions(node: *Node, is_tail: bool) void {
 }
 
 // ---------------------------------------------------------------------------
-// Semantic analysis: primitive identification
+// Known-global vocabulary
+//
+// This list outlived the `identifyPrimitives` IR analysis pass it was written
+// for (removed in v0.13.0). Its one remaining caller is the LLVM backend's
+// `isKnownOrReservedGlobal` (`llvm_emit.zig`), deciding global-vs-lexical for
+// free-variable analysis. It is not an IR annotation source — nothing here
+// marks nodes — so do not describe it as an analysis pass.
 // ---------------------------------------------------------------------------
 
 pub fn isKnownGlobal(name: []const u8) bool {

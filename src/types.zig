@@ -1084,38 +1084,52 @@ pub fn boxSet(v: Value, val: Value) void {
 // ---------------------------------------------------------------------------
 
 pub const OpCode = enum(u8) {
-    load_const, // dst:u8, idx:u16
-    load_nil, // dst:u8
-    load_true, // dst:u8
-    load_false, // dst:u8
-    load_void, // dst:u8
-    move, // dst:u8, src:u8
-    get_global, // dst:u8, sym_idx:u16
-    set_global, // sym_idx:u16, src:u8
-    define_global, // sym_idx:u16, src:u8
-    tail_apply, // base:u8, nargs:u8
-    get_upvalue, // dst:u8, idx:u8
-    set_upvalue, // idx:u8, src:u8
-    call, // base:u8, nargs:u8
-    tail_call, // base:u8, nargs:u8
-    @"return", // src:u8
+    load_const, // dst:u16, idx:u16
+    load_nil, // dst:u16
+    load_true, // dst:u16
+    load_false, // dst:u16
+    load_void, // dst:u16
+    move, // dst:u16, src:u16
+    get_global, // dst:u16, sym_idx:u16
+    set_global, // sym_idx:u16, src:u16
+    define_global, // sym_idx:u16, src:u16
+    tail_apply, // base:u16, nargs:u8
+    get_upvalue, // dst:u16, idx:u16
+    set_upvalue, // idx:u16, src:u16
+    call, // base:u16, nargs:u8
+    tail_call, // base:u16, nargs:u8
+    @"return", // src:u16
     jump, // offset:i16
-    jump_false, // test:u8, offset:i16
-    jump_true, // test:u8, offset:i16
-    closure, // dst:u8, idx:u16
-    cons, // dst:u8, car:u8, cdr:u8
-    push_handler, // handler_reg:u8
+    jump_false, // test:u16, offset:i16
+    jump_true, // test:u16, offset:i16
+    closure, // dst:u16, idx:u16, then upvalue_count * (is_local:u8, index:u16)
+    cons, // dst:u16, car:u16, cdr:u16
+    push_handler, // handler_reg:u16
     pop_handler, // (no operands)
     halt,
-    call_global, // base:u8, sym_idx:u16, nargs:u8
-    tail_call_global, // base:u8, sym_idx:u16, nargs:u8
-    box_local, // reg:u8 — wrap register value in a pair (box) for shared mutation
-    get_box_local, // dst:u8, reg:u8 — read car of boxed register
-    set_box_local, // reg:u8, src:u8 — set car of boxed register
-    self_tail_call, // base:u8, nargs:u8
+    call_global, // base:u16, sym_idx:u16, nargs:u8
+    tail_call_global, // base:u16, sym_idx:u16, nargs:u8
+    box_local, // reg:u16 — wrap register value in a pair (box) for shared mutation
+    get_box_local, // dst:u16, reg:u16 — read car of boxed register
+    set_box_local, // reg:u16, src:u16 — set car of boxed register
+    self_tail_call, // base:u16, nargs:u8
     tail_call_cc, // base:u16, dst:u16 (receiver at base+0; captures continuation at dst, tail-calls receiver)
-    tail_eval, // base:u8, nargs:u8 (expr at base+0, optional env at base+1; compiles and tail-calls)
+    tail_eval, // base:u16, nargs:u8 (expr at base+0, optional env at base+1; compiles and tail-calls)
 };
+
+// -- Doc sync gate ----------------------------------------------------------
+//
+// `docs/dev/bytecode.md` documents this table by count and per-opcode operand
+// width, and `.claude/skills/bytecode-isa/SKILL.md` quotes the count. All three
+// drifted apart — doc 29, skill 32, enum 31 — because nothing tied them
+// together (kaappi#2102). Change the number here only together with those two
+// files. The widths themselves stay pinned by `fixed_operand_bytes` in
+// `vm_dispatch.zig`, which `ensureOperands` enforces at run time.
+comptime {
+    if (@typeInfo(OpCode).@"enum".fields.len != 31)
+        @compileError("OpCode count changed: update the table in docs/dev/bytecode.md " ++
+            "and the count in .claude/skills/bytecode-isa/SKILL.md, then update this number");
+}
 
 // ---------------------------------------------------------------------------
 // List helpers

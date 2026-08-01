@@ -240,9 +240,9 @@ cannot resolve. `zig cc` includes these automatically.
 
 ```text
 Source → Reader → Expander → IR → Analysis → Optimization → Bytecode Emission → VM
-         (UTF-8    (syntax-    (33 node  (tail pos,    (const fold,     (register-   (generational
-          lexer)    rules)      types)    primitives,   dead branch,      based)       GC)
-                                          constants)    boolean, etc.)
+         (UTF-8    (syntax-    (18 node  (tail pos)    (const fold,     (register-   (generational
+          lexer)    rules)      types)                  dead branch,      based)       GC)
+                                                        boolean, etc.)
 ```
 
 ### Pipeline stages
@@ -251,7 +251,7 @@ Source → Reader → Expander → IR → Analysis → Optimization → Bytecode
 |-------|------|------|
 | Reader | `reader.zig` (+ `reader_tokens.zig`, `reader_datum.zig`) | Tokenizer + recursive descent parser. Handles R7RS lexical syntax including Unicode identifiers and `#\λ` character literals. |
 | Expander | `expander.zig` | `syntax-rules` pattern matching and template instantiation. Called by the compiler when a macro keyword is encountered. |
-| IR | `ir.zig` | Lowers S-expressions to tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See `docs/dev/ir.md`. |
+| IR | `ir.zig` | Lowers S-expressions to tree-structured IR (18 node types; `sexpr_form` carries 18 `FormKind`s). Runs 1 analysis pass (tail positions) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See `docs/dev/ir.md`. |
 | Compiler | `compiler.zig` | IR nodes → register-based bytecode via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches derived forms to sub-modules. |
 | VM | `vm.zig` | Executes bytecode. Growable register file + call frame stack (heap-allocated, double-on-overflow). Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
 | GC | `memory.zig` | Generational collector (young/old) with minor and full collections, write barrier for old→young references. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
@@ -328,8 +328,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 
 | File | Responsibility |
 |------|---------------|
-| `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
-| `ir_emitter.zig` | Standalone IR → bytecode emitter (used by Stage 1 parity tests) |
+| `ir.zig` | IR node types (18), AST→IR lowering, 1 analysis pass, 5 optimization passes |
 | `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes), retains `compileExpr()` for passthrough forms, scope/register management, macro forms |
 | `compiler_ir.zig` | IR-to-bytecode: `compileFromNode()` dispatch, if, begin, call, lambda, define, set!, and, or, when, unless |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |

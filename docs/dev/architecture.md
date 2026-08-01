@@ -28,7 +28,7 @@ Source code
 |-------|---------|------|
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
-| **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
+| **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (18 node types, one of which — `sexpr_form` — carries 18 `FormKind`s). Runs 1 analysis pass (tail positions) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
 | **Compiler** | `compiler.zig` + 5 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
@@ -58,7 +58,7 @@ Source code
 
 | File | Responsibility |
 |------|---------------|
-| `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes, standalone Emitter for parity testing |
+| `ir.zig` | IR node types (18), AST→IR lowering, 1 analysis pass, 5 optimization passes |
 | `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), also retains `compileExpr()` for passthrough forms, scope/register management |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
@@ -244,41 +244,20 @@ be balanced and follow LIFO order.
 The compiler produces register-based bytecode. Each instruction is an `OpCode`
 enum value followed by operands.
 
-### Opcodes (31)
+### Opcodes
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
-| `load_const` | dst:u8, idx:u16 | Load constant from pool |
-| `load_nil` | dst:u8 | Load nil |
-| `load_true` | dst:u8 | Load #t |
-| `load_false` | dst:u8 | Load #f |
-| `load_void` | dst:u8 | Load void |
-| `move` | dst:u8, src:u8 | Copy register |
-| `get_global` | dst:u8, sym_idx:u16 | Read global variable |
-| `set_global` | sym_idx:u16, src:u8 | Write global variable |
-| `define_global` | sym_idx:u16, src:u8 | Define global variable |
-| `tail_apply` | base:u8, nargs:u8 | Tail `apply` (spreads final list arg) |
-| `get_local` | dst:u8, slot:u8 | Read local variable |
-| `set_local` | slot:u8, src:u8 | Write local variable |
-| `get_upvalue` | dst:u8, idx:u8 | Read captured variable |
-| `set_upvalue` | idx:u8, src:u8 | Write captured variable |
-| `call` | base:u8, nargs:u8 | Call function |
-| `tail_call` | base:u8, nargs:u8 | Tail call (reuses frame) |
-| `return` | src:u8 | Return value |
-| `jump` | offset:i16 | Unconditional jump |
-| `jump_false` | test:u8, offset:i16 | Jump if register is `#f` |
-| `jump_true` | test:u8, offset:i16 | Jump if register is not `#f` |
-| `closure` | dst:u8, idx:u16 | Create closure from function |
-| `close_upvalue` | slot:u8 | Close over a local variable |
-| `cons` | dst:u8, car:u8, cdr:u8 | Allocate a pair |
-| `push_handler` | handler_reg:u8 | Push exception handler |
-| `pop_handler` | -- | Pop exception handler |
-| `halt` | -- | Stop execution |
-| `call_global` | base:u8, sym_idx:u16, nargs:u8 | Call a global directly (fused get_global + call) |
-| `tail_call_global` | base:u8, sym_idx:u16, nargs:u8 | Tail-call a global directly |
-| `box_local` | reg:u8 | Wrap a register value in a box (pair) for shared mutation |
-| `get_box_local` | dst:u8, reg:u8 | Read the boxed value (car of box) |
-| `set_box_local` | reg:u8, src:u8 | Set the boxed value (car of box) |
+31 opcodes, defined by the `OpCode` enum in `src/types.zig`. Register, slot,
+constant-index and symbol-index operands are u16 (big-endian); only `nargs` and
+a closure capture descriptor's `is_local` flag are u8.
+
+**[bytecode.md](bytecode.md) has the full table** — opcode numbers, operands,
+byte widths, the closure capture encoding, and the disassembler's output
+format. It is the single source of truth for the ISA and is deliberately not
+duplicated here: this file carried its own copy until kaappi#2102, and it had
+drifted to describe three opcodes that do not exist (`get_local`, `set_local`,
+`close_upvalue`) while omitting three that do (`self_tail_call`,
+`tail_call_cc`, `tail_eval`) — a wrong table whose row count happened to stay
+right.
 
 ### Function objects
 

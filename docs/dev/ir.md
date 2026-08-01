@@ -5,8 +5,8 @@ between the macro expander and bytecode emission. It enables shared analysis
 and optimization passes that benefit both the bytecode VM and LLVM backend, and
 provides a clean lowering target for a future native backend.
 
-**Source:** `src/ir.zig` (~1,500 lines)
-**Tests:** `src/tests_ir.zig` (~540 lines)
+**Source:** `src/ir.zig` (~1,400 lines)
+**Tests:** `src/tests_ir.zig` (~850 lines)
 
 ---
 
@@ -20,9 +20,7 @@ S-expression (post-expansion)
     v  lowerWithMacros()
 IR Node tree
     |
-    v  markTailPositions()     \
-    v  identifyPrimitives()     } analysis passes
-    v  markConstants()         /
+    v  markTailPositions()      } the one analysis pass
     |
     v  foldConstants()         \
     v  eliminateDeadBranches()  \
@@ -39,7 +37,14 @@ Bytecode
 ## Node Types
 
 Each IR node has a `NodeTag`, a `Data` union, and an `Annotations` struct.
-The 33 node types are grouped by how they carry data:
+There are **18** node tags, grouped by how they carry data.
+
+The IR is much less lowered than the tag count alone suggests. Only the first
+group below has its sub-expressions recursively lowered into IR nodes; the four
+binding tags keep their bindings as raw S-expressions, and every remaining
+special form collapses into the single `sexpr_form` tag, discriminated by one
+of 18 `FormKind`s. So a `cond` is not its own node type — it is
+`sexpr_form` carrying `.cond`.
 
 ### Fully lowered (sub-expressions are IR nodes)
 
@@ -58,12 +63,10 @@ The 33 node types are grouped by how they carry data:
 | `set_form` | `SetData` | Variable mutation: name symbol + value S-expr |
 | `lambda` | `LambdaData` | Lambda: args S-expr + optional name |
 
-### S-expression delegation (body stored as raw S-expression)
+### Binding forms (bindings stored as a raw S-expression)
 
-These forms are recognized and tagged during lowering but their
-sub-expressions are not recursively lowered. The compiler's
-`compileFromNode()` delegates them to the existing form compilers via
-their `SexprArgs` data.
+These four have their own tags but share `LetData`, which holds the whole form
+tail unlowered. `compileFromNode()` delegates them to `compiler_bindings.zig`.
 
 | Tag | Scheme form |
 |-----|-------------|
@@ -71,23 +74,34 @@ their `SexprArgs` data.
 | `let_star` | `let*` |
 | `letrec` | `letrec` |
 | `letrec_star` | `letrec*` |
-| `named_let` | named `let` |
-| `do_form` | `do` |
-| `delay` | `delay` |
-| `delay_force` | `delay-force` |
-| `cond` | `cond` |
-| `case_form` | `case` |
-| `case_lambda` | `case-lambda` |
-| `guard` | `guard` |
-| `quasiquote` | quasiquote |
-| `parameterize` | `parameterize` |
-| `define_values` | `define-values` |
-| `let_values` | `let-values` |
-| `let_star_values` | `let*-values` |
-| `define_syntax` | `define-syntax` |
-| `let_syntax` | `let-syntax` |
-| `letrec_syntax` | `letrec-syntax` |
-| `cond_expand` | `cond-expand` |
+
+### S-expression delegation (one tag, 18 form kinds)
+
+| Tag | Data type | Description |
+|-----|-----------|-------------|
+| `sexpr_form` | `SexprFormData` | A `FormKind` discriminant plus the unlowered form tail |
+
+Recognized during lowering but not recursively lowered; `compileFromNode()`
+dispatches on the `FormKind` to the existing form compilers. The 18 kinds and
+their keywords:
+
+| FormKind | Keyword | FormKind | Keyword |
+|----------|---------|----------|---------|
+| `do_form` | `do` | `let_values` | `let-values` |
+| `delay` | `delay` | `let_star_values` | `let*-values` |
+| `delay_force` | `delay-force` | `define_syntax` | `define-syntax` |
+| `cond` | `cond` | `define_property` | `define-property` |
+| `case_form` | `case` | `named_let` | `let` (named) |
+| `case_lambda` | `case-lambda` | `let_syntax` | `let-syntax` |
+| `guard` | `guard` | `letrec_syntax` | `letrec-syntax` |
+| `quasiquote` | `quasiquote` | `cond_expand` | `cond-expand` |
+| `parameterize` | `parameterize` | | |
+| `define_values` | `define-values` | | |
+
+`sexpr_form_map` maps keyword → `FormKind` for 17 of them. `named_let` is the
+exception: it has no keyword of its own, so `lowerLet` detects it structurally
+(a `let` whose second element is a symbol). `FormKind.keyword()` is the inverse
+and covers all 18.
 
 ### Fallback
 
@@ -100,28 +114,26 @@ their `SexprArgs` data.
 ## Data Structures
 
 ```zig
-CallData    { operator: *Node, args: []const *Node }
-IfData      { test_expr: *Node, consequent: *Node, alternate: ?*Node }
-CondBodyData { test_expr: *Node, body: []const *Node }
-DefineData  { name: Value, value: Value }
-SetData     { name: Value, value: Value }
-LambdaData  { args: Value, name: ?[]const u8 }
-LetData     { args: Value }
-SexprArgs   { args: Value }
+CallData      { operator: *Node, args: []const *Node }
+IfData        { test_expr: *Node, consequent: *Node, alternate: ?*Node }
+CondBodyData  { test_expr: *Node, body: []const *Node }
+DefineData    { name: Value, value: Value }
+SetData       { name: Value, value: Value }
+LambdaData    { args: Value, name: ?[]const u8 }
+LetData       { args: Value }
+SexprFormData { form: FormKind, args: Value }
 ```
 
 ---
 
 ## Annotations
 
-Every node carries an `Annotations` struct set by the analysis passes:
+Every node carries an `Annotations` struct. It has exactly two fields:
 
 | Field | Type | Set by | Meaning |
 |-------|------|--------|---------|
 | `is_tail` | `bool` | `markTailPositions` | Node is in tail position (enables TCO) |
-| `is_primitive_call` | `bool` | `identifyPrimitives` | Call targets a known built-in |
-| `primitive_name` | `?[]const u8` | `identifyPrimitives` | Name of the primitive (e.g. `"+"`) |
-| `is_constant` | `bool` | `markConstants` | Expression evaluates to a compile-time constant |
+| `span` | `types.Span` | the lowerer | Source span of the form this node came from, when the reader could key it (a pair or vector). `span.line == 0` means unknown; the compiler emits it into the bytecode line table so runtime errors can report `file:line:col` (kaappi#1506). |
 
 ---
 
@@ -154,7 +166,15 @@ on constant fixnum arguments, it is folded to a `constant` node immediately
 
 ---
 
-## Analysis Passes
+## Analysis Pass
+
+`markTailPositions` is the only analysis pass. Two others —
+`identifyPrimitives` and `markConstants`, along with the
+`is_primitive_call` / `primitive_name` / `is_constant` annotations they set —
+were removed as dead code in v0.13.0 (#1039, #1041). The
+primitive-name list they used survives in `ir.zig` as `isKnownGlobal`, but its
+only caller is now the LLVM backend's `isKnownOrReservedGlobal` — it annotates
+nothing and is not part of any IR pass.
 
 ### markTailPositions(node, is_tail)
 
@@ -168,25 +188,6 @@ Propagation rules:
 - `begin`, `and`, `or`: last expression inherits; all others are non-tail
 - `when`, `unless`: test is non-tail; last body expression inherits
 - `call`: operator and arguments are always non-tail
-
-### identifyPrimitives(node)
-
-Marks calls to known built-in procedures. If a `call` node's operator is a
-`global_ref` matching one of 72 known primitive names, the node gets
-`ann.is_primitive_call = true` and `ann.primitive_name` set.
-
-Recognized primitives include: `+`, `-`, `*`, `/`, `=`, `<`, `>`, `cons`,
-`car`, `cdr`, `list`, `map`, `apply`, `display`, `write`, `eq?`, `equal?`,
-`string-append`, `vector-ref`, and ~50 others.
-
-### markConstants(node)
-
-Identifies compile-time constant expressions:
-
-- `constant` nodes are always constant
-- `call` nodes are constant if the operator is a primitive and all arguments
-  are constant
-- `begin` nodes inherit the constancy of their last expression
 
 ---
 
@@ -247,42 +248,40 @@ Structural cleanup:
   `and_form`, `or_form`, `when_form`, `unless_form`, `define`, `set_form`,
   `lambda`) are compiled directly from their IR data structures.
 
-- **S-expression forms** (`let_form`, `cond`, `do_form`, etc.) delegate to
-  the existing compiler sub-modules (`compiler_bindings.zig`,
-  `compiler_advanced.zig`, etc.) via their `SexprArgs`.
+- **Binding forms** (`let_form`, `let_star`, `letrec`, `letrec_star`) delegate
+  to `compiler_bindings.zig` via their `LetData`.
+
+- **`sexpr_form`** dispatches on its `FormKind` to the existing compiler
+  sub-modules (`compiler_bindings.zig`, `compiler_advanced.zig`, etc.) via its
+  `SexprFormData`.
 
 - **`passthrough`** delegates to `compileExpr()`, the original
   syntax-directed compiler path.
 
 Tail position: `compileFromNode()` uses `node.ann.is_tail` (set by
-`markTailPositions`) instead of recomputing tail status. Primitive
-identification: `node.ann.is_primitive_call` is passed through to call
-emission for optimized dispatch.
-
----
-
-## Standalone Emitter
-
-`ir.zig` contains an `Emitter` struct that compiles IR nodes directly to
-bytecode without going through the full compiler. This is used exclusively
-by the test suite to verify bytecode parity between the IR path and the
-direct compiler.
+`markTailPositions`) instead of recomputing tail status.
 
 ---
 
 ## Testing
 
-`tests_ir.zig` covers four categories:
+`tests_ir.zig` holds ~94 tests in four groups:
 
-- **Parity tests** — verify that IR compilation produces identical bytecode
-  to the direct compiler path for the same expression
-- **Behavioral tests** — verify that IR-compiled code evaluates to the
-  correct result at runtime
-- **Analysis tests** — verify that each analysis pass annotates nodes
-  correctly (tail positions, primitive identification, constant detection)
-- **Optimization tests** — verify that each optimization pass transforms
-  nodes as expected (constant folding, dead branches, boolean simplification,
-  identity elimination, begin simplification)
+- **Behavioral** (`test "IR behavioral: …"`) — verify that IR-compiled code
+  evaluates to the correct result at runtime. The bulk of the file.
+- **Lowering** (`test "IR lowering: …"`) — verify the shape of the lowered
+  tree for a given form
+- **Analysis** (`test "IR analysis: …"`) — verify that `markTailPositions`
+  annotates nodes correctly
+- **Optimization** (`test "IR optimization: …"`, `test "IR fold: …"`,
+  `test "IR opt: …"`) — verify that each optimization pass transforms nodes as
+  expected (constant folding, dead branches, boolean simplification, identity
+  elimination, begin simplification)
+
+There is no longer a bytecode-parity group. It tested `ir.zig`'s standalone
+`Emitter` against the direct compiler path; that emitter (and its own file,
+`ir_emitter.zig`) was removed as a duplicate in v0.13.0, leaving
+`compileFromNode()` as the only IR-to-bytecode path.
 
 ---
 

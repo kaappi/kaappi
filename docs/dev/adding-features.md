@@ -216,46 +216,60 @@ without the fix.
 When you need a new special form that the compiler must handle directly
 (not a procedure and not a macro).
 
-### 1. Add an IR node type
+`.claude/rules/compiler-forms.md` is the maintained checklist (it loads
+automatically when you edit `src/compiler*.zig` or `src/ir.zig`) and covers
+both paths — a *delegating* form, which passes its raw s-expression to a form
+compiler, and a *structured* form, which lowers into IR children. Almost every
+new form is delegating; that is the path shown here.
+
+### 1. Add a FormKind
+
+A delegating form does **not** get its own `NodeTag`. All of them share the
+single `sexpr_form` tag and are discriminated by `FormKind`, so there is no
+`Data` union variant to add and nothing to teach `freeNode`, the analysis pass
+or the optimization passes — they handle `.sexpr_form` through catch-all arms
+already.
 
 In `src/ir.zig`:
 
-a. Add a variant to `NodeTag`:
+a. Add a variant to `FormKind` and return its keyword from `keyword()`:
 
 ```zig
-pub const NodeTag = enum {
-    // ... existing tags ...
+pub const FormKind = enum {
+    // ... existing kinds ...
     my_form,
+
+    pub fn keyword(self: FormKind) []const u8 {
+        return switch (self) {
+            // ...
+            .my_form => "my-form",
+        };
+    }
 };
 ```
 
-b. Add the corresponding `Data` union variant. For simple forms with
-sub-expressions that should be analyzed/optimized, define a custom data
-struct and lower recursively. For complex forms, use `SexprArgs` to defer
-to the existing compiler path:
+b. Add the keyword → `FormKind` entry to `sexpr_form_map`:
 
 ```zig
-// In Node.Data union:
-my_form: SexprArgs,   // delegates body to existing compiler
+.{ "my-form", .my_form },
 ```
 
-c. Add lowering in `lowerFormWithMacros()` and `lowerForm()`:
+That is the whole lowering change — `lowerWithMacros` consults the map and
+calls `makeSexprNode(form, types.cdr(expr))` for any hit. (A form with no
+keyword of its own, like named `let`, is instead detected structurally in its
+`lower*` helper.)
 
-```zig
-if (std.mem.eql(u8, effective_name, "my-form"))
-    return ir.makeSexprNode(.my_form, types.cdr(expr));
-```
-
-d. Handle the new tag in `freeNode`, `markTailPositions`, `identifyPrimitives`,
-and `markConstants` (add to the appropriate switch arms -- usually the
-no-op catch-all arm for `SexprArgs`-based forms).
+Adding a `FormKind` also enrolls the keyword in `eval_fallback_form_names`
+automatically, which is what keeps the LLVM backend's native/eval-fallback
+decision correct — see the note in the root `CLAUDE.md`.
 
 ### 2. Add compilation dispatch
 
-In `src/compiler.zig`, add a case in `compileFromNode()`:
+In `src/compiler_ir.zig`, add a case to the inner `switch (sf.form)` inside the
+`.sexpr_form` arm of `compileFromNode()`:
 
 ```zig
-.my_form => try forms.compileMyForm(self, node.data.my_form.args, dst, tail),
+.my_form => try forms.compileMyForm(self, sf.args, dst, tail),
 ```
 
 ### 3. Implement the compilation
@@ -272,7 +286,7 @@ Write the compilation function:
 pub fn compileMyForm(
     self: *Compiler,
     args: Value,
-    dst: u8,
+    dst: u16,
     is_tail: bool,
 ) CompileError!void {
     // Parse the form's subexpressions from `args`
@@ -296,7 +310,8 @@ pub const compileMyForm = @import("compiler_advanced.zig").compileMyForm;
 
 Test both at the Zig level (compile and check emitted bytecode) and at the
 Scheme level (run expressions using the new form). Add IR-specific tests
-in `src/tests_ir.zig` -- at minimum a behavioral parity test.
+in `src/tests_ir.zig` -- at minimum a behavioral test (`test "IR behavioral:
+my-form ..."`) that evaluates the form and checks its result.
 
 ---
 

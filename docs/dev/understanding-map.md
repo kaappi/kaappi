@@ -91,8 +91,8 @@ the leakiness measurement.
 
 - **Where:** `src/ir.zig`, `src/compiler_ir.zig`, `src/compiler.zig`
 - **Theory:** the lowering shape (structured nodes vs. `sexpr_form`
-  passthrough), what the 3 analysis passes establish (tail positions above
-  all), what the 5 optimization passes are allowed to assume, and the
+  passthrough), what the tail-position analysis pass establishes, what the
+  5 optimization passes are allowed to assume, and the
   contract emitted bytecode relies on from the VM: register file, frames,
   gap registers.
 - **Why core:** every new form passes through it, and tail-position
