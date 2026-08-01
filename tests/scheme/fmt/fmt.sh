@@ -109,6 +109,80 @@ else
     fail "check: file #70 of 70 still checked (#1652)" "exit $status, output: $(cat "$TMP/argcliff.out")"
 fi
 
+# ── Line endings: LF, like `zig fmt` (kaappi#1897) ───────────────────────────
+#
+# Every fixture here is built with an explicit printf, never checked in: a
+# committed CRLF file would be rewritten by git's own eol filters on a checkout
+# with core.autocrlf=true — which is precisely the Windows configuration these
+# cases exist to cover — and the test would then assert nothing. printf writes
+# the bytes it is given on every platform, Git Bash included, and the fd is
+# opened O_BINARY throughout (src/platform.zig), so no CRT translation touches
+# it either.
+#
+# assert_bytes <label> <expected-file> <actual-file>: byte-exact comparison.
+# `cmp`, not `$(cat …)`: command substitution would strip the trailing newline
+# whose presence is half of what several of these check.
+assert_bytes() {
+    if cmp -s "$2" "$3"; then
+        pass "$1"
+    else
+        fail "$1" "expected [$(od -c < "$2" | tr '\n' ' ')], got [$(od -c < "$3" | tr '\n' ' ')]"
+    fi
+}
+
+# eol_case <label> <input-printf-format> <expected-printf-format>
+eol_case() {
+    local label="$1"
+    printf "$2" > "$TMP/eol-in.scm"
+    printf "$3" > "$TMP/eol-want.scm"
+    "$KAAPPI" fmt "$TMP/eol-in.scm" > /dev/null 2>&1
+    assert_bytes "eol: $label" "$TMP/eol-want.scm" "$TMP/eol-in.scm"
+    # Whatever the policy produces must be a fixed point, or a formatted tree
+    # goes dirty again on the next run.
+    assert_exit "eol: $label (fixed point)" 0 "$KAAPPI" fmt --check "$TMP/eol-in.scm"
+}
+
+eol_case "CRLF throughout becomes LF" \
+    '(define x 1)\r\n(define y 2)\r\n' '(define x 1)\n(define y 2)\n'
+eol_case "lone CR becomes LF" \
+    '(define x 1)\r(define y 2)\r' '(define x 1)\n(define y 2)\n'
+eol_case "mixed endings all become LF" \
+    '(a)\r\n(b)\n(c)\r' '(a)\n(b)\n(c)\n'
+eol_case "CRLF file gains no second newline" \
+    '(define x 1)\r\n(define y 2)' '(define x 1)\n(define y 2)\n'
+eol_case "trailing CR of a line comment is dropped" \
+    '(define x 1) ; note\r\n(define y 2)\r\n' '(define x 1) ; note\n(define y 2)\n'
+eol_case "block comment interior normalises" \
+    '#| a\r\nb |#\r\n(define x 1)\r\n' '#| a\nb |#\n(define x 1)\n'
+eol_case "CRLF blank line stays one blank line" \
+    '(a)\r\n\r\n(b)\r\n' '(a)\n\n(b)\n'
+
+# A CR *inside a datum* is program data — changing it changes the program — so
+# it survives under any policy. These files are already canonical: --check must
+# say so, and fmt must not touch a byte.
+eol_case "CR inside a string literal is untouched" \
+    '(define s "a\rb")\n' '(define s "a\rb")\n'
+eol_case "CR inside a raw string is untouched" \
+    '(define s #"X"a\rb"X")\n' '(define s #"X"a\rb"X")\n'
+eol_case "CR inside a piped symbol is untouched" \
+    '(define |a\rb| 1)\n' '(define |a\rb| 1)\n'
+eol_case "raw return character literal is untouched" \
+    '(define c #\\\r)\n' '(define c #\\\r)\n'
+
+# --check reports a CRLF file, because fmt would rewrite it. The two share one
+# comparison in formatFile, so they cannot disagree — this pins the direction.
+printf '(define x 1)\r\n' > "$TMP/eol-crlf.scm"
+assert_exit "eol: --check flags a CRLF-only difference" 1 "$KAAPPI" fmt --check "$TMP/eol-crlf.scm"
+before="$(od -c < "$TMP/eol-crlf.scm")"
+"$KAAPPI" fmt --check "$TMP/eol-crlf.scm" > /dev/null 2>&1 || true
+assert_eq "eol: --check leaves the CRLF file untouched" "$before" "$(od -c < "$TMP/eol-crlf.scm")"
+
+# stdin takes the same policy. fd 0/1 are _setmode(O_BINARY) on Windows
+# (src/platform.zig), so this is the same comparison there.
+printf '(define x 1)\n' > "$TMP/eol-stdin-want.scm"
+printf '(define x 1)\r\n' | "$KAAPPI" fmt > "$TMP/eol-stdin-got.scm" 2>/dev/null
+assert_bytes "eol: stdin CRLF formats to LF" "$TMP/eol-stdin-want.scm" "$TMP/eol-stdin-got.scm"
+
 # ── Corpus: zero semantic drift + idempotence over the repo tree ─────────────
 
 corpus_files() {

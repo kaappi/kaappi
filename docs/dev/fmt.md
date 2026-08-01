@@ -36,6 +36,72 @@ kaappi fmt [--check]              # format stdin to stdout
   rewritten — `1.5e10`, `#xFF`, `#\newline`, `'x` vs `(quote x)` all pass
   through untouched. The formatter rearranges whitespace *between* lexemes; it
   never edits a lexeme.
+* **LF line endings.** Every line break `fmt` emits is a bare `\n`, whatever the
+  input used. See *Line endings* below.
+
+## Line endings
+
+`kaappi fmt` **normalises line endings to LF** — the same policy `zig fmt`
+applies to this compiler's own Zig, verified against it. CRLF and lone CR
+between lexemes are line-ending whitespace, and normalise like any other
+whitespace run; the file ends in exactly one `\n`.
+
+**Bytes inside a datum are never touched.** A CR there is program data, not
+layout, so all of these survive byte-for-byte under this policy and would under
+any other:
+
+| Datum | Example |
+|---|---|
+| String literal | `"a<CR>b"`, `"a<CR><LF>b"` |
+| SRFI 267 raw string | `#"X"a<CR>b"X"` |
+| Piped symbol | `\|a<CR>b\|` |
+| Character literal | `#\<CR>` (and its `#\return` spelling) |
+
+Comments are not datums, so both kinds normalise. A line comment's trailing
+`\r` is the carriage return of the CRLF that ended it, and is dropped alongside
+the trailing spaces beside it; a block comment ends at `|#`, so its *interior*
+line endings normalise outright.
+
+`--check` reports a file that differs only in line endings, because `fmt` would
+rewrite it. The two share one comparison in `formatFile`, so they can never
+disagree about any file.
+
+### Why this is not left to the round-trip guard
+
+The [safety net](#the-round-trip-safety-net) below is structurally blind to
+this. `\r` is whitespace to the reader, so a whole-file CRLF→LF rewrite is
+`equal?`-**invariant**: the guard passes while every line in the file changes.
+It proves the *program* did not change; it cannot prove the *bytes* did not.
+Line endings are the one dimension it cannot see, which is why the policy is
+stated here and enforced by dedicated tests rather than inferred from the
+guard (kaappi#1897).
+
+### On Windows
+
+`fmt` writes LF on every platform — file descriptors are opened `O_BINARY`, and
+stdin/stdout/stderr are `_setmode(O_BINARY)` (`src/platform.zig`), so no CRT
+translation applies. On a checkout with `core.autocrlf=true` the working tree
+holds CRLF, so `fmt` rewrites those files and `fmt --check` reports them. The
+fix is the same one Go and Zig projects use — normalise the checkout:
+
+```gitattributes
+*.scm text eol=lf
+*.sld text eol=lf
+```
+
+or `git config core.autocrlf input`. This repo needs neither: no tracked
+`.scm`/`.sld` contains a CR.
+
+### Known deviation: a lone CR does not end a `;` comment
+
+R7RS 7.1.1 defines `⟨line ending⟩ → ⟨newline⟩ | ⟨return⟩ ⟨newline⟩ | ⟨return⟩`
+and ends a `;` comment at one, but this **reader** ends it only at `\n`
+(kaappi#2079) — so in a classic-Mac-line-ending file everything after the first
+`;` is one comment. `fmt`'s lexer mirrors the real reader by design, so it
+inherits that: the comment's interior CR is preserved rather than normalised,
+since rewriting it to `\n` would split the comment and promote its tail to real
+code. Every other lone CR in such a file does become LF. `fmt` is faithful to
+what the program means today; fixing the reader is what changes it.
 
 ## Why it needs its own reader
 
@@ -123,9 +189,14 @@ program source.
   preservation, the idempotence property and semantics-preserving round-trip
   over programs from the grammar fuzzer (`fuzz_gen`), and parser diagnostics.
 * **`tests/scheme/fmt/fmt.sh`** — CLI behaviour (write in place, `--check` exit
-  codes, stdin) plus two corpus-wide properties: formatting every `.scm`/`.sld`
-  under `tests/scheme/` and `lib/` has **zero semantic drift**, and the result
-  is **idempotent**.
+  codes, stdin), the line-ending policy, plus two corpus-wide properties:
+  formatting every `.scm`/`.sld` under `tests/scheme/` and `lib/` has **zero
+  semantic drift**, and the result is **idempotent**.
+
+  Its line-ending fixtures are built with `printf`, never checked in: a
+  committed CRLF file would be rewritten by git's own eol filters on a
+  `core.autocrlf=true` checkout — exactly the Windows configuration those cases
+  exist to cover — leaving the test asserting nothing.
 
 ## CI adoption
 
