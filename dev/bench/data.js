@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785595428294,
+  "lastUpdate": 1785598663678,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ff6cffd5f9fb375a04e2db435657c7d90b6051a0",
-          "message": "Add SRFI 148 (eager syntax-rules), completing issue #1699's portable set (#1806)\n\nlib/srfi/148.sld is a pure portable port of the reference implementation\n(Marc Nieper-Wisskirchen, 2016, MIT): the CK-machine core, the portable\nidentifier-comparison helpers, and ~110 em- combinators combined into one\n134-definition library body. em-syntax-rules and several combinators\nresolve through SRFI 147's begin-wrapped define-syntax mechanism - this\nSRFI is why 147 was implemented. No engine changes ship here; the six\nengine bugs 148 surfaced were fixed separately (#1776/#1779 template\nunwrap gaps, #1787/#1790 usertext-marker spine gaps, #1796/#1797 the\nhead-position chain depth wall, #1802/#1804 the compile-cost cliff that\nmade the bare import cost 87 seconds - it now costs ~0.07s).\n\nThe port fixes 4 real, confirmed bugs in the reference implementation\nitself, none covered by its own test suite (em-append-map's stray `map`\ntoken; em-set-intersection and em-set-difference dropping 'compare in\ntheir 3+-list recursions; em-set= vacuously #t for 3+ arguments) - all\ndocumented with evidence in the library header, alongside the\n:call/:prepare workaround for Kaappi's zero-clause syntax-rules\nrestriction.\n\ntests/scheme/srfi/srfi148.scm is the reference's own test.sld ported\nverbatim (134 expected passes, 0.9s), with 8 test-expect-fail entries\nciting the two remaining general engine bugs #1800 and #1801. The\nfeatures/cond-expand surface needs no listing anywhere: the build-time\nlib/srfi scan and the derived srfi-<n> probe pick the new file up on\nrebuild (verified: `kaappi features` reports portable (160) including\n148, and (cond-expand (srfi-148 ...)) selects it).\n\nRefs #1699 (72, 211, 213 remain tracked there).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T11:05:43+05:30",
-          "tree_id": "00c6c043f04ee729ea98c5eb6ed2bea84345141c",
-          "url": "https://github.com/kaappi/kaappi/commit/ff6cffd5f9fb375a04e2db435657c7d90b6051a0"
-        },
-        "date": 1785219482633,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.520862,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.531307,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.933436,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.574719,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006415,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053633,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508907,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07046,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.536592,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.960708,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.605763,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.440773,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.830052,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.680032,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044315,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045463,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83f07a6bb79eeb1be27380bb87f460674f10af9",
+          "message": "Phase 3.6: SRFI 158 audit — 349 assertions over all 55 exports (#2068)\n\n43 of SRFI 158's 55 exported names appeared in no test. The reconnaissance\npass had spot-probed 18 of them and found nothing, so this unit was scoped as\nclosing a measurement gap rather than a bug hunt, with effort ranked toward\nthe three places a generator library actually breaks. Two of those three came\nback clean and are now pinned rather than assumed:\n\n  * Laziness — every combinator's construction is instrumented with a\n    call-counting source and asserted to consume zero. gmerge is the one\n    exception (it primes both inputs at construction); that is the reference\n    implementation's design, chibi agrees, and the spec constrains only merge\n    order, so it is pinned as documented behaviour.\n  * Exhaustion — all 12 constructors and all 18 combinators are drained and\n    then called three more times. Every one keeps returning eof.\n  * Infinite sources — 37 compositions of an endless generator with a bounded\n    consumer, all under run_timeout during development. No hangs.\n\nThe bugs were elsewhere, and each has its own root cause:\n\n  #2055  make-range-generator does not begin the sequence with an inexact\n         start. The (- (+ start step) step) round trip that carries exactness\n         contagion also perturbs a start that is already inexact — and when\n         step is much larger, annihilates it: (make-range-generator 1e-20 1.0\n         1.0) begins at 0.0. make-iota-generator, with identical \"begins with\n         start\" wording, is correct at every one of those inputs, and so is\n         make-range-generator's own one-argument form.\n\n  #2057  gflatten raises on an empty list from its source. Its refill runs\n         once instead of looping, so (car '()) escapes. A filtering gmap that\n         yields '() for rejected elements is the natural way to hit it.\n\n  #2060  SRFI 158's own generator-unfold example does not run. SRFI 1's\n         higher-order procedures, hash-table-walk, and assoc/member with a\n         predicate are still native drivers, and four SRFI 158 constructors —\n         including gtake — are coroutine-backed, so a resume crosses a\n         returned native frame. make-for-each-generator's stated job of\n         converting \"any collection\" fails for a hash table, and fails on the\n         *second* call, not the first. #1347 closed this for the map family;\n         SRFI 1 was never in its scope. CONFORMANCE.md cites a README section\n         for the restriction that does not state it.\n\n13 assertions are disabled against those three; the mutation test enables them\nand exactly those 13 fail. Nine controls are enabled beside them, so a fix\nflips both sets.\n\nTwo portability traps worth carrying: never write (list (g) (g)) — chibi\nevaluates arguments right to left, so the same generator yields the reverse\nsequence and the file only looks correct on one implementation — and an\naccumulator's return value for a non-eof argument is explicitly unspecified,\nso only its eof value is asserted anywhere here.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T15:12:04+05:30",
+          "tree_id": "071726d345164485a54197d7e6b0d6be92b274f9",
+          "url": "https://github.com/kaappi/kaappi/commit/c83f07a6bb79eeb1be27380bb87f460674f10af9"
+        },
+        "date": 1785598662413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.924445,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.522821,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.556833,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.80722,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004842,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04511,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291488,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054834,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.294553,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.151848,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.535459,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303796,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.677471,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.770293,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044913,
             "unit": "seconds"
           }
         ]
