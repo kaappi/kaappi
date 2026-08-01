@@ -191,8 +191,15 @@
             (format "λ~aλ" 1))
 (test-equal "28: non-ASCII object text is preserved" "λ"
             (format "~a" (string (integer->char 955))))
-(test-equal "28: a long format string is handled without recursion limits" 200000
-            (string-length (format (make-string 200000 #\x))))
+;; 10,000 rather than a larger figure on purpose.  This assertion is about
+;; recursion depth, and 10,000 frames already exercises that -- but `format`
+;; walks its argument with `string-ref`, which is O(k) here because Kaappi
+;; indexes strings by codepoint over UTF-8 bytes, so the call is O(n^2)
+;; (#2100).  At 200,000 it cost 35.7s of this file's 36s and timed out the
+;; 60s per-file budget on four CI legs while passing on a developer Mac.
+;; 10,000 costs 88ms.  Raise this only when #2100 is fixed.
+(test-equal "28: a long format string is handled without recursion limits" 10000
+            (string-length (format (make-string 10000 #\x))))
 (test-equal "28: surplus objects are ignored" "1" (format "~a" 1 2))
 (test-assert "28: too few objects for ~a raises"
              (guard (e (#t #t)) (format "~a ~a" 1) #f))
