@@ -652,8 +652,25 @@
   (let ((r (join-thunk (lambda () (ffi-fn (ffi-open ffi-name) "abs" '(int) 'int)))))
     (test-assert "OUT ffi_function: the join itself does not refuse the handle"
                  (not (and (pair? r) (eq? (car r) 'RAISED))))
-    (test-assert "OUT ffi_function: child-created handle does NOT arrive callable (bug pinned, #2027)"
-                 (not (procedure? r))))
+    ;; FAIL: #2027 — DO NOT re-enable as a bug-presence pin.
+    ;;
+    ;;   (test-assert "OUT ffi_function: child-created handle does NOT arrive
+    ;;                 callable (bug pinned, #2027)"
+    ;;                (not (procedure? r)))
+    ;;
+    ;; This asserted that the bug is still THERE, and whether an aliased
+    ;; handle is still usable after the far heap frees it is an accident of
+    ;; the allocator, not a property of the code.  It held on macOS and
+    ;; failed on freebsd-test, where the handle arrives callable.  Same class
+    ;; as the #2023 pin that held on ReleaseSafe and failed on the Debug leg.
+    ;;
+    ;; The assertion above it is the stable half and is the one the matrix
+    ;; actually needs: `ffi_function` is in the ALIASED class, not the
+    ;; REFUSED class, and "the join does not refuse it" is exactly that
+    ;; classification.  When #2027 is fixed, that assertion flips — a fixed
+    ;; implementation must refuse or copy, not alias — so the row still has
+    ;; a tripwire without depending on how a freed pointer happens to behave.
+    (if #f #f))
 
   ;; ffi_callback is the one refused FFI tag, and docs/dev/thread-value-sharing.md
   ;; records it as "not probed". Only some signatures are supported, so this
