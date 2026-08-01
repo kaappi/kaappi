@@ -155,6 +155,35 @@ case_ "vector after an identifier, spaced"           '(a b #(1) d)\n'
 # case_ "datum comment glued to an identifier"         '(list a#;(b) c)\n'
 # case_ "vector glued to an identifier"                '(a b#(1) d)\n'
 
+# ── Fit-to-width is measured in bytes, not columns (kaappi#2149) ────────────
+
+# assert_one_line <label> <source>
+#   fmt.md: "A form that fits within max_width (80) columns is put on one line."
+assert_one_line() {
+    local label="$1" src="$2" lines
+    printf '%b' "$src" > "$TMP/w.scm"
+    lines="$("$KAAPPI" fmt < "$TMP/w.scm" | wc -l | tr -d ' ')"
+    if [[ "$lines" -eq 1 ]]; then
+        pass "$label"
+    else
+        fail "$label" "broke a 75-column form into $lines lines"
+    fi
+}
+
+# 12 five-character identifiers: 75 columns either way, 75 bytes vs 135.
+ascii12=""
+wide12=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    ascii12="$ascii12 aaaaa"
+    wide12="$wide12 λλλλλ"
+done
+
+assert_one_line "width: a 75-column ASCII form stays on one line" "(f$ascii12)\n"
+
+# FAIL: #2149 (computeMeasure returns node.text.len, so every non-ASCII lexeme
+# counts double or triple against an 80-column budget)
+# assert_one_line "width: a 75-column Unicode form stays on one line" "(f$wide12)\n"
+
 # ── Parser depth: a deep input is rejected, never fatal (kaappi#2141) ────────
 
 # repeat <byte> <count> — a portable "print this byte N times" with no seq,
