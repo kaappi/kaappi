@@ -475,12 +475,18 @@
 (define (refuses-out? mk) (equal? (outcome (lambda () (mk))) '(refused direct)))
 
 
-;; NOTE ON NAMES. Every name below is a STRING LITERAL, never a computed
-;; `string-append`. SRFI 64 logs the test-name *expression* as written, so a
-;; computed name records `(string-append "IN " name ...)` in the log and a
-;; failure on a remote leg names no type at all — the same class of problem
-;; as an unnamed assertion. Worth knowing before "simplifying" this section
-;; back into a loop.
+;; NOTE ON NAMES. Every name below is a STRING LITERAL, one per row.
+;;
+;; This is a style choice, not a workaround: a computed name does work.
+;; Checked directly — `(test-equal (string-append "computed " ty) 1 2)` logs
+;; `test-name: "computed vector"`, the evaluated string, in both the console
+;; output and the .log file. An earlier draft of this header claimed SRFI 64
+;; records the name *expression* as written; that is wrong, and the claim is
+;; corrected here so it does not get propagated into other suites.
+;;
+;; The reason to keep literals is only that one row per tag stays greppable
+;; and cannot drift from the tag it names when someone edits the loop that
+;; would otherwise generate it.
 
 (test-assert "IN port: refused child-side (wrapped)"
              (refuses-in? (lambda () (open-input-string "x"))))
