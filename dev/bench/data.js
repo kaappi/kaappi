@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785576575256,
+  "lastUpdate": 1785581008402,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1792c0e6e53144d6acefffbcbf61ea8f32ee3b00",
-          "message": "Add a slowdown-investigation runbook; fix the cache's dirty-build-id claim (#1789)\n\nPerformance material was spread across eight documents, organized by tool\nor subsystem rather than by question. Someone holding \"this compiles too\nslowly, where do I start?\" had no entry point: the answer spanned\ntimings.md (which stage), an undocumented profiler step (which caller),\nand testing.md (is it a regression?). That gap has a measured cost —\n#1775 lost two sessions to plausible theories about expander.zig because\n`--timings` reported `expand 2765.8ms` and nothing said what to do next.\n\ndocs/dev/performance.md is a runbook in the same genre as fuzzing.md and\nporting.md: find the stage then the caller, measure before theorizing,\nA/B without fooling yourself, check the growth shape. It deliberately\ncarries no numbers — current figures belong to the benchmark dashboard,\npast results to lessons-learned.md section 11, campaign data to the KEP\ndocuments — so it has nothing to rot. Everything already documented\nelsewhere is linked, not restated.\n\nWhile checking what content would be genuinely new, found cache.md\nasserting the opposite of the truth on the one thing A/B measurement\ndepends on:\n\n    Rebuild after any edit -> dirty tree -> build id changes -> miss.\n\n`-dirty` is a flag, not a hash of the working tree (gitBuildId appends\nthe literal suffix whenever `git status --porcelain` prints anything), so\nthe id changes on the first clean->dirty transition and then never again.\nVerified by building two different uncommitted edits at the same commit:\nboth produced `370d8e85-dirty`, so they share .sbc cache entries and one\ncan execute bytecode the other produced. That is the original #1516\nfootgun surviving in the case contributors hit most, and it reads exactly\nlike nondeterminism in the code under test.\n\ncache.md now documents the case the build id does not cover and the\n`kaappi cache clear` remedy; bytecode_file.zig's two comments that\noverstated the same guarantee are corrected. compilerHashFor itself is\ncorrect and its test asserts nothing false — the aliasing is upstream in\nbuild.zig — so neither is changed.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T18:07:46+05:30",
-          "tree_id": "49d3ef0436bbb047c6f49ef25ea5298fc872963e",
-          "url": "https://github.com/kaappi/kaappi/commit/1792c0e6e53144d6acefffbcbf61ea8f32ee3b00"
-        },
-        "date": 1785159466960,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.643284,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.788782,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.082157,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.237931,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006279,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.057462,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.583952,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.073966,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.561667,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.393289,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.601622,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431523,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.803349,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.638421,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043442,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034903,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "400aef3c3f3279786347d4c438d4d7f6e2a8ea20",
+          "message": "Correct #1250's label and drop the critical-corpus exception (#2041)\n\n#2032 merged five minutes before this content reached the remote, so it\nshipped the first commit only. Everything below was written against that\nbranch and is landing now; main currently says #1250 is the critical\ncorpus's standing exception while the tracker has it labeled high, which is\nthe kind of contradiction this document exists to prevent.\n\n#1250 was the one issue labeled `priority: critical` that the rule did not\ndescribe: a macro-introduced `set!` escaping assignment conversion, which is\na pure correctness bug with no memory unsafety. Both of its reproductions\nhang, and a hang is `high` here — #1954, where four output procedures hang\nforever on a cycle, is the direct precedent. Relabeled, so all 13 issues\never marked critical are now memory unsafety or a process abort and the rule\nis fully descriptive. The doc keeps the correction rather than quietly\ndropping the issue: a lone counter-example in the corpus is exactly what a\nfuture maintainer would calibrate against.\n\nThree other fixes the same pass turned up. The critical table was already\nstale — #2027 and #2024 were labeled after it was written — so it now lists\nall 13. The claim that doc-truth is \"reliably low, because by construction\nthe behaviour is correct\" has a live counter-example in #2038, where the\nundocumented caveat hides a loop running 2^n-1 times that past n≈20 prints\nnothing and exits 0; the premise is now something the reader is told to\ncheck rather than assume. And the invariant gains its one real exemption:\nauto-filed `fuzz-finding` CI reports are triage-and-close, and all six ever\nfiled were handled with no priority label, so the triage query skips them\nrather than reporting a gap that nobody intends to close.\n\nAlso replaces the total-issue count with a claim that does not rot, since\nthe audit campaign files in bursts and the number moved twice while the\noriginal branch was open.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T13:12:12+05:30",
+          "tree_id": "af1ea9de7f4b5fcd5f4fd58d53a07d2205d89747",
+          "url": "https://github.com/kaappi/kaappi/commit/400aef3c3f3279786347d4c438d4d7f6e2a8ea20"
+        },
+        "date": 1785581006832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.384146,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.819936,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.570632,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.992623,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004642,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046578,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315147,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056952,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.702792,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.213817,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.612615,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277039,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.786578,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.605108,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044318,
             "unit": "seconds"
           }
         ]
