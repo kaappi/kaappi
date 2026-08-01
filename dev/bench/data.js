@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785614875588,
+  "lastUpdate": 1785615951943,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "07adabaf2211c8c8b2388c6ba49dcc4bca09069e",
-          "message": "Bound fuzz generator gates by instruction count on Debug builds (#1835) (#1836)\n\n`zig build test -Doptimize=Debug` is its own ubuntu-latest CI leg, and the\n`portable-subset generator: programs evaluate without error` gate fails on it.\nThe gate bounds each generated program by a 100 ms wall clock, which stops\ntracking work done as soon as the whole pipeline runs unoptimized.\n\nMeasured over the gate's own 60 fixed seeds under Debug: the in-`vm.eval`\nwindow is 35 ms min / 91 ms median / 435 ms max against that 100 ms budget --\nthe median *correct* program already sits at the threshold. 9 of 60 seeds\nmissed, every one as `.resource_limit`, none as a compile or runtime error.\nTwo structural details make the miss set jitter rather than a real\nslow-program signal: the deadline is only checked inside `runUntil`, so the\nfixed leading `(import (scheme base) (scheme char) (scheme lazy)\n(scheme write))` -- ~26 ms, a quarter of the budget -- spends it without ever\nbeing able to trip it, and read/expand/lower/emit are unchecked for the same\nreason. Consecutive runs of the same fixed seeds disagree about which seeds\nmiss, which is what made this look nondeterministic.\n\nThis is the same wall-clock-vs-slow-execution class already fixed for\ngc-stress (#1447/#1449) and for emulated cross-compiled targets (#1573), where\nthe gates bound by instruction count instead -- speed-independent, identical\nno matter how fast each instruction runs. Debug was never added to that list.\n\nFold `builtin.mode == .Debug` into `speed_independent`, so Debug takes the\nexisting 2M-instruction bound and 120 s wall-clock backstop unchanged. The\nchange is confined to `src/tests_fuzz.zig`; the shipped binary is unaffected.\n\nThe existing regression guard could not have caught this: its two branches are\nself-consistent with whatever `speed_independent` evaluates to, so a mode\nmissing from the definition just takes the other branch and passes. Add an\nexplicit `if (debug_build) try expect(speed_independent)` ahead of them.\nMutation-tested: dropping the `or debug_build` term makes the guard fail on\nthat exact assertion under Debug.\n\nThe issue also reported a second failure mode -- a native stack overflow with\na repeating `eval -> compile -> lower -> eval` cycle and \"445+ additional stack\nframes skipped\". That is not a stack overflow and not a second bug. The message\nis emitted only by `writeErrorReturnTrace` (std/debug.zig, `skipped =\net.index - len`), so it is an accumulated *error return trace*, not a call\nstack; the \"cycle\" is ~50 repetitions of one 9-frame CompileError propagation\npath. The Debug run that produced it ended in an ordinary test failure\n(1377 pass, 4 skip, 1 fail), with no panic. Its `--seed` dependence was also\nillusory: in non-fuzz mode Zig replays only the fixed corpus, and these gates\nuse hardcoded seeds 0..59, so the 60 programs are byte-identical every run.\n\nVerified: full unit suite green under both `-Doptimize=Debug` and ReleaseSafe;\n`-Dtest-filter=generator` under Debug goes from 1 fail to clean.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T08:13:39Z",
-          "tree_id": "be4a83135112401f4c161ba7fccbe6a72338b758",
-          "url": "https://github.com/kaappi/kaappi/commit/07adabaf2211c8c8b2388c6ba49dcc4bca09069e"
-        },
-        "date": 1785314913189,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.086798,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.097804,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.413152,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.195082,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004327,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03481,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.229714,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.04209,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.092697,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.932788,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.201289,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.234582,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.317626,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.739714,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034441,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041663,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "23c16dc5c1f26562628d51999f369156239f3a16",
+          "message": "Phase 4C: give the compile suite an interpreter oracle (#2123)\n\nThe native backend's regression tests mostly asserted that a compiled\nprogram printed a hardcoded string. That checks the native tier against a\nhuman's belief about the program, not against the reference implementation,\nand it rots: when the golden value is wrong, the test pins the wrong answer\nforever. #2092 is the worked example — `define-property` inside a top-level\ncond/case/do evaluated at the wrong *time* natively, so the binary printed\n`BPC` where the interpreter printed `PBC`. A tier comparison catches that by\nconstruction; a golden string only if someone thought to write `PBC` down.\n\nThe survey found 23 scripts, not the tracker's 22 (#1896's landed with Phase\n4A today), and 8 already compared tiers rather than 2 — the \"2 of 22\" figure\npredates five scripts written since. 11 more now do, plus one upgraded from\na partial comparison, leaving 4 genuine exceptions.\n\n`shell-common.sh` grows `interp_stdout`/`assert_tiers_agree` and the block\nexplaining the three tier differences that are by design and must not be\ncompared (docs/dev/fuzzing.md): the VM echoes a bare top-level expression's\nvalue and a native binary does not, the VM continues past a top-level error\nwhile a native binary exits at the first, and a procedure prints as\n`#<procedure name>` vs `#<procedure>`. Every converted script keeps its\ngolden string as a second assertion — now against the *interpreter*, where\nit documents intent and still catches a bug both tiers share.\n\nset-define-lexical-scope-819.sh's own comment already claimed it matched the\ninterpreter's stdout and exit status. It never ran the interpreter. It does\nnow.\n\nThe exceptions, and why: assertions that compilation *fails* have no\ninterpreter counterpart because the interpreter runs the same program fine\n(native-external-library-import-1743.sh); assertions about emitted LLVM IR\nare about which tier ran, not what it answered; a native diagnostic's text\ncannot equal the VM's, which frames one with file:line and an excerpt; and\nnothing can execute a named .sbc — `kaappi out.sbc` reads it as source — so\ncompile-preamble-699.sh has no runnable second tier short of a ~180s\n-Dbundle rebuild. It now at least asserts --compile wrote a non-empty file.\n\nFour live divergences the golden strings had been silent about, filed not\nfixed: #2115 (a guard does not catch an error raised in a natively compiled\ncallee — 4 smoke files die where the interpreter recovers, and\nllvm-backend.md lists guard under \"stress-tested\"), #2117 (constant folding\nignores both a set! rebinding and an upvalue-shadowed primitive — #600 and\n#790 are live again in the LLVM emitter), #2118 (a parameter shadowing a\nsyntactic keyword is ignored — #788 likewise), and #2119 (re-invoking a\ntop-level continuation from a native callback silently keeps the stale\nvalue, against continuation-strategy.md's stated equivalence commitment).\nAll four were found by a throwaway tier-(c) sweep of smoke/compliance/audit;\n178 of 338 files compile, 25 differ, those four are real.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T00:45:46+05:30",
+          "tree_id": "39ca9f97edc7c3a2d63e52c2d031e0a2cfad876f",
+          "url": "https://github.com/kaappi/kaappi/commit/23c16dc5c1f26562628d51999f369156239f3a16"
+        },
+        "date": 1785615950573,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.306712,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.644855,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.605009,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.9893,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004744,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046507,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312114,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057435,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.740554,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.232621,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.579074,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.293727,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.81173,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.676859,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044467,
             "unit": "seconds"
           }
         ]
