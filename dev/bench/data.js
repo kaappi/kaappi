@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785623234341,
+  "lastUpdate": 1785623808687,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a251304138e761f239a50b1a28eb78bc1253d28e",
-          "message": "Resolve library globals identically in all three global-ref opcodes (#1843)\n\nA library body's reference to a global that lives in vm.globals but not\nin its own lib_env resolved in tail position only. The compiler picks a\nglobal-reference opcode purely by syntactic position -- get_global plus\na plain tail_call for a tail call's operator, the call_global\nsuperinstruction for every other call -- but only get_global carried the\nvm.globals fallback library code has needed since 455f5cc2. So a library\nimporting just (scheme base) could call `(cadar x)` as its body's last\nform and got \"undefined variable 'cadar'\" for the identical call one\nsyntactic position over, which surfaced as a bare \"invalid syntax\" when\nthe caller ran at macro-expansion time.\n\nRoute get_global, call_global, and tail_call_global through one\nlookupGlobalLocked helper that takes the Function rather than a\npre-picked env, so all three see the same chain: the function's own\nenvironment, then vm.globals when it runs in a library (or eval)\nenvironment and is not restricted, then both again with any hygienic\nrename prefix stripped. The restricted_globals gate keeps a restricted\n(environment ...) as tight for a non-tail call as #1253 already made it\nfor a tail call.\n\nThis is also the \"unrooted-out compiler quirk\" documented for the SRFI\n237 primitives: a %-prefixed internal primitive is a vm.globals-only\nname, so it looked ambient in some positions and not others. Restore the\nidiomatic `cadar` in lib/srfi/150.sld's field-alist-ref and correct both\nCLAUDE.md notes -- `cadar` was never special, it was just the one\n(scheme cxr) name that file calls from a library-body helper.\n\nFixes #1831\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T17:30:55+05:30",
-          "tree_id": "49f81e6a27feda3e726b94051192461098ae1e07",
-          "url": "https://github.com/kaappi/kaappi/commit/a251304138e761f239a50b1a28eb78bc1253d28e"
-        },
-        "date": 1785329278888,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.207275,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.784655,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.444489,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.290458,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004574,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035444,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.234637,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.046186,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.202524,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.927404,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.178374,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.25413,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.37079,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.771885,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035485,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043816,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6b428d75810412e192dc7b9771cb8322276d8c8",
+          "message": "Tick 5F, and correct a 30x-stale time estimate it exposed (#2147)\n\n5F is clean on both halves, run on a c5-4vcpu-8gb droplet at 94ebd5a0 and\ndestroyed after ~37 minutes for ~USD 0.09:\n\n  unit suite,  -Dgc-stress=true    1570 pass, 0 fail\n  Scheme suite against that binary 2061 pass, 0 fail, 0 timeout\n\nThe Scheme suite has never run against a gc-stress build on x86-64 Linux\nbefore. With a collection attempted on every allocation, that is the\nstrongest evidence available that yesterday's twelve merged units\nintroduced no rooting bugs.\n\nThe finding, though, is the timing. The run reported EXIT:0 with a 7-byte\nresults file after 8 minutes, against a documented 1.5-3 hour budget — the\nsignature of a build flag that silently failed to apply, and this campaign\nhas already found three tests that passed without exercising anything. The\ncontrol settled it:\n\n  plain       1567 pass, 3 skip     50s\n  gc-stress   1570 pass             5m07s\n\nSix times slower with a different skip count, so the flag is active and the\nestimate was ~30x stale — on a droplet vCPU slower than the M-series Mac it\nwas compared against. Almost certainly since #1802/#1804 and #1809 stopped\nReleaseSafe 0xAA-filling `= undefined` buffers.\n\nThe skill now carries the measured numbers, keeps the detached-poll pattern\n(it costs nothing when the run is short), and warns that `zig build test`\nprints nothing on success — so a fast finish must be checked against the\ncontrol, not the clock.",
+          "timestamp": "2026-08-02T03:00:18+05:30",
+          "tree_id": "29b12ecbb1a54a42141b8f0e36acc78b52a7044e",
+          "url": "https://github.com/kaappi/kaappi/commit/e6b428d75810412e192dc7b9771cb8322276d8c8"
+        },
+        "date": 1785623807295,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.081096,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.460524,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.43863,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.209412,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003784,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034676,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231501,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042846,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.841963,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.905424,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.172623,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.232813,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.314396,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.315967,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035092,
             "unit": "seconds"
           }
         ]
