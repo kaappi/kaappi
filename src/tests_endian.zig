@@ -52,7 +52,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
-const platform = @import("platform.zig");
 const file_utils = @import("file_utils.zig");
 const bf = @import("bytecode_file.zig");
 const bfw = @import("bytecode_file_write.zig");
