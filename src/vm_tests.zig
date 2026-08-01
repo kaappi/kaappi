@@ -41,6 +41,10 @@ test {
     // WSAEventSelect socket backend, and their "#1608:" pipe-pair tests
     // cover the polled pipe backend (stage 2).
     _ = @import("tests_reactor.zig");
+    // Audit v2 Phase 5G: the backend-parity contracts. Same per-OS legs, so
+    // the assertions run against whichever of the four backends the target
+    // has — that is the differential (see the file's own header).
+    _ = @import("tests_reactor_parity.zig");
     _ = @import("tests_scheduler.zig");
     _ = @import("tests_port_io.zig");
     _ = @import("tests_waitforfd.zig");

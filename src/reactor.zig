@@ -730,7 +730,12 @@ const EpollBackend = struct {
 
 /// epoll_wait's timeout is i32 milliseconds. Rounds up (ceil) so a timer
 /// may fire slightly late but never early (resolved KEP-0001 question 2).
-fn msFromNs(timeout_ns: ?u64) i32 {
+///
+/// `pub` (and outside `EpollBackend`) so it compiles and can be asserted on
+/// every target, not only Linux: it is the sole backend-specific timeout
+/// rule that is a pure function, which is what lets a kqueue host verify
+/// epoll's arithmetic — see `tests_reactor_parity.zig`.
+pub fn msFromNs(timeout_ns: ?u64) i32 {
     const ns = timeout_ns orelse return -1;
     if (ns == 0) return 0;
     const ms = (ns +| 999_999) / 1_000_000;
