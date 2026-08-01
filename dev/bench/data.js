@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785551791828,
+  "lastUpdate": 1785557595976,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "db38f24a8c494cb5f4c01bad8016fbefa6ac4186",
-          "message": "Fix custom-ellipsis recognition in ordinary template expansion; split tests_macros.zig (#1779)\n\ninstantiateTemplate's two ellipsis-detection sites (the \"(... template)\"\nescape check and the \"element followed by ellipsis\" check) required a bare\nsymbol, but a nested syntax-rules template's ordinary (non-quoted) position\ncan receive a custom ellipsis identifier substituted from an outer pattern\nvariable, wrapped by NESTED_SR_FLAG's usertext-marking protocol. Neither\nsite unwrapped it, so the ellipsis was silently unrecognized outside quote\n(where the same substitution happens to skip wrapping entirely) -- the\nelement was emitted literally instead of splicing its repetitions.\n\nCaught by CodeRabbit's review of the previous commit, which fixed the\npattern-matching/parsing-side half of this same class of bug but missed\nthis instantiation-side one.\n\nAlso splits the new nested-syntax-rules-generation regression tests into\ntheir own file (tests_macros_nested_sr.zig), keeping tests_macros.zig under\nthe project's 1500-line file-size policy (also flagged by CodeRabbit).\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T06:17:10Z",
-          "tree_id": "0ef02e08d53bc4b17aa522cfefaca0cb25518849",
-          "url": "https://github.com/kaappi/kaappi/commit/db38f24a8c494cb5f4c01bad8016fbefa6ac4186"
-        },
-        "date": 1785137317549,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.113651,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.198187,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.95809,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.4621,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006897,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053776,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.524834,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070402,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.366506,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.986485,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.560591,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.475399,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.743634,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.838953,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045828,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044506,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0ea592b34aa98c74a1e827c36b0635820dfdc70",
+          "message": "Phase 2.12: filesystem audit — 69 → 428 assertions, and file-info aborts on any /dev path (#1985)\n\n* Audit primitives_filesystem.zig: 69 -> 428 assertions, all 68 specs\n\nv2 audit campaign Phase 2.12 (docs/audit-strategy.md).  The file had 68\nregistered procedures and ~102 syscall sites against a 177-line test that\nnever mentioned 10 of them, and exercised almost no error path.\n\nAdds the syscall-boundary matrix the happy-path tests never reach —\nnonexistent path, wrong kind of object in both directions, permission\ndenied, broken symlink, symlink loop (including a self-loop), path too\nlong, empty path, embedded NUL across all 24 path-taking procedures,\nrelative-vs-absolute, and a path that vanishes between two calls — plus\nfile-info across every reachable file type, the full directory-object\nlifecycle (read past end, double close, use after close, mutation during\ntraversal, 2000-entry buffer refill, GC finalisation of an unclosed\nstream), the error taxonomy, and the SRFI-18 deep-copy boundary.\n\nEvery disabled assertion carries a \";; FAIL: TBD\" note and an enabled\ncontrol proving the same validation fires for a neighbouring input, so\nthe gap is located rather than merely observed.\n\nDiscovery only — no source changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point filesystem FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Stop asserting one platform's spelling of \"no device number\"\n\nFreeBSD reports st_rdev = -1 (NODEV) for a non-device file where macOS\nand Linux report 0, so three assertions that hardcoded 0 failed there --\n2 in CI, 3 when run directly on the FreeBSD reference VM.\n\nWhat the SRFI actually promises is that a plain file has no device\nnumber, not what the absent-value sentinel looks like, so accept either\nspelling and say why in a comment.\n\nFirst attempt used (test-equal #t (memv ...)), which still failed:\nmemv returns the matched tail, not #t. Converted to test-assert.\n\nVerified on the FreeBSD VM: 409 pass / 3 fail before, 412 pass / 0 fail\nafter.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Name every assertion in the filesystem audit\n\nCI's freebsd-test fails two assertions in this file and the log prints\nbare `#f` / `FAIL` with nothing to identify them. The reference VM runs\nFreeBSD 15.1 against CI's 14.3 and executes 11 fewer assertions, so the\nfailure cannot be reproduced locally -- leaving no way to tell WHICH\nassertions fail.\n\nBy contrast the NetBSD failure in 5D was diagnosed in a single step,\nbecause that assertion happened to have a name: the CI log printed\n\"FAIL TODAY: seconds->time +nan.0 collapses to 0\" and pointed straight\nat it.\n\nNames are derived from the expression under test rather than invented,\nso they stay meaningful and need no upkeep: (test-equal 0 (file-info:rdev\nfi)) becomes (test-equal \"(file-info:rdev fi)\" 0 (file-info:rdev fi)).\n\nSRFI-64 already supports source-file/source-line, but nothing populates\nthem -- portable syntax-rules cannot capture source location -- so naming\nis the only route available in Scheme.\n\nSemantics-preserving, verified: 426 assertions before and after, 428\npasses before and after, and test-name now appears in the log. An earlier\ncut of the generator truncated labels BEFORE escaping them, which sliced\n`#\\z` to `#\\` and produced an invalid escape; it now truncates first and\nescapes after, so a trailing lone backslash is legal.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix three platform assumptions the BSD legs caught\n\nNaming the assertions (previous commit) paid off immediately: freebsd-test\nprinted `FAIL (memv (file-info:rdev fi) '(0 -1))` instead of a bare `#f`,\nwhich named the defect outright.\n\nrdev: POSIX defines st_rdev only for character- and block-special files.\nFor everything else it is unspecified, and two successive guesses were both\nwrong on CI — first 0 (macOS, Linux), then {0, -1} adding FreeBSD's NODEV.\nFreeBSD 14.3 still failed for a regular file while *passing* for a fifo in\nthe same run, which is precisely what \"unspecified\" licenses. Dropped both\nvalue assertions; the exact-integer? check is the whole portable contract.\n\nfd exhaustion (#1993): the suite opened 3000 directory streams without\nclosing them, asserting the GC reclaimed them. It does — but only when its\nallocation-count threshold happens to trip, never on descriptor pressure.\nAt `ulimit -n 256` exactly 253 unclosed opens succeed, i.e. no collection\nruns at all; at 1024, 1745 do. Ports behave identically (253 / 1747), so\nthis is a property of every fd-holding object, not of open-directory. The\nassertion passed on macOS and Linux only because their limit is 1048576,\nand on openbsd-test and netbsd-test it exhausted the table and took down\nthe *next* block, which could no longer create its own scratch files:\n\n    error[KP3000]: cannot open output file \"/tmp/kaappi-a212-68521-14/f0\"\n\nDisabled behind a FAIL marker, and replaced with the half the program\nactually controls: 3000 open/close cycles must not accumulate descriptors.\n\nLog noise: three stray `#f` lines came from this suite's own top-level\ncleanup calls, because kaappi echoes non-void top-level values when running\na script. That is deliberate and long-standing, but documented only in\ndocs/dev/fuzzing.md — filed as #1994. Here the fix is local: an empty\ncond-expand else branch and void-returning cleanup helpers.\n\nVerified at ulimit -n 256, 512, 1024 and the default: 427 passes, 0\nfailures, and two lines of output.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T08:25:34+05:30",
+          "tree_id": "380a94de94a16a7b89614c7704875c9653d9213d",
+          "url": "https://github.com/kaappi/kaappi/commit/d0ea592b34aa98c74a1e827c36b0635820dfdc70"
+        },
+        "date": 1785557594009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.395255,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.50684,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.603686,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.993736,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00475,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046961,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313045,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057365,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.620513,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.226148,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587602,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286927,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.786872,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.475363,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044115,
             "unit": "seconds"
           }
         ]
