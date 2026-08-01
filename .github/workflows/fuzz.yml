@@ -73,8 +73,13 @@ jobs:
           # The limit applies PER FUZZ TEST (7 targets currently). The eval,
           # token, and grammar targets build a full VM per input (~20-50 ms)
           # — and the differential target two of them — so they dominate the
-          # wall time: locally 200 per target is a ~2 minute pass, so 2K per
-          # target keeps a hosted runner well under the job timeout.
+          # wall time. Measured on an M-series mac (#2040), one all-targets
+          # `--fuzz=200` pass is ~13 min, of which ~7.5 is fuzzing and the
+          # rest the unit suite; 2K has historically run ~31 min on the arm64
+          # runner and ~17 on x86_64. (An earlier version of this comment
+          # claimed 200/target was "a ~2 minute pass" and inferred ample
+          # headroom from it — that figure was wrong by 3-6x, and the arm64
+          # leg has since exceeded the 55-minute budget.)
           - platform: x86_64
             runs-on: ubuntu-latest
             variant: default
@@ -150,6 +155,7 @@ jobs:
           BUILD_ARGS: ${{ matrix.build-args }}
           PLATFORM: ${{ matrix.platform }}
           VARIANT: ${{ matrix.variant }}
+          JOB_TIMEOUT_MIN: ${{ matrix.timeout }}
         run: |
           set -o pipefail
           # Platform AND variant are written up front, so the report job can
@@ -160,11 +166,59 @@ jobs:
           echo "$PLATFORM" > fuzz-platform.txt
           echo "$VARIANT" > fuzz-variant.txt
           rm -f .zig-cache/f/crash
-          zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log
+
+          # Bound the COMMAND strictly below the job's own `timeout-minutes`,
+          # derived from it so the two can never drift. Reaching
+          # `timeout-minutes` CANCELS the job, and a cancelled job skips its
+          # `if: failure()` upload step — which is precisely how #2040 lost
+          # every piece of evidence about why it overran, twice. A step that
+          # fails on its own terms leaves the artifacts intact.
+          step_timeout_min=$(( JOB_TIMEOUT_MIN - 8 ))
+          [ "$step_timeout_min" -ge 5 ] || step_timeout_min=5
+
+          # `zig build` writes nothing until it finishes (no TTY on a runner),
+          # so a stalled job and a working one are indistinguishable for the
+          # whole budget — #2040 burned 55 minutes of pure silence twice. A
+          # timestamped tick gives the log liveness and, after a timeout, shows
+          # how far it actually got.
+          ( while :; do sleep 60; printf '[heartbeat] %s\n' "$(date -u +%H:%M:%SZ)"; done ) &
+          heartbeat=$!
+          trap 'kill "$heartbeat" 2>/dev/null || true' EXIT
+
+          rc=0
+          timeout --signal=TERM --kill-after=60s "${step_timeout_min}m" \
+            zig build test "--fuzz=$FUZZ_LIMIT" $BUILD_ARGS 2>&1 | tee fuzz-run.log || rc=$?
+          kill "$heartbeat" 2>/dev/null || true
+
+          # The crash marker is authoritative and outranks any exit status.
           if [ -f .zig-cache/f/crash ]; then
             echo "::error::Fuzzing found a crash on $PLATFORM; encoded input saved to .zig-cache/f/crash"
             exit 1
           fi
+
+          # 124 = timeout fired; 137 = it had to escalate to SIGKILL.
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            # Snapshot the fuzzer's own state at the moment it stalled. The
+            # NEWEST corpus entries are what it was working on, so an mtime
+            # ordering points at the input to replay first.
+            # Every probe is `|| true`: the step runs under `set -e`, and a
+            # missing .zig-cache/f (the fuzzer never got that far) would
+            # otherwise abort here — losing both the snapshot and the error
+            # message below, which is the whole point of this branch.
+            {
+              printf 'step timeout after %s minutes (rc=%s) on %s %s\n\n' \
+                "$step_timeout_min" "$rc" "$PLATFORM" "$VARIANT"
+              printf '## corpus (.zig-cache/f), newest last\n'
+              { ls -lrt --time-style=long-iso .zig-cache/f 2>/dev/null || true; } | tail -40 || true
+              printf '\n## coverage (.zig-cache/v)\n'
+              { ls -lrt --time-style=long-iso .zig-cache/v 2>/dev/null || true; } | tail -10 || true
+              printf '\n## tail of libfuzzer.log\n'
+              tail -60 .zig-cache/tmp/libfuzzer.log 2>/dev/null || true
+            } > fuzz-state.txt 2>&1 || true
+            echo "::error::Fuzzing exceeded its ${step_timeout_min}-minute step budget on $PLATFORM $VARIANT and did not finish. The corpus, coverage map, and fuzz-state.txt are uploaded — replay per docs/dev/fuzzing.md."
+            exit "$rc"
+          fi
+          exit "$rc"
 
       # f/crash holds the crashing input as a serialized Smith decision
       # stream (see docs/dev/fuzzing.md for turning it into a regression
@@ -172,14 +226,26 @@ jobs:
       # under the hidden .zig-cache/ directory, which upload-artifact
       # excludes by default — without include-hidden-files the artifact
       # would silently contain only fuzz-run.log.
+      #
+      # The WHOLE corpus (f/) and coverage map (v/) ship too, not just the
+      # crash marker. They are the fuzzer's only persistent state, they are
+      # cached per platform+variant, and they are written back to the cache
+      # ONLY on success — so a failing run's state is otherwise lost the
+      # moment the runner is reclaimed, and the cache entry it started from
+      # is eventually LRU-evicted. #2040 is what that costs: by the time the
+      # arm64 overrun was investigated, the only input set that could have
+      # reproduced it no longer existed anywhere. Tens of MB per failed job,
+      # paid only on failure.
       - name: Upload fuzz artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-artifacts-${{ matrix.platform }}-${{ matrix.variant }}
           path: |
-            .zig-cache/f/crash
+            .zig-cache/f
+            .zig-cache/v
             fuzz-run.log
+            fuzz-state.txt
             fuzz-platform.txt
             fuzz-variant.txt
             .zig-cache/tmp/libfuzzer.log
@@ -605,7 +671,11 @@ jobs:
               # Most- to least-specific. The timeout is first because it is the
               # only one of these that indicts the code; a reclaimed runner can
               # also print the generic cancellation line, so it precedes that.
-              if printf '%s' "$anns" | grep -qF 'exceeded the maximum execution time'; then
+              # `--` is load-bearing: the pattern starts with a dash, which
+              # grep would otherwise read as an option bundle.
+              if grep -qF -- '-minute step budget' "$jlog" 2>/dev/null; then
+                verdict='the fuzz command **exceeded its own step budget** and was killed while the job was still alive — so, unlike a job-level timeout, its artifacts survive. The upload carries the corpus (`.zig-cache/f`), the coverage map (`.zig-cache/v`), and `fuzz-state.txt`, whose corpus listing is mtime-ordered: the NEWEST entries are what the fuzzer was working on when it stalled, so replay those first. Every generated program is individually time-bounded, but only inside the bytecode loop — read/expand/lower/emit are unchecked (see the deadline comment in `src/tests_fuzz.zig`).'
+              elif printf '%s' "$anns" | grep -qF 'exceeded the maximum execution time'; then
                 verdict='the job **exceeded its `timeout-minutes` budget** and was killed. This is the one verdict here that points at the code rather than the infrastructure: every generated program is individually time-bounded, so a whole job overrunning should not be possible — but that bound guards only the bytecode loop, and read/expand/lower/emit are unchecked (see the deadline comment in `src/tests_fuzz.zig`). Compare this leg'"'"'s duration against its recent history, and check whether sibling legs on the same commit were normal.'
               elif grep -qF 'The runner has received a shutdown signal' "$jlog" 2>/dev/null; then
                 verdict='the **GitHub-hosted runner was shut down mid-job** and the step was SIGTERMed (exit 143). The shutdown is runner infrastructure, and it cancels rather than fails the job, which is why no artifact reached this issue. It does **not** prove the job was otherwise healthy: a reclaimed runner kills whatever happened to be running, so check this leg'"'"'s elapsed time against its recent history before writing it off — #2040 read as pure infrastructure until its re-run hit the 55-minute timeout on the very same leg.'
