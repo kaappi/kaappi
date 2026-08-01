@@ -973,8 +973,22 @@
   ;;         (h2 (let loop ((i 0) (m (hashmap c)))
   ;;               (if (= i 40) m (loop (+ i 1) (hashmap-set m (deep 12 i) i))))))
   ;;     (hashmap-size (hashmap-union h1 h2))))
-  (test-assert "pins #2023: hash keys 12 levels deep go missing"
-    (> (hash-misses 12 40) 0)))
+  ;; #2023 is pinned by the two disabled assertions above, not by a miss
+  ;; count.  An earlier version asserted `(> (hash-misses 12 40) 0)` -- that
+  ;; the bug is still present -- and it FAILED on CI's `ubuntu-latest, Debug`
+  ;; leg.  Past MAX_HASH_DEPTH the hash degenerates to the key's pointer, so
+  ;; whether two structurally-equal keys collide is an accident of allocation:
+  ;; measured 31 and 32 misses of 40 at `deep 8` across two runs of one
+  ;; ReleaseSafe binary, and 3 vs 40 of 40 at `deep 9`.  No miss count is
+  ;; assertable past the limit, in either direction.
+  ;;
+  ;; What IS stable in every run and both build modes is the cliff itself, so
+  ;; that is what this pins.  Note `deep` builds a FLAT list of length depth+1,
+  ;; not a nested structure, and the hash walks the spine -- so the limit is
+  ;; reached at `deep 8` (length 9) and `deep 7` (length 8) is the last fully
+  ;; findable case.  Measured 0/40 at every depth from 1 to 7, both builds.
+  (test-equal "keys at the depth limit are all findable (the #2023 cliff)"
+              0 (hash-misses 7 40)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi146-differential")
