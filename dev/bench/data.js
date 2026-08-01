@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785561813616,
+  "lastUpdate": 1785563854794,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f990d49a578a5d576c4a10df171762560b2b52b0",
-          "message": "Build Linux release binaries against glibc so dynamic loading works (#1783)\n\nZig resolves the bare x86_64-linux / aarch64-linux targets to musl\nstatic, and static musl cannot dlopen — so every released Linux binary\nrejected (kaappi ffi) with 'Dynamic loading not supported', making the\nwhole C-extension ecosystem (net, http, sqlite, pg, redis, crypto)\nunusable from a release install. The docs site's docs-samples CI\ncaught it; the nightly ecosystem tests never could, because they build\nkaappi natively (glibc, dynamic) instead of testing release artifacts.\n\nThe two mainstream Linux targets now compile against glibc with a 2.28\nfloor (RHEL 8 / Debian 10 / Ubuntu 18.10+). A new zig_target matrix\nfield carries the compile triple so artifact names — which install.sh\nmatches (libkaappi_rt-<target>.a) — stay unchanged. Interpreter-tier\narches (riscv64, s390x, ppc64le) stay musl-static: their artifacts\nwere validated on Alpine VMs and gain nothing from a glibc floor.\nTrade-off: glibc binaries don't run on musl distros; Alpine users\nbuild from source until a musl-dynamic variant ships as an extra\nartifact.\n\nA linux-ffi-smoke job now runs the actual x86_64 and aarch64 artifacts\nand proves ffi-open + ffi-fn against libm.so.6 before the release job\npublishes anything, so this class of regression cannot ship again.\n\nVerified locally with zig 0.16.0: x86_64-linux builds 'statically\nlinked' (the bug), x86_64-linux-gnu.2.28 and aarch64-linux-gnu.2.28\nbuild 'dynamically linked' with the correct glibc interpreters, and\n'zig build lib' produces libkaappi_rt.a for the gnu targets.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T13:42:36+05:30",
-          "tree_id": "0e204dc687e640088a69ea69b533a17f9cd24391",
-          "url": "https://github.com/kaappi/kaappi/commit/f990d49a578a5d576c4a10df171762560b2b52b0"
-        },
-        "date": 1785142855659,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.099848,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.985262,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.938519,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.467162,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006723,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053164,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.515844,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067643,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.3342,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.972837,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.531973,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.473288,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.707538,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.811869,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045796,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036042,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "abb036b44e4cd61b5447944b5a8852deb69030ae",
+          "message": "Phase 2.10: SRFI 254 audit — 178 assertions, and a guardian shared through a global kills the process with no message at all (#2013)\n\n* Audit SRFI 254: 178 assertions for a GC-integrated file with no test\n\nPhase 2.10 of the v2 audit campaign (#1890). primitives_srfi254.zig is the\nonly primitives file with real garbage-collector integration and had no audit\ntest at all, so the surface covered here spans four files: the 16 specs, the\nweak-reference fixpoint in gc_collect.processWeakRefs, guardian invocation in\nvm_calls.invokeGuardian, and the deep-copy refusal arms in gc_deep_copy.zig.\n\nThe ephemeron half is correct, including the parts a weak pair gets wrong: a\ntwo-link chain resolves consistently in both directions, and an ephemeron\nwhose value references its key -- or whose key *is* its value -- still breaks.\nAll 16 error paths carry the right KP code, every call-dispatch site accepts a\nguardian, and all three weak types fail cleanly across both SRFI-18\nboundaries.\n\nThree defects, all filed rather than fixed, per the campaign protocol:\n\n  #2008  invokeGuardian has no owner check, so a guardian shared through a\n         global -- which the thread sharing model shares by pointer -- is\n         mutated across heaps. Concurrent registration aborts the process\n         with empty stdout and stderr, 5 of 5. Channels and thread handles\n         both defend themselves this way; guardians do not.\n  #2006  Transport cell keys are held strongly, against the spec's \"stored in\n         a weakly holding location\". Cells never break and no registration is\n         ever releasable -- observable because it also stops an unrelated\n         object guardian from resurrecting the same object.\n  #2011  A second guardian watching one object never resurrects it: the first\n         guardian's ready queue is marked strongly, so every other guardian's\n         reachability probe sees a live object. Thirty collections do not\n         help; draining the winner unblocks it immediately.\n\nNothing asserts when a collection happens, only what is observable after one\nis forced. The suite is green in ReleaseSafe (0.09s) and under\n-Dgc-stress=true (16s).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Hold both operands live in two hash/eq? assertions\n\nAn object freed between the two current-hash calls can be replaced at the\nsame address, which would make equal hashes correct rather than a collision;\nand an ephemeron whose key is dropped immediately breaks, so the eq?-identity\nmiss would pass for the wrong reason. Both now bind their keys.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct the disabled-assertion count in the tracker (5, not 4)\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T10:55:22+05:30",
+          "tree_id": "1919aeed2d1ceeb71f353f882442fe8e1dac04a0",
+          "url": "https://github.com/kaappi/kaappi/commit/abb036b44e4cd61b5447944b5a8852deb69030ae"
+        },
+        "date": 1785563852038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391479,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.562978,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.588991,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.001321,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00479,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046536,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313201,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057432,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.605899,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.225157,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592895,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284812,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.793924,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.673317,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044553,
             "unit": "seconds"
           }
         ]
