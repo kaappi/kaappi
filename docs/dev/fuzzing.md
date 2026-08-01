@@ -190,9 +190,22 @@ rooting bug (`.claude/rules/gc-safety.md`, #1401, #1682).
 Both matrix variants are classified independently: a crash in one
 variant does not swallow the other variant's failure.
 Remaining marker-less failures — toolchain flakes, build failures,
-job-level timeouts (a possible hang) — are collected under a single
-shared issue titled `Fuzz CI: infrastructure or build
-failure` instead. Marker detection must not assume where inside
+job-level timeouts (a possible hang), and runners reclaimed mid-job — are
+collected under a single shared issue titled `Fuzz CI: infrastructure or
+build failure` instead. That issue carries a **per-job verdict read from
+the run's own logs** (the report job holds `actions: read`, so it fetches
+each failed job's log over the API and quotes its `##[error]` lines),
+because an artifact-less failure is exactly the case whose cause exists
+nowhere else: a reclaimed runner *cancels* the job, so even the
+`if: failure()` upload step is skipped and nothing is uploaded. The verdict
+is what separates the three lookalikes — a runner shutdown (`The runner has
+received a shutdown signal`, exit 143) is pure infrastructure and wants a
+re-run, whereas a job cancelled at its own `timeout-minutes` is worth
+investigating as a hang, since every generated program is individually
+time-bounded. #2040 was the first kind, mistakable for the second: an arm64
+leg killed 46 min into its 55-min budget, which took a manual
+`gh api repos/kaappi/kaappi/actions/jobs/<id>/logs` to tell apart.
+Marker detection must not assume where inside
 `artifacts/` a file lands: `download-artifact` normally extracts each
 artifact into its own named subdirectory, but a run with exactly one
 artifact (one failed job — the common case) is extracted into `artifacts/`
