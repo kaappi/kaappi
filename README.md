@@ -338,7 +338,7 @@ Source → Reader → Expander → IR → Bytecode emission → VM
 |-----------|------|
 | **Reader** | Tokenizer + recursive descent parser for the full R7RS lexical syntax, including Unicode identifiers and `#\λ` character literals. |
 | **Expander** | `syntax-rules` pattern matching and hygienic template instantiation. |
-| **IR** | Tree-structured intermediate representation (33 node types) with analysis passes (tail positions, primitives, constants) and optimization passes (constant folding, dead-branch elimination, and more). |
+| **IR** | Tree-structured intermediate representation (18 node types) with a tail-position analysis pass and 5 optimization passes (constant folding, dead-branch elimination, and more). |
 | **Compiler** | IR → register-based bytecode. |
 | **VM** | Bytecode interpreter with growable register file and frame stack, exception handler and dynamic-wind stacks, stack-copying continuations, and a stepping debugger. |
 | **GC** | Generational collector (young/old) with write barrier for old→young references. |

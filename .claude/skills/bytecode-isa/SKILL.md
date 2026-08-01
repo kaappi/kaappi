@@ -5,7 +5,7 @@ description: Reference for the Kaappi bytecode instruction set
 # Bytecode ISA
 
 The instruction set reference lives in `docs/dev/bytecode.md` — read that
-file for the full 32-opcode table, operand encodings, closure capture
+file for the full 31-opcode table, operand encodings, closure capture
 encoding, and disassembler output format. Do not duplicate the table here;
 that doc is the single source of truth.
 

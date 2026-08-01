@@ -227,7 +227,7 @@ missing type dispatch).
 ### `/bytecode-isa`
 
 Reference for the bytecode instruction set. Points at
-[bytecode.md](bytecode.md) (the single source of truth for the 32-opcode
+[bytecode.md](bytecode.md) (the single source of truth for the 31-opcode
 table and encodings) and carries the adding-a-new-opcode checklist. Used
 when working on the compiler or VM.
 

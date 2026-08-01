@@ -20,7 +20,7 @@ investigation produced analysis worth keeping.
 |----------|----------|
 | [vision.md](vision.md) | Why Kaappi exists, what it values, how those values guide decisions |
 | [architecture.md](architecture.md) | Major subsystems: pipeline, value representation, VM, GC, file organization |
-| [ir.md](ir.md) | Compiler IR: 33 node types, analysis passes, optimization passes |
+| [ir.md](ir.md) | Compiler IR: 18 node types, the tail-position analysis pass, optimization passes |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
 | [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, the `windows` feature identifier, how to test on a Windows machine |
@@ -72,7 +72,7 @@ investigations.
 
 | Document | Contents |
 |----------|----------|
-| [bytecode.md](bytecode.md) | Bytecode instruction set (32 opcodes), encoding, disassembler |
+| [bytecode.md](bytecode.md) | Bytecode instruction set (31 opcodes), encoding, disassembler |
 | [repl.md](repl.md) | REPL reference: line editing, comma commands, completion |
 | [unicode-case-mapping.md](unicode-case-mapping.md) | Case-conversion coverage by script |
 | [fuzzing-feasibility.md](fuzzing-feasibility.md) | Why neither Fuzzilli nor AFL++ is the tool, the existing `std.testing.fuzz` targets, and where fuzzing can improve |
