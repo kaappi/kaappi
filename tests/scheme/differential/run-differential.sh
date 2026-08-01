@@ -51,10 +51,14 @@
 # Two things follow:
 #
 #   1. `probes/` exists for this reason.  Those files put the optimisable
-#      shapes at top level on purpose, and 6 of the 7 are verified non-vacuous
-#      (`kaappi ir` differs from `kaappi ir --no-opt`); the seventh,
-#      cache-error-location.scm, is a tier-(d) probe.  They roughly TRIPLE the
-#      number of files in the corpus that exercise the optimiser at all.
+#      shapes at top level on purpose, and 6 of the original 7 are verified
+#      non-vacuous (`kaappi ir` differs from `kaappi ir --no-opt`); the
+#      seventh, cache-error-location.scm, is a tier-(d) probe.  They roughly
+#      TRIPLE the number of files in the corpus that exercise the optimiser at
+#      all.  The eight `sbc-*.scm` probes added by audit v2 Phase 4E are
+#      tier-(d) probes in the same sense: they exist because the cache is the
+#      thing under test, so every one of them is written to stay cacheable
+#      (see probes/sbc-population.scm).
 #   2. This script MEASURES the vacuity rather than leaving it to be assumed.
 #      The summary reports "IR differs under --no-opt: N / M files".  If that
 #      number is small, the tier-(b) result is correspondingly weak, and it
@@ -67,12 +71,41 @@
 # adding more corpus directories — KAAPPI_DIFF_FULL=1 adds 227 files and
 # exactly zero additional optimiser coverage.
 #
-# The same discipline applies to tier (d): only a program that does NOT
-# `import` populates the bytecode cache at all (docs/dev/cache.md) — measured
-# 40 of 330 files on the default corpus, 47 of 557 on the full one.  The
-# summary reports how many files actually created an `.sbc` entry, so a
-# regression that silently disables caching shows up as that count collapsing
-# rather than as a vacuously green run.
+# The same discipline applies to tier (d), and audit v2 Phase 4E measured it
+# rather than leaving it at "programs that import are skipped".
+#
+# WHICH FILES POPULATE THE CACHE.  `src/main.zig`'s `runFile` writes an entry
+# iff caching is enabled (no `--sandbox`, no `--no-ir-opt`, a home directory
+# resolves), at least one top-level form compiled to a Function, and
+# `has_imports` stayed false.  That last flag is set by ANY top-level form
+# `vm_eval.handleTopLevelForm` claims, which is eight head symbols, not one:
+#
+#     import   define-library   define-record-type   define-values
+#     include  include-ci       begin                cond-expand
+#
+# One occurrence of any of them, anywhere at top level, makes the whole file
+# uncacheable — and `--timings` still reports `not cached: imports`.
+# docs/dev/cache.md documents only the `import` case (kaappi#2114; the import
+# half alone is kaappi#1888).  MEASURED over the default corpus: 40 of 345
+# files populate the cache; of the 305 that do not, 303 have a top-level
+# `import`, one is disabled by a top-level `begin` and one by a top-level
+# `define-values`.  probes/sbc-population.scm pins the rule, including the
+# control that a NESTED `begin`/`cond-expand`/`define-values`/
+# `define-record-type` leaves caching alive.
+#
+# The summary reports how many files created an `.sbc` entry, so a regression
+# that silently disables caching shows up as that count collapsing rather than
+# as a vacuously green run.
+#
+# WRITING AN ENTRY IS NOT THE SAME AS USING ONE.  The write half of the codec
+# enforces almost no size limits and the read half enforces several, so a file
+# can write an entry that can never be loaded: it recompiles and rewrites the
+# same `.sbc` on every run, forever, while `kaappi cache status` reports the
+# entry as "current".  Counting entries alone reads that as covered.  So for
+# every file that wrote one, this script now runs `--timings` once more and
+# requires the entry to actually HIT; an unexpected permanent miss FAILS the
+# run.  probes/sbc-constant-depth.scm is the one deliberate exception (a
+# quoted list past `MAX_CONSTANT_DEPTH`), listed in KNOWN_NEVER_HIT below.
 #
 # ---------------------------------------------------------------------------
 # Exclusions
@@ -289,9 +322,57 @@ is_skipped() {
 #   see the header of probes/cache-error-location.scm for the full repro and
 #   its discriminating control.  Tracked as kaappi#1922 -- delete this entry
 #   when that is fixed, and the STALE check below will confirm it.
+#
+# d:sbc-literal-immutability.scm
+#   A cache HIT makes every literal constant mutable: `writeConstant` /
+#   `readConstant` carry no `Object.flags.immutable` bit, so a HIT rebuilds
+#   constants through the ordinary allocators, whose default is mutable.  A
+#   `set-car!` on a literal that must raise KP3002 (R7RS 4.1.2) instead
+#   succeeds, and the process exits 0 where the cold run exits 1.  Found by
+#   audit v2 Phase 4E; tracked as kaappi#2110.
+#
+# d:sbc-shared-structure.scm
+#   A cache HIT unshares datum-label structure: `writeConstant` is a recursive
+#   walk with no visited-set, so `'(#1=(1 2) #1#)` is emitted twice and read
+#   back as two objects.  `(eq? (car v) (cadr v))` flips #t -> #f, contradicting
+#   R7RS 2.4.  Found by audit v2 Phase 4E; tracked as kaappi#2111.
+#
+# d:sbc-macro-table.scm
+#   A cache HIT leaves the macro table empty, so a top-level `define-syntax`
+#   is invisible to a run-time `eval`: `define-syntax` registers its
+#   transformer as a compile-time side effect and emits no bytecode, and a HIT
+#   skips compilation.  Found by audit v2 Phase 4E; tracked as kaappi#2112.
 KNOWN_DIFFS="
 d:cache-error-location.scm
+d:sbc-literal-immutability.scm
+d:sbc-shared-structure.scm
+d:sbc-macro-table.scm
 "
+
+# Files that DO write an `.sbc` entry but can never load it back, so every run
+# is a cold run.  Same convention as KNOWN_DIFFS: a listed basename is reported
+# and does not fail the run, and the summary prints a STALE line when a listed
+# file starts hitting.  An UNLISTED permanent miss fails the run.
+#
+# sbc-constant-depth.scm
+#   A quoted list of 300 elements reaches depth 300 in `writeConstant`, which
+#   truncates past 256, and `readConstant` rejects the file at the same depth.
+#   The reader being the stricter half is what keeps this from being a silent
+#   wrong answer; the cost is an invisible permanent miss instead.  Found by
+#   audit v2 Phase 4E; tracked as kaappi#2113.
+KNOWN_NEVER_HIT="
+sbc-constant-depth.scm
+"
+
+is_known_never_hit() {   # is_known_never_hit <file>
+    local base line
+    base="$(basename "$1")"
+    # shellcheck disable=SC2086  # deliberate word splitting over the entry list
+    for line in $KNOWN_NEVER_HIT; do
+        [ "$line" = "$base" ] && return 0
+    done
+    return 1
+}
 
 is_known_diff() {   # is_known_diff <tier> <file>
     local key line
@@ -355,6 +436,8 @@ DIFF_D=0
 COSMETIC_B=0
 COSMETIC_D=0
 CACHE_USED=0
+CACHE_NEVER_HIT=0
+CACHE_NEVER_HIT_KNOWN=0
 IR_DIFFERS=0
 IR_SAME=0
 IR_UNKNOWN=0
@@ -548,6 +631,32 @@ check_file() {
         echo "  NOTE  [b] $f — stderr differs only in paths/line numbers"
     }
 
+    # --- usability meter for tier (d) ------------------------------------
+    # An entry on disk is not the same as an entry in use.  Ask the binary
+    # itself, in the home the two runs above already warmed: `--timings` prints
+    # HIT/MISS and is the only channel that distinguishes "the warm run reused
+    # the entry" from "the warm run recompiled and rewrote it".  Paid only for
+    # the files that wrote something, so most of the corpus costs nothing.
+    if [ "$entries" -gt 0 ]; then
+        run_kaappi "$d/home1" "$d/tm.out" "$d/tm.err" --timings "$f"
+        local cache_state
+        cache_state=$(sed -n 's/^cache: \([A-Za-z]*\).*/\1/p' "$d/tm.err" | head -1)
+        if [ "$cache_state" != "HIT" ]; then
+            if is_known_never_hit "$f"; then
+                CACHE_NEVER_HIT_KNOWN=$((CACHE_NEVER_HIT_KNOWN + 1))
+                echo "  KNOWN [d permanent miss] $f  (wrote an .sbc it can never load; see KNOWN_NEVER_HIT)"
+            else
+                CACHE_NEVER_HIT=$((CACHE_NEVER_HIT + 1))
+                FAILED_FILES="$FAILED_FILES
+  [d permanent miss] $f"
+                echo "  DIFF  [d permanent miss] $f  (wrote an .sbc entry, then reported cache: ${cache_state:-?})"
+            fi
+        elif is_known_never_hit "$f"; then
+            STALE="$STALE
+  never-hit:$(basename "$f")"
+        fi
+    fi
+
     # --- vacuity meter for tier (b) --------------------------------------
     # Does the optimiser change this file's IR at all?  `kaappi ir` executes
     # nothing, so this is cheap; it is what turns "no diff" into "no diff, and
@@ -617,6 +726,7 @@ echo "  known divergences hit:        $KNOWN (suppressed; see KNOWN_DIFFS)"
 echo "  stderr cosmetic-only notes:   b=$COSMETIC_B d=$COSMETIC_D"
 echo ""
 echo "  cache exercised:              $CACHE_USED / $COMPARED files wrote an .sbc entry"
+echo "  cache entries never loaded:   $CACHE_NEVER_HIT unexpected, $CACHE_NEVER_HIT_KNOWN known (see KNOWN_NEVER_HIT)"
 echo "  IR differs under --no-ir-opt: $IR_DIFFERS / $IR_TOTAL files ($IR_UNKNOWN undetermined)"
 if [ "$IR_DIFFERS" -eq 0 ] && [ "$IR_TOTAL" -gt 0 ]; then
     echo "  WARNING: the optimiser changed NO file's IR — tier (b) is fully vacuous here."
@@ -626,15 +736,15 @@ if [ "$CACHE_USED" -eq 0 ] && [ "$COMPARED" -gt 0 ]; then
 fi
 if [ -n "$STALE" ]; then
     echo ""
-    echo "  STALE: these KNOWN_DIFFS entries no longer diverge — delete them"
-    echo "         from run-differential.sh (not a failure):$STALE"
+    echo "  STALE: these KNOWN_DIFFS / KNOWN_NEVER_HIT entries no longer apply —"
+    echo "         delete them from run-differential.sh (not a failure):$STALE"
 fi
 echo ""
 echo "  elapsed: ${ELAPSED}s"
 
-if [ $((DIFF_B + DIFF_D)) -gt 0 ]; then
+if [ $((DIFF_B + DIFF_D + CACHE_NEVER_HIT)) -gt 0 ]; then
     echo ""
-    echo "FAIL: $((DIFF_B + DIFF_D)) tier divergence(s):$FAILED_FILES"
+    echo "FAIL: $((DIFF_B + DIFF_D + CACHE_NEVER_HIT)) tier divergence(s):$FAILED_FILES"
     exit 1
 fi
 echo ""
