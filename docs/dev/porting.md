@@ -309,6 +309,38 @@ all, only build/CI work — *provided* the preconditions hold.
       precondition now expresses: new serialization or byte-punning code
       must use the same explicit-conversion helpers — the s390x job is
       the canary that catches it if it doesn't.
+
+      **Exactly what that job runs, and what it therefore cannot see.**
+      Four steps: the cross-compile, `zig build test
+      -Dtarget=s390x-linux`, `tests/scheme/r7rs/r7rs-tests.scm`, and (as
+      of audit v2 Phase 7C) `bash tools/run-endian-suite.sh`. It does
+      **not** run `tests/scheme/run-all.sh`, which is why the endian
+      suite is a separate, deliberately small entry point rather than
+      the whole tree. Two blind spots remain, both structural:
+
+      * **A paired byte-swap cancels out.** Every `.sbc` test writes and
+        reads on the same host, so a bug that swapped *both* directions
+        stays green everywhere. `src/tests_endian.zig` breaks the pairing
+        one direction at a time — the writer against literal expected
+        bytes, the reader against a hand-assembled literal-little-endian
+        header — but no test yet writes a file on one endianness and
+        reads it on the other. The nightly `cross-diff` fuzz job does not
+        close this either: both sides run against their own arch's cache.
+      * **A local `zig build test -Dtarget=s390x-linux` proves nothing
+        about behaviour.** `build.zig` sets `skip_foreign_checks = true`,
+        so on a host with no emulator registered the run step is
+        *skipped* and the command still exits 0 (`--summary all` shows
+        `run test unit-tests skipped`). On the CI leg it does execute,
+        because `docker/setup-qemu-action` registers binfmt_misc and the
+        direct spawn succeeds. Locally that command is a compile gate,
+        which is exactly what it was added for.
+      * **`%host-big-endian?` is the only Scheme-visible witness of host
+        byte order.** SRFI 74's `(endianness native)` is defined as
+        `(if (%host-big-endian?) 'big 'little)`, so no Scheme test can
+        check that primitive non-circularly — a test can only ask it
+        again. It is pinned against an actual memory probe in
+        `src/tests_endian.zig`, which is why that pin is Zig and not
+        Scheme.
 - [ ] **f64 hardware or soft-float** with IEEE-754 semantics (flonums
       are NaN-boxed doubles; NaN canonicalization assumes IEEE bit
       patterns).

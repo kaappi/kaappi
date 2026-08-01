@@ -48,4 +48,8 @@ test {
     _ = @import("tests_diagnostics.zig");
     _ = @import("tests_spans.zig");
     _ = @import("tests_platform.zig");
+    // Byte-order pins. The unit suite is one of only three things that runs
+    // on the big-endian s390x leg, so this is where an endian assertion
+    // actually reaches the canary (src/tests_endian.zig explains the rest).
+    _ = @import("tests_endian.zig");
 }
