@@ -1286,12 +1286,15 @@ Four rules decide the hard cases:
   quiet one, so silence moves an issue up *within* its level.
 
 Auto-filed `fuzz-finding` CI reports are the one exemption — they are
-triage-and-close, and carry no priority. To find what still needs a label:
+triage-and-close, and carry no priority. To find every issue that violates
+the rule — none *or* more than one, since "exactly one" has two failure
+modes:
 
 ```bash
 gh issue list --repo kaappi/kaappi --state open --limit 400 \
   --json number,title,labels \
-  --jq '.[] | select([.labels[].name] | any(startswith("priority:")) | not)
+  --jq '.[] | ([.labels[].name | select(startswith("priority:"))] | length) as $n
+            | select($n != 1)
             | select([.labels[].name] | index("fuzz-finding") | not)
         | "\(.number)\t\(.title)"'
 ```
