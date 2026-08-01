@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785601244441,
+  "lastUpdate": 1785604356109,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "15f40ed07e674a2dc692334f629b3839b9e10e25",
-          "message": "Hygiene-rename identifiers inside quote, fixing SRFI 148's em-gensym (#1801) (#1816)\n\n* Hygiene-rename identifiers inside quote, fixing SRFI 148's em-gensym (#1801)\n\nrenameForHygiene stripped hygiene from a template-introduced identifier the\ninstant it saw QUOTE_FLAG, before any per-expansion distinguishing info\ncould be recorded -- so two separate expansions of e.g. `'g` were\nstructurally identical as syntax, not just as data. This broke any\nbound-identifier=?/free-identifier=?-style macro trick built out of further\nexpansion, including SRFI 148's em-gensym, which relies on hygiene alone\n(no counter) for uniqueness per its own `(em-gensym) => 'g` definition.\n\nFixed by hygiene-renaming a quoted, template-introduced identifier exactly\nlike a non-quoted one, then stripping that rename back off wherever the\ncompiler turns a quoted datum into a literal Value\n(expander.stripHygieneFromDatum, called from quote and quasiquote\ncompilation) -- so ordinary macros that quote a fixed tag symbol still\nproduce eq? results once the code runs.\n\nA pre-existing, unrelated reuse of QUOTE_FLAG (re-walking a usertext-marker\nsplice from a macro-generating-macro in substitute-only mode, e.g. SRFI\n257's accumulator rebinds) needed a new VERBATIM_FLAG to keep its\nnever-rename behavior, since it used to be indistinguishable from the\nem-gensym case now that QUOTE_FLAG itself renames.\n\nlowerQuote needs a GC to strip hygiene; threading it through the LLVM\nnative backend's standalone IR lowering surfaced that memory.gc_instance\nis unsafe there (tests_native.zig builds its own short-lived GC without\npointing the threadlocal at it), so IR/LLVMEmitter gained an explicit gc\nfield instead.\n\nRemoves the now-stale em-gensym/em-generate-temporaries test-expect-fail\nentries in tests/scheme/srfi/srfi148.scm and adds regression coverage in\ntests_macros.zig, tests_pipeline.zig, and\ntests/scheme/hygiene/quote-identifier-1801.scm.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Fix SRFI 211 test that accidentally depended on the #1801 quote-hygiene bug\n\ntests/scheme/srfi/srfi211.scm's \"two invocations rename to distinct\ngensyms\" test built `(list (rename 'quote) (rename 'fresh-name-uvw))` and\ncompared two invocations with eq?. Before #1801's fix, quote never\nstripped hygiene renames at all, so this happened to observe two distinct\n__hyg_N_ symbols and pass -- but for the wrong reason. With #1801 fixed,\nquote correctly strips the rename back to the plain `fresh-name-uvw`\nsymbol both times (matching real quote semantics: quote always yields the\nplain datum), so the two invocations are now eq? as intended, and the\nold assertion fails.\n\nFixed the test itself rather than the engine: convert with symbol->string\nbefore returning from the transformer, since stripHygieneFromDatum only\never touches symbols. This still correctly verifies that `rename` produces\na genuinely fresh identifier per invocation, without depending on quote\npreserving that difference into a runtime symbol value -- which no real\nScheme's quote does.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T13:47:44Z",
-          "tree_id": "44fb3954e054affd64148d60dde4543ea6eaad19",
-          "url": "https://github.com/kaappi/kaappi/commit/15f40ed07e674a2dc692334f629b3839b9e10e25"
-        },
-        "date": 1785249096124,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.09171,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.631459,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568834,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.923238,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006631,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044682,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297676,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05584,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.339485,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.16363,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.522106,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477189,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.711516,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.825922,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045028,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044264,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e699b451536d8200d76cfe0d5ed71e2f98f905f8",
+          "message": "Phase 3.10: un-quarantine the SRFI 257 reference suites; re-triage SRFI 150 (#2071)\n\ntests/scheme/srfi/slow/ held the two full SRFI 257 reference suites and no\nrunner reached it: run-all.sh's globs are non-recursive (kaappi#1900). The\nquarantine's premise was wall-clock — the headers claimed 4.5 and 1.5 minutes\nof macro expansion against a 60s per-file budget. Both now run in ~0.4s.\n#1802/#1804 (ReleaseSafe was memsetting the expander's 1MB buffers on every\nexpansion) obsoleted the quarantine eight days after it went in, and nothing\nre-measured, because nothing ever reported the files as missing.\n\nMove both up into tests/scheme/srfi/ rather than teaching run-all.sh one more\nglob: that keeps the invariant \"subdirectories hold fixtures, suite files sit\nat the top level\" intact, and needs no change to the 18 CI legs that run this\nscript. They rank 6th and 7th slowest of 202 srfi files; five already-enabled\nfiles are slower, so the budget argument is settled by a wide margin.\n\nThey do not supersede the lean srfi257.scm / srfi257-rx.scm: 18 of 34 and 8 of\n25 of those assertions have no counterpart in the full ports, so both are\nkept. That made their SRFI-64 suite names collide — the only two duplicate\ntest-begin names in the tree, and SRFI-64 derives its log filename from the\nsuite name — so the full ports are renamed to srfi-257-full / srfi-257-rx-full.\nNet: +131 assertions for ~0.8s.\n\nrun-all.sh gains a reachability check so this cannot recur silently. It fails\nthe run if any .scm under a suite subdirectory contains test-begin. Fixtures\nare exempt by construction (a fixture never opens a SRFI-64 suite), verified\nagainst the whole tree: 11 fixture files under suite subdirectories, zero\nfalse positives, and the check is mutation-tested in both directions.\n\nSRFI 150's four expected failures are re-triaged. They cited closed #1832;\nthat attribution is wrong on both halves. #1832 is fixed — its own regression\ntest passes and its exact shape works under plain (scheme base)\ndefine-record-type — and a pre-existing top-level binding, #1832's defining\ncondition, is not required here at all: removing it leaves every case failing\nidentically. They are also not #2003, which needs the captured global to hold\na procedure. All four are one new defect, kaappi#2051: lib/srfi/150.sld\ncarries field names to run time inside quote, and quoting strips the hygiene\nrename, so two hygienically-distinct fields collapse into one. The expansion\nitself is correct. The library header's claim that the rename survives that\nboundary is corrected in place.\n\nThe annotations' structure is deliberately left alone so #1903 keeps its\nreproducer; that issue's own text contemplates restructuring this file as one\npossible resolution, which is 6B's call to make, not this PR's.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T19:09:13+05:30",
+          "tree_id": "a69c0245756d44d237d4df5d27d334d9a764413f",
+          "url": "https://github.com/kaappi/kaappi/commit/e699b451536d8200d76cfe0d5ed71e2f98f905f8"
+        },
+        "date": 1785604353533,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.285411,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.136965,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.581225,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.010866,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004694,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048087,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.318348,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05728,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.677152,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.228172,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.580147,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.292904,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.782904,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.676398,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04602,
             "unit": "seconds"
           }
         ]
