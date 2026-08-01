@@ -201,6 +201,13 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+      # The little-endian control for the same step on s390x below: every
+      # assertion in these suites is either host-independent or derived from
+      # `%host-big-endian?`, so a failure here means the suite itself is wrong,
+      # not that the host's byte order is.
+      - name: Endian-sensitive Scheme suites (riscv64 via QEMU)
+        run: bash tools/run-endian-suite.sh zig-out/bin/kaappi
+
   # s390x: interpreter tier like riscv64 (#1654), and the only big-endian
   # target in the matrix — a permanent canary for byte-order bugs in the
   # `.sbc` codec and any future serialization. Also validated on a
@@ -235,6 +242,17 @@ jobs:
       - name: R7RS test suite (s390x via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+      # THE POINT OF THE CANARY (audit v2, Phase 7C). Until this step, the
+      # three things that ran here were the build, the unit suite and
+      # `r7rs-tests.scm` -- and `r7rs-tests.scm` imports no SRFI with a
+      # byte-order-sensitive surface, so SRFI 74 (blobs), 160 (host-native
+      # numeric-vector storage) and 135 (UTF-16) had never executed on a
+      # big-endian machine at all. `run-all.sh` is too heavy for an emulated
+      # leg; this runs just the files that carry endian assertions, in about
+      # a second natively. See tools/run-endian-suite.sh.
+      - name: Endian-sensitive Scheme suites (s390x via QEMU)
+        run: bash tools/run-endian-suite.sh zig-out/bin/kaappi
+
   # ppc64le: interpreter tier like riscv64 (#1654). Also validated on a
   # real-kernel Alpine ppc64le VM (unit + thottam + R7RS + full Scheme
   # suites; 128 TB = 2^47 default map window fits the NaN-box payload).
@@ -266,6 +284,13 @@ jobs:
 
       - name: R7RS test suite (ppc64le via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+      # POWER is little-endian in this configuration despite the architecture
+      # family's big-endian history, so this is a control leg, not a second
+      # canary -- worth stating, because "ppc64le covers big-endian too" is an
+      # easy and wrong assumption to make from the job list.
+      - name: Endian-sensitive Scheme suites (ppc64le via QEMU)
+        run: bash tools/run-endian-suite.sh zig-out/bin/kaappi
 
   # FreeBSD: cross-compile the binaries and test executables from Linux
   # (guarding the cross-compilation path release.yml ships with), then
