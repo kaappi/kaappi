@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785607965967,
+  "lastUpdate": 1785608023394,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8dbe0342812f417582aba85e9cbb9289eab62945",
-          "message": "Resolve a macro's def-env-bound free references through their own library (#1824)\n\n* Resolve a macro's def-env-bound free references through their own library, fixing issue #1812\n\nA macro's free reference to a name its own defining library binds (exported\nor not) previously resolved by bare name against the use site's mutable\nglobals table: a procedure reference was left completely unrenamed, and a\nnon-procedure reference was only protected against lexical (let/lambda)\nshadowing at the use site, not against a genuine top-level redefinition of\nthe same name — since that protection still read the importer's own\nvm.globals at the injected instruction's execution time. An unrelated\ntop-level `(define helper2 ...)` in the importing file could silently\ncorrupt an already-imported macro's expansion.\n\nGeneralizes #1715's `__kaappi_base__` mechanism (routing a compiler-\nsynthesized reference through a stable registry instead of vm.globals) to a\nnew, per-transformer `__kaappi_defenv__<libname>\\x1f<origname>` prefix that\nget_global/call_global/set_global resolve through that specific library's\nown environment at runtime — never touching the use site's globals table for\nthese names. Values stay unbaked (a plain symbol, not a `load_const`\nconstant): embedding a resolved Closure/NativeFn as a bytecode constant\nsilently downgrades to nil on a `.sbc` cache round-trip, the same mistake\n#1715's own first draft made and abandoned.\n\nExcludes true `(scheme base)` bindings merely re-exported by a library\n(call-with-values, raise-continuable, with-exception-handler, etc.) from the\nnew mechanism — several compiler spots (compileCallWithValuesTail's is_tail\ndispatch, chief among them) recognize these by exact bare name, and a real\nregression in SRFI 248's guard macro during development confirmed the\ntail-call dispatch silently breaks otherwise. Also teaches\ntypes.stripHygienicPrefix to recognize the new prefix alongside the existing\n__hyg_ one, fixing two more real regressions found the same way: SRFI 41's\nstream-match (a macro whose template defines another macro via\nletrec-syntax, which must not re-wrap an already-prefixed reference) and\nSRFI 211's define-macro (whose lisp-transformer/er-macro-transformer\nkeywords are SRFI 211 primitives, not scheme-base ones, so the scheme-base\nexclusion alone didn't cover them).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Also exclude tail_call_global from caching a def-env resolution (#1812 follow-up)\n\nget_global/call_global/set_global were each guarded against caching a\n__kaappi_defenv__-prefixed resolution (self.global_version doesn't catch a\nlibrary's own internal set! on its def_env), but tail_call_global — the\ntail-position counterpart of call_global, populating the same\nfunc.global_cache from the same lookupGlobalLocked — was missed. Found by\nre-auditing every func.global_cache populate site after rebasing onto\n#1817, which touches the same cache machinery in call_global/\ntail_call_global.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T19:40:43Z",
-          "tree_id": "36f1f193e53db828f51b426e2e197fb87baba200",
-          "url": "https://github.com/kaappi/kaappi/commit/8dbe0342812f417582aba85e9cbb9289eab62945"
-        },
-        "date": 1785270935355,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.351355,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.268028,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578822,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.008159,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006351,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046924,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315281,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057326,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.46505,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.251948,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.605648,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435969,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.79819,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.692177,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044675,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.029162,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0b105a64e9689640a5905ffc21cd9ef839eccd2",
+          "message": "Normalize kaappi fmt line endings to LF, and say so (#2093)\n\nCloses #1897. `fmt` already stripped every CR between lexemes — `\\r` is\nwhitespace to its lexer and the printer only ever emits `\\n` — but nothing\ndeclared that as policy, `docs/dev/fmt.md` never mentioned line endings at\nall, and the formatter leaked CRs of its own back into the files it wrote.\n\nThe policy is LF, matching `zig fmt` on this compiler's own Zig (verified:\n`zig fmt` normalizes both CRLF and lone CR). The rejected alternative is\nrustfmt's `newline_style = \"Auto\"`, which preserves a file's dominant ending\nso a Windows checkout is never rewritten wholesale. That cost is real and is\nbeing accepted rather than dismissed, for three reasons. `fmt.md` already\npromised that layout \"depends only on the program's content and its comments,\nnot on the input's own line breaks, so two files that differ only in\nwhitespace format identically\" — preserve makes that sentence false. `fmt`\nalready canonicalizes every other whitespace dimension unconditionally (tabs,\nruns of spaces, all indentation, a missing trailing newline), so preserving\nexactly one of them is the arbitrary position. And preserve has no defined\nanswer for a genuinely mixed file or for a file with no line break at all,\nwhere normalize has no undefined case.\n\nTwo real defects fixed underneath the declaration, both places `fmt` emitted\na CR itself:\n\n  * A line comment's trailing `\\r` survived. The comment scan runs to `\\n`,\n    so that CR is the terminating CRLF's — but `trimEnd` stripped only\n    \" \\t\", leaving every commented line in a CRLF file ending in a stray CR\n    while every other line got LF. The output was a fixed point, so this was\n    stable and wrong rather than noisy.\n  * Block-comment interiors kept their CRs, so a CRLF file with a block\n    comment formatted to a mixed-ending file. A block comment ends at `|#`\n    and its bytes reach no datum, so normalizing them cannot change the\n    program. Doing it at parse time rather than in the printer also keeps\n    `measure` honest: a CR-only block comment holds no `\\n` and would\n    otherwise be judged inline-able, putting a raw CR mid-line.\n\n`skipSpace` now counts a lone CR as a line ending (R7RS 7.1.1 says it is\none), so blank-line grouping and trailing-vs-leading comment placement no\nlonger collapse on a CR-only file.\n\nA `;` comment's *interior* CR is deliberately left alone: this reader ends a\ncomment only at `\\n` (#2079), so rewriting it would split the comment and\npromote its tail to real code. That deviation is pinned by a test and\ndocumented, both citing the issue.\n\nBytes inside a datum are never touched — string, SRFI 267 raw string,\n`|piped symbol|`, `#\\<CR>` — because there a CR is program data. That half\nwas already correct and is now asserted rather than assumed.\n\nWhy this needed its own tests: the `equal?` round-trip guard is structurally\nblind to it. `\\r` is whitespace to the reader, so a whole-file CRLF->LF\nrewrite is invariant under `equal?` — the guard proves the program did not\nchange and cannot prove the bytes did not.\n\nVerified a strict no-op on the existing tree: formatting all 942 tracked\n`.scm`/`.sld` files with the pre-change and post-change binaries produces\nbyte-identical output, and `fmt --check` flags the same 833 files before and\nafter (pre-existing; the repo has no `kaappi fmt` gate and no tracked source\nfile contains a CR).\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T21:07:05+05:30",
+          "tree_id": "8ea5fd42eee728c665d281028a0f91f710c21e54",
+          "url": "https://github.com/kaappi/kaappi/commit/f0b105a64e9689640a5905ffc21cd9ef839eccd2"
+        },
+        "date": 1785608021050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.298622,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.2537,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.580213,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.090491,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004638,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046855,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312277,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057108,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.78667,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.235053,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.588319,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283676,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.798717,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.516495,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044657,
             "unit": "seconds"
           }
         ]
