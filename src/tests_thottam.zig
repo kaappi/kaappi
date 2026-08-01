@@ -314,7 +314,7 @@ test "parseConstraints accepts a four-part range (issue #2132)" {
     // try std.testing.expect(semver.parseConstraints(">= 1.0.0") != null);
 }
 
-test "isConstraintSpec routes exactly the four operator-led forms" {
+test "isConstraintSpec routes the six operator-led forms and nothing else" {
     try std.testing.expect(semver.isConstraintSpec(">=1.0.0"));
     try std.testing.expect(semver.isConstraintSpec(">1.0.0"));
     try std.testing.expect(semver.isConstraintSpec("<=1.0.0"));
@@ -571,11 +571,16 @@ test "updateLockfile records and replaces the provenance URL in place" {
     defer if (eb.source) |s| allocator.free(s);
     try std.testing.expectEqualStrings("sha-b", eb.sha);
 
-    // And must not duplicate the rewritten one.
+    // And must not duplicate the rewritten one, nor leave the superseded
+    // line behind. The old line is `a sha-a https://h/a` — matching on
+    // `sha-a` alone would also match `sha-a2`, so the whole line is the
+    // only spelling that can actually fail here.
     const content = try thottam.readFile(allocator, lock);
     defer allocator.free(content);
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "sha-a2"));
-    try std.testing.expect(std.mem.indexOf(u8, content, "sha-a\n") == null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "a sha-a2 https://h/a2\n"));
+    try std.testing.expect(std.mem.indexOf(u8, content, "a sha-a https://h/a\n") == null);
+    // Two entries in, two lines out — an in-place rewrite, not an append.
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, content, "\n"));
 }
 
 test "lockfile lookup does not match a package whose name is a prefix (issue #403)" {

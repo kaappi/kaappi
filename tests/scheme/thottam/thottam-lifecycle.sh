@@ -282,11 +282,18 @@ mkdir -p "$WORK/kaappi-evildep/lib/kaappi"
 )
 git clone -q --bare "$WORK/kaappi-evildep" "$ORG/kaappi-evildep.git"
 fresh_home
+# The traversal target is a fixed absolute path baked into the fixture's
+# manifest (it has to be — the escape is expressed relative to
+# $KAAPPI_HOME/src), so clear it on both sides: a leftover from a previous
+# run, or from a concurrent leg on a shared builder, would otherwise decide
+# this assertion instead of the install under test.
+rm -rf /tmp/kaappi-ESCAPED
 out="$("$THOTTAM" install kaappi-evildep 2>&1)" && ec=0 || ec=$?
 check_exit "a traversal name in a manifest depends: fails the install" 1 "$ec"
 check "the rejected transitive name is reported" "invalid package name" "$out"
 check_not "the traversal target was never created" "yes" \
     "$([[ -e /tmp/kaappi-ESCAPED ]] && echo yes || echo no)"
+rm -rf /tmp/kaappi-ESCAPED
 
 # ---------------------------------------------------------------------------
 # 5. Re-installing at a different version
@@ -426,12 +433,23 @@ out="$("$THOTTAM" --locked install kaappi-nosuch 2>&1)" && ec=0 || ec=$?
 check_exit "--locked refuses a package absent from the lockfile" 1 "$ec"
 check "--locked says the package is not in the lockfile" "not in the lockfile" "$out"
 
-# Restore-from-lockfile: wipe the installation, keep the lockfile.
+# Restore-from-lockfile: wipe the installation, keep the lockfile. This is
+# the whole point of the flag — reproduce an installation from a committed
+# lockfile — so it must be a fixed point: same SHA, same recorded source.
 rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
 : > "$KAAPPI_HOME/installed.txt"
 out="$("$THOTTAM" --locked install kaappi-alpha 2>&1)" && ec=0 || ec=$?
 check_exit "--locked restores a locked package" 0 "$ec"
 check "--locked checks out the locked SHA" "Checking out" "$out"
+# FAIL: #2137 (doInstall rewrites the lockfile from `parsed.source`, which is
+# null when no ::url was given, so restoring from the lockfile ERASES the
+# provenance column the lockfile exists to carry — the SHA survives, the URL
+# does not)
+# check "--locked restore leaves the lockfile byte-for-byte unchanged" \
+#     "$saved_lock" "$(cat "$KAAPPI_HOME/thottam.lock")"
+# Discriminating control: the SHA half of the line does survive the restore.
+check "--locked restore preserves the locked SHA" \
+    "$(printf '%s' "$saved_lock" | cut -d' ' -f2)" "$(cat "$KAAPPI_HOME/thottam.lock")"
 
 # Control: --locked does enforce the SHA.
 fresh_home
