@@ -26,7 +26,18 @@
 
 set -u
 
+# Resolve the binary against the CALLER's cwd first -- a relative argument
+# means what the caller meant, not what it happens to mean after the cd below.
 KAAPPI="${1:-zig-out/bin/kaappi}"
+case "$KAAPPI" in
+    /*) ;;
+    *) KAAPPI="$PWD/$KAAPPI" ;;
+esac
+
+# Then run from the repo root regardless of where we were invoked: every path
+# below is repo-relative, and so is the --lib-path passed to each run.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT" || exit 2
 
 if [[ ! -x "$KAAPPI" ]]; then
     echo "run-endian-suite: no executable kaappi at '$KAAPPI'" >&2
@@ -83,7 +94,12 @@ for f in "${FILES[@]}"; do
         MISSING=$((MISSING + 1))
         continue
     fi
-    out="$("$KAAPPI" "$f" 2>&1)"
+    # --lib-path is explicit rather than relying on the exe-relative default
+    # (<exe_dir>/../lib): that default reads /proc/self/exe on Linux, and the
+    # QEMU legs this script exists for run the binary through binfmt_misc,
+    # where that path's meaning is the emulator's business rather than ours.
+    # Naming ./lib costs nothing and removes the question.
+    out="$("$KAAPPI" --lib-path lib "$f" 2>&1)"
     status=$?
     if [[ $status -eq 0 ]]; then
         echo "  PASS  $f"
