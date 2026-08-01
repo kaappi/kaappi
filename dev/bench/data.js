@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785599673588,
+  "lastUpdate": 1785601101634,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4e03b6100c3a0bb0b9a9f119e6fc57c4a94299bd",
-          "message": "Keep a macro-expanded body-position define's local alive (#1800) (#1815)\n\nA macro use whose expansion is a bare (define x v) in body position\nraised \"undefined variable\" for later references to x. Root cause:\nexpandAndCompileMacroUse's post-expansion cleanup unconditionally\npopped every compiler local added while compiling the macro's final\nexpanded form, on the assumption that everything added during a\nmacro-use compile is transient chain bookkeeping (hygienic aliases).\ncompileDefine's in_body_scope branch adds a real, sibling-visible\nlocal when the expansion is a definition, and that local needs to\nsurvive the call returning; only the aliases injected earlier in the\nchain (for R7RS 4.3.1 referential transparency) are truly transient.\n\nFixes 6 SRFI 148 assertions previously quarantined behind\ntest-expect-fail and one SRFI 251 \"known gap\" test that turned out to\nbe the same underlying bug reached via a nested lambda scope.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T14:52:18+05:30",
-          "tree_id": "12b6abd2a056d8136f593b49fa5543d851eb45d0",
-          "url": "https://github.com/kaappi/kaappi/commit/4e03b6100c3a0bb0b9a9f119e6fc57c4a94299bd"
-        },
-        "date": 1785232879334,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.357095,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.318527,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.898703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.431105,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006332,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053826,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.505236,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069682,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.562518,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.924202,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.612222,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434651,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822359,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.66723,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044568,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044915,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc66b3c47104e4272ff2209622f0765d38533304",
+          "message": "Phase 3.5: SRFI 166 audit — 244 assertions across all 89 exports, and pretty never breaks a line at any width (#2069)\n\n* Phase 3.5: SRFI 166 audit — 245 assertions across all 89 exports\n\nThe unit was scoped as closing a measurement gap: 52 of 89 exported names\nnever appeared in a test file. The gap turned out to be hiding a library\nthat is largely a skeleton, so the suite is written against the SRFI's own\nspec page rather than against the implementation, and every expected value\nis either quoted verbatim from one of the spec's \"=>\" examples or derived\nfrom a sentence of its prose cited in a comment.\n\n188 assertions pass; 57 are committed disabled with a `;; FAIL: #NNNN`\nmarker naming the issue. Uncommenting the disabled set makes exactly those\n57 fail and leaves all 188 passing, in both ReleaseSafe and\n-Dgc-stress=true.\n\nEleven issues, one per root cause:\n\n  #2054  fn and with are procedures where the spec defines macros, so every\n         documented use of the state-variable API raises \"not a procedure\";\n         fn additionally binds nothing, computing its bindings and\n         discarding them, and the `output` state variable has no slot\n  #2056  with restores the whole 13-slot state vector, so col and row are\n         rolled back and output written inside a with is invisible to the\n         space-to / tab-to / fl that follow it\n  #2058  tab-to emits a full tab width when already on a tab stop, which\n         the spec calls out explicitly; tab-width 0 divides by zero\n  #2059  escaped wraps its output in quote delimiters the spec does not add\n         and ignores esc-ch/renamer; maybe-escaped never quotes on an\n         embedded quote character\n  #2061  the numeric family reads only num/radix/precision: sign-rule,\n         comma-rule, comma-sep and decimal-sep are ignored, radix is\n         dropped as soon as precision is given, numeric/comma inserts no\n         commas at all, and numeric/si ignores its base and separator\n  #2062  padded/trimmed/fitted measure with string-length, so the ellipsis\n         and string-width state variables are never read\n  #2063  displayed renders a formatter argument as #<procedure>\n  #2064  pretty is write — it never breaks a line at any width — and\n         written-shared/pretty-shared do not label shared structure\n  #2065  columnar and tabular do not align, wrapped hardcodes width 78,\n         wrapped/char and justified are aliases of wrapped, line-numbers\n         is not a stream; the SRFI's own nl(1) example produces garbage\n  #2066  (srfi 166 unicode) is a stub: substring-terminal-width returns an\n         integer where the spec returns a substring, string-terminal-width\n         is string-length, terminal-aware is a no-op\n  #2067  15 documented names are not exported and (srfi 166 base) does not\n         exist, while (cond-expand (srfi-166 ...)) answers yes\n\nCorrect and asserted as such: all 23 (srfi 166 color) exports, including\nthe exact SGR codes for the 16 foreground/background colours, the three\nstyles, and both the 8-bit cube and 24-bit true-colour forms; the whole\njoined family; every non-ellipsis trimming case including the odd/even\nasymmetry; fitted in all three directions; forked, call-with-output,\nfrom-file, upcased and downcased (with the spec's Greek word-final sigma);\ncycle detection in written and pretty; and pretty's read-back round trip.\n\nTwo portability notes the file documents inline. Non-ASCII text is written\nwith \\x...; escapes so the assertions are byte-stable on every CI leg, and\nno assertion consults the ambient terminal width. Also worth knowing:\n#\\x1b; is not a hex character escape — R7RS spells the in-string form\n\"\\x1b;\" with a terminating semicolon and the character literal #\\x1b\nwithout one, so #\\x1b; reads as ESC followed by a comment that swallows\nthe rest of the line. The suite uses (integer->char 27).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Drop the one disabled assertion that would not flip on its own fix\n\n\"fn: a binding is visible to the body under the procedural form\" asserted\na value this implementation's calling convention never defined — there is\nno way to *name* an fn binding under the procedural form, so the assertion\nfailed only incidentally, and #2054's fix (making fn a macro) would have\nrequired deleting it rather than re-enabling it. A `;; FAIL:` marker\npromises the opposite.\n\nThe three remaining #2054 assertions cover the same defect in the spec's\nown terms, where the fix does flip them. 244 assertions: 188 enabled,\n56 disabled; the mutation test is still exact.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T17:18:11+05:30",
+          "tree_id": "427e7d1dcb2fd66e6809fdc0409f646f651e5dac",
+          "url": "https://github.com/kaappi/kaappi/commit/fc66b3c47104e4272ff2209622f0765d38533304"
+        },
+        "date": 1785601100379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.917303,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.035669,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573342,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.816125,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00484,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044874,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.292346,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05462,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.295172,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.151661,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.613907,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307154,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.676451,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.762969,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044827,
             "unit": "seconds"
           }
         ]
