@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785549797476,
+  "lastUpdate": 1785551791828,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d5f6c255d676645853700203b45877bcacd02a35",
-          "message": "Give kaappi compile binaries real argv via (command-line) (#1744) (#1778)\n\nThe LLVM emitter generated every compiled binary's entry point as\n`define i32 @main()` -- zero parameters -- so argc/argv never reached\nthe runtime and (command-line) always returned () regardless of what\narguments the binary was invoked with.\n\nmain now takes the standard C (argc, argv) pair and hands argv to a\nnew kaappi_set_command_line_args runtime export right after init,\nwhich scans it to its NULL sentinel (every native_backend_supported\ntarget's libc/CRT guarantees argv[argc] == NULL, so argc itself never\nneeds to be threaded further). A compiled binary's (command-line) now\nreturns its own path followed by its real arguments, mirroring how\nthe interpreter reports a script's filename followed by its arguments.\n\nAdded a dedicated e2e phase (test-argv.scm + run-e2e.sh/run-e2e.ps1)\nsince the existing interpreter-vs-native parity loop can't cover this:\nthe leading \"command name\" element legitimately differs between an\ninterpreted and a compiled run of the same program.",
-          "timestamp": "2026-07-27T11:36:35+05:30",
-          "tree_id": "37feabeaf197d5b2de765a6914829c90152d0754",
-          "url": "https://github.com/kaappi/kaappi/commit/d5f6c255d676645853700203b45877bcacd02a35"
-        },
-        "date": 1785136818600,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.396496,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.633474,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.94693,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.585681,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006505,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.056266,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.514895,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069434,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.661279,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.113426,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.598573,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431568,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.029021,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.686757,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044053,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045192,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6081c3ba6db8aa8b00526fd71c5fb8d00354216",
+          "message": "Tick 5D, and record the portability lesson it cost (#1992)\n\n5D merged with all three BSD legs green. 2.12 remains blocked: the rdev\nfix was real and verified on the FreeBSD VM, but CI then surfaced a\nsecond, distinct divergence that the VM cannot reproduce -- CI runs\nFreeBSD 14.3 and the reference VM runs 15.1, and their assertion totals\ndiffer (423 vs 412), so the two are not comparable runs.\n\nThe 5D entry records the lesson rather than just the issue numbers,\nbecause it generalises: an assertion that pins the VALUE of an undefined\nfloat conversion passes everywhere the conversion happens to agree and\nfails where it does not. Assert the property that is actually specified --\nhere, that NaN does not abort, which is the real contrast with #1983's\naborting cases.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T07:43:03+05:30",
+          "tree_id": "5c4782daabbc524c1ada38770730747e6c944467",
+          "url": "https://github.com/kaappi/kaappi/commit/e6081c3ba6db8aa8b00526fd71c5fb8d00354216"
+        },
+        "date": 1785551790540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.916267,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.703441,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.554643,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.808193,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004849,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044966,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291276,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054778,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.329555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.147941,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.515761,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307842,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.674297,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.76172,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044506,
             "unit": "seconds"
           }
         ]
