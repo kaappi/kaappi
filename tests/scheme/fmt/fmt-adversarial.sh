@@ -188,7 +188,13 @@ assert_one_line "width: a 75-column ASCII form stays on one line" "(f$ascii12)\n
 
 # repeat <byte> <count> — a portable "print this byte N times" with no seq,
 # no python and no shell loop.
-repeat() { head -c "$2" /dev/zero | tr '\0' "$1"; }
+# `head -c` is a GNU/FreeBSD extension, NOT POSIX. OpenBSD's head answers
+# `head: unknown option -- c` and prints nothing, so the generated file came out
+# empty, `fmt` accepted it, and the assertion below failed on that leg alone.
+# Same shape as the no-GNU-regex rule in tests/scheme/CLAUDE.md: it passes on
+# macOS, Linux and FreeBSD, and fails only on the strict leg.
+# `printf '%*s'` is POSIX and needs no external file.
+repeat() { printf "%${2}s" '' | tr ' ' "$1"; }
 
 # assert_clean_reject <label> <path>
 #   The input is deeper than any reader accepts (`kaappi` itself answers
