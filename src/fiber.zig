@@ -1232,8 +1232,10 @@ pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VME
     // retry the syscall, EAGAIN again, and re-enter the same drive: an
     // unbreakable spin. Raise a catchable error instead; the defer above
     // has already pulled `me` off the reactor, and the re-entrant frames
-    // that made parking impossible (guard, dynamic-wind) are exception
-    // plumbing — an ordinary raise is exactly the unwind they handle.
+    // that made parking impossible (guard's exception plumbing, a native
+    // higher-order driver's callback) all sit under a Zig caller that
+    // propagates an error — an ordinary raise is exactly the unwind they
+    // already handle.
     if (!done) return raiseIoWaitAbandoned(vm);
 }
 
@@ -1241,10 +1243,24 @@ pub fn waitForFd(vm: *VM, fd: platform.fd_t, interest: reactor_mod.Interest) VME
 /// A plain ErrorObject like blockOrDeadlock's deadlock errors — this is the
 /// I/O drive's analogue of those: "this wait can no longer be serviced
 /// without wedging the scheduler."
+///
+/// The frames named here must be *native* ones (#1959). `dynamic-wind`,
+/// `map`/`for-each`, the vector/string mapping procedures and `force` are
+/// bootstrapped Scheme (vm_bootstrap.zig): their bodies and callbacks run
+/// in the bytecode dispatch loop, so a fiber parks inside them normally.
+/// Naming `dynamic-wind` here sent readers of this error hunting in
+/// exactly the wrong place. (Its before/after thunks *are* native frames
+/// when a continuation transition or an unwind runs them via callThunk —
+/// but that is the wind machinery re-entering them, not the ordinary
+/// `(dynamic-wind before thunk after)` call this message was read as
+/// indicting.) The drive/park split is pinned by the "#1959:" and
+/// "#1625:" tests in tests_port_io.zig.
 fn raiseIoWaitAbandoned(vm: *VM) VMError {
     var msg = vm.gc.allocString(
         "port I/O abandoned: fiber cannot suspend under re-entrant native frames " ++
-            "(guard, dynamic-wind, callbacks) while an enclosing completed wait needs this thread",
+            "(guard, and native higher-order drivers such as SRFI-1 fold/filter/find, " ++
+            "hash-table-walk, assoc/member with a custom predicate, string-index, eval) " ++
+            "while an enclosing completed wait needs this thread",
     ) catch return VMError.OutOfMemory;
     vm.gc.pushRoot(&msg);
     defer vm.gc.popRoot();

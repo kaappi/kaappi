@@ -21,6 +21,7 @@
 | `fmt/` | `kaappi fmt` formatter | yes |
 | `cache/` | `.sbc` bytecode cache transparency | yes |
 | `timings/` | `--timings` stage reporting | yes |
+| `lsp/` | `kaappi-lsp` end-to-end JSON-RPC session over stdio | yes |
 | `differential/` | Execution-tier differential harness (`--no-ir-opt`, cold-vs-warm cache) + its `probes/` | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
 | `robustness/` | Stress tests | no (CI runs it separately) |
