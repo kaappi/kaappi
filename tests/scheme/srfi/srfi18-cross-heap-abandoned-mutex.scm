@@ -90,8 +90,21 @@
 ;; instead: it stays 'not-abandoned until the child locks it, so this
 ;; synchronises on the event rather than on a duration, and the retry budget
 ;; is a loud failure rather than a hang if the child never gets there.
+;;
+;; "Held" means mutex-state answers with an owner object rather than either
+;; of the two unowned symbols. It is deliberately not compared against the
+;; thread handle: SRFI 18 describes mutex-state as yielding the owning
+;; *thread*, but a mutex locked by a child here answers with that child's
+;; own fiber object, which is not eq? to the thread returned by make-thread
+;; (kaappi#2125). Excluding 'abandoned as well as 'not-abandoned is what
+;; keeps this from mistaking a child that died on the way for one that
+;; acquired the lock.
+(define (mutex-held? m)
+  (let ((s (mutex-state m)))
+    (not (or (eq? s 'not-abandoned) (eq? s 'abandoned)))))
+
 (define (wait-until-held! m tries)
-  (cond ((not (eq? (mutex-state m) 'not-abandoned)) #t)
+  (cond ((mutex-held? m) #t)
         ((<= tries 0) #f)
         (else (thread-sleep! 0.005) (wait-until-held! m (- tries 1)))))
 

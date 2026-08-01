@@ -13,7 +13,7 @@
 ;; make the measured interval longer. The 0.09 s tolerance on a 0.1 s sleep
 ;; is for clock granularity, not for scheduling slack.
 
-(import (scheme base) (srfi 18) (srfi 64))
+(import (scheme base) (scheme process-context) (srfi 18) (srfi 64))
 
 (test-begin "thread-sleep-876")
 

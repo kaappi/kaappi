@@ -29,7 +29,8 @@
 ;; are measuring the race, not the detection window that srfi120.scm's own
 ;; longer negative waits provide.
 
-(import (scheme base) (scheme write) (srfi 18) (kaappi fibers) (srfi 64) (srfi 120))
+(import (scheme base) (scheme write) (scheme process-context)
+        (srfi 18) (kaappi fibers) (srfi 64) (srfi 120))
 
 (test-begin "srfi-120-slow-setup")
 
