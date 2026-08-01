@@ -317,3 +317,129 @@ test "unterminated raw string is a format error" {
     defer arena.deinit();
     try testing.expectError(fmt.ParseError.UnterminatedString, fmt.formatSource(arena.allocator(), "(a #\"X\"never closed"));
 }
+
+// ── Line endings (kaappi#1897) ───────────────────────────────────────────────
+// Policy: LF, like `zig fmt`. Every line break `fmt` emits is a bare `\n`;
+// bytes inside a datum are never touched. The round-trip guard is blind to this
+// entirely — `\r` is whitespace to the reader, so a whole-file CRLF→LF rewrite
+// is `equal?`-invariant — which is exactly why it needs its own tests.
+
+/// Assert `src` holds no CR outside a datum after formatting. Datum-bearing
+/// lexemes (strings, raw strings, `|symbols|`, `#\return`) are exempt, so this
+/// is only applied to sources that contain none.
+fn expectNoCr(src: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const got = try fmtInto(arena.allocator(), src);
+    if (std.mem.indexOfScalar(u8, got, '\r')) |at| {
+        std.debug.print("stray CR at byte {d} of:\n{s}\n", .{ at, got });
+        return error.StrayCarriageReturn;
+    }
+}
+
+test "CRLF and lone CR both format to LF" {
+    try expectFormat("(define x 1)\r\n(define y 2)\r\n", "(define x 1)\n(define y 2)\n");
+    try expectFormat("(define x 1)\r(define y 2)\r", "(define x 1)\n(define y 2)\n");
+    // Mixed within one file: no dominant-ending heuristic, every ending is LF.
+    try expectFormat("(a)\r\n(b)\n(c)\r", "(a)\n(b)\n(c)\n");
+}
+
+test "line endings never affect the output" {
+    // The policy in one property: a file and its CRLF twin format identically.
+    // This is what a preserve policy would have made false.
+    const programs = [_][]const u8{
+        "(define (f x)\n  (+ x 1))\n",
+        ";; header\n(define x 1) ; trailing\n\n(define y 2)\n",
+        "(begin\n  (a)\n\n  (b))\n",
+        "#| block\n   comment |#\n(define x 1)\n",
+        "(let loop ((i 0))\n  (when (< i 10) (loop (+ i 1))))\n",
+    };
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    for (programs) |lf| {
+        _ = arena.reset(.retain_capacity);
+        const a = arena.allocator();
+
+        const crlf = try std.mem.replaceOwned(u8, a, lf, "\n", "\r\n");
+        try testing.expectEqualStrings(try fmt.formatSource(a, lf), try fmt.formatSource(a, crlf));
+
+        // The CR-only twin is only a twin for a program with no `;` comment:
+        // this reader does not end one at a lone CR, so converting a commented
+        // program to CR endings genuinely changes what it means. See the
+        // "a lone CR does not end a line comment" test.
+        if (std.mem.indexOfScalar(u8, lf, ';') != null) continue;
+        const cr = try std.mem.replaceOwned(u8, a, lf, "\n", "\r");
+        try testing.expectEqualStrings(try fmt.formatSource(a, lf), try fmt.formatSource(a, cr));
+    }
+}
+
+test "a CR in a datum is program data and survives byte-for-byte" {
+    // Changing any of these would change the program, so they are exempt from
+    // the LF policy under *any* policy — string, raw string, piped symbol, and
+    // the raw spelling of the return character.
+    try expectFormat("(define s \"a\rb\")\n", "(define s \"a\rb\")\n");
+    try expectFormat("(define c #\\\r)\n", "(define c #\\\r)\n");
+    try expectFormat("(define s #\"X\"a\rb\"X\")\n", "(define s #\"X\"a\rb\"X\")\n");
+    try expectFormat("(define |a\rb| 1)\n", "(define |a\rb| 1)\n");
+    // A CRLF inside a string keeps *both* bytes; the embedded newline is what
+    // stops the enclosing form from inlining, so the layout breaks around it.
+    try expectFormat("(define s \"a\r\nb\")\n", "(define s\n  \"a\r\nb\")\n");
+    try expectRoundTrips("(define s \"a\r\nb\")\n");
+    try expectIdempotent("(define s \"a\r\nb\")\n");
+}
+
+test "comment line endings normalise; comment interiors are handled per kind" {
+    // A line comment runs to the `\n`, so its trailing `\r` is that CRLF's
+    // carriage return — dropped, like the trailing spaces beside it. Before
+    // kaappi#1897 this was the one place fmt emitted a CR of its own.
+    try expectFormat("(define x 1) ; note\r\n(define y 2)\r\n", "(define x 1) ; note\n(define y 2)\n");
+    try expectFormat(";; header\r\n(define x 1)\r\n", ";; header\n(define x 1)\n");
+    try expectNoCr("(define x 1) ; note\r\n;; own line\r\n(define y 2)\r\n");
+
+    // A block comment ends at `|#`, so its interior line endings normalise too:
+    // its bytes reach no datum, and leaving them would make the output mixed.
+    try expectFormat("#| a\r\nb |#\n(define x 1)\n", "#| a\nb |#\n(define x 1)\n");
+    try expectFormat("#| a\rb |#\n(define x 1)\n", "#| a\nb |#\n(define x 1)\n");
+    try expectNoCr("#| a\r\nb |#\r\n(define x 1)\r\n");
+}
+
+test "a lone CR does not end a line comment — fmt mirrors the reader" {
+    // R7RS 7.1.1 makes a lone ⟨return⟩ a line ending, but this reader ends a
+    // `;` comment only at `\n` (kaappi#2079). fmt's lexer must carve the same
+    // lexemes the real reader does, so it inherits that: everything after the
+    // `;` is one comment to both, and its interior CR is preserved rather than
+    // normalised — rewriting it to `\n` would promote the tail to real code.
+    // Pinned so the day the reader is fixed, this test says so.
+    try expectFormat("(define x 1) ; note\r(define y 2)\r", "(define x 1) ; note\r(define y 2)\n");
+    try expectRoundTrips("(define x 1) ; note\r(define y 2)\r");
+    try expectIdempotent("(define x 1) ; note\r(define y 2)\r");
+}
+
+test "blank-line grouping survives every line-ending convention" {
+    try expectFormat("(a)\r\n\r\n(b)\r\n", "(a)\n\n(b)\n");
+    // Lone CR counts as a line ending too, so `\r\r` is a blank line. Counting
+    // only `\n` would flatten a CR-only file to one line and drop the grouping.
+    try expectFormat("(a)\r\r(b)\r", "(a)\n\n(b)\n");
+}
+
+test "the trailing newline is added as LF, whatever the file used" {
+    try expectFormat("(define x 1)", "(define x 1)\n");
+    try expectFormat("(define x 1)\r\n(define y 2)", "(define x 1)\n(define y 2)\n");
+    try expectFormat("\r\n", "");
+}
+
+test "idempotent and round-tripping across line-ending conventions" {
+    const cases = [_][]const u8{
+        "(define x 1)\r\n(define y 2)\r\n",
+        "(define x 1)\r(define y 2)\r",
+        "(a)\r\n(b)\n(c)\r",
+        "#| a\r\nb |#\r\n(define x 1)\r\n",
+        "(define s \"a\rb\")\r\n",
+        "(define s #\"X\"a\r\nb\"X\")\r\n",
+        ";; head\r\n(define x 1) ; tail\r\n\r\n(define y 2)\r\n",
+    };
+    for (cases) |c| {
+        try expectIdempotent(c);
+        try expectRoundTrips(c);
+    }
+}

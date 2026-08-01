@@ -25,6 +25,20 @@
 //! datum sequences with `equal?`. On any mismatch — or if either side fails to
 //! read — `fmt` refuses to write and reports it, so a bug here can never corrupt
 //! a source file.
+//!
+//! **Line endings are LF** (kaappi#1897), the same policy `zig fmt` applies to
+//! this compiler's own Zig. Every line break `fmt` emits is a bare `\n`; a CRLF
+//! or a lone CR between lexemes is line-ending whitespace and normalises like
+//! any other whitespace run. Bytes *inside a datum* are never touched — a
+//! `"a\r\nb"` string, a SRFI 267 raw string, a `|piped symbol|` and a `#\return`
+//! all survive byte-for-byte, because there the CR is program data.
+//!
+//! That split is why the policy has to be stated here rather than left to the
+//! round-trip guard: `\r` is whitespace to the reader, so a whole-file CRLF→LF
+//! rewrite is *invariant* under `equal?`. The guard proves the program did not
+//! change; it cannot prove the bytes did not. Line endings are the one dimension
+//! it is blind to, so `normalizeEol` and the comment trim below are what keep
+//! `fmt`'s own output free of stray CRs.
 
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -133,12 +147,22 @@ const Lexer = struct {
         return isSpace(c) or c == '(' or c == ')' or c == '"' or c == ';' or c == '|';
     }
 
-    /// Consume whitespace, returning the newline count. Whitespace-only runs and
-    /// blank lines are recovered from this count, not stored verbatim.
+    /// Consume whitespace, returning the count of *line endings* crossed.
+    /// Whitespace-only runs and blank lines are recovered from this count, not
+    /// stored verbatim.
+    ///
+    /// R7RS 7.1.1: `⟨line ending⟩ → ⟨newline⟩ | ⟨return⟩ ⟨newline⟩ | ⟨return⟩`.
+    /// All three count as one, so blank-line grouping and trailing-vs-leading
+    /// comment placement come out the same whichever convention the file uses —
+    /// counting only `\n` would silently flatten a CR-only file to a single line.
     fn skipSpace(self: *Lexer) u32 {
         var newlines: u32 = 0;
         while (self.pos < self.src.len and isSpace(self.src[self.pos])) : (self.pos += 1) {
-            if (self.src[self.pos] == '\n') newlines += 1;
+            const c = self.src[self.pos];
+            // In CRLF the `\n` is the one counted, so skip the `\r`.
+            if (c == '\n' or (c == '\r' and !(self.pos + 1 < self.src.len and self.src[self.pos + 1] == '\n'))) {
+                newlines += 1;
+            }
         }
         return newlines;
     }
@@ -401,13 +425,21 @@ const Parser = struct {
                     .block_comment => .block_comment,
                     else => .atom,
                 },
-                // Trailing whitespace inside a line comment is invisible and
-                // never part of a datum; strip it so the output has no trailing
-                // spaces. Block comment and atom text stays byte-for-byte.
-                .text = if (tok.kind == .line_comment)
-                    std.mem.trimEnd(u8, tok.text, " \t")
-                else
-                    tok.text,
+                // Neither comment kind is a datum, so both get the LF policy
+                // (see the module header). A line comment runs to the `\n` that
+                // ends it, so a trailing `\r` is that CRLF's carriage return —
+                // dropping it is what keeps commented lines from being the one
+                // place `fmt` emits a CR. Interior bytes are *not* rewritten:
+                // this reader ends a `;` comment only at `\n` (kaappi#2079), so
+                // turning an interior CR into `\n` would split the comment and
+                // promote its tail to code. Block comments have no such hazard —
+                // they end at `|#` — so their line endings normalise outright.
+                // Atom text stays byte-for-byte: a CR in a string is program data.
+                .text = switch (tok.kind) {
+                    .line_comment => std.mem.trimEnd(u8, tok.text, " \t\r"),
+                    .block_comment => try normalizeEol(self.arena, tok.text),
+                    else => tok.text,
+                },
                 .newlines_before = tok.newlines_before,
             },
             .prefix, .datum_comment => {
@@ -436,6 +468,31 @@ const Parser = struct {
         };
     }
 };
+
+/// Rewrite the line endings inside a lexeme to LF, returning `text` unchanged
+/// (and allocating nothing) when it holds no CR — the overwhelmingly common
+/// case. Only ever applied to lexemes that contribute no bytes to any datum, so
+/// it cannot change the program a reader sees.
+///
+/// Normalising here rather than in the printer keeps `measure` honest: a CR-only
+/// block comment holds no `\n` and would otherwise be measured as inline-able,
+/// putting a raw carriage return in the middle of an output line.
+fn normalizeEol(arena: std.mem.Allocator, text: []const u8) ParseError![]const u8 {
+    if (std.mem.indexOfScalar(u8, text, '\r') == null) return text;
+    const buf = try arena.alloc(u8, text.len); // never grows: CRLF loses a byte
+    var n: usize = 0;
+    for (text, 0..) |c, i| {
+        if (c == '\r') {
+            // CRLF: drop the CR and let the LF through on the next iteration.
+            if (i + 1 < text.len and text[i + 1] == '\n') continue;
+            buf[n] = '\n'; // lone CR is a line ending in its own right
+        } else {
+            buf[n] = c;
+        }
+        n += 1;
+    }
+    return buf[0..n];
+}
 
 /// Parse `source` into a top-level CST node sequence. Caller owns nothing —
 /// everything is arena-allocated.
