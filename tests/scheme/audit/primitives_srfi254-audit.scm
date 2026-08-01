@@ -117,8 +117,10 @@
 ;; "If not given, the optional default defaults to #f."
 (test-assert "ephemeron-ref: non-eq? key with no default returns #f"
              (not (ephemeron-ref e-api 'nope)))
-(test-assert "ephemeron-ref: eq? is identity, not equal? — fresh list misses"
-             (let ((e (make-ephemeron (list 1 2) 'hit)))
+;; The key is held live so this misses for the eq?-identity reason and not
+;; because a collection broke the ephemeron first.
+(test-assert "ephemeron-ref: eq? is identity, not equal? — an equal? list misses"
+             (let* ((k (list 1 2)) (e (make-ephemeron k 'hit)))
                (not (ephemeron-ref e (list 1 2)))))
 (test-equal "ephemeron-ref: the very same list hits" 'hit
             (let* ((k (list 1 2)) (e (make-ephemeron k 'hit)))
@@ -232,8 +234,12 @@
              (= (current-hash 'sym-a) (current-hash (string->symbol "sym-a"))))
 (test-assert "current-hash: eq? strings hash alike"
              (let ((s "shared")) (= (current-hash s) (current-hash s))))
-(test-assert "current-hash: two distinct fresh pairs hash differently"
-             (not (= (current-hash (list 1)) (current-hash (list 1)))))
+;; Both pairs stay live for the comparison: an object freed between the two
+;; calls could be replaced at the same address, which would make equal hashes
+;; correct rather than a collision.
+(test-assert "current-hash: two distinct live pairs hash differently"
+             (let ((a (list 1)) (b (list 1)))
+               (not (= (current-hash a) (current-hash b)))))
 (test-assert "current-hash: accepts every immediate without raising"
              (not (raises? (lambda ()
                              (for-each current-hash
