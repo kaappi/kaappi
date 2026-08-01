@@ -191,6 +191,9 @@ jobs:
       - name: Parallel pool sandbox degradation tests
         run: bash tests/scheme/sandbox/parallel-degrades.sh
 
+      - name: Sysinfo sandbox degradation tests
+        run: bash tests/scheme/sandbox/sysinfo-degrades.sh
+
       - name: Robustness tests
         run: bash tests/scheme/robustness/robustness.sh
 
