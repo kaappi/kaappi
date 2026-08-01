@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785581008402,
+  "lastUpdate": 1785589573089,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f68a1e376316bdfdc4ea11d2b28b59de61de275",
-          "message": "Unwrap usertext markers in the two remaining pattern-spine walks (#1787) (#1790)\n\nThe preceding commit fixed matchListPattern's loop. Two more spine walks\nhad the same gap, and together they were the whole of what actually\nblocked SRFI 148 -- not the free-identifier=?/compound-identifier bug\n#1787 was filed for, which does not exist (see below).\n\nA pattern variable substituted into a NESTED syntax-rules template is\nwrapped as (__hyg-usertext . value) so the generated macro's own later\nexpansion inserts it verbatim instead of re-walking it as template text.\nWhen the substitution target is a list POSITION the wrapper gets its own\ncons cell and every consumer sees it; when the target is a SPINE position\n-- a dotted tail, or the whole pattern -- the wrapper becomes the cdr of\nan existing cell, so a naive walk reads the marker as one more ordinary\nelement. instantiateTemplate and stripUsertextWalk already handled that\nshape; three matching-side walks did not.\n\n  - expandMacro drops the pattern's first element to skip the macro\n    keyword. For a whole rule pattern spliced from user text -- a\n    generator taking (pat tmpl) and emitting (syntax-rules () (pat tmpl))\n    -- that dropped the marker instead, so every position sat one slot\n    late and the user's own `_` keyword placeholder swallowed the first\n    argument. The keyword-name extraction above it read the marker symbol\n    as the macro's name for the same reason.\n\n  - matchEllipsis splits the input by counting the elements the pattern\n    after the ellipsis needs. Counting a marker made it reserve one too\n    many, so the ellipsis stopped one element short -- and the trailing\n    pattern still matched, because the marker symbol behaves like an\n    anonymous pattern variable and binds the element the ellipsis should\n    have taken. That one failed SILENTLY, expanding with a short ellipsis\n    binding and no diagnostic. Fixed in countPairs (both callers walk a\n    marker-bearing spine) and in the repetition walk.\n\nWith all three, every em-syntax-rules-defined macro in a full SRFI 148\nport now expands correctly end-to-end -- em-cons, em-cons*, em-car/cdr,\nem-fold, em-map, em-filter, em-append, em-quasiquote, both identifier\ncomparisons, and custom-ellipsis variants -- where before the fix each\none failed with \"bad arguments to macro call\".\n\n#1787's own headline bug is not real. Its repro writes a bare `...` in a\nmacro template to pass the ellipsis identifier through to\nfree-identifier=?, but a template `...` IS the ellipsis; R7RS spells that\n(... ...), which is what SRFI 148's own em-syntax-rules writes. Kaappi\nexpands a driver-less ellipsis to zero copies in silence, so\n`(free-identifier=? ... (quote t) 'yes 'no)` quietly became\n`((quote t) 'yes 'no)` -- the \"not a procedure\" the issue reports, and\nnothing to do with identifier comparison. chibi-scheme rejects that same\nrepro at definition time with \"too many ...'s\". With the ellipsis escaped\ncorrectly, free-identifier=? and bound-identifier=? already answered\nevery compound-vs-symbol case right, before and after this commit. The\nsilent zero-expansion is a real diagnostic gap, filed separately.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T21:07:39+05:30",
-          "tree_id": "ce013bed71210ff6a21f8f1e3ff5823e4aacd0a9",
-          "url": "https://github.com/kaappi/kaappi/commit/9f68a1e376316bdfdc4ea11d2b28b59de61de275"
-        },
-        "date": 1785169000502,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.889281,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.567803,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.889946,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.259545,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006452,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.050988,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.511368,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067799,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.646429,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.815326,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.455769,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.405469,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.669011,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.916351,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041558,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044318,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1718a2e148b9fc9c9f1eafdf4d0e1ad7392d88fc",
+          "message": "Put the reason a fuzz job died into the issue it files (#2042)\n\nThe \"infrastructure or build failure\" issue could say no more than \"see the\nrun log\", so every instance costs a manual `gh api .../logs` to explain. That\nis worst for the failures it is most often filed for: a GitHub-hosted runner\nreclaimed mid-job *cancels* the job, which skips even the `if: failure()`\nupload step, so no artifact reaches the report job and the run log is the only\nsurviving evidence.\n\nThe report job already holds `actions: read`. Have it fetch each failed job's\nlog over the API and lead the issue with a per-job verdict — duration plus the\nlast few `##[error]` lines — recognizing the runner-shutdown line specifically.\nThat is the distinction the old text could not draw: a shutdown (exit 143) is\ninfrastructure and wants a re-run, whereas a job cancelled at its own\n`timeout-minutes` is worth chasing as a hang, since every generated program is\nindividually time-bounded.\n\n#2040 was the first kind wearing the second's clothes — an arm64 leg killed 46\nmin into a 55-min budget, on a commit whose x86_64 leg was entirely normal.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T08:06:10Z",
+          "tree_id": "f8189011b69be162fedf37b3df55db8c9fa5825a",
+          "url": "https://github.com/kaappi/kaappi/commit/1718a2e148b9fc9c9f1eafdf4d0e1ad7392d88fc"
+        },
+        "date": 1785589571359,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.033689,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.357974,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.569017,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.947608,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004975,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045086,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.295084,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05506,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.306315,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.178694,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.533594,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.308367,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.685778,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.864144,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04535,
             "unit": "seconds"
           }
         ]
