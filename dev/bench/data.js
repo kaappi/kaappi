@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785606322028,
+  "lastUpdate": 1785606342748,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4f84c3a36a2b43c60dc17900c4883e9c9c7392dc",
-          "message": "Route case-lambda's arity dispatch through an internal %length alias (#1821)\n\ncase-lambda's compiled dispatch code called the global `length` by name\nto count arguments, so a scope that legitimately shadows `length` (e.g.\na library providing its own for a non-standard list-like type, as SRFI\n101 needs) broke every case-lambda defined within it. Adds a %length\nprimitive using the same %-prefixed internal-primitive convention as\n%record-set! etc., immune to ordinary user shadowing, and dispatches\nthrough it instead.\n\nFixes #1714",
-          "timestamp": "2026-07-29T00:23:23+05:30",
-          "tree_id": "3959f81cf28a68c9836d1602cfecc92d962eeba7",
-          "url": "https://github.com/kaappi/kaappi/commit/4f84c3a36a2b43c60dc17900c4883e9c9c7392dc"
-        },
-        "date": 1785269177307,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355042,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.911722,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583961,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.175343,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006311,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047116,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.320254,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058278,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.50702,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.24154,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.595291,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431643,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.804936,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.604545,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042693,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044365,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf71d4b101cf79f57dc82066cfb48fecae3e6556",
+          "message": "Drop the per-PR CHANGELOG gate; derive release notes from git log (#2103)\n\nThe gate required every PR touching src/ or lib/srfi/ to edit CHANGELOG.md.\nWith concurrent branches that is a guaranteed conflict: every PR appends to\nthe same few lines under [Unreleased], so each one that merges leaves the\nrest needing a rebase for a reason unrelated to their content.\n\nNothing depends on the job. release.yml still reads CHANGELOG.md when it\nbuilds the release body, and the release skill still writes that section at\nrelease time (Step 3) — only the per-PR requirement is gone.\n\nThe release skill's Step 2 is flipped to match: git log since the previous\ntag is now the primary source, with [Unreleased] folded in if it happens to\ncarry anything. It already consulted commits; it just called CHANGELOG.md\nprimary, which will now usually be empty. Added the actual command and a\nnote to read commit bodies rather than subjects, since this project's\nconvention puts the \"why\" there — which is what a release note needs.\n\nNote for the record: CLAUDE.md never carried this rule. Its only changelog\nmention is the /github-release skill description, which stays accurate.",
+          "timestamp": "2026-08-01T20:08:40+05:30",
+          "tree_id": "38cdd47d89df25052c5ecaf0948d0812a96acb8b",
+          "url": "https://github.com/kaappi/kaappi/commit/bf71d4b101cf79f57dc82066cfb48fecae3e6556"
+        },
+        "date": 1785606340962,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.270543,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.486676,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.600473,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.987644,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004704,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047095,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314682,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057345,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.835198,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.227023,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.596416,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.288053,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.801133,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.537757,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044891,
             "unit": "seconds"
           }
         ]
