@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785601123027,
+  "lastUpdate": 1785601221543,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "adbb59a1f6656900e9f349d19a0f1ff5b82ef6a4",
-          "message": "Skip GC/VM teardown while a thread-start!ed child is still alive (#1792) (#1814)\n\nmain.zig unconditionally freed the parent's shared symbol table and\nglobals map at exit, racing a still-running (or still-finishing) child\nthread that aliases them through its own GC/VM. This corrupted the heap\nallocator's metadata (observed as glibc's \"corrupted size vs. prev_size\"\n+ SIGABRT). thread-join! is optional in SRFI-18, so this was reachable\nfrom ordinary code that fires off a background thread.\n\nlive_child_threads already tracked exactly what was needed — its\ndecrement is the outermost defer in threadEntryFn, so it only reaches\nzero once a child is done touching shared parent state. Expose it as\nprimitives_srfi18.hasLiveChildThreads() and skip vm.deinit()/gc.deinit()\nentirely while it's true, leaking harmlessly instead of racing (the\nprocess is exiting anyway).\n\nReproduced the exact reported corruption on native aarch64 Linux/glibc\n(19/30 and 3/30 aborts across the two shapes) and confirmed 0/200\nfailures with the fix, on the same box. Added a regression test looping\nboth shapes 50x each.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T11:27:19Z",
-          "tree_id": "d5be1b299240ae45b67fa2aaa045a1cc9e2522cb",
-          "url": "https://github.com/kaappi/kaappi/commit/adbb59a1f6656900e9f349d19a0f1ff5b82ef6a4"
-        },
-        "date": 1785240444891,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.004386,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.104548,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934469,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.42704,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006633,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.052332,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.50862,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068228,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.367804,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.950065,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.522004,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.476932,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.722647,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.80271,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045284,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035748,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ca8f28d00d7d1f84d0d5bfa0f7ee8323a126821",
+          "message": "Phase 3.9: eight large-and-thin SRFIs — 1579 assertions, and bitvector-logical-shift shifts the wrong way (#2095)\n\nEight SRFIs with substantial export surfaces and thin tests: 113, 225, 178,\n152, 240, 189, 35, 27. Coverage of exported names goes from 288/456 to\n441/456; assertions from 495 to 2074.\n\nThe unit was scoped as a measurement gap, and the strategy doc is explicit\nthat a high untested-export count is not itself evidence of bugs. It found\nsix anyway, because two of these SRFIs had a real oracle available:\n\n  * SRFI 178's own reference implementation loads into this build as an\n    alternate library. Diffing all 107 exports against it over a\n    523,361-check corpus left exactly three divergences — one real bug\n    (#2083), one shrinking-`pad` case the spec leaves ambiguous (not filed,\n    documented in the suite header), and nothing else. That is a much\n    stronger statement than any hand-written suite could make.\n  * SRFI 113 has both a reference implementation and chibi-scheme. Where the\n    three disagree the suite says which is right and why: three chibi\n    defects are asserted in Kaappi's favour, and two Kaappi defects are\n    disabled with the reference's own code quoted.\n\nFindings, all reproduced on a fresh ReleaseSafe build with a discriminating\ncontrol:\n\n  #2083  bitvector-logical-shift moves bits toward higher indices for\n         count>=0 and lower for count<0 — inverted on both branches, and it\n         fails the two assertions in SRFI 178's own test/quasi-ints.scm.\n         count=0 is correct, which is the control.\n  #2084  bitvector-segment conses outside its recursive call, so a legal\n         200,000-bit vector with n=1 dies of an *uncatchable* KP3008, and\n         n=0 recurses without bound instead of raising. 1,000 segments is\n         the control. The reference validates n and delegates to a map.\n  #2085  bag-increment! ignores the spec's \"but not less than zero\", and the\n         resulting negative multiplicity makes bag->list, bag-fold and\n         bag-for-each loop forever on `(= i count)`. bag-product with a\n         negative n is a second route. Zero and positive counts terminate.\n  #2086  set->bag! leaves an element already in the bag at its old count;\n         the reference and chibi both increment.\n  #2087  SRFI 189 exports 24 names of the spec's 82, four of the present\n         ones have narrower signatures than the spec, `either` is exported\n         but never defined — and cond-expand answers yes to both srfi-189\n         and (library (srfi 189)). The three monad laws and both functor\n         laws are asserted as properties over five payloads and all hold.\n  #2088  An R7RS define-record-type produces an rtd whose own_field_names is\n         empty, so record-type-field-names returns #() for a record that has\n         fields and record-accessor/mutator/field-mutable? are unusable —\n         the exact interoperability SRFI 240 exists to provide. The R6RS\n         clause syntax and make-record-type-descriptor are the controls.\n\nClean results worth recording, since they are what the measurement was for:\n\n  * SRFI 225's generic layer agrees across all three DTOs on 49 of 51\n    operation groups; the two that differ do so correctly (dict-ref with no\n    failure raises everywhere, dict-pure? is what tells the two apart). All\n    35 proc-id tags are exercised through dto-ref for the first time.\n  * SRFI 152 cannot diverge from SRFI 13 at all: the .sld imports those 22\n    names straight from (srfi 13), so they are the same binding. Asserted by\n    identity, which doubles as a gate if anyone reimplements one. Gone\n    deliberately shallow otherwise — #1234 already audited 152 in v1 and its\n    20 remaining untested exports are (scheme base) re-exports.\n  * SRFI 27 is correct on every axis a random source can be pinned on:\n    range and exclusivity of both bounds, exactness, bignum bounds,\n    pseudo-randomize reproducibility and independence, and state\n    capture/restore including mid-sequence and across sources. Stable over\n    three consecutive runs.\n  * SRFI 35's condition world and R7RS's error-object world are disjoint and\n    self-consistent in both directions. Not a defect, but nothing pinned it.\n\nAll 32 disabled assertions were mutation-tested by enabling each one alone in\nits own copy of the file: 30 fail, one errors, one hangs. None pins nothing.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-01T18:19:40+05:30",
+          "tree_id": "5438004f1124f0c6e8d88aa97e30e358117ab012",
+          "url": "https://github.com/kaappi/kaappi/commit/5ca8f28d00d7d1f84d0d5bfa0f7ee8323a126821"
+        },
+        "date": 1785601219515,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.348726,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.669102,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.612807,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.029662,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004787,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046996,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315838,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057256,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.706146,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216685,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.590027,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28993,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.807711,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.636382,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04595,
             "unit": "seconds"
           }
         ]
