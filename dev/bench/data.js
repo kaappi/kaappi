@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785548741003,
+  "lastUpdate": 1785549155608,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fb9e93dc6365cfc8765e5b56479eb06753976947",
-          "message": "Fix two macro-expansion bugs found while investigating SRFI 148 (#1776)\n\ninstantiateTemplate's (quote ...) fast path triggered for any template\nsub-list whose first element was literally the symbol quote, regardless of\nlength. R7RS quote is strictly unary, so a longer list merely starting with\nquote for an unrelated reason (e.g. passing the bare symbol quote as one\nargument among several to some other macro) was misparsed as a 2-element\nquote form, silently dropping everything after the second element.\n\nparseSyntaxRules's custom-ellipsis-argument detection didn't unwrap a\nusertext-marker-wrapped value -- the protocol nested syntax-rules\ngeneration uses when substituting an outer pattern variable into the\ngenerated macro's own ellipsis-argument position -- so a NESTED_SR_FLAG-\nwrapped ellipsis symbol was silently missed and misparsed as part of the\nliterals list instead.\n\nBoth are general, pre-existing bugs unrelated to any specific SRFI, found\nwhile porting SRFI 148's em-syntax-rules mechanism (issue #1699's final\nslice). SRFI 148 itself remains blocked on a separate, deeper performance\nproblem with generating-macro chains (#1775) not addressed here.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-27T04:55:52Z",
-          "tree_id": "58b9111655f9294c65d58c5bef7656892aa2a390",
-          "url": "https://github.com/kaappi/kaappi/commit/fb9e93dc6365cfc8765e5b56479eb06753976947"
-        },
-        "date": 1785130934384,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.417033,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.02136,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.997704,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.656057,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006364,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.05532,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.558627,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072557,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.632659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.177721,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.611033,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435193,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.854334,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.694208,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045073,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043337,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "321da93a6fd8ab5ef64c637ac0338894e4cae1c1",
+          "message": "Evaluate guard clauses in the guard's own dynamic environment (#1991)\n\nFixes #1988.\n\nR7RS 4.2.7 evaluates a guard's implicit `cond` \"with the continuation and\ndynamic environment of the guard expression\". A handler, though, runs at the\nraise point, with every `parameterize`/`dynamic-wind` extent entered since the\nguard still live — and the desugaring handed the escape continuation the cond's\n*value*, so the clauses ran there. A plain `raise` hid it, because this VM\nunwinds before calling any handler; the `raise-continuable` a declining `guard`\nissues for its implicit re-raise does not, so an extent between a declining\ninner guard and an outer one leaked into the outer guard's clauses.\n\nThe clauses now run after a new internal `%unwind-to-escape` has left those\nextents. Escaping to the continuation first would do the same job in one step —\nthe issue's own suggestion, and what R7RS's sample implementation does — but the\nescape has to come after the clauses, not before: a clause may reinstate a\ncontinuation captured inside the guard body, and this VM cannot resume one whose\nnative frame has returned. `(srfi 255)`'s restarters are exactly that shape, and\nescaping first breaks them. Splitting the unwind from the escape keeps those\nframes standing; the escape then finds the wind stack already at its target.\n\nOne deviation remains, documented under \"Known limitations → Exceptions\" in\nREADME.md: with no matching clause the re-raise happens in the guard's dynamic\nenvironment rather than the original raise's, which is what a plain `raise`\nalready does here.\n\nAlso fixes a pre-existing leak on the same path: `raiseContinuable` re-pushed\nthe handler it had popped even when the handler left via a continuation that had\nalready reset the handler stack. `guard`'s handler always leaves that way, so\nevery declining guard stranded one slot — 32768 hit the KP3008 cap.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          "timestamp": "2026-08-01T06:43:36+05:30",
+          "tree_id": "7786e4f016b4ca6ddd2638d2871bc5688c2c3a16",
+          "url": "https://github.com/kaappi/kaappi/commit/321da93a6fd8ab5ef64c637ac0338894e4cae1c1"
+        },
+        "date": 1785549153528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.446467,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.655736,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.587069,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.013796,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005032,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048615,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.319843,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058708,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.766632,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.255872,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.643694,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.301625,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.822337,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.724247,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048961,
             "unit": "seconds"
           }
         ]
