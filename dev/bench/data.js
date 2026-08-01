@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785598663678,
+  "lastUpdate": 1785599673588,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1fdb18b46d253cfa4e6bfbad5fb5f0fff13b4202",
-          "message": "Add SRFI 211 and 213 on a procedural-macro mechanism, resolving issue #1699 (#1811)\n\n* Add SRFI 211 and 213 on a procedural-macro mechanism, resolving issue #1699\n\nIssue #1699's remaining trio (72, 211, 213) all needed one engine\ncapability the portable slices couldn't provide: macro transformers that\nare Scheme procedures run at expansion time. This adds that mechanism and\nuses it to ship SRFI 211 (as the three sub-libraries this engine can\nprovide whole: explicit-renaming, define-macro, syntax-parameter — the\nSRFI explicitly permits a subset of libraries, each complete) and SRFI 213\n(define-property with the capture-lookup re-entry protocol; capture-lookup\nis the identity, which the spec explicitly sanctions).\n\nSRFI 72 is excluded rather than implemented: the issue table's \"explicit\nrenaming macros\" note was a mislabel — 72 is van Tonder's *replacement*\nmacro system (arbitrary transformer expressions evaluated over a\nsyntax-object type with its own hygiene rule and phase tower), which would\nchange the semantics of every existing define-syntax and conflicts with\nthe structural transformer-spec direction SRFI 147 already established\nhere. The ER facility the issue actually wanted is exactly\n(srfi 211 explicit-renaming). SRFI 150 moves the other way: its exclusion\nrationale (needs SRFI 147+148) went stale when both shipped, so it is now\ntracked in #1810 instead — the excluded count stays 30, implemented goes\n175 -> 177.\n\nMechanism notes (details in CLAUDE.md's new paragraph and the .sld\nheaders): Transformer gains a kind tag + GC-traced proc; transformer-spec\nrecognition is structural with the argument evaluated at definition time\nin the global environment (phase separation); ER rename reuses\nrenameForHygiene under a fresh per-invocation scope, giving procedural\nmacros exactly the hygiene strength syntax-rules templates have (verified\nequivalent, including the shared use-site-redefinition limitation); and\nvm_library's import-time free-reference copying gains a whole-def-env mode\nfor procedural transformers, whose references are computed by running code\n— without it, (rename 'lib-helper) resolved at the definition site but\ndied \"undefined variable\" at the use site.\n\nCONFORMANCE.md's portable table was also reconciled while adding the new\nrows: it had silently drifted six SRFIs behind lib/srfi/ (139, 147, 148,\n149, 231 were missing — four of them this same issue's earlier slices).\n\nCloses #1699.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Record the procedural-transformer path in the understanding map\n\nThe expander-hygiene core-tier entry's theory now includes the SRFI\n211/213 mechanism PR #1811 adds — it is new mandatory model for anyone\njudging macro bugs there.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-28T13:52:57+05:30",
-          "tree_id": "3b9023cda62ff2bb56cad1c1e75c4e4f3240e72f",
-          "url": "https://github.com/kaappi/kaappi/commit/1fdb18b46d253cfa4e6bfbad5fb5f0fff13b4202"
-        },
-        "date": 1785229482993,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.384986,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.68495,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.922153,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.552233,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006357,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.053839,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.519883,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068995,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.595461,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.005348,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.617643,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435055,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.832394,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.636874,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04296,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044913,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "22a8930f764e725c9df4e156a3ea15abaa55efa1",
+          "message": "Stop pinning an exact atime in the filesystem audit (#2077) (#2091)\n\nThree assertions in tests/scheme/audit/primitives_filesystem-audit.scm\npinned an exact access time. Nothing can hold st_atime still: any read by\nany process — an indexer, a backup agent, an AV scanner, the periodic /tmp\ncleaner — moves it to \"now\". It flaked in ~2 of 9 parallel corpus runs,\nreporting the current epoch second where the set value belonged.\n\nReproduced deterministically rather than by re-running until it broke:\n\n    set-file-times p 1000000 2000000\n    before reader: atime=1000000     mtime=2000000\n    (call-with-input-file p read-char)      ; one read, what a scanner does\n    after  reader: atime=1785575578  mtime=2000000\n\n    OLD  (= atime 1000000)  => #f     ← the flake\n    NEW  (>= atime 1000000) => #t\n    mtime still exact       => #t\n\nmtime now carries the discrimination. No reader changes it, and it alone\nseparates all three cases (set / both sentinels / atime sentinel with a\nreal mtime). atime is asserted as \"not earlier than what we set\" — the\nstrongest true statement available, since an intervening reader can move it\nforward but never backward.\n\nEach case also takes one file-info and reads both fields from it, instead\nof stat'ing twice for the two halves of one assertion.\n\nThis is the same class as #1993 from the same unit: an assertion that held\nonly because the machine happened to be quiet. 427 -> 430 assertions (three\ncombined assertions became six).",
+          "timestamp": "2026-08-01T17:12:51+05:30",
+          "tree_id": "f4264a049bcf568fd20a98c74f06c34f6ab4217f",
+          "url": "https://github.com/kaappi/kaappi/commit/22a8930f764e725c9df4e156a3ea15abaa55efa1"
+        },
+        "date": 1785599671803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.921249,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.784503,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.559102,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.807649,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004861,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044745,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.292137,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055107,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.288358,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.155191,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.508512,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.306209,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.668407,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.800001,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044915,
             "unit": "seconds"
           }
         ]
