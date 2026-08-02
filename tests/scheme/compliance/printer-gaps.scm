@@ -28,35 +28,38 @@
 ;;   pairs, vectors, or records.  Thus if the normal write representation is
 ;;   used, datum labels are needed to represent cycles as in write."
 ;;
-;; The two fixed-size arrays under test (src/printer.zig:24-25):
+;; HISTORY.  This file originally pinned the printer's fixed 1024-entry
+;; arrays (MAX_SHARED seen[]/shared[]/labels[] and MAX_PRINT_DEPTH), whose
+;; silent truncation was kaappi#1902 (closed, decomposed into #1953/#1954/
+;; #1955) and whose native-stack recursion was the wasm32 module abort of
+;; kaappi#2107.  The printer is now a single iterative engine over
+;; heap-allocated work stacks with hashmap-based cycle/sharing detection:
 ;;
-;;   const MAX_SHARED = 1024;            // seen[] / shared[] / labels[]
-;;   const MAX_PRINT_DEPTH: u32 = 1024;
+;;   - `write'/`display'/`write-shared' output is EXACT at any depth and for
+;;     any number of labels -- no truncation sentinel exists on this path.
+;;   - Cycle/sharing detection covers every container the printer recurses
+;;     into (pairs, vectors, records, error objects, multiple-values, mutex
+;;     and condition-variable names), so printing always terminates.
+;;   - `write-simple' never emits labels; on cyclic input it raises a
+;;     catchable error instead of the non-termination R7RS anticipates.
+;;   - The READER's own nesting limit (Reader.MAX_NESTING_DEPTH = 1024)
+;;     remains, and remains LOUD: output deeper than 1023 nesting levels is
+;;     exact but fails at read time with a read error.  Section B pins that
+;;     boundary from both sides.
 ;;
-;; Every disabled assertion below was reproduced against a fresh ReleaseSafe
-;; build with an isolated KAAPPI_HOME, and each is paired with an ENABLED
-;; control -- a near-identical input that behaves differently -- so the file
-;; keeps proving the neighbouring path still works.
+;; The formerly-disabled assertions below (each marked with the issue that
+;; kept it off) are all enabled; each keeps its ENABLED control -- a
+;; near-identical input that always worked -- so the file still proves the
+;; neighbouring path as well.
 ;;
-;; NON-TERMINATION WARNING.  Several findings here are HANGS, not wrong
-;; values.  Those assertions are commented out rather than marked
-;; `test-expect-fail': an expected-fail case that never returns wedges the
-;; whole suite.  Do not re-enable one without a fix in hand.
-;;
-;; NOT TESTABLE FROM SCHEME (documented here so it is not lost): `prettyPrint'
-;; (src/printer.zig:904) is reachable only from the interactive REPL under a
-;; TTY.  It hangs on ANY cyclic value whose labelled flat form is wider than
-;; the terminal, because `ppValue' calls `exactFlatLen' (src/printer.zig:1064)
-;; -> the cycle-unaware `printValue'.  Reproduce with a pty driver:
-;;   (define c (list 1 2 3)) (set-cdr! (cddr c) c) c
-;; at COLUMNS=12 wedges the REPL; at COLUMNS=80 it prints "#0=(1 2 3 . #0#)".
-;; This is closed issue kaappi#859 still live: commit a74137c1 added the
-;; MAX_PRINT_DEPTH guard to `ppValue', which fixed the unbounded memory growth
-;; (RSS now stays flat at ~4.3 MB) but not the hang, which has moved into
-;; `exactFlatLen'.
+;; The prettyPrint REPL hang once noted here (kaappi#859's tail: exactFlatLen
+;; fed a cyclic value to a printer with no spine bound) is fixed by the same
+;; rework and pinned by a Zig unit test ("prettyPrint terminates on a cyclic
+;; value at narrow width", src/printer_pretty.zig) -- prettyPrint is only
+;; reachable from a TTY REPL, so it stays untestable from this file.
 
 (import (scheme base) (scheme write) (scheme lazy) (scheme eval) (scheme repl)
-        (scheme process-context) (srfi 64) (srfi 258))
+        (scheme process-context) (srfi 18) (srfi 64) (srfi 258))
 
 (test-begin "printer-gaps")
 
@@ -130,9 +133,9 @@
 (test-assert "vector of strings round-trips"
              (round-trips? (vector "" "\"" "\\" "\n")))
 
-;; A list's cdr spine costs no printer depth (printListWithDepth walks it
-;; iteratively), so length is unbounded where nesting is not.  This is the
-;; control that makes section B's cliff about DEPTH, not size.
+;; A list's cdr spine never overflowed even under the old printer (it was
+;; walked iteratively), so length was always unbounded where nesting was not.
+;; These controls keep section B about DEPTH, not size.
 (test-assert "flat list of 5000 round-trips" (round-trips? (flat 5000)))
 (test-assert "flat list of 50000 round-trips" (round-trips? (flat 50000)))
 (test-assert "vector of 20000 round-trips"
@@ -154,12 +157,14 @@
 (test-assert "newline-bearing symbol round-trips" (round-trips? (string->symbol "a\nb")))
 
 ;; ---------------------------------------------------------------------------
-;; B. MAX_PRINT_DEPTH -- the nesting cliff (kaappi#1902)
+;; B. Nesting depth -- the printer is exact; the reader's limit stays loud
 ;; ---------------------------------------------------------------------------
 ;;
-;; Both the printer and the reader stop at 1024 levels, so 1023 is the last
-;; depth that survives a round trip.  The asymmetry is the point: the READER
-;; raises a read error; the PRINTER emits "..." and returns success.
+;; The printer no longer has a depth limit (kaappi#1902): output is exact at
+;; any nesting.  The READER keeps MAX_NESTING_DEPTH = 1024 and raises a read
+;; error past it, so 1023 remains the last depth that survives a round trip
+;; -- but the failure past it is now LOUD, at read time, instead of the
+;; printer silently emitting truncated output with unbalanced parens.
 
 (test-assert "list nested 100 deep round-trips" (round-trips? (nest 100 'leaf)))
 (test-assert "list nested 1000 deep round-trips" (round-trips? (nest 1000 'leaf)))
@@ -168,12 +173,8 @@
              (round-trips? (let loop ((i 0) (a 'leaf))
                              (if (= i 1023) a (loop (+ i 1) (vector a))))))
 
-;; The reader is loud about its own limit -- this is the control proving the
-;; printer's silence (below) is a choice, not a shared inevitability.  The
-;; shape below is exactly what the printer emits: N opens, an atom, N closes.
-;; The reader accepts that to N=1023 and raises at N=1024, i.e. the two limits
-;; coincide for plain nesting -- which is why section B2's rational case, where
-;; they do NOT coincide, is the only readable-corruption window.
+;; The reader's limit, pinned from both sides.  The shape below is exactly
+;; what the printer emits: N opens, an atom, N closes.
 (define (parens n inner)
   (string-append (make-string n #\() inner (make-string n #\))))
 
@@ -185,35 +186,29 @@
                (read (open-input-string (parens 1024 "x")))
                #f))
 
-;; The printer, by contrast, reports success and truncates.
-(test-equal "write of a 1024-deep nest succeeds but is truncated to 2051 chars"
-            2051 (string-length (wr (nest 1024 'leaf))))
-(test-equal "write output stops growing past the depth cap"
-            (string-length (wr (nest 1024 'leaf)))
-            (string-length (wr (nest 5000 'leaf))))
+;; The printer is exact past the reader's limit: N opens + the leaf + N
+;; closes, at every depth (#1902 -- it used to saturate at 2051 chars with
+;; unbalanced parens and report success).
+(test-equal "write of a 1024-deep nest is exact"
+            (+ (* 2 1024) 4) (string-length (wr (nest 1024 'leaf))))
+(test-equal "write of a 5000-deep nest is exact"
+            (+ (* 2 5000) 4) (string-length (wr (nest 5000 'leaf))))
+(test-equal "write of a 2000-deep nest is its own parens shape"
+            (parens 2000 "leaf") (wr (nest 2000 'leaf)))
+;; ...so past the reader's limit the round trip fails LOUDLY at read time.
+(test-assert "a 1024-deep nest fails loudly at READ time, not silently at write"
+             (reader-rejects? (nest 1024 'leaf)))
 
-;; FAIL: #1902 (write of a >1024-deep nest emits truncated output with no error)
-;; (test-assert "list nested 1024 deep round-trips" (round-trips? (nest 1024 'leaf)))
-;; FAIL: #1902 (same, well past the cliff)
-;; (test-assert "list nested 2000 deep round-trips" (round-trips? (nest 2000 'leaf)))
-
-;; --- B2: the truncation sentinel is itself a legal datum -------------------
+;; --- B2: two-part numeric leaves near the boundary (kaappi#1953) -----------
 ;;
-;; The plain printer truncates with "...", which READS BACK as the ellipsis
-;; symbol; the shared printer truncates with "#<deep>", which the reader
-;; rejects.  Where the printer's depth counter outruns the reader's paren
-;; nesting, that difference turns silent truncation into silent CORRUPTION.
-;;
-;; The `.rational' arm (src/printer.zig:826-831) recurses into numerator and
-;; denominator with `depth + 1', so at nesting depth 1023 -- still inside what
-;; the reader accepts -- an exact rational prints as ".../..." and reads back
-;; as a SYMBOL.
+;; The old `.rational' arm recursed into numerator and denominator with
+;; `depth + 1', so at nesting depth 1023 -- still inside what the reader
+;; accepts -- an exact rational printed as ".../..." and read back as a
+;; SYMBOL: the one depth where truncation was silent AND legal.  Rationals
+;; now render atomically (both parts are always exact integers), so no depth
+;; seam can split them.
 
-(test-assert "write-shared truncates with the unreadable #<deep>"
-             (reader-rejects? (nest 1100 'leaf)))
-
-;; Controls: at the SAME depth 1023, every other leaf type round-trips
-;; exactly.  Only the two-part numeric prints wrong.
+;; Controls: at the same depth 1023, every leaf type round-trips exactly.
 (test-assert "fixnum leaf at depth 1023 round-trips" (round-trips? (nest 1023 42)))
 (test-assert "flonum leaf at depth 1023 round-trips" (round-trips? (nest 1023 1.5)))
 (test-assert "symbol leaf at depth 1023 round-trips" (round-trips? (nest 1023 'abc)))
@@ -222,21 +217,17 @@
              (round-trips? (nest 1023 123456789012345678901234567890)))
 (test-assert "bytevector leaf at depth 1023 round-trips"
              (round-trips? (nest 1023 (bytevector 1 2))))
-;; Control on the OTHER side of the boundary: one level shallower is exact.
 (test-assert "rational leaf at depth 1022 round-trips" (round-trips? (nest 1022 1/3)))
-;; Control on the far side: at 1024 the reader refuses, i.e. loudly.
+;; At 1024 the READER refuses (its own nesting limit), i.e. loudly.
 (test-assert "rational leaf at depth 1024 is REJECTED by the reader"
              (reader-rejects? (nest 1024 1/3)))
 
-;; FAIL: #1953 (exact rational at nesting depth 1023 prints as "..." "/" "..." and
-;; FAIL: #1953  reads back as the symbol |.../...| -- readable, silent, wrong type)
-;; (test-assert "rational leaf at depth 1023 round-trips" (round-trips? (nest 1023 1/3)))
-;; FAIL: #1953 (same, negative)
-;; (test-assert "negative rational leaf at depth 1023 round-trips"
-;;             (round-trips? (nest 1023 -7/9)))
-;; FAIL: #1953 (the corrupted leaf is accepted by the reader as a symbol)
-;; (test-assert "depth-1023 rational does not silently become a symbol"
-;;             (not (symbol? (unnest 1023 (round-trip (nest 1023 1/3))))))
+;; Re-enabled: #1953.
+(test-assert "rational leaf at depth 1023 round-trips" (round-trips? (nest 1023 1/3)))
+(test-assert "negative rational leaf at depth 1023 round-trips"
+             (round-trips? (nest 1023 -7/9)))
+(test-assert "depth-1023 rational does not silently become a symbol"
+             (not (symbol? (unnest 1023 (round-trip (nest 1023 1/3))))))
 
 ;; ---------------------------------------------------------------------------
 ;; C. write / display / write-shared / write-simple -- four different contracts
@@ -265,31 +256,40 @@
 (test-equal "write-shared labels a cycle" "#0=(1 2 3 . #0#)" (wsh (make-cycle)))
 
 ;; write-simple: "shared structure is NEVER represented using datum labels."
-;; It is registered as `.func = &write' (src/primitives_io.zig:56), so on
-;; acyclic input it agrees with write (correct) and on cyclic input it emits
-;; labels (a spec violation).  The enabled control is the acyclic half.
+;; It was registered as `.func = &write' (kaappi#1955), making the two
+;; procedures indistinguishable.  It now has its own implementation: acyclic
+;; input renders exactly like write (which never labels acyclic sharing), and
+;; cyclic input -- for which R7RS anticipates non-termination -- raises a
+;; catchable error rather than either hanging or (the old bug) labelling.
 (test-equal "write-simple does NOT label acyclic sharing"
             "((1 2 3) (1 2 3))" (out write-simple (make-acyclic-sharing)))
 (test-assert "write-simple agrees with write on acyclic input"
              (equal? (wr (make-acyclic-sharing))
                      (out write-simple (make-acyclic-sharing))))
 
-;; FAIL: #1955 (write-simple is registered as &write, so it emits datum labels on a
-;; FAIL: #1955  circular structure; R7RS 6.13.3 says it never may)
-;; (test-assert "write-simple emits NO datum label on a cycle"
-;;             (not (has-label? (out write-simple (make-cycle)))))
+;; Re-enabled: #1955.  A cycle never produces a label: the call raises (a
+;; catchable error object) instead of emitting anything.
+(test-assert "write-simple never emits a datum label on a cycle -- it raises"
+             (guard (e (#t (error-object? e)))
+               (out write-simple (make-cycle))
+               #f))
+(test-assert "write-simple leaves the port untouched when it raises"
+             (let ((p (open-output-string)))
+               (guard (e (#t #t)) (write-simple (make-cycle) p))
+               (string=? "" (get-output-string p))))
 
 ;; ---------------------------------------------------------------------------
-;; D. Sharing detection -- three independent failure modes, one constant
+;; D. Sharing detection -- the three old cliffs (kaappi#1902), all removed
 ;; ---------------------------------------------------------------------------
 ;;
-;; kaappi#1902 reports "write-shared loses labels".  There are three distinct
-;; mechanisms behind that, all bounded by MAX_SHARED = 1024, and each has its
-;; own cliff.  Separating them matters: a fix for one leaves the other two.
+;; The old fixed MAX_SHARED = 1024 arrays had three distinct failure modes,
+;; each with its own cliff.  Detection is hashmap-based now; each subsection
+;; keeps its just-below-the-cliff control and its re-enabled beyond-the-cliff
+;; assertion, so a regression to any bounded mechanism shows up here.
 
-;; --- D1: markShared recurses down the cdr spine, incrementing `depth' ------
-;; A pair shared between position 0 and position L-1 of a list is detected
-;; only while L <= 1023, because the tail is past MAX_PRINT_DEPTH.
+;; --- D1: the old markShared recursed down the cdr spine, ticking `depth' ---
+;; A pair shared between position 0 and position L-1 of a list was detected
+;; only while L <= 1023, the tail beyond that being past the old depth cap.
 (define (d1 L)
   (let* ((x (list 'X))
          (mid (let loop ((i 0) (a (list x)))
@@ -301,10 +301,11 @@
 (test-assert "D1 control: sharing across a 1023-long list is labelled"
              (has-label? (wsh (d1 1023))))
 
-;; FAIL: #1902 (markShared's cdr-spine recursion hits MAX_PRINT_DEPTH: sharing
-;; FAIL: #1902  across a list of 1024+ is silently unlabelled)
-;; (test-assert "D1: sharing across a 1024-long list is labelled"
-;;             (has-label? (wsh (d1 1024))))
+;; Re-enabled: #1902 D1 (the cdr-spine depth tick in the old markShared).
+(test-assert "D1: sharing across a 1024-long list is labelled"
+             (has-label? (wsh (d1 1024))))
+(test-assert "D1: sharing across a 5000-long list is labelled"
+             (has-label? (wsh (d1 5000))))
 
 ;; --- D2: the seen[] array fills, so LATE-FIRST-SEEN objects are invisible --
 ;; Vector elements all sit at the same depth, so D1's mechanism is excluded.
@@ -322,10 +323,11 @@
 (test-assert "D2 control: first occurrence at index 1022 is labelled"
              (has-label? (wsh (d2 1100 1022))))
 
-;; FAIL: #1902 (seen[] is full at MAX_SHARED, so a pair first met at index 1023
-;; FAIL: #1902  is never recorded and its repeat is never detected)
-;; (test-assert "D2: first occurrence at index 1023 is labelled"
-;;             (has-label? (wsh (d2 1100 1023))))
+;; Re-enabled: #1902 D2 (the positional seen[] capacity).
+(test-assert "D2: first occurrence at index 1023 is labelled"
+             (has-label? (wsh (d2 1100 1023))))
+(test-assert "D2: first occurrence at index 1090 is labelled"
+             (has-label? (wsh (d2 1100 1090))))
 
 ;; --- D3: the shared[] array caps the NUMBER of labels ---------------------
 (define (d3 n)
@@ -341,9 +343,8 @@
 (test-equal "D3 control: 400 shared objects get 400 labels" 400 (label-count (wsh (d3 400))))
 (test-equal "D3 control: 600 shared objects get 600 labels" 600 (label-count (wsh (d3 600))))
 
-;; FAIL: #1902 (shared[] holds at most MAX_SHARED entries, so only 1023 of 1200
-;; FAIL: #1902  repeated objects are labelled; the other 177 print twice, silently)
-;; (test-equal "D3: 1200 shared objects get 1200 labels" 1200 (label-count (wsh (d3 1200))))
+;; Re-enabled: #1902 D3 (the shared[] label capacity).
+(test-equal "D3: 1200 shared objects get 1200 labels" 1200 (label-count (wsh (d3 1200))))
 
 ;; --- D4: a cycle whose back-edge is deeper than MAX_PRINT_DEPTH -----------
 ;; A car-nested cycle loses its label entirely past 1024.  A FLAT cdr-cycle of
@@ -362,25 +363,25 @@
 (test-assert "D4 control: a FLAT cdr-cycle of 5000 keeps its label"
              (has-label? (wr (let ((c (flat 5000))) (set-cdr! (list-tail c 4999) c) c))))
 
-;; FAIL: #1902 (markCycles returns at MAX_PRINT_DEPTH, so a car-nested cycle at
-;; FAIL: #1902  1024+ is never recorded and prints unlabelled and truncated)
-;; (test-assert "D4: a 1024-deep chain cycle keeps its label"
-;;             (has-label? (wr (chain-cycle 1024))))
+;; Re-enabled: #1902 D4 (the depth guard on the old markCycles recursion).
+(test-assert "D4: a 1024-deep chain cycle keeps its label"
+             (has-label? (wr (chain-cycle 1024))))
+(test-assert "D4: a 2000-deep chain cycle keeps its label"
+             (has-label? (wr (chain-cycle 2000))))
 
 ;; ---------------------------------------------------------------------------
-;; E. Cycles reachable only through a container the pre-pass does not walk
+;; E. Cycles reached only through error objects / mutex / condvar names
 ;; ---------------------------------------------------------------------------
 ;;
-;; NON-TERMINATING -- every assertion in this section HANGS.  Do not enable.
-;;
-;; `markCycles'/`markShared' descend into `.pair', `.vector' and
-;; `.record_instance' only (src/printer.zig:223-229, 76-114).  An error
-;; object's message/irritants, and a mutex's or condition variable's name, are
-;; printed recursively by `printValueWithDepth' but are never visited by the
-;; cycle pre-pass.  `printListWithDepth' then walks the cdr spine with no depth
-;; increment and no cycle guard (src/printer.zig:889-900), so the loop never
-;; ends.  All four output procedures are affected, including `display', whose
-;; spec text says it "must not loop forever on self-referencing pairs".
+;; Formerly the NON-TERMINATING section (kaappi#1954): the old cycle pre-pass
+;; descended into `.pair', `.vector' and `.record_instance' only, while the
+;; printer also recursed into error-object message/irritants and mutex /
+;; condition-variable names -- so a cycle reached only through one of those
+;; hung all four output procedures, `display' included, whose spec text says
+;; it "must not loop forever on self-referencing pairs".  Detection and the
+;; print engine now enumerate children through one shared `childAt', so the
+;; two cannot disagree again (the per-tag self-cycle lock lives in
+;; src/tests_printer.zig).
 
 (define (cyclic-list) (let ((c (list 1 2 3))) (set-cdr! (cddr c) c) c))
 (define (err-with irritant) (guard (x (#t x)) (error "boom" irritant)))
@@ -391,62 +392,62 @@
             "(#<error \"boom\" plain> #0=(1 2 3 . #0#))"
             (wr (list (err-with 'plain) (cyclic-list))))
 
-;; Control 2 -- a cyclic VECTOR irritant does terminate, because the vector arm
-;; recurses with `depth + 1' and so is caught by MAX_PRINT_DEPTH.  This
-;; isolates the hang to the depth-free cdr-spine walk specifically.
-(test-assert "E control: a cyclic VECTOR irritant terminates (truncated)"
-             (string? (wr (err-with (let ((v (vector 1 2 3)))
+;; Control 2 -- a cyclic VECTOR irritant.  Under the old printer this
+;; terminated only by depth-cap truncation; it now gets a real datum label.
+(test-assert "E control: a cyclic VECTOR irritant terminates, labelled"
+             (let ((s (wr (err-with (let ((v (vector 1 2 3)))
                                       (vector-set! v 0 v) v)))))
+               (and (string? s) (has-label? s))))
 
 ;; Control 3 -- an acyclic irritant prints normally.
 (test-equal "E control: an acyclic list irritant prints normally"
             "#<error \"boom\" (1 2 3)>" (wr (err-with (list 1 2 3))))
 
-;; FAIL: #1954 (write of an error object whose irritant is a cdr-cyclic list never
-;; FAIL: #1954  returns -- markCycles does not traverse .error_object)
-;; (test-assert "E: write of a cyclic-irritant error object terminates"
-;;             (string? (wr (err-with (cyclic-list)))))
-;; FAIL: #1954 (display, same hang -- R7RS: "display must not loop forever on
-;; FAIL: #1954  self-referencing pairs, vectors, or records")
-;; (test-assert "E: display of a cyclic-irritant error object terminates"
-;;             (string? (dsp (err-with (cyclic-list)))))
-;; FAIL: #1954 (write-shared, same hang -- markShared has the same blind spot)
-;; (test-assert "E: write-shared of a cyclic-irritant error object terminates"
-;;             (string? (wsh (err-with (cyclic-list)))))
-;; FAIL: #1954 (a mutex NAMED by a cyclic list hangs identically; needs (srfi 18))
-;; (test-assert "E: write of a mutex named by a cyclic list terminates"
-;;             (string? (wr (make-mutex (cyclic-list)))))
-;; FAIL: #1954 (a condition variable named by a cyclic list, same; needs (srfi 18).
-;; FAIL: #1954  Its acyclic control prints "#<condition-variable (1 2 3)>" fine.)
-;; (test-assert "E: write of a condition variable named by a cyclic list terminates"
-;;             (string? (wr (make-condition-variable (cyclic-list)))))
+;; Re-enabled: #1954 -- all four output procedures, plus the two SRFI-18
+;; containers.  Exact output is asserted where the rendering is pinned by the
+;; Zig unit tests too, so a hang OR a formatting regression both show here.
+(test-equal "E: write of a cyclic-irritant error object terminates"
+            "#<error \"boom\" #0=(1 2 3 . #0#)>" (wr (err-with (cyclic-list))))
+(test-equal "E: display of a cyclic-irritant error object terminates"
+            "#<error boom #0=(1 2 3 . #0#)>" (dsp (err-with (cyclic-list))))
+(test-equal "E: write-shared of a cyclic-irritant error object terminates"
+            "#<error \"boom\" #0=(1 2 3 . #0#)>" (wsh (err-with (cyclic-list))))
+(test-equal "E: write of a mutex named by a cyclic list terminates"
+            "#<mutex #0=(1 2 3 . #0#)>" (wr (make-mutex (cyclic-list))))
+(test-equal "E: write of a condition variable named by a cyclic list terminates"
+            "#<condition-variable #0=(1 2 3 . #0#)>"
+            (wr (make-condition-variable (cyclic-list))))
+;; A cyclic irritants SPINE, not merely a cyclic irritant: the live list
+;; error-object-irritants returns is the error object's own, so tying it
+;; into a cycle makes the printer's irritants walk itself cyclic.  The
+;; labelled head restarts as a dotted datum.
+(test-equal "E: a cyclic irritants SPINE terminates"
+            "#<error \"boom\" . #0=(1 2 3 . #0#)>"
+            (let* ((e (guard (x (#t x)) (error "boom" 1 2 3)))
+                   (irr (error-object-irritants e)))
+              (set-cdr! (cddr irr) irr)
+              (wr e)))
 ;;
-;; The complete set of `printValueWithDepth' arms that recurse into contained
-;; Values is: .pair, .vector, .record_instance, .error_object,
-;; .multiple_values, .mutex, .condition_variable, .rational.  The cycle
-;; pre-pass covers only the first three.  Of the rest, .error_object, .mutex
-;; and .condition_variable are reachable from portable Scheme and all three
-;; hang (above); .rational cannot cycle (its parts are always integers); and
-;; .multiple_values is latent -- a MultipleValues object is consumed by
-;; call-with-values before it can reach the printer, so it is unreachable
-;; today but would hang the same way if it ever became printable.
-;;
-;; kaappi#1713 fixed exactly this shape for ONE container: it added
-;; .record_instance to `vectorLikeChildren' so a cyclic record gets a datum
-;; label.  The other four arms were not brought along.
+;; The complete set of print arms that recurse into contained Values is:
+;; .pair, .vector, .record_instance, .error_object, .multiple_values,
+;; .mutex, .condition_variable.  Detection walks the same seven via the
+;; shared `childAt`.  `.rational' renders atomically (its parts are always
+;; integers), and `.multiple_values' stays latent from portable Scheme -- a
+;; MultipleValues object is consumed by call-with-values before it can reach
+;; the printer -- but is covered by a self-cycle unit test anyway.
 
 ;; ---------------------------------------------------------------------------
-;; F. write-shared must be linear -- the seen[] cap makes it exponential
+;; F. write-shared must be linear regardless of traversal order
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A binary DAG of depth d has d+1 distinct pairs but 2^d leaves when written
 ;; unshared.  `write' is REQUIRED to unfold it ("Datum labels must not be used
 ;; if there are no cycles"), so `(write dag)' is astronomical BY SPEC and is
 ;; not a bug.  `write-shared' is required to label it, and must therefore stay
-;; linear -- but only does so while the DAG's nodes fit in seen[].
-;;
-;; The discriminating control is order: the same two objects in a two-element
-;; vector print instantly one way round and never terminate the other.
+;; linear.  Under the old fixed seen[] the SAME two objects in a two-element
+;; vector printed instantly one way round and never terminated the other
+;; (kaappi#1902): once the filler exhausted the array, the DAG's nodes could
+;; no longer be recorded as shared.
 
 (define (dag d) (if (= d 0) 'leaf (let ((x (dag (- d 1)))) (cons x x))))
 (define (filler n)
@@ -459,11 +460,9 @@
 (test-assert "F control: DAG BEFORE the filler stays linear"
              (< (string-length (wsh (vector (dag 40) (filler 1200)))) 20000))
 
-;; FAIL: #1902 (seen[] is full after the 1200-element filler, so the DAG's nodes are
-;; FAIL: #1902  never recorded as shared and write-shared unfolds 2^40 leaves -- the
-;; FAIL: #1902  SAME two objects, only swapped)
-;; (test-assert "F: DAG AFTER the filler stays linear"
-;;             (< (string-length (wsh (vector (filler 1200) (dag 40)))) 20000))
+;; Re-enabled: #1902 (order-dependence of the old positional seen[] cap).
+(test-assert "F: DAG AFTER the filler stays linear"
+             (< (string-length (wsh (vector (filler 1200) (dag 40)))) 20000))
 
 ;; ---------------------------------------------------------------------------
 ;; G. Types with no external representation -- deliberately unreadable

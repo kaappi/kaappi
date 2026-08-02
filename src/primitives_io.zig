@@ -53,7 +53,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "flush-output-port", .func = &flushOutputPort, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "delete-file", .func = &deleteFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
     .{ .name = "write-shared", .func = &writeShared, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_write) },
-    .{ .name = "write-simple", .func = &write, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_write) },
+    .{ .name = "write-simple", .func = &writeSimple, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_write) },
     .{ .name = "call-with-input-file", .func = &callWithInputFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
     .{ .name = "call-with-output-file", .func = &callWithOutputFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
     .{ .name = "call-with-port", .func = &callWithPort, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
@@ -624,6 +624,27 @@ fn writeShared(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getOutputPort(args, 1, "write-shared");
     const s = printer.valueToString(gc.allocator, args[0], .shared) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(s);
+    try portWriteBytes(port, s);
+    return types.VOID;
+}
+
+/// R7RS 6.13.3: same as `write` except shared structure is NEVER represented
+/// with datum labels (kaappi#1955 — this was registered as `&write`, so the
+/// two were indistinguishable). A cycle has no finite label-free rendering;
+/// where the spec anticipates non-termination, raise a catchable error
+/// instead — loud beats a wedged process, and no program can rely on a hang.
+fn writeSimple(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getOutputPort(args, 1, "write-simple");
+    const s = printer.valueToStringSimple(gc.allocator, args[0]) catch |err| switch (err) {
+        error.CircularStructure => return primitives.argError(
+            "write-simple",
+            "cannot represent circular structure without datum labels",
+            .{},
+        ),
+        else => return PrimitiveError.OutOfMemory,
+    };
     defer gc.allocator.free(s);
     try portWriteBytes(port, s);
     return types.VOID;
