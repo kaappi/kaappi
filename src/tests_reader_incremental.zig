@@ -98,7 +98,10 @@ test "incomplete mode: every proper prefix of every token class is UnexpectedEof
         "#xFF/3",
         "#e#x10",
         "#x1.8p3",
-        "#e+inf.0",
+        // #i, not #e: #e+inf.0 is InvalidNumber since #1911 (no exact
+        // representation — string->number parity), so #i is the valid
+        // representative of the prefixed inf/nan scanner path.
+        "#i+inf.0",
         "+inf.0",
         "...",
         ".5",

@@ -452,3 +452,121 @@ test "eqv? discriminates exact and inexact complex (#2167)" {
         "(eq? 'hit (case (- (make-rectangular 3/2 1)) ((-3/2-1i) 'hit) (else 'miss)))",
     );
 }
+
+// ---------------------------------------------------------------------------
+// #1911 family: the reader's #e/#i path now routes through the same
+// digit-exact parseNumberText as string->number, replacing a token-level
+// f64-unrounding conversion that failed at both ends of the range.
+// ---------------------------------------------------------------------------
+
+test "#e keeps exactness past i64 (#1891)" {
+    try th.expectEvalBool("(exact? #e1e19)", true);
+    try th.expectEvalTrue("(= #e1e19 (expt 10 19))");
+    try th.expectEvalBool("(exact? #e1e400)", true);
+    try th.expectEvalTrue("(= #e1e400 (expt 10 400))");
+    try th.expectEvalTrue("(= #e-1e19 (- (expt 10 19)))");
+    try th.expectEvalTrue("(= #e1.5e20 (* 15 (expt 10 19)))");
+    try th.expectEvalBool("(exact? #e#d1e20)", true);
+}
+
+test "#e decimal at the 2^63 boundary parses exactly, no panic (#1907)" {
+    // Every double rounding to exactly 2^63 used to overflow @intFromFloat
+    // and abort the process (exit 134): maxInt(i64) is not representable as
+    // f64, so the old `f > @floatFromInt(maxInt(i64))` guard admitted 2^63
+    // itself. Source literals are deliberate — a regression aborts this
+    // test run loudly.
+    try th.expectEvalTrue("(= #e9223372036854775808.0 (expt 2 63))");
+    try th.expectEvalTrue("(= #e9223372036854775296.0 9223372036854775296)");
+    try th.expectEvalTrue("(= #e-9223372036854775808.0 (- (expt 2 63)))");
+    try th.expectEvalTrue("(= #e9223372036854774784.0 9223372036854774784)");
+    // Digit-exact semantics: the exponent spelling denotes its decimal
+    // value, not the f64 it happens to round to. string->number agrees.
+    try th.expectEvalTrue("(= #e9.223372036854776e18 9223372036854776000)");
+    try th.expectEvalTrue(
+        "(equal? #e9.223372036854776e18 (string->number \"#e9.223372036854776e18\"))",
+    );
+}
+
+test "#i honors the radix on bignum digit runs (#1908)" {
+    // The digits used to be fed to parseFloat as decimal, silently wrong by
+    // orders of magnitude (and a spurious error for hex letters). The
+    // conversion is now the identical limb walk string->number uses.
+    try th.expectEvalTrue("(= #i#x1000000000000000000 (inexact #x1000000000000000000))");
+    try th.expectEvalTrue("(= #i#o100000000000000000000000 (inexact #o100000000000000000000000))");
+    try th.expectEvalTrue("(= #i#xFFFFFFFFFFFFFFFFFF (inexact #xFFFFFFFFFFFFFFFFFF))");
+    try th.expectEvalTrue("(equal? #i#x1000000000000000000 (string->number \"#i#x1000000000000000000\"))");
+    try th.expectEvalBool("(exact? #i#x1000000000000000000/3)", false);
+}
+
+test "#e below 1e-15 keeps the value and its sign (#1909)" {
+    // The old continued-fraction conversion converged to 0/1 inside its
+    // absolute 1e-15 tolerance, losing the entire value.
+    try th.expectEvalTrue("(= #e1e-16 (/ 1 (expt 10 16)))");
+    try th.expectEvalTrue("(= #e1e-15 (/ 1 (expt 10 15)))");
+    try th.expectEvalTrue("(negative? #e-1e-20)");
+    try th.expectEvalTrue("(= #e1e-30 (/ 1 (expt 10 30)))");
+    try th.expectEvalTrue("(= #e1.5e-18 (/ 3 (* 2 (expt 10 18))))");
+}
+
+test "#e/#i reach complex literals on both parsers (#1910, #751)" {
+    try th.expectEvalBool("(exact? #i1+2i)", false);
+    try th.expectEvalBool("(exact? (string->number \"#e1+2i\"))", true);
+    try th.expectEvalBool("(exact? (string->number \"#i1+2i\"))", false);
+    try th.expectEvalTrue("(equal? #i1+2i (string->number \"#i1+2i\"))");
+    try th.expectEvalTrue("(equal? #e1+2i (string->number \"#e1+2i\"))");
+    // A component past i64 used to write as the unreadable 0/0; it now
+    // writes its exact digits and round-trips.
+    try th.expectEvalTrue(
+        "(let ((p (open-output-string))) (write #e1e19+1i p) (string=? (get-output-string p) \"10000000000000000000+1i\"))",
+    );
+    try th.expectEvalTrue(
+        "(let ((x #e1e19+1i) (p (open-output-string))) (write x p) (equal? x (read (open-input-string (get-output-string p)))))",
+    );
+    // An exact-flagged component below the rational search's granularity
+    // used to print as 0 (value destroyed); it now prints its exact
+    // mantissa/2^k value, verified against the independent bignum printer
+    // behind (exact f).
+    try th.expectEvalTrue(
+        "(let ((p (open-output-string)) (ex (exact 1e-300))) (write #e1e-300+1i p)" ++
+            " (equal? (get-output-string p) (string-append (number->string (numerator ex))" ++
+            " \"/\" (number->string (denominator ex)) \"+1i\")))",
+    );
+    // KNOWN GAP, pinned: that spelling does not read back yet. The reader's
+    // complex grammar stops at i64 rational parts (kaappi#2182), and closing
+    // it needs the scaled rational->f64 conversion first or this would read
+    // back as a silent 0.0+1i (kaappi#2183). A loud error still beats the
+    // old silently-wrong 0. When those land, the read succeeds, this
+    // deliberately returns #f, and the failure tells you to replace it with
+    // a round-trip equal? assertion.
+    try th.expectEvalTrue(
+        "(let ((p (open-output-string))) (write #e1e-300+1i p)" ++
+            " (guard (e (#t #t)) (read (open-input-string (get-output-string p))) #f))",
+    );
+    // #e refuses non-finite components, like the flonum rule (#419).
+    try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e1e999+2i\")) #f)");
+    try th.expectEvalBool("(string->number \"#e1e999+2i\")", false);
+}
+
+test "#e on inf/nan is a read error matching string->number's #f (#1911)" {
+    try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e+inf.0\")) #f)");
+    try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e-inf.0\")) #f)");
+    try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e+nan.0\")) #f)");
+    try th.expectEvalBool("(string->number \"#e+inf.0\")", false);
+    try th.expectEvalTrue("(and (inexact? #i+inf.0) (infinite? #i+inf.0))");
+}
+
+test "string->number accepts the unprefixed decimal spelling of 2^63 (#1921)" {
+    // parseInt overflows on the final digit before ever seeing the '.', and
+    // the bignum fallback's InvalidCharacter used to reject outright
+    // instead of falling through to the decimal parse.
+    try th.expectEvalTrue("(= (string->number \"9223372036854775808.0\") 9223372036854775808.0)");
+    try th.expectEvalTrue(
+        "(equal? (string->number \"9223372036854775808.0\") (read (open-input-string \"9223372036854775808.0\")))",
+    );
+    try th.expectEvalTrue("(= (string->number \"#e9223372036854775808.0\") (expt 2 63))");
+    try th.expectEvalTrue("(= (string->number \"9223372036854775807.0\") 9223372036854775807.0)");
+    try th.expectEvalTrue("(= (string->number \"-9223372036854775808.0\") -9223372036854775808.0)");
+    // Overflowing digits followed by genuinely invalid text still reject.
+    try th.expectEvalBool("(string->number \"92233720368547758081abc\")", false);
+    try th.expectEvalBool("(string->number \"9223372036854775808.0.0\")", false);
+}

@@ -328,28 +328,106 @@ fn symbolNeedsBars(name: []const u8) bool {
     return false;
 }
 
-/// Format a flonum in Scheme syntax into `buf`, returning the slice. Uses
-/// scientific notation for very large/small magnitudes so the output stays
-/// bounded (plain `{d}` expands denormals/huge values to hundreds of decimal
-/// digits, overflowing fixed buffers). Always includes a `.`/`e` so the result
-/// reads back as inexact.
-fn formatComplexPart(buf: []u8, f: f64, exact: bool) []const u8 {
-    if (std.math.isNan(f) or std.math.isInf(f)) return formatFlonum(buf, f);
-    if (exact) {
-        const trunc = @trunc(f);
-        if (f == trunc and @abs(f) < 4.5e18) {
-            const i: i64 = @intFromFloat(trunc);
-            return std.fmt.bufPrint(buf, "{d}", .{i}) catch return formatFlonum(buf, f);
-        }
-        // Exact non-integer: try rational notation
-        const numeric = @import("primitives_numeric.zig");
-        const rat = numeric.floatToRational(f);
-        if (rat.den != 1) {
-            return std.fmt.bufPrint(buf, "{d}/{d}", .{ rat.num, rat.den }) catch return formatFlonum(buf, f);
-        }
-        return std.fmt.bufPrint(buf, "{d}", .{rat.num}) catch return formatFlonum(buf, f);
+/// Write the exact decimal digits of `mantissa << shift` (unsigned). Any
+/// finite f64 decomposes into such a pair (mantissa < 2^53, shift <= 971 for
+/// integers; 2^k denominators use mantissa 1, k <= 1074), so this covers up
+/// to ~325 digits -- far past any fixed format buffer, which is why exact
+/// complex parts beyond i64 used to print as the unreadable `0/0` (#1910).
+fn writeBigPowerOfTwoDecimal(writer: anytype, mantissa: u64, shift: u16) !void {
+    // Callers pass f64 decompositions: mantissa < 2^53 with shift <= 971
+    // (integers), or mantissa 1 with shift <= 1074 (2^k denominators).
+    // 20 digits of u64 + 1100 doublings adding at most one digit each
+    // stays under 360.
+    var digits: [360]u8 = undefined; // little-endian, values 0..9
+    var len: usize = 0;
+    var m = mantissa;
+    while (m > 0) : (m /= 10) {
+        digits[len] = @intCast(m % 10);
+        len += 1;
     }
-    return formatFlonum(buf, f);
+    if (len == 0) {
+        digits[0] = 0;
+        len = 1;
+    }
+    var i: u16 = 0;
+    while (i < shift) : (i += 1) {
+        var carry: u8 = 0;
+        for (digits[0..len]) |*d| {
+            const v = d.* * 2 + carry;
+            d.* = v % 10;
+            carry = v / 10;
+        }
+        if (carry > 0 and len < digits.len) {
+            digits[len] = carry;
+            len += 1;
+        }
+    }
+    var out: [360]u8 = undefined;
+    for (0..len) |j| out[j] = '0' + digits[len - 1 - j];
+    try writer.writeAll(out[0..len]);
+}
+
+/// Write one part of a complex number. Inexact parts print as flonums. An
+/// exact-flagged part prints its exact value, never a value-destroying
+/// collapse: plain integer digits when integral (bignum-wide past i64), the
+/// small-rational form when it reproduces the f64 exactly, and the f64's own
+/// mantissa/2^k value otherwise. The first two spellings read back with the
+/// exact flag intact; the mantissa/2^k fallback is exact but does NOT read
+/// back yet -- the reader's complex grammar stops at i64 rational parts
+/// (kaappi#2182), and closing that needs the scaled rational->f64
+/// conversion first or tiny components would read back as a silent 0.0
+/// (kaappi#2183).
+fn writeComplexPart(writer: anytype, f: f64, exact: bool) !void {
+    var buf: [64]u8 = undefined;
+    if (!exact or std.math.isNan(f) or std.math.isInf(f)) {
+        try writer.writeAll(formatFlonum(&buf, f));
+        return;
+    }
+    if (f == @trunc(f)) {
+        // 2^63 spelled as a literal: maxInt(i64) is not representable as
+        // f64 and @floatFromInt would round the bound up to admit 2^63
+        // itself -- the exact off-by-one behind #1907's reader panic.
+        if (f >= -9223372036854775808.0 and f < 9223372036854775808.0) {
+            const i: i64 = @intFromFloat(f);
+            try writer.writeAll(std.fmt.bufPrint(&buf, "{d}", .{i}) catch unreachable);
+            return;
+        }
+        // Integral beyond i64: |f| >= 2^63 with a 53-bit mantissa forces a
+        // strictly positive binary exponent.
+        if (f < 0) try writer.writeByte('-');
+        const bits: u64 = @bitCast(@abs(f));
+        const mantissa = (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
+        const exp: u16 = @intCast(@as(i16, @intCast((bits >> 52) & 0x7FF)) - 1023 - 52);
+        try writeBigPowerOfTwoDecimal(writer, mantissa, exp);
+        return;
+    }
+    // Exact non-integer: prefer the small-rational spelling, but only when
+    // it reads back to this exact f64 -- the search collapses magnitudes
+    // below its granularity to 0/1, which silently destroys the value.
+    const numeric = @import("primitives_numeric.zig");
+    const rat = numeric.floatToRational(f);
+    if (rat.den > 0 and
+        @as(f64, @floatFromInt(rat.num)) / @as(f64, @floatFromInt(rat.den)) == f)
+    {
+        try writer.print("{d}/{d}", .{ rat.num, rat.den });
+        return;
+    }
+    // Fall back to the f64's own exact value: odd-mantissa / 2^k.
+    if (f < 0) try writer.writeByte('-');
+    const bits: u64 = @bitCast(@abs(f));
+    const raw_exp: u11 = @intCast((bits >> 52) & 0x7FF);
+    var m: u64 = if (raw_exp == 0)
+        bits & 0x000FFFFFFFFFFFFF
+    else
+        (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
+    var k: u16 = if (raw_exp == 0) 1074 else 1075 - @as(u16, raw_exp);
+    while (m & 1 == 0 and k > 0) {
+        m >>= 1;
+        k -= 1;
+    }
+    try writeBigPowerOfTwoDecimal(writer, m, 0);
+    try writer.writeByte('/');
+    try writeBigPowerOfTwoDecimal(writer, 1, k);
 }
 
 pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
@@ -655,7 +733,7 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     try writer.writeAll(formatFlonum(&buf, c.real));
                 } else {
                     const has_real = c.real != 0.0 or std.math.signbit(c.real);
-                    if (has_real) try writer.writeAll(formatComplexPart(&buf, c.real, c.exact_real));
+                    if (has_real) try writeComplexPart(writer, c.real, c.exact_real);
                     const im = c.imag;
                     if (std.math.isNan(im)) {
                         try writer.writeAll("+nan.0i");
@@ -664,7 +742,7 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     } else {
                         try writer.writeByte(if (im < 0 or std.math.signbit(im)) '-' else '+');
                         const mag = @abs(im);
-                        if (mag != 1.0 or has_real) try writer.writeAll(formatComplexPart(&buf, mag, c.exact_imag));
+                        if (mag != 1.0 or has_real) try writeComplexPart(writer, mag, c.exact_imag);
                         try writer.writeByte('i');
                     }
                 }

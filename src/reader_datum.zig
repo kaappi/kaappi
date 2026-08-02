@@ -62,6 +62,23 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             if (bignum_mod.isZero(den)) return ReadError.InvalidNumber;
             return arith.makeRationalReduced(self.gc, slot_num.get(), den) catch return ReadError.OutOfMemory;
         },
+        .prefixed_real => |p| {
+            // #e/#i literal body: same parser as string->number, so the two
+            // can never disagree on an exactness-prefixed number (#1911).
+            // Non-OOM errors all become InvalidNumber deliberately: in a
+            // literal context every parse-side failure IS a bad number
+            // literal, and the tokenizer has already validated the shape.
+            // If parseNumberText ever grows a failure that is not the
+            // text's fault, give it its own arm here rather than letting
+            // it masquerade as a user typo.
+            const numeric = @import("primitives_numeric.zig");
+            const v = numeric.parseNumberText(self.gc, p.str, p.radix, if (p.exact) .exact else .inexact) catch |err| switch (err) {
+                error.OutOfMemory => return ReadError.OutOfMemory,
+                else => return ReadError.InvalidNumber,
+            };
+            if (v == types.FALSE) return ReadError.InvalidNumber;
+            return v;
+        },
         .complex => |c| return self.gc.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag) catch return ReadError.OutOfMemory,
         .boolean => |b| return if (b) types.TRUE else types.FALSE,
         .character => |c| return types.makeChar(c),

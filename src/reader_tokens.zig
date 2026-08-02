@@ -421,76 +421,19 @@ fn tryReadInfNan(self: *Reader) ?f64 {
     return null;
 }
 
-/// Apply an exactness prefix (#e / #i) to a freshly read numeric token.
-fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
-    const want_exact = exact orelse return tok;
-    if (want_exact) {
-        return switch (tok) {
-            .fixnum, .rational, .bignum_str, .big_rational => tok,
-            .flonum => |f| blk: {
-                if (!std.math.isFinite(f)) break :blk Token{ .flonum = f };
-                const max_i64_f: f64 = @floatFromInt(@as(i64, std.math.maxInt(i64)));
-                const min_i64_f: f64 = @floatFromInt(@as(i64, std.math.minInt(i64)));
-                if (f > max_i64_f or f < min_i64_f) break :blk Token{ .flonum = f };
-                const trunc: i64 = @intFromFloat(f);
-                if (@as(f64, @floatFromInt(trunc)) == f) break :blk Token{ .fixnum = trunc };
-                // Non-integer float: convert to rational via continued fraction
-                var num: i64 = 1;
-                var den: i64 = 0;
-                var prev_num: i64 = 0;
-                var prev_den: i64 = 1;
-                var x = @abs(f);
-                var iters: u32 = 0;
-                while (iters < 64) : (iters += 1) {
-                    if (x > max_i64_f) break;
-                    const a: i64 = @intFromFloat(x);
-                    const new_num = @mulWithOverflow(a, num);
-                    if (new_num[1] != 0) break;
-                    const final_num = @addWithOverflow(new_num[0], prev_num);
-                    if (final_num[1] != 0) break;
-                    const new_den = @mulWithOverflow(a, den);
-                    if (new_den[1] != 0) break;
-                    const final_den = @addWithOverflow(new_den[0], prev_den);
-                    if (final_den[1] != 0) break;
-                    prev_num = num;
-                    prev_den = den;
-                    num = final_num[0];
-                    den = final_den[0];
-                    const approx = @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
-                    if (@abs(approx - @abs(f)) < 1e-15) break;
-                    const frac = x - @as(f64, @floatFromInt(a));
-                    if (frac < 1e-15) break;
-                    x = 1.0 / frac;
-                }
-                if (f < 0) num = -num;
-                if (den == 1) break :blk Token{ .fixnum = num };
-                break :blk Token{ .rational = .{ .num = num, .den = den } };
-            },
-            .complex => |c| blk: {
-                break :blk Token{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = true, .exact_imag = true } };
-            },
-            else => ReadError.InvalidNumber,
-        };
-    }
-    return switch (tok) {
-        .flonum, .complex => tok,
-        .fixnum => |n| .{ .flonum = @floatFromInt(n) },
-        .rational => |r| .{ .flonum = @as(f64, @floatFromInt(r.num)) / @as(f64, @floatFromInt(r.den)) },
-        .bignum_str => |bs| .{ .flonum = std.fmt.parseFloat(f64, bs.str) catch return ReadError.InvalidNumber },
-        // Like .bignum_str, only decimal digit runs can go through parseFloat.
-        .big_rational => |r| blk: {
-            if (r.radix != 10) return ReadError.InvalidNumber;
-            const nf = std.fmt.parseFloat(f64, r.num_str) catch return ReadError.InvalidNumber;
-            const df = std.fmt.parseFloat(f64, r.den_str) catch return ReadError.InvalidNumber;
-            break :blk .{ .flonum = nf / df };
-        },
-        else => ReadError.InvalidNumber,
-    };
-}
-
 /// Read a number after an initial radix/exactness prefix has been consumed,
 /// allowing one further prefix of the other kind (R7RS permits `#e#x10`,
-/// `#x#i10`, etc.). Then read the body in the chosen radix and apply exactness.
+/// `#x#i10`, etc.). Then read the body in the chosen radix.
+///
+/// An exactness prefix is NOT applied at token level: the body span becomes
+/// a `.prefixed_real` token that datum construction routes through the same
+/// digit-exact `parseNumberText` behind `string->number`, so `read` cannot
+/// diverge from it (R7RS 6.2.7). The old token-level conversion parsed to
+/// f64 first and un-rounded with an i64 continued fraction, which panicked
+/// at 2^63 (#1907), dropped `#e` past i64 (#1891), collapsed sub-1e-15
+/// values to 0 (#1909), and read `#i` radix bignums as decimal (#1908).
+/// The tokenizer still runs first so token-boundary and incremental-input
+/// (`incomplete_input`) behavior is exactly what unprefixed numbers get.
 fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token {
     var radix = radix0;
     var exact = exact0;
@@ -520,12 +463,36 @@ fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token 
         // non-delimiter in the next chunk would make it a different (and
         // invalid) token, not this flonum.
         if (self.truncatedHere()) return ReadError.UnexpectedEof;
-        return applyExactness(.{ .flonum = f }, exact);
+        // #e on an infinity/NaN has no exact representation: a read error,
+        // matching string->number's #f on the same text (#419, #1911).
+        if (exact orelse false) return ReadError.InvalidNumber;
+        return .{ .flonum = f };
     }
 
+    const body_start = self.pos;
     const tok = if (radix == 10) try readNumber(self) else try readIntegerWithRadix(self, radix);
     if (numberTailTruncated(self)) return ReadError.UnexpectedEof;
-    return applyExactness(tok, exact);
+    const want_exact = exact orelse return tok;
+    switch (tok) {
+        // Complex tokens keep their token-level parse: readNumber's complex
+        // grammar is wider than parseNumberText's (rational and inf/nan
+        // parts), so re-parsing the span would reject valid literals.
+        // Exactness on a complex is exactly its two flags, with #e refusing
+        // non-finite parts the same way the parseNumberText path does.
+        .complex => |c| {
+            if (want_exact) {
+                if (!std.math.isFinite(c.real) or !std.math.isFinite(c.imag))
+                    return ReadError.InvalidNumber;
+                return .{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = true, .exact_imag = true } };
+            }
+            return .{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = false, .exact_imag = false } };
+        },
+        else => return .{ .prefixed_real = .{
+            .str = self.source[body_start..self.pos],
+            .exact = want_exact,
+            .radix = radix,
+        } },
+    }
 }
 
 pub fn readHash(self: *Reader) ReadError!Token {
