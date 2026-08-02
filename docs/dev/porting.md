@@ -52,7 +52,7 @@ The interpreter core is portable by construction. These subsystems need
   (`vm_continuations.zig`). There is no per-architecture context-switch
   assembly anywhere in the tree.
 * **Bytecode** — operands are composed byte-by-byte in the dispatch
-  readers (`vm_dispatch.zig` `readU16`/`readI16`), so there are no
+  readers (`vm_dispatch_helpers.zig` `readU16`/`readI16`), so there are no
   unaligned multi-byte loads for strict-alignment CPUs to trap on. `.sbc`
   files are canonically little-endian (`bytecode_file_read.zig` converts
   via `littleToNative`), so they are portable across hosts.
