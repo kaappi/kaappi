@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785642766311,
+  "lastUpdate": 1785649166027,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "053282aeda7cb7f0e80a6ebd9765434bafd0dba7",
-          "message": "Free the fiber scheduler when its setup allocation fails (#1869)\n\nensureScheduler takes the FiberScheduler from the raw allocator, then runs\ntwo more fallible steps — the main fiber's allocFiber and addFiber — before\nvm.scheduler is assigned. Until that assignment nothing owns the struct, so\na failure in either step returned with it neither destroyed nor stored,\nleaking both the struct and the managed waiter_index map init() built inside\nit. The reactor block directly below already cleaned up after itself; this\nmakes the scheduler block symmetric with its own neighbour.\n\nThe errdefer is block-scoped deliberately. It is discarded when the block\nexits normally, so it cannot fire for a later failure in the reactor block —\nby then vm.scheduler owns the pointer and freeing it would be a double free\nrather than a leak.\n\nSeverity is low on its own (a real OOM during the first spawn, one struct),\nbut the leak blocked writing any OOM-sweep test that reaches a fiber path:\nthe leak check aborts the test before its own assertions run.\n\nTwo regression tests. The first fails the allocation deterministically —\nthe scheduler comes from the raw allocator, which the injector does not\ncount, so oom_countdown 0 lands exactly on the main fiber's allocFiber — and\npins the bug in every build config. The second is the end-to-end sweep over\nthe first spawn; it asserts successes as well as failures, so a future spawn\nthat allocates more fails the test loudly instead of quietly sweeping past\nthe ensureScheduler window and going vacuous.\n\nFixes #1864\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T18:18:37+05:30",
-          "tree_id": "c933b3d2ccee9d42b10d35247abf12ba73904592",
-          "url": "https://github.com/kaappi/kaappi/commit/053282aeda7cb7f0e80a6ebd9765434bafd0dba7"
-        },
-        "date": 1785418072826,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.21046,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.86628,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583619,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.982115,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004665,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04628,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.316775,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057317,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.64402,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.225685,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.596481,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.2746,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.785316,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.56789,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045434,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04422,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39ae79684bb8bb00915186894111d950dc7a96e7",
+          "message": "Make (read port) safe across the 4096-byte chunk boundary (#2174)\n\n* Make (read port) safe across the 4096-byte chunk boundary\n\nThe incremental read loop refills on exactly UnexpectedEof and treats\nevery other parse outcome as final. Tokens straddling a chunk boundary\nbroke that contract both ways: scanners that reported truncation as a\ndifferent error made valid files unreadable (strings #1893, dotted\npairs #1920, split UTF-8 codepoints #1945, raw/byte strings and #-\nprefixes #1940), and scanners that treated end-of-buffer as a token\nterminator silently split symbols, numbers, characters and booleans --\nand fed a line comment's tail back in as program data (#1940).\n\nInstead of per-site patches, Reader gains one mode: incomplete_input,\nset only by readDatumFn's chunk loop, under which any scan that stops\nat end-of-slice (rather than at a delimiter or closing character)\nreports UnexpectedEof -- never finalize a token more bytes could\nextend, never reject one more bytes could complete. Deferral loses\nnothing: the whole-input parse at fd EOF keeps today's precise errors,\nand every other Reader user leaves the flag off.\n\nAlso, per #1920's analysis: exhausted input where ')' belongs is now\nUnexpectedEof in every mode; the read procedure's error object names\nwhat failed (\"read error: unterminated string literal\") instead of a\nbare \"read error\"; a trailing #!directive yields the EOF object rather\nthan a spurious read error (new Reader.readDatumOrEof); and a buffer\nholding a directive is never discarded by the loop, so fold-case\nsurvives the boundary.\n\nOne deliberate semantic change: a bare atom on a still-open pipe with\nno delimiter now waits for one instead of returning immediately --\nthat early return was the split bug. Newline-terminated interactive\ninput is unaffected (#847 behavior preserved, regression-tested).\n\nCloses #1893. Closes #1920. Closes #1940. Closes #1945.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Exclude the boundary sweep from the gc-stress Scheme gate as too-slow\n\nreader-port-refill-gaps.scm runs ~800 chunk-boundary fixtures, each an\nincremental read re-parsing a 4 KiB buffer per refill -- ~1 s plain,\nexit 124 at the 900 s stress timeout. Category (a) of the job's own\nskip taxonomy; the incomplete-input mode it guards keeps stress\ncoverage via tests_reader_incremental.zig in the gc-stress unit job,\nand the file itself still runs unstressed on every other leg.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T05:08:45Z",
+          "tree_id": "0faa2f5a95414540aaca7e846062abe7bd2704ca",
+          "url": "https://github.com/kaappi/kaappi/commit/39ae79684bb8bb00915186894111d950dc7a96e7"
+        },
+        "date": 1785649164388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.337419,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.260278,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571827,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.036931,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046665,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312995,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056308,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.682985,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216165,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574831,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285287,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.794862,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.623852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042993,
             "unit": "seconds"
           }
         ]
