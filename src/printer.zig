@@ -368,10 +368,15 @@ fn writeBigPowerOfTwoDecimal(writer: anytype, mantissa: u64, shift: u16) !void {
 }
 
 /// Write one part of a complex number. Inexact parts print as flonums. An
-/// exact-flagged part prints a spelling that reads back to the same f64 with
-/// its exact flag: plain integer digits when integral (bignum-wide past i64),
-/// the small-rational form when it reproduces the f64 exactly, and the f64's
-/// own mantissa/2^k value otherwise -- never a value-destroying collapse.
+/// exact-flagged part prints its exact value, never a value-destroying
+/// collapse: plain integer digits when integral (bignum-wide past i64), the
+/// small-rational form when it reproduces the f64 exactly, and the f64's own
+/// mantissa/2^k value otherwise. The first two spellings read back with the
+/// exact flag intact; the mantissa/2^k fallback is exact but does NOT read
+/// back yet -- the reader's complex grammar stops at i64 rational parts
+/// (kaappi#2182), and closing that needs the scaled rational->f64
+/// conversion first or tiny components would read back as a silent 0.0
+/// (kaappi#2183).
 fn writeComplexPart(writer: anytype, f: f64, exact: bool) !void {
     var buf: [64]u8 = undefined;
     if (!exact or std.math.isNan(f) or std.math.isInf(f)) {

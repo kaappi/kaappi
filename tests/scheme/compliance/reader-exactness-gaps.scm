@@ -294,8 +294,15 @@
 ;;    The printer's exact-component formatter converted through i64 and
 ;;    rendered any out-of-range component as `0/0` -- which does not read
 ;;    back (bare `0/0` is a read error; inside a complex it came back as
-;;    `+nan.0`).  Exact components now print their exact digits at any
-;;    magnitude, so the spelling reads back to the identical value.
+;;    `+nan.0`) -- and its small-rational search silently printed tiny
+;;    exact components as `0`.  Exact components now print their exact
+;;    digits at any magnitude.  Integral and i64-rational spellings read
+;;    back with the exact flag intact; the mantissa/2^k fallback for tiny
+;;    components is exact but does NOT read back yet -- the reader's
+;;    complex grammar stops at i64 rational parts (#2182), and closing
+;;    that needs the scaled rational->f64 conversion first (#2183) or the
+;;    form would read back as a silent 0.0.  A loud error beats the old
+;;    silent value corruption; the gap is pinned below.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: within i64 the same shapes are correct and DO round-trip.
@@ -307,6 +314,19 @@
 (test-assert "#e1e19+1i round-trips" (round-trips? (rd "#e1e19+1i")))
 (test-equal "#e1e19+1i writes its exact digits" "10000000000000000000+1i"
             (wr (rd "#e1e19+1i")))
+
+;; The tiny-component gap, pinned in both directions: the written form is
+;; the true exact value (cross-checked against the independent bignum
+;; printer behind `exact`), and reading it back is currently a read error.
+;; When #2182+#2183 land, the second assertion fails loudly -- replace it
+;; with (round-trips? (rd "#e1e-300+1i")).
+(test-equal "#e1e-300+1i writes its exact value"
+            (let ((ex (exact 1e-300)))
+              (string-append (number->string (numerator ex))
+                             "/" (number->string (denominator ex)) "+1i"))
+            (wr (rd "#e1e-300+1i")))
+(test-assert "#e1e-300+1i read-back is a (loud) read error until #2182/#2183"
+             (eq? 'read-error (rd/safe (wr (rd "#e1e-300+1i")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. R7RS 6.2.7 parity: `read` and `string->number` used to be two
@@ -415,7 +435,11 @@
 ;;
 ;;     The campaign's systematic reader check:
 ;;       (equal? x (read (open-input-string (write-to-string x))))
-;;     Holds on every cell (`#e1e19+1i`, once the sole failure, included).
+;;     Holds on every cell below (`#e1e19+1i`, once the sole failure,
+;;     included).  The one known shape it does NOT hold for -- an exact
+;;     complex with a sub-i64-rational component like `#e1e-300+1i`, whose
+;;     honest spelling the reader cannot parse yet -- is deliberately not a
+;;     cell here; section 7 pins it in both directions (#2182, #2183).
 ;; ---------------------------------------------------------------------------
 
 (for-each

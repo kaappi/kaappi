@@ -524,10 +524,23 @@ test "#e/#i reach complex literals on both parsers (#1910, #751)" {
     );
     // An exact-flagged component below the rational search's granularity
     // used to print as 0 (value destroyed); it now prints its exact
-    // mantissa/2^k value.
-    try th.expectEvalBool(
-        "(let ((p (open-output-string))) (write #e1e-300+1i p) (string-prefix? \"0+\" (get-output-string p)))",
-        false,
+    // mantissa/2^k value, verified against the independent bignum printer
+    // behind (exact f).
+    try th.expectEvalTrue(
+        "(let ((p (open-output-string)) (ex (exact 1e-300))) (write #e1e-300+1i p)" ++
+            " (equal? (get-output-string p) (string-append (number->string (numerator ex))" ++
+            " \"/\" (number->string (denominator ex)) \"+1i\")))",
+    );
+    // KNOWN GAP, pinned: that spelling does not read back yet. The reader's
+    // complex grammar stops at i64 rational parts (kaappi#2182), and closing
+    // it needs the scaled rational->f64 conversion first or this would read
+    // back as a silent 0.0+1i (kaappi#2183). A loud error still beats the
+    // old silently-wrong 0. When those land, the read succeeds, this
+    // deliberately returns #f, and the failure tells you to replace it with
+    // a round-trip equal? assertion.
+    try th.expectEvalTrue(
+        "(let ((p (open-output-string))) (write #e1e-300+1i p)" ++
+            " (guard (e (#t #t)) (read (open-input-string (get-output-string p))) #f))",
     );
     // #e refuses non-finite components, like the flonum rule (#419).
     try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e1e999+2i\")) #f)");
