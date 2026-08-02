@@ -597,7 +597,14 @@
 ;; still aborted, which is what discriminated dev from rdev.
 (test-equal "(file-info-type (file-info '/dev/null' #t))" 'char-special (file-info-type (file-info "/dev/null" #t)))
 (test-equal "(file-info-device? (file-info '/dev/null' #t))" #t (file-info-device? (file-info "/dev/null" #t)))
-(test-equal "(file-info-type (file-info '/dev/fd' #t))" 'directory (file-info-type (file-info "/dev/fd" #t)))
+;; /dev/fd resolves to a directory on every current CI leg, but on Linux it
+;; is a symlink into /proc, which a minimal environment may not have
+;; mounted -- so accept a catchable stat failure too. The regression being
+;; pinned is the uncatchable abort; the 'directory answer, where /dev/fd
+;; does resolve, additionally pins the dev-vs-rdev discriminator.
+(test-assert "(file-info-type (file-info '/dev/fd' #t)) is directory where resolvable"
+  (let ((t (guard (e (#t 'unresolvable)) (file-info-type (file-info "/dev/fd" #t)))))
+    (or (eq? t 'directory) (eq? t 'unresolvable))))
 ;;
 ;; Control: an ordinary path on a filesystem whose st_dev is positive stats
 ;; without incident, so the old failure was the device number and not the

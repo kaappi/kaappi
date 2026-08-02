@@ -222,6 +222,20 @@ pub fn hasLiveChildThreads() bool {
     return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
 }
 
+/// Relative seconds -> saturated nanoseconds, shared by
+/// timeoutToDeadlineNs's number branch and threadSleepFn (#1983). One
+/// implementation on purpose: the bug existed as three diverged copies of
+/// this exact conversion, so any future policy change (say, to NaN
+/// handling) must have a single edit point. lossyCast saturates where the
+/// old @intFromFloat panicked: +inf.0 and any product >= 2^64 become
+/// maxInt(u64) ("never times out"), NaN becomes 0 (the old @max treatment
+/// of it -- @max(0.0, secs) before the multiply and @max on the product
+/// are equivalent here, since scaling by a positive constant is monotone
+/// and NaN propagates either way), negatives clamp to 0.
+fn saturatedNsFromSeconds(secs: f64) u64 {
+    return std.math.lossyCast(u64, @max(0.0, secs) * 1_000_000_000.0);
+}
+
 /// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
 /// channel-send/channel-receive timeouts reuse this exact SRFI-18-shaped
 /// number-or-time-object-or-#f parsing rather than duplicating it.
@@ -248,13 +262,9 @@ pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
     const secs = primitives.toF64(timeout) catch
         return primitives.typeError("thread", "time object or number", timeout);
     const mono_now = fiber_mod.clockNs();
-    // lossyCast saturates where the old @intFromFloat panicked (#1983):
-    // +inf.0 and any product >= 2^64 become maxInt(u64) ("never times out"),
-    // NaN becomes 0 (matching the old @max treatment of it), and the
-    // saturating add keeps the deadline pinned at "never" instead of
-    // wrapping around into the past.
-    const delta_ns: u64 = std.math.lossyCast(u64, @max(0.0, secs) * 1_000_000_000.0);
-    return mono_now +| delta_ns;
+    // The saturating add keeps a saturated delta pinned at "never" instead
+    // of wrapping around into the past (#1983).
+    return mono_now +| saturatedNsFromSeconds(secs);
 }
 
 pub fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
@@ -613,13 +623,12 @@ fn threadSleepFn(args: []const Value) PrimitiveError!Value {
     if (me.deadline_ns == null) {
         const seconds = try getSleepSeconds(args[0]);
         if (seconds <= 0) return types.VOID;
-        // lossyCast + saturating add (#1983): a duration too large for the
+        // Saturation + saturating add (#1983): a duration too large for the
         // u64 nanosecond clock (+inf.0, 1e300, an overflowed computation)
         // saturates to a deadline that never fires -- an unbounded sleep,
         // per the SRFI-18 "+inf.0 never times out" convention -- where the
         // old @intFromFloat aborted the process uncatchably.
-        const total_ns: u64 = std.math.lossyCast(u64, @max(0.0, seconds * 1e9));
-        const deadline = fiber_mod.clockNs() +| total_ns;
+        const deadline = fiber_mod.clockNs() +| saturatedNsFromSeconds(seconds);
 
         me.waiting_on = types.VOID;
         me.status = .waiting;
