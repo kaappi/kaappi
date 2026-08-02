@@ -83,9 +83,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rejected loudly in `:range` (matching the reference implementation) and
   in `:real-range` (going beyond it: the reference loops forever on an
   inexact zero step) — before, `(:range i 5 3 0)` spun forever yielding 5.
-  The `(index i)` variable form remains unsupported, and `:parallel`
-  accepts only single-variable sub-generator forms — both documented in
-  the library header.
+  `(:while (gen ...) test)` and `(:until (gen ...) test)` now stop only
+  the generator they wrap, as the spec scopes them, instead of ending the
+  whole comprehension — the bare `(:while test)`/`(:until test)` forms
+  (this port's extension, absent from the spec's grammar) keep their
+  stop-everything meaning, now documented. The spec's `(nested ...)`
+  grouping and `(begin ...)` command qualifiers are implemented too. The
+  `(index i)` variable form remains unsupported, and `:parallel` accepts
+  only single-variable sub-generator forms — both documented in the
+  library header.
 
 - **`eqv?` now distinguishes an exact complex from an inexact one** (#2167).
   R7RS 6.1 requires `(eqv? a b)` to be `#f` whenever one number is exact and

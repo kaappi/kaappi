@@ -20,6 +20,11 @@
 ;;; Deliberate deviations from the reference implementation:
 ;;;   - The (index i) variable form is not supported (in any generator —
 ;;;     as before this port never had it).
+;;;   - A bare (:while <expr>) / (:until <expr>) qualifier — not part of
+;;;     the spec's grammar, kept from the original port — stops the
+;;;     WHOLE comprehension.  The spec's (:while <generator> <expr>)
+;;;     wrapping form scopes the test to the wrapped generator only, as
+;;;     the spec requires.
 ;;;   - :parallel sub-generators must be plain single-variable generator
 ;;;     forms (typed generators, :, :dispatched, :let, ...); raw :do
 ;;;     forms and :while/:until-wrapped generators are rejected at
@@ -305,10 +310,13 @@
     ;; Internal recursive qualifier processor.
     ;; s = mutable stop flag for :while/:until early exit.
     ;; Processes one qualifier per expansion, recurses on the rest.
+    ;; The engine caps one syntax-rules form at 32 rules, so the
+    ;; qualifier rules are split across two macros: %do-ec holds the
+    ;; generators and forwards any other qualifier to %do-ec-more, which
+    ;; holds the grouping, command, control, and guard qualifiers.
     (define-syntax %do-ec
       (syntax-rules (:range :real-range :char-range :list :string :vector
-                     :integers :port :let :while :until :do :parallel
-                     : :dispatched let if not and or)
+                     :integers :port :let :do :parallel : :dispatched let)
         ;; --- generators ---
         ((_ s (:range var n) rest1 rest2 ...)
          (let ((%n n))
@@ -437,13 +445,52 @@
         ;; --- parallel (lockstep) iteration ---
         ((_ s (:parallel gen1 gen2 ...) rest1 rest2 ...)
          (%parallel s () (gen1 gen2 ...) rest1 rest2 ...))
+        ;; --- anything else: grouping/command/control/guard qualifiers ---
+        ((_ s q rest1 rest2 ...)
+         (%do-ec-more s q rest1 rest2 ...))
+        ;; --- base case ---
+        ((_ s body)
+         body)))
+
+    ;; Second half of the qualifier processor (see the %do-ec comment):
+    ;; grouping, command, control, and guard qualifiers.  Every recursion
+    ;; goes back through %do-ec, the single entry point.
+    (define-syntax %do-ec-more
+      (syntax-rules (nested begin :while :until %while-xlate %until-xlate
+                     if not and or)
+        ;; --- qualifier grouping and command qualifiers ---
+        ((_ s (nested q ...) rest1 rest2 ...)
+         (%do-ec s q ... rest1 rest2 ...))
+        ((_ s (begin cmd ...) rest1 rest2 ...)
+         (begin cmd ... (%do-ec s rest1 rest2 ...)))
         ;; --- control qualifiers ---
-        ;; :while/:until wrapping a generator (spec form)
+        ;; :while/:until wrapping a generator (spec form): the test stops
+        ;; only the generator it wraps, so enclosing loops continue.  The
+        ;; wrapped generator runs against its own private stop flag; the
+        ;; translator qualifier re-threads the enclosing flag for the
+        ;; rest of the chain and mirrors an ambient stop into the private
+        ;; flag, so a bare :while/:until deeper in the chain still ends
+        ;; this generator's loop.
         ((_ s (:while (g garg ...) test) rest1 rest2 ...)
-         (%do-ec s (g garg ...) (:while test) rest1 rest2 ...))
+         (let ((%s2 #f))
+           (%do-ec %s2 (g garg ...) (%while-xlate s test) rest1 rest2 ...)))
         ((_ s (:until (g garg ...) test) rest1 rest2 ...)
-         (%do-ec s (g garg ...) (:until test) rest1 rest2 ...))
-        ;; :while/:until as standalone qualifiers
+         (let ((%s2 #f))
+           (%do-ec %s2 (g garg ...) (%until-xlate s test) rest1 rest2 ...)))
+        ;; Translator qualifiers, generated only by the two rules above:
+        ;; s2 is the wrapped generator's flag, outer the enclosing one.
+        ((_ s2 (%while-xlate outer test) rest1 rest2 ...)
+         (if test
+             (begin
+               (%do-ec outer rest1 rest2 ...)
+               (when outer (set! s2 #t)))
+             (set! s2 #t)))
+        ((_ s2 (%until-xlate outer test) rest1 rest2 ...)
+         (begin
+           (%do-ec outer rest1 rest2 ...)
+           (when (or test outer) (set! s2 #t))))
+        ;; :while/:until as standalone qualifiers (this port's extension:
+        ;; stops the whole comprehension — see the header)
         ((_ s (:while test) rest1 rest2 ...)
          (if test
            (%do-ec s rest1 rest2 ...)
@@ -460,10 +507,7 @@
         ((_ s (and test ...) rest1 rest2 ...)
          (when (and test ...) (%do-ec s rest1 rest2 ...)))
         ((_ s (or test ...) rest1 rest2 ...)
-         (when (or test ...) (%do-ec s rest1 rest2 ...)))
-        ;; --- base case ---
-        ((_ s body)
-         body)))
+         (when (or test ...) (%do-ec s rest1 rest2 ...)))))
 
     ;; :parallel expansion helper: peel one (gen var arg ...) sub-form
     ;; per recursion step, converting it to a generator procedure (one
