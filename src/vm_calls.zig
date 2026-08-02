@@ -505,7 +505,9 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
 pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMError!void {
     const func = closure.func;
 
-    try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, @max(nargs + 1, func.locals_count)) + 1);
+    // nargs is a u8 and 255 is a legal argument count (the ISA's maximum),
+    // so the +1 must not happen in u8 arithmetic (#2185).
+    try vm.ensureRegisterCapacity(@as(usize, base) + @max(@as(usize, nargs) + 1, func.locals_count) + 1);
 
     if (!func.is_variadic) {
         if (nargs != func.arity) {

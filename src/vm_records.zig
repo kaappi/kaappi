@@ -878,7 +878,12 @@ pub fn parseRecordSpec(args: Value) ?RecordSpec {
         if (!types.isPair(fspec)) return null;
         const fname_sym = types.car(fspec);
         if (!types.isSymbol(fname_sym)) return null;
-        if (spec.field_count >= 256) return null;
+        // Cap at 255, not the arrays' 256: RecordType.num_fields is a u8, and
+        // handleDefineRecordType @intCasts field_count into it -- admitting a
+        // 256-field spec here turned that cast into an uncatchable panic at
+        // definition time (#1973). The R6RS parser caps at 255 for the same
+        // reason.
+        if (spec.field_count >= 255) return null;
         const fname = types.symbolName(fname_sym);
         for (spec.field_names[0..spec.field_count]) |existing| {
             if (std.mem.eql(u8, existing, fname)) return null;

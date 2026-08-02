@@ -831,37 +831,28 @@
 (test-assert "time->seconds rejects a thread" (raises? (lambda () (time->seconds (current-thread)))))
 (test-assert "time->seconds rejects a mutex" (raises? (lambda () (time->seconds (make-mutex)))))
 
-;; -- BUG: seconds->time ABORTS the process (uncatchable, exit 134) once
-;;    floor(x) leaves i64 range.
-;; secondsToTimeFn (primitives_srfi18.zig:1397) does
-;;   @as(i64, @intFromFloat(@floor(secs)))
-;; with no range guard, so ReleaseSafe panics "integer part of floating
-;; point value out of bounds". `guard` cannot catch a panic.
-;; Cliff measured: 9.2e18 is fine, 9.3e18 aborts — exactly the i64 edge.
-;; These stay COMMENTED OUT: running one takes the whole test runner down.
-;; FAIL: #1983 (seconds->time panics, exit 134, on +inf.0/-inf.0 and any
-;;       |x| >= 2^63 — uncatchable, aborts the process)
-;; (test-assert "seconds->time +inf.0 raises catchably" (raises? (lambda () (seconds->time +inf.0))))
-;; (test-assert "seconds->time -inf.0 raises catchably" (raises? (lambda () (seconds->time -inf.0))))
-;; (test-assert "seconds->time 1e300 raises catchably"  (raises? (lambda () (seconds->time 1e300))))
-;; (test-assert "seconds->time 2^63 raises catchably"   (raises? (lambda () (seconds->time (expt 2 63)))))
-;; (test-assert "seconds->time 9.3e18 raises catchably" (raises? (lambda () (seconds->time 9.3e18))))
-;; CONTROL (enabled): just below the cliff, the same code path is fine.
+;; seconds->time used to ABORT the process (uncatchable, exit 134) once
+;; floor(x) left i64 range: secondsToTimeFn did an unguarded
+;; @intFromFloat, cliff measured at 9.2e18 fine / 9.3e18 abort. Fixed by
+;; #1983: values outside [-2^63, 2^63) — including the infinities and
+;; NaN — now raise a catchable KP3007, because a time object is an
+;; observable value and clamping would silently build a wrong one.
+(test-assert "seconds->time +inf.0 raises catchably" (raises? (lambda () (seconds->time +inf.0))))
+(test-assert "seconds->time -inf.0 raises catchably" (raises? (lambda () (seconds->time -inf.0))))
+(test-assert "seconds->time 1e300 raises catchably" (raises? (lambda () (seconds->time 1e300))))
+(test-assert "seconds->time 2^63 raises catchably" (raises? (lambda () (seconds->time (expt 2 63)))))
+(test-assert "seconds->time 9.3e18 raises catchably" (raises? (lambda () (seconds->time 9.3e18))))
+;; CONTROL: just below the cliff, the same code path is fine.
 (test-assert "CONTROL: 9.2e18 is below the i64 cliff and works"
   (time? (seconds->time 9.2e18)))
 (test-assert "CONTROL: 2^62 works" (time? (seconds->time (expt 2 62))))
 
-;; NaN is silently wrong rather than a panic -- which is the point worth
-;; pinning, because +inf.0 and |x| >= 2^63 DO abort the process (#1983).
-;;
-;; Do NOT assert the resulting value.  It comes from @intFromFloat on a
-;; NaN, which is undefined -- macOS and this NetBSD box both happen to
-;; yield 0.0, but CI's NetBSD produced something else and failed an
-;; earlier version of this assertion that pinned 0.0.  Assert only that
-;; a time object comes back at all: that is the real contrast with the
-;; aborting cases, and it is true wherever the conversion lands.
-(test-assert "TODAY: seconds->time +nan.0 does not abort (value undefined)"
-  (time? (seconds->time +nan.0)))
+;; NaN used to slip through as an undefined-value time object (the one
+;; non-aborting wrong case); post-#1983 it is rejected with the same
+;; catchable error as the infinities, since no time it could denote
+;; exists.
+(test-assert "seconds->time +nan.0 raises catchably (#1983)"
+  (raises? (lambda () (seconds->time +nan.0))))
 
 ;; ---------------------------------------------------------------------
 ;; 8. Timeouts, expressed as bare numbers and as time objects
@@ -923,30 +914,16 @@
 (test-assert "sleep a bignum raises (not a supported spelling)"
   (raises? (lambda () (thread-sleep! (expt 2 70)))))
 
-;; -- BUG: the same unchecked @intFromFloat aborts EVERY timeout entry
-;;    point, not just seconds->time.
-;; timeoutToDeadlineNs (primitives_srfi18.zig:244) does
-;;   const delta_ns: u64 = @intFromFloat(@max(0.0, secs) * 1_000_000_000.0);
-;; and threadSleepFn (:604) does the same for its own duration. Any
-;; timeout above ~1.845e10 seconds (u64 nanoseconds) aborts the process.
-;; timeoutToDeadlineNs is `pub` and is also what (kaappi fibers)
-;; channel-send/channel-receive timeouts parse through, so the blast
-;; radius is wider than SRFI 18.
-;; Cliff measured: 1.8e10 is fine (catchable), 1.9e10 aborts.
-;; FAIL: #1984 (thread-sleep! / mutex-lock! / thread-join! / mutex-unlock!+cv
-;;       panic, exit 134, on +inf.0 or a timeout >= ~1.845e10 seconds)
-;; (test-assert "thread-sleep! +inf.0 raises catchably" (raises? (lambda () (thread-sleep! +inf.0))))
-;; (test-assert "thread-sleep! 1e300 raises catchably"  (raises? (lambda () (thread-sleep! 1e300))))
-;; (test-assert "mutex-lock! +inf.0 timeout raises catchably"
-;;   (raises? (lambda () (let ((m (make-mutex))) (mutex-lock! m) (mutex-lock! m +inf.0)))))
-;; (test-assert "thread-join! +inf.0 timeout raises catchably"
-;;   (raises? (lambda () (thread-join! (make-thread (lambda () 1)) +inf.0 'TV))))
-;; (test-assert "mutex-unlock!+cv +inf.0 timeout raises catchably"
-;;   (raises? (lambda () (mutex-unlock! (make-mutex) (make-condition-variable) +inf.0))))
-;; CONTROL (enabled): just below the cliff the SAME conversion runs and
-;; does not abort — so the failure is the conversion, not the magnitude.
-;; Driven through a thread that has already completed, so the timeout is
-;; parsed but never actually waited out.
+;; The same unchecked @intFromFloat used to abort EVERY timeout entry
+;; point, not just seconds->time — timeoutToDeadlineNs and threadSleepFn
+;; each converted the duration unguarded, with the cliff at ~1.845e10
+;; seconds (the u64 nanosecond clock), and timeoutToDeadlineNs is `pub`
+;; and shared with (kaappi fibers) channel timeouts. Fixed by #1983 with
+;; SATURATION, not a raise: a timeout is a deadline, +inf.0 conventionally
+;; means "never time out" (and #f already means "no timeout"), so a
+;; beyond-range duration becomes a deadline that never fires. These pins
+;; drive the conversion through already-resolved waits, so the saturated
+;; timeout is parsed but never waited out.
 (define to-5 (make-thread (lambda () 'done-immediately)))
 (thread-start! to-5)
 (thread-join! to-5)
@@ -954,20 +931,22 @@
   'done-immediately (thread-join! to-5 1.8e10 'TV))
 (test-equal "CONTROL: 1e9 seconds as a time object parses too"
   'done-immediately (thread-join! to-5 (seconds->time 1e9) 'TV))
+(test-equal "thread-join! +inf.0 timeout saturates (used to abort, #1983)"
+  'done-immediately (thread-join! to-5 +inf.0 'TV))
+(test-equal "thread-join! 1e300 timeout saturates (used to abort, #1983)"
+  'done-immediately (thread-join! to-5 1e300 'TV))
+(test-assert "mutex-lock! +inf.0 timeout on a free mutex saturates (used to abort, #1983)"
+  (let ((m (make-mutex)))
+    (let ((r (mutex-lock! m +inf.0))) (mutex-unlock! m) r)))
 
-;; -- and the TIME-OBJECT branch has its own, separate unguarded arithmetic.
-;; timeoutToDeadlineNs (:234) computes
-;;   const sec_ns: u64 = @as(u64, @intCast(t.seconds)) * 1_000_000_000 + ns_clamped;
-;; which overflows u64 for the same ~1.845e10-second threshold, but panics
-;; "integer overflow" rather than the "integer part of floating point value
-;; out of bounds" the number branch produces -- two distinct sites, one
-;; cliff. Measured: (seconds->time 1.8e10) is fine, (seconds->time 1.9e10)
-;; aborts.
-;; FAIL: #1984 (a time-object timeout whose seconds field exceeds ~1.845e10
-;;       panics with "integer overflow", exit 134, in timeoutToDeadlineNs)
-;; (test-assert "a huge absolute time object raises catchably"
-;;   (raises? (lambda () (thread-join! to-5 (seconds->time 1e18) 'TV))))
-(test-equal "CONTROL: 1.8e10 as a time object is just below that cliff"
+;; The TIME-OBJECT branch had its own, separate unguarded arithmetic: the
+;; u64 seconds*1e9 multiply overflowed ("integer overflow" panic) at the
+;; same ~1.845e10-second threshold. Also fixed by #1983 with saturating
+;; arithmetic — a far-future time object is perfectly legal (its i64
+;; seconds go to ~2.9e11 years) and reads as "never fires".
+(test-equal "a huge absolute time object saturates (used to abort, #1983)"
+  'done-immediately (thread-join! to-5 (seconds->time 1e18) 'TV))
+(test-equal "CONTROL: 1.8e10 as a time object is just below the old cliff"
   'done-immediately (thread-join! to-5 (seconds->time 1.8e10) 'TV))
 
 ;; ---------------------------------------------------------------------

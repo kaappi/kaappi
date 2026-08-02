@@ -271,6 +271,13 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             if (!types.isPair(param_list)) return CompileError.InvalidSyntax;
             const param = types.car(param_list);
             if (!types.isSymbol(param)) return CompileError.InvalidSyntax;
+            // Same 255-fixed-params cap as compiler_lambda.compileLambda: the
+            // call ISA's u8 nargs means a 256th argument could never be
+            // supplied, so reject cleanly instead of overflowing (#2185).
+            // InvalidSyntax for the same reason as there: TooManyLocals
+            // surfaces as a KP9001 "internal error", and this one is user
+            // syntax.
+            if (arity == 255) return CompileError.InvalidSyntax;
             const slot = child.allocReg() catch return CompileError.TooManyLocals;
             child.locals.append(child.gc.allocator, .{
                 .name = types.symbolName(param),

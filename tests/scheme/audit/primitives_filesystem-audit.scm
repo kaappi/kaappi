@@ -589,19 +589,19 @@
    (test-assert "(exact-integer? (file-info:rdev (file-info (string-append dir '/fifo..."
      (exact-integer? (file-info:rdev (file-info (string-append dir "/fifo") #f))))))
 
-;; FAIL: #1976 (file-info panics — SIGABRT, not catchable — on any path whose
-;; st_dev is negative when read as i32; on macOS that is every entry under
-;; /dev, whose devfs st_dev is 2998493978 = -1296473318 as i32.  The cast is
-;; `.dev = @intCast(stat_buf.dev)` at src/primitives_filesystem.zig:134.
-;; /dev/fd has st_rdev = 0 and still aborts, which discriminates dev from
-;; rdev.  Enabling either line below aborts the whole suite.)
-;; (test-equal "(file-info-type (file-info '/dev/null' #t))" 'char-special (file-info-type (file-info "/dev/null" #t)))
-;; (test-equal "(file-info-device? (file-info '/dev/null' #t))" #t (file-info-device? (file-info "/dev/null" #t)))
-;; (test-equal "(file-info-type (file-info '/dev/fd' #t))" 'directory (file-info-type (file-info "/dev/fd" #t)))
+;; #1976 regression: file-info used to abort (SIGABRT, uncatchable) on any
+;; path whose st_dev is negative when read as i32 — on macOS that is every
+;; entry under /dev, whose devfs st_dev is 2998493978 = -1296473318 as i32,
+;; via the old `.dev = @intCast(stat_buf.dev)`. Fixed by reinterpreting the
+;; bits as unsigned before widening (devToU64). /dev/fd has st_rdev = 0 and
+;; still aborted, which is what discriminated dev from rdev.
+(test-equal "(file-info-type (file-info '/dev/null' #t))" 'char-special (file-info-type (file-info "/dev/null" #t)))
+(test-equal "(file-info-device? (file-info '/dev/null' #t))" #t (file-info-device? (file-info "/dev/null" #t)))
+(test-equal "(file-info-type (file-info '/dev/fd' #t))" 'directory (file-info-type (file-info "/dev/fd" #t)))
 ;;
-;; Enabled control: an ordinary path on a filesystem whose st_dev is
-;; positive stats without incident, so the failure is the device number and
-;; not the char-device type or the /dev path text.
+;; Control: an ordinary path on a filesystem whose st_dev is positive stats
+;; without incident, so the old failure was the device number and not the
+;; char-device type or the /dev path text.
 (test-equal "(file-info-type (file-info '/tmp' #t))" 'directory (file-info-type (file-info "/tmp" #t)))
 (test-equal "(> (file-info:device (file-info '/tmp' #t)) 0)" #t (> (file-info:device (file-info "/tmp" #t)) 0))
 

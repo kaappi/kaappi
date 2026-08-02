@@ -459,7 +459,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         self.registers[abs_base + 1 + rest_start] = try buildRestList(self.gc, self.registers[abs_base + 1 + rest_start .. abs_base + 1 + nargs]);
                     }
 
-                    const arg_count = if (func.is_variadic) func.arity + 1 else nargs;
+                    // arity is a u8 and 255 is legal, so the variadic +1 for
+                    // the rest-list slot must widen first (#2185).
+                    const arg_count: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else nargs;
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         const src_idx = @as(usize, abs_base) + 1 + i;
@@ -671,7 +673,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         flat_args[rest_start] = try buildRestList(self.gc, flat_args[rest_start..total_nargs]);
                     }
 
-                    const arg_count: u8 = if (func.is_variadic) func.arity + 1 else total_nargs;
+                    // Same u8 widening as tail_call above (#2185): a variadic
+                    // callee with 255 fixed params needs 256 arg slots.
+                    const arg_count: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else total_nargs;
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         if (dst_idx >= self.registers.len) return VMError.InvalidBytecode;
@@ -1076,7 +1080,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         self.registers[abs_base + 1 + rest_start] = try buildRestList(self.gc, self.registers[abs_base + 1 + rest_start .. abs_base + 1 + nargs]);
                     }
-                    const arg_count = if (tfunc.is_variadic) tfunc.arity + 1 else nargs;
+                    // Same u8 widening as tail_call above (#2185).
+                    const arg_count: usize = if (tfunc.is_variadic) @as(usize, tfunc.arity) + 1 else nargs;
                     for (0..arg_count) |ai| {
                         const dst_idx = @as(usize, frame.base) + ai;
                         const src_idx = @as(usize, abs_base) + 1 + ai;

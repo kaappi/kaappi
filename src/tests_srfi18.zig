@@ -652,3 +652,69 @@ test "concurrent thread-sleep! retries across fibers resolve without unbounded s
     try std.testing.expect(waiter_result < 100_000);
     try std.testing.expectEqual(types.TRUE, signal);
 }
+
+// #1983: unguarded float->int conversions in the SRFI-18 time/timeout paths
+// aborted the process -- uncatchably, exit 134 -- on +/-inf.0, NaN, and any
+// magnitude past the destination type. seconds->time now raises a catchable
+// error for values no time object can represent (it constructs an observable
+// value, so saturating would silently build a wrong one); timeouts saturate
+// instead, because "so far out it never fires" is the legal SRFI-18 reading
+// of a huge deadline (+inf.0 conventionally means "never time out").
+test "seconds->time rejects unrepresentable seconds catchably (#1983)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Each of these aborted the whole process before the fix.
+    const rejected = [_][]const u8{
+        "(guard (e (#t 'caught)) (seconds->time +inf.0))",
+        "(guard (e (#t 'caught)) (seconds->time -inf.0))",
+        "(guard (e (#t 'caught)) (seconds->time +nan.0))",
+        "(guard (e (#t 'caught)) (seconds->time 9.3e18))",
+        // 2^63 exactly: the first aborting value. A bound written as
+        // @floatFromInt(maxInt(i64)) rounds UP to this very value and would
+        // re-admit it -- the off-by-one-ULP guard shape #1907 was made of.
+        "(guard (e (#t 'caught)) (seconds->time 9223372036854775808.0))",
+    };
+    for (rejected) |src| {
+        const got = try vm.eval(src);
+        try std.testing.expect(types.isSymbol(got));
+        try std.testing.expectEqualStrings("caught", types.symbolName(got));
+    }
+
+    // Controls: the issue's last-accepted magnitude below 2^63, and the
+    // exactly-representable minimum (-2^63 is a valid i64, unlike +2^63).
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 9.2e18 (time->seconds (seconds->time 9.2e18)))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= -9223372036854775808.0 (time->seconds (seconds->time -9223372036854775808.0)))"));
+    // Round-trip sanity away from the boundary.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< (abs (- 1.5 (time->seconds (seconds->time 1.5)))) 1e-9)"));
+}
+
+test "huge and infinite timeouts saturate instead of aborting (#1983)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Uncontended mutex: the timeout is converted eagerly (the old abort
+    // site) and then never consulted, because the lock is free. 1e300
+    // exercises the float branch's multiply overflow; +inf.0 the infinity
+    // path. Control from the issue: 1.8e10 was already fine.
+    _ = try vm.eval("(define m (make-mutex))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(mutex-lock! m 1.8e10)"));
+    _ = try vm.eval("(mutex-unlock! m)");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(mutex-lock! m 1e300)"));
+    _ = try vm.eval("(mutex-unlock! m)");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(mutex-lock! m +inf.0)"));
+    _ = try vm.eval("(mutex-unlock! m)");
+
+    // Far-future TIME OBJECT: timeoutToDeadlineNs' other branch, whose u64
+    // seconds*1e9 multiply was a separate "integer overflow" panic.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(mutex-lock! m (seconds->time 9.2e18))"));
+    _ = try vm.eval("(mutex-unlock! m)");
+
+    // thread-join! with an infinite timeout on a thread that finishes.
+    _ = try vm.eval("(define t (thread-start! (make-thread (lambda () 42))))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(thread-join! t +inf.0)")));
+}

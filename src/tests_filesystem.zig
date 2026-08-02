@@ -379,3 +379,30 @@ test "set-file-mode changes permissions" {
         \\    (= (modulo mode #o10000) #o644)))
     ));
 }
+
+// #1976: dev_t is signed on macOS and OpenBSD, and devfs reports st_dev
+// values with the sign bit set (macOS /dev/null: st_dev = -1296473318), so
+// the old range-checked @intCast into StatResult.dev (u64) aborted the whole
+// process on any devfs path -- uncatchable, exit 134. /dev/fd is the
+// discriminating control: a *directory* with st_rdev = 0 that still aborted,
+// pinning the fault on st_dev rather than rdev or the file type.
+test "file-info on devfs paths does not abort (#1976)" {
+    if (comptime platform.is_windows) return error.SkipZigTest;
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        \\(let ((fi (file-info "/dev/null" #t)))
+        \\  (and (file-info? fi)
+        \\       (exact-integer? (file-info:device fi))
+        \\       (exact-integer? (file-info:rdev fi))
+        \\       (>= (file-info:device fi) 0)))
+    ));
+    // /dev/fd may be a broken /proc symlink on minimal containers, so only
+    // assert the stat cannot take the process down.
+    _ = try vm.eval(
+        \\(guard (e (#t 'stat-failed)) (file-info? (file-info "/dev/fd" #t)))
+    );
+}

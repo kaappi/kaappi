@@ -68,6 +68,21 @@ fn makedev(major: u64, minor: u64) u64 {
         ((minor & ~@as(u64, 0xff)) << 12) | ((major & ~@as(u64, 0xfff)) << 32);
 }
 
+/// dev_t is signed on macOS and OpenBSD (i32), and devfs reports device ids
+/// with the sign bit set -- macOS's /dev/null stats as st_dev = -1296473318.
+/// A range-checked @intCast into u64 therefore aborted the process on any
+/// devfs path (#1976). Reinterpret the bits as the unsigned same-width type,
+/// then zero-extend: the id is an opaque identity, not a quantity, so the
+/// bit pattern is what matters.
+fn devToU64(dev: anytype) u64 {
+    const info = @typeInfo(@TypeOf(dev)).int;
+    if (info.signedness == .signed) {
+        const U = std.meta.Int(.unsigned, info.bits);
+        return @as(U, @bitCast(dev));
+    }
+    return dev;
+}
+
 fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
     if (comptime platform.is_windows) {
         // _wstat64 always follows reparse points (`follow` has no effect)
@@ -83,10 +98,10 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .mtime_sec = st.st_mtime,
             .atime_sec = st.st_atime,
             .ctime_sec = st.st_ctime,
-            .dev = @intCast(st.st_dev),
+            .dev = devToU64(st.st_dev),
             .ino = @intCast(st.st_ino),
             .nlinks = @intCast(@max(st.st_nlink, 0)),
-            .rdev = @intCast(st.st_rdev),
+            .rdev = devToU64(st.st_rdev),
             .blksize = 0,
             .blocks = 0,
             .uid = 0,
@@ -131,10 +146,10 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .mtime_sec = stat_buf.mtime().sec,
             .atime_sec = stat_buf.atime().sec,
             .ctime_sec = stat_buf.ctime().sec,
-            .dev = @intCast(stat_buf.dev),
+            .dev = devToU64(stat_buf.dev),
             .ino = @intCast(stat_buf.ino),
             .nlinks = @intCast(stat_buf.nlink),
-            .rdev = @intCast(stat_buf.rdev),
+            .rdev = devToU64(stat_buf.rdev),
             .blksize = @intCast(stat_buf.blksize),
             .blocks = @intCast(stat_buf.blocks),
             .uid = stat_buf.uid,

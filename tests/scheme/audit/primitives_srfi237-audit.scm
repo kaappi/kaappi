@@ -667,14 +667,13 @@
 ;;; ===================================================================
 ;;; Record INSTANTIATION field-count limit
 ;;;
-;;; GC.allocRecordInstance computes its byte size as
+;;; GC.allocRecordInstance used to compute its byte size as
 ;;;   @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value)
 ;;; in u8 arithmetic (num_fields is a u8), so the whole expression
-;;; overflows once 40 + 8n > 255, i.e. at n = 27. The record TYPE is
-;;; created happily; the process aborts on the first instance.
-;;;
-;;; This is an uncatchable Zig panic, not an error, so the failing case
-;;; cannot be left enabled in any form — it would abort the suite.
+;;; overflowed once 40 + 8n > 255, i.e. at n = 27: the record TYPE was
+;;; created happily, and the process aborted (uncatchable Zig panic) on
+;;; the first instance. Fixed by #1973 — the multiplication is widened
+;;; to usize — so the three cases past the old cliff are enabled again.
 ;;; ===================================================================
 
 (test-assert "instantiation: a 26-field record type instantiates (control, just under the cliff)"
@@ -685,36 +684,50 @@
              (record-type-descriptor?
                (make-record-type-descriptor 'N27 #f #f #f #f (fields-vector 27))))
 
-;; FAIL: #1973 (allocRecordInstance sizes in u8 arithmetic — PANICS, uncatchable, at 27 fields)
-;; (test-assert "instantiation: a 27-field record type instantiates"
-;;              (record?
-;;                (apply (root-ctor (make-record-type-descriptor 'N27 #f #f #f #f (fields-vector 27)))
-;;                       (count-up 27))))
-;; FAIL: #1973 (same overflow, reached through inheritance rather than own fields)
-;; (test-assert "instantiation: a 27-field total reached through a parent chain instantiates"
-;;              (let* ((A (make-record-type-descriptor 'A27 #f #f #f #f (fields-vector 20)))
-;;                     (B (make-record-type-descriptor 'B27 A #f #f #f (fields-vector 7))))
-;;                (record? (apply (record-constructor
-;;                                  (make-record-descriptor B (make-record-descriptor A #f #f) #f))
-;;                                (count-up 27)))))
+;; #1973 regression: 27 own fields — the first count past the old u8 cliff.
+(test-assert "instantiation: a 27-field record type instantiates"
+             (record?
+               (apply (root-ctor (make-record-type-descriptor 'N27 #f #f #f #f (fields-vector 27)))
+                      (count-up 27))))
+;; #1973 regression: the same overflow, reached through inheritance.
+(test-assert "instantiation: a 27-field total reached through a parent chain instantiates"
+             (let* ((A (make-record-type-descriptor 'A27 #f #f #f #f (fields-vector 20)))
+                    (B (make-record-type-descriptor 'B27 A #f #f #f (fields-vector 7))))
+               (record? (apply (record-constructor
+                                 (make-record-descriptor B (make-record-descriptor A #f #f) #f))
+                               (count-up 27)))))
 
-;; The same overflow is reachable from plain R7RS `define-record-type` with
+;; The same overflow was reachable from plain R7RS `define-record-type` with
 ;; no SRFI 237 involvement at all — allocRecordInstance is shared by both
 ;; record systems. Kept here because this audit is what found it.
-;; FAIL: #1973 (allocRecordInstance sizes in u8 arithmetic — PANICS on a plain R7RS 27-field record)
-;; (test-assert "instantiation: a plain R7RS 27-field record instantiates"
-;;              (begin
-;;                (define-record-type r7-27
-;;                  (make-r7-27 a b c d e f g h i j k l m n o p q r s t u v w x y z aa)
-;;                  r7-27?
-;;                  (a r7-27-a) (b r7-27-b) (c r7-27-c) (d r7-27-d) (e r7-27-e)
-;;                  (f r7-27-f) (g r7-27-g) (h r7-27-h) (i r7-27-i) (j r7-27-j)
-;;                  (k r7-27-k) (l r7-27-l) (m r7-27-m) (n r7-27-n) (o r7-27-o)
-;;                  (p r7-27-p) (q r7-27-q) (r r7-27-r) (s r7-27-s) (t r7-27-t)
-;;                  (u r7-27-u) (v r7-27-v) (w r7-27-w) (x r7-27-x) (y r7-27-y)
-;;                  (z r7-27-z) (aa r7-27-aa))
-;;                (r7-27? (make-r7-27 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
-;;                                    21 22 23 24 25 26 27))))
+(test-assert "instantiation: a plain R7RS 27-field record instantiates"
+             (begin
+               (define-record-type r7-27
+                 (make-r7-27 a b c d e f g h i j k l m n o p q r s t u v w x y z aa)
+                 r7-27?
+                 (a r7-27-a) (b r7-27-b) (c r7-27-c) (d r7-27-d) (e r7-27-e)
+                 (f r7-27-f) (g r7-27-g) (h r7-27-h) (i r7-27-i) (j r7-27-j)
+                 (k r7-27-k) (l r7-27-l) (m r7-27-m) (n r7-27-n) (o r7-27-o)
+                 (p r7-27-p) (q r7-27-q) (r r7-27-r) (s r7-27-s) (t r7-27-t)
+                 (u r7-27-u) (v r7-27-v) (w r7-27-w) (x r7-27-x) (y r7-27-y)
+                 (z r7-27-z) (aa r7-27-aa))
+               (r7-27? (make-r7-27 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+                                   21 22 23 24 25 26 27))))
+;; #1973 regression: the widest record that can be CONSTRUCTED. The rtd cap
+;; is 255 (num_fields is a u8), but every construction path passes the rtd
+;; plus all fields through one call, and the call/apply ISA caps at 255
+;; arguments — so 254 fields is the construction ceiling, and a 255-field
+;; construction is rejected loudly (KP3007), never an abort.
+(test-assert "instantiation: a 254-field record type instantiates (construction ceiling)"
+             (let ((inst (apply (root-ctor (make-record-type-descriptor
+                                             'N254 #f #f #f #f (fields-vector 254)))
+                                (count-up 254))))
+               (and (record? inst)
+                    (= 253 ((record-accessor (record-rtd inst) 253) inst)))))
+(test-assert "instantiation: a 255-field construction is rejected catchably (apply arg limit)"
+             (let ((rtd (make-record-type-descriptor 'N255 #f #f #f #f (fields-vector 255))))
+               (and (record-type-descriptor? rtd)
+                    (raises? (lambda () (apply (root-ctor rtd) (count-up 255)))))))
 
 
 ;;; ===================================================================

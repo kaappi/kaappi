@@ -534,3 +534,44 @@ test "an expired timer popped by the dispatch tick ends the wait instead of park
     try std.testing.expect(me.timed_out);
     try std.testing.expect(elapsed < 1_000_000_000);
 }
+
+// #1983: timeoutToDeadlineNs is pub and backs (kaappi fibers) channel
+// timeouts too, so the unguarded @intFromFloat took channel-receive down
+// with the whole process on a huge timeout. A fiber sender makes the
+// receive complete promptly; the timeout is converted eagerly (the old
+// abort site) and then never fires.
+test "channel-receive with a huge timeout converts without aborting (#1983)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define ch (make-channel 0))");
+    _ = try vm.eval("(spawn (lambda () (channel-send ch 41)))");
+    const result = try vm.eval("(+ 1 (channel-receive ch 1e300))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+// #1983: thread-sleep!'s own conversion site (a third copy of the same
+// unguarded @intFromFloat). The sleeping fiber saturates to a deadline that
+// never fires and parks; the main fiber must keep running -- before the fix
+// the conversion aborted the process the moment the fiber was dispatched.
+test "thread-sleep! with an unbounded duration parks without aborting (#1983)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define progress 0)
+        \\(spawn (lambda () (set! progress (+ progress 1)) (thread-sleep! 1e300) 'unreachable))
+        \\(spawn (lambda () (set! progress (+ progress 1)) (thread-sleep! +inf.0) 'unreachable))
+        \\(let loop ((i 0))
+        \\  (when (and (< progress 2) (< i 10)) (yield) (loop (+ i 1))))
+    );
+    // progress = 2 proves both fibers ran up to their thread-sleep! call --
+    // i.e. both conversions actually executed -- and parked, rather than the
+    // test passing because the fibers were never dispatched.
+    const got = try vm.eval("progress");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(got));
+}

@@ -470,7 +470,12 @@ pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []
         .record_type = record_type,
         .fields = fields,
     };
-    self.finishAlloc(&ri.header, @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value));
+    // num_fields is a u8 -- widen before multiplying, or the whole size
+    // expression is evaluated in u8 arithmetic and overflows at 27 fields
+    // (40 + 8*27 = 256): a panic under ReleaseSafe, wrapped GC accounting
+    // under ReleaseFast (#1973). gc_sweep.objectSize sizes the same object
+    // from fields.len (usize), so the two agree only with this widening.
+    self.finishAlloc(&ri.header, @sizeOf(RecordInstance) + @as(usize, record_type.num_fields) * @sizeOf(Value));
     return types.makePointer(&ri.header);
 }
 
