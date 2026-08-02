@@ -587,3 +587,213 @@ test "transcoded port: double-closing (either order) is idempotent" {
     // And closing the same port twice outright.
     _ = try ctx.vm.eval("(close-port tp)");
 }
+
+// ---------------------------------------------------------------------------
+// Regression tests for the SRFI 181/192 I/O fix batch
+// (#1942, #1943, #1995, #1997, #1998)
+// ---------------------------------------------------------------------------
+
+test "port-has-set-port-position!? tracks set-position!, not get-position (#1942)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // set-position! present, get-position absent: setter predicate #t,
+    // getter predicate #f. Both answered the getter question before #1942.
+    _ = try ctx.vm.eval("(define sp-only (make-custom-binary-input-port \"p\" (lambda (b s c) 0) #f (lambda (x) x) #f))");
+    try expectEqual(types.TRUE, try ctx.vm.eval("(port-has-set-port-position!? sp-only)"));
+    try expectEqual(types.FALSE, try ctx.vm.eval("(port-has-port-position? sp-only)"));
+
+    // get-position present, set-position! absent: the mirror image.
+    _ = try ctx.vm.eval("(define gp-only (make-custom-binary-input-port \"p\" (lambda (b s c) 0) (lambda () 0) #f #f))");
+    try expectEqual(types.FALSE, try ctx.vm.eval("(port-has-set-port-position!? gp-only)"));
+    try expectEqual(types.TRUE, try ctx.vm.eval("(port-has-port-position? gp-only)"));
+}
+
+test "read parses a datum from a transcoded port (#1995)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var wrapped = try ctx.gc.allocStringInputPort("(1 2 3)");
+    ctx.gc.pushRoot(&wrapped);
+    const tp = try ctx.gc.allocTranscodedPort(wrapped, true, false, .utf8, .none, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("tp", tp);
+
+    // Before #1995, readDatumFn refilled from the fd = -1 sentinel, read
+    // EBADF as end of input, and returned #<eof> without ever decoding.
+    try expectEqual(types.TRUE, try ctx.vm.eval("(equal? (read tp) '(1 2 3))"));
+    try expectEqual(types.TRUE, try ctx.vm.eval("(eof-object? (read tp))"));
+}
+
+test "read parses a datum from a custom textual port, including after peek-char (#1995)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // One character per read! call, so the datum can never arrive in a
+    // single burst -- the exact shape that made `read` look chunk-size-
+    // dependent before the fix.
+    _ = try ctx.vm.eval(
+        \\(define (char-source str)
+        \\  (let ((i 0))
+        \\    (make-custom-textual-input-port "char-source"
+        \\      (lambda (s start count)
+        \\        (if (>= i (string-length str))
+        \\            0
+        \\            (begin (string-set! s start (string-ref str i))
+        \\                   (set! i (+ i 1))
+        \\                   1)))
+        \\      #f #f #f)))
+    );
+    try expectEqual(types.TRUE, try ctx.vm.eval("(equal? (read (char-source \"(1 2 3)\")) '(1 2 3))"));
+    // The second symptom: peek-char primes peek_byte with `(`; read used to
+    // consume it, fail to refill, and raise a spurious KP3000 read error.
+    try expectEqual(types.TRUE, try ctx.vm.eval("(let ((p (char-source \"(4 5)\"))) (peek-char p) (equal? (read p) '(4 5)))"));
+}
+
+test "flush-output-port on a transcoded port cascades to the wrapped port (#1943)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define log '())");
+    _ = try ctx.vm.eval("(define cop (make-custom-binary-output-port \"o\" (lambda (bv s c) (set! log (cons 'w log)) c) #f #f #f (lambda () (set! log (cons 'f log)))))");
+    var cop = try ctx.vm.eval("cop");
+    ctx.gc.pushRoot(&cop);
+    const tp = try ctx.gc.allocTranscodedPort(cop, false, true, .utf8, .none, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("tp", tp);
+
+    _ = try ctx.vm.eval("(write-string \"x\" tp)");
+    // Before #1943 this fell through both fd checks (fd = -1) and silently
+    // did nothing; the wrapped custom port's flush! was never invoked.
+    _ = try ctx.vm.eval("(flush-output-port tp)");
+    try expectEqual(types.TRUE, try ctx.vm.eval("(equal? (reverse log) '(w f))"));
+}
+
+test "transcoded port: eol-style crlf rewrites a lone CR and a CRLF pair on write (#1997)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var wrapped = try ctx.gc.allocStringOutputPort();
+    ctx.gc.pushRoot(&wrapped);
+    const tp = try ctx.gc.allocTranscodedPort(wrapped, false, true, .utf8, .crlf, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("wrapped", wrapped);
+    try ctx.vm.defineGlobal("tp", tp);
+
+    // Before #1997 the lone CR passed through unconverted and the CRLF
+    // pair became CR CR LF (the CR kept, the LF expanded).
+    const out = try writeThenReadWrappedAlloc(&ctx, "(write-string \"a\\rb\\r\\nc\" tp)");
+    defer std.testing.allocator.free(out);
+    try expect(std.mem.eql(u8, "a\r\nb\r\nc", out));
+}
+
+test "transcoded port: eol-style lf rewrites CR and CRLF to bare LF on write (#1997)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var wrapped = try ctx.gc.allocStringOutputPort();
+    ctx.gc.pushRoot(&wrapped);
+    const tp = try ctx.gc.allocTranscodedPort(wrapped, false, true, .utf8, .lf, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("wrapped", wrapped);
+    try ctx.vm.defineGlobal("tp", tp);
+
+    const out = try writeThenReadWrappedAlloc(&ctx, "(write-string \"a\\rb\\r\\nc\" tp)");
+    defer std.testing.allocator.free(out);
+    try expect(std.mem.eql(u8, "a\nb\nc", out));
+}
+
+test "transcoded port: a CRLF split across two write-char calls is one line ending (#1997)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var wrapped = try ctx.gc.allocStringOutputPort();
+    ctx.gc.pushRoot(&wrapped);
+    const tp = try ctx.gc.allocTranscodedPort(wrapped, false, true, .utf8, .crlf, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("wrapped", wrapped);
+    try ctx.vm.defineGlobal("tp", tp);
+
+    // The CR is rendered eagerly as a full CRLF; the LF of the next call
+    // is recognized as the same pair's second half via
+    // TranscodeState.pending_cr and suppressed.
+    const out = try writeThenReadWrappedAlloc(&ctx, "(begin (write-char #\\a tp) (write-char #\\return tp) (write-char #\\newline tp) (write-char #\\b tp))");
+    defer std.testing.allocator.free(out);
+    try expect(std.mem.eql(u8, "a\r\nb", out));
+}
+
+test "transcoded port: consecutive lone CRs across calls stay separate line endings (#1997)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var wrapped = try ctx.gc.allocStringOutputPort();
+    ctx.gc.pushRoot(&wrapped);
+    const tp = try ctx.gc.allocTranscodedPort(wrapped, false, true, .utf8, .crlf, .replace);
+    ctx.gc.popRoot();
+    try ctx.vm.defineGlobal("wrapped", wrapped);
+    try ctx.vm.defineGlobal("tp", tp);
+
+    // pending_cr must only suppress an immediately-following LF, not a
+    // second CR (two line endings) or an ordinary character.
+    const out = try writeThenReadWrappedAlloc(&ctx, "(begin (write-char #\\return tp) (write-char #\\return tp) (write-char #\\b tp))");
+    defer std.testing.allocator.free(out);
+    try expect(std.mem.eql(u8, "\r\n\r\nb", out));
+}
+
+test "close-input-port on a bidirectional custom port leaves the output side open (#1998)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define n 0)");
+    _ = try ctx.vm.eval("(define io (make-custom-binary-input/output-port \"x\" (lambda (b s c) 0) (lambda (b s c) c) #f #f (lambda () (set! n (+ n 1)))))");
+
+    _ = try ctx.vm.eval("(close-input-port io)");
+    try expectEqual(types.FALSE, try ctx.vm.eval("(input-port-open? io)"));
+    try expectEqual(types.TRUE, try ctx.vm.eval("(output-port-open? io)"));
+    try expectEqual(fix(0), try ctx.vm.eval("n")); // close callback has NOT run
+
+    // Second side: the shared backing is released, callback exactly once.
+    _ = try ctx.vm.eval("(close-output-port io)");
+    try expectEqual(types.FALSE, try ctx.vm.eval("(output-port-open? io)"));
+    try expectEqual(fix(1), try ctx.vm.eval("n"));
+    // Idempotent: no second callback however the close is repeated.
+    _ = try ctx.vm.eval("(close-output-port io)");
+    _ = try ctx.vm.eval("(close-port io)");
+    try expectEqual(fix(1), try ctx.vm.eval("n"));
+}
+
+test "close-output-port half-close rejects writes while reads continue (#1998)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define io (make-custom-binary-input/output-port \"x\" (lambda (b s c) (if (= c 0) 0 (begin (bytevector-u8-set! b s 65) 1))) (lambda (b s c) c) #f #f #f))");
+    _ = try ctx.vm.eval("(close-output-port io)");
+    try expectEqual(types.TRUE, try ctx.vm.eval("(guard (e (#t #t)) (write-u8 66 io) #f)"));
+    try expectEqual(fix(65), try ctx.vm.eval("(read-u8 io)"));
+}
+
+test "close-input-port and close-output-port on single-direction ports behave like close-port (#1998)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // A single-direction port has no other side to preserve: one call
+    // fully closes it, exactly as before.
+    _ = try ctx.vm.eval("(define p (open-input-string \"abc\"))");
+    _ = try ctx.vm.eval("(close-input-port p)");
+    try expectEqual(types.FALSE, try ctx.vm.eval("(input-port-open? p)"));
+
+    _ = try ctx.vm.eval("(define o (open-output-string))");
+    _ = try ctx.vm.eval("(close-output-port o)");
+    try expectEqual(types.FALSE, try ctx.vm.eval("(output-port-open? o)"));
+}

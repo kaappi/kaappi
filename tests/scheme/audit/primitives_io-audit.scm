@@ -191,11 +191,12 @@
     (test-equal #\b (read-char p))
     (close-port p))
   (delete-file path))
-;; FAIL: #1941 (string-port port-position ignores the pushed-back peek byte: reports 3, next read-char yields the byte at offset 2)
-;; (let ((p (open-input-string "a\rb")))
-;;   (read-line p)
-;;   (test-equal 2 (port-position p))
-;;   (test-equal #\b (read-char p)))
+;; #1941 (fixed): the string branch subtracts the pushed-back peek byte the
+;; same way the fd branch always did.
+(let ((p (open-input-string "a\rb")))
+  (read-line p)
+  (test-equal 2 (port-position p))
+  (test-equal #\b (read-char p)))
 
 ;; CONTROL: a seek with no stale read-ahead discards nothing and re-reads
 ;; from the requested offset.
@@ -213,11 +214,12 @@
     (test-equal #\a (read-char p))
     (close-port p))
   (delete-file path))
-;; FAIL: #1941 (set-port-position! on a string port does not discard stale read-ahead: a pushed-back peek byte survives the seek and is returned first)
-;; (let ((p (open-input-string "a\rXbcd")))
-;;   (read-line p)
-;;   (set-port-position! p 0)
-;;   (test-equal #\a (read-char p)))
+;; #1941 (fixed): the string branch discards stale read-ahead on seek the
+;; same way the fd branch always did.
+(let ((p (open-input-string "a\rXbcd")))
+  (read-line p)
+  (set-port-position! p 0)
+  (test-equal #\a (read-char p)))
 
 ;;; --- SRFI 192: bytevector ports --------------------------------------------
 (let ((p (open-input-bytevector (bytevector 10 20 30))))
@@ -284,20 +286,19 @@
            (lambda (bv start count) 0) #f #f #f)))
   (test-equal #f (port-has-port-position? r))
   (test-equal #f (port-has-set-port-position!? r)))
-;; Both SRFI 192 predicates are registered to the same Zig function, which only
-;; inspects get_position_proc — so the two mixed cases below are both wrong.
-;; FAIL: #1941 (port-has-set-port-position!? answers #t for a custom port with get-position but no set-position!, while set-port-position! on it raises)
-;; (let ((p (make-custom-binary-input-port "gp-only"
-;;            (lambda (bv start count) 0) (lambda () 0) #f #f)))
-;;   (test-equal #t (port-has-port-position? p))
-;;   (test-equal #f (port-has-set-port-position!? p))
-;;   (test-equal #t (raises? (lambda () (set-port-position! p 0)))))
-;; FAIL: #1941 (port-has-set-port-position!? answers #f for a custom port with set-position! but no get-position, while set-port-position! on it succeeds)
-;; (let ((p (make-custom-binary-input-port "sp-only"
-;;            (lambda (bv start count) 0) #f (lambda (k) k) #f)))
-;;   (test-equal #f (port-has-port-position? p))
-;;   (test-equal #t (port-has-set-port-position!? p))
-;;   (test-equal #t (begin (set-port-position! p 0) #t)))
+;; #1942 (fixed): the two predicates are now separate functions — the setter
+;; predicate inspects set_position_proc, so the two mixed cases each answer
+;; for their own operation.
+(let ((p (make-custom-binary-input-port "gp-only"
+           (lambda (bv start count) 0) (lambda () 0) #f #f)))
+  (test-equal #t (port-has-port-position? p))
+  (test-equal #f (port-has-set-port-position!? p))
+  (test-equal #t (raises? (lambda () (set-port-position! p 0)))))
+(let ((p (make-custom-binary-input-port "sp-only"
+           (lambda (bv start count) 0) #f (lambda (k) k) #f)))
+  (test-equal #f (port-has-port-position? p))
+  (test-equal #t (port-has-set-port-position!? p))
+  (test-equal #t (begin (set-port-position! p 0) #t)))
 
 ;;; --- Write buffering: the 8 KiB high-water mark and its triggers -----------
 ;; Ports on fd > 2 accumulate in write_buf and drain when the pending span
@@ -604,17 +605,17 @@
     (close-port tp))
   (test-equal 5 (file-byte-count path))
   (delete-file path))
-;; flushOutputPort has a custom_backend branch and an isBufferedFdPort branch
-;; but no transcode branch, and a transcoded port carries the fd -1 sentinel.
-;; FAIL: #1943 (flush-output-port on a transcoded port is a silent no-op — it never reaches the wrapped port, so buffered output is not durable until close-port)
-;; (let ((path "/tmp/kaappi-audit-io-tcf.txt"))
-;;   (let* ((bo (open-binary-output-file path))
-;;          (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
-;;     (write-string "hello" tp)
-;;     (flush-output-port tp)
-;;     (test-equal 5 (file-byte-count path))
-;;     (close-port tp))
-;;   (delete-file path))
+;; #1943 (fixed): flushing a transcoded port cascades to the wrapped port —
+;; where all of its pending output lives — so the bytes are durable without
+;; a close.
+(let ((path "/tmp/kaappi-audit-io-tcf.txt"))
+  (let* ((bo (open-binary-output-file path))
+         (tp (transcoded-port bo (make-transcoder (utf-8-codec) 'none 'replace))))
+    (write-string "hello" tp)
+    (flush-output-port tp)
+    (test-equal 5 (file-byte-count path))
+    (close-port tp))
+  (delete-file path))
 
 ;;; --- Standard surface: gaps the original audit left ------------------------
 ;; write-string start/end are codepoint indices, not byte offsets.

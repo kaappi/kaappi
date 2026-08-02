@@ -11,6 +11,15 @@ pub const Port = struct {
     is_input: bool,
     is_output: bool,
     is_open: bool,
+    /// R7RS 6.13.1 half-close state for ports that are simultaneously input
+    /// and output (a SRFI 181 input/output custom port, or fd->port):
+    /// close-input-port / close-output-port mark one side closed here while
+    /// `is_open` stays true, and only the second side's close releases the
+    /// shared backing (close callback, fd) via closePortObj (#1998). On a
+    /// single-direction port both flags stay false forever — closing it goes
+    /// straight through `is_open`.
+    input_closed: bool = false,
+    output_closed: bool = false,
     name: []const u8,
     owns_name: bool, // if true, name is heap-allocated and must be freed
     peek_byte: ?u8, // lead byte lookahead for peek-char
@@ -85,8 +94,10 @@ pub const Port = struct {
     /// via direct Zig calls (readOneByte/portWriteBytes in
     /// primitives_io.zig), never a Scheme callback, so none of
     /// custom_backend's reentrant-call restrictions apply here. Owned;
-    /// freed with the port, same as custom_backend above -- and like it,
-    /// never mutated after construction, so no write barrier is needed.
+    /// freed with the port, same as custom_backend above. The one field
+    /// mutated after construction is the plain bool `pending_cr` (#1997);
+    /// `wrapped_port` — the only Value — is set once at allocation, so no
+    /// write barrier is ever needed.
     transcode: ?*TranscodeState = null,
 };
 
@@ -288,10 +299,11 @@ pub fn destroySatellites(port: *Port, allocator: std.mem.Allocator) void {
 pub const Codec = enum { utf8 };
 
 /// SRFI 181 eol-style: `none` performs no line-ending translation in
-/// either direction. On decode, `lf`/`crlf` both collapse any recognized
-/// line ending (bare CR, bare LF, or CRLF) to a single #\newline -- the
-/// distinction only matters on encode, where `lf` emits a bare #\newline
-/// and `crlf` emits the two-byte CRLF sequence.
+/// either direction. `lf`/`crlf` both recognize the same three line
+/// endings (bare CR, bare LF, or CRLF) in both directions: decode
+/// collapses any of them to a single #\newline, and encode rewrites any
+/// of them to the style's own rendering -- a bare #\newline for `lf`,
+/// the two-byte CRLF sequence for `crlf` (#1997).
 pub const EolStyle = enum { none, lf, crlf };
 
 /// SRFI 181 error-handling mode for decoding/encoding failures. `replace`
@@ -308,6 +320,16 @@ pub const TranscodeState = struct {
     codec: Codec,
     eol_style: EolStyle,
     error_mode: ErrorMode,
+    /// Encode-side split-CRLF state (#1997): the previous write span ended
+    /// with a #\return, which was already rendered as one full line ending
+    /// (eol_style `lf`/`crlf`). If the next span opens with #\newline, that
+    /// LF is the second half of the same (split) CRLF pair — e.g. write-char
+    /// #\return then write-char #\newline — and must be suppressed, not
+    /// rendered as a second line ending. Only mutated after the wrapped
+    /// write fully succeeds, so a parked write's from-scratch retry
+    /// recomputes the identical translation. A plain bool, so mutating it
+    /// needs no GC write barrier.
+    pending_cr: bool = false,
 };
 
 /// Callback procedures backing a SRFI 181 custom port. Each is either a

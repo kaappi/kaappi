@@ -211,7 +211,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Prim
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc_name, "input port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_input) return primitives.typeError(proc_name, "input port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
+        if (!port.is_open or port.input_closed) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -228,7 +228,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc_name, "output port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_output) return primitives.typeError(proc_name, "output port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
+        if (!port.is_open or port.output_closed) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant

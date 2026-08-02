@@ -694,12 +694,13 @@
 ;;         (read-u8 p)
 ;;         (list a (port-position p))))))
 
-;; FAIL: #1942 (port-has-set-port-position!? is registered to the wrong function — wrong in both directions)
-;; (test-assert "port-has-set-port-position!? tracks set-position!, not get-position"
-;;   (and (port-has-set-port-position!?
-;;          (make-custom-binary-input-port "p" (lambda (b s c) 0) #f (lambda (x) x) #f))
-;;        (not (port-has-set-port-position!?
-;;               (make-custom-binary-input-port "p" (lambda (b s c) 0) (lambda () 0) #f #f)))))
+;; #1942 (fixed): the setter predicate is its own function inspecting
+;; set_position_proc, no longer an alias of the getter predicate.
+(test-assert "port-has-set-port-position!? tracks set-position!, not get-position"
+  (and (port-has-set-port-position!?
+         (make-custom-binary-input-port "p" (lambda (b s c) 0) #f (lambda (x) x) #f))
+       (not (port-has-set-port-position!?
+              (make-custom-binary-input-port "p" (lambda (b s c) 0) (lambda () 0) #f #f)))))
 
 ;;; ==================================================================
 ;;; 7. Datum-level I/O over custom and transcoded ports
@@ -722,19 +723,21 @@
         (peek-char (char-source "abc"))
         (read-string 2 (char-source "bc"))))
 
-;; FAIL: #1995 (read bypasses readOneByte: returns #<eof> on custom and transcoded ports)
-;; (test-equal "read parses a datum from a custom TEXTUAL port"
-;;   '(1 2 3) (read (char-source "(1 2 3)")))
-;; (test-equal "read parses a datum from a custom BINARY port"
-;;   '(1 2 3)
-;;   (call-with-values (lambda () (byte-source (string->utf8 "(1 2 3)") 1))
-;;     (lambda (p src-pos) (read p))))
-;; (test-equal "read parses a datum from a TRANSCODED port"
-;;   '(1 2 3)
-;;   (read (transcoded-port (open-input-bytevector (string->utf8 "(1 2 3)")) (native-transcoder))))
-;; (test-equal "read after a peek-char on a custom port does not raise a spurious read error"
-;;   '(1 2 3)
-;;   (let ((p (char-source "(1 2 3)"))) (peek-char p) (read p)))
+;; #1995 (fixed): readDatumFn refills through readOneByte on custom and
+;; transcoded ports (which have no fd), so `read` drives the read! callback
+;; / transcoder decode like every other input primitive.
+(test-equal "read parses a datum from a custom TEXTUAL port"
+  '(1 2 3) (read (char-source "(1 2 3)")))
+(test-equal "read parses a datum from a custom BINARY port"
+  '(1 2 3)
+  (call-with-values (lambda () (byte-source (string->utf8 "(1 2 3)") 1))
+    (lambda (p src-pos) (read p))))
+(test-equal "read parses a datum from a TRANSCODED port"
+  '(1 2 3)
+  (read (transcoded-port (open-input-bytevector (string->utf8 "(1 2 3)")) (native-transcoder))))
+(test-equal "read after a peek-char on a custom port does not raise a spurious read error"
+  '(1 2 3)
+  (let ((p (char-source "(1 2 3)"))) (peek-char p) (read p)))
 
 ;; The control that makes #1995 a port-kind bug rather than a reader bug:
 ;; the identical datum reads correctly from a string port and a file port.
@@ -835,24 +838,54 @@
 ;;  as a CRLF sequence, whereas the symbol lf causes any line ending to be
 ;;  output as a #\newline character" — and a lone #\return IS one of the
 ;;  three line endings the spec requires support for.
-;; FAIL: #1997 (transcoded output ignores #\return as a line ending)
-;; (test-equal "eol crlf: a lone CR is written as CRLF" '(97 13 10 98) (encode-string "a\rb" 'crlf))
-;; (test-equal "eol lf: a lone CR is written as LF" '(97 10 98) (encode-string "a\rb" 'lf))
-;; (test-equal "eol crlf: a CRLF in the string is written as ONE CRLF, not CR CR LF"
-;;   '(97 13 10 98) (encode-string "a\r\nb" 'crlf))
-;; (test-equal "eol lf: a CRLF in the string is written as one LF"
-;;   '(97 10 98) (encode-string "a\r\nb" 'lf))
-;; (test-equal "a crlf transcoder round-trips a CRLF without doubling the line break"
-;;   "a\nb"
-;;   (let ((t (make-transcoder (utf-8-codec) 'crlf 'replace)))
-;;     (bytevector->string (string->bytevector "a\r\nb" t) t)))
+;; #1997 (fixed): the encode direction recognizes all three line endings —
+;; bare LF, bare CR, and the CRLF pair — matching what its own decode
+;; direction always did.
+(test-equal "eol crlf: a lone CR is written as CRLF" '(97 13 10 98) (encode-string "a\rb" 'crlf))
+(test-equal "eol lf: a lone CR is written as LF" '(97 10 98) (encode-string "a\rb" 'lf))
+(test-equal "eol crlf: a CRLF in the string is written as ONE CRLF, not CR CR LF"
+  '(97 13 10 98) (encode-string "a\r\nb" 'crlf))
+(test-equal "eol lf: a CRLF in the string is written as one LF"
+  '(97 10 98) (encode-string "a\r\nb" 'lf))
+(test-equal "a crlf transcoder round-trips a CRLF without doubling the line break"
+  "a\nb"
+  (let ((t (make-transcoder (utf-8-codec) 'crlf 'replace)))
+    (bytevector->string (string->bytevector "a\r\nb" t) t)))
 
-;; Pinning what the round trip does today, so #1997's fix flips a test
-;; rather than silently changing an untested behaviour.
-(test-equal "current (wrong) behaviour: a crlf round trip turns one CRLF into two line breaks"
-  4
+;; The pin that documented the pre-fix behaviour (4 characters), flipped by
+;; #1997's fix as intended.
+(test-equal "a crlf round trip keeps one CRLF as one line break"
+  3
   (let ((t (make-transcoder (utf-8-codec) 'crlf 'replace)))
     (string-length (bytevector->string (string->bytevector "a\r\nb" t) t))))
+
+;; A CRLF split across two write-char calls is still ONE line ending: the
+;; trailing CR is rendered eagerly and the opening LF of the next write is
+;; recognized as the same pair's second half (TranscodeState.pending_cr).
+(test-equal "eol crlf: a CRLF split across two write-char calls stays one CRLF"
+  '(97 13 10 98)
+  (let* ((bp (open-output-bytevector))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'crlf 'replace))))
+    (write-char #\a tp) (write-char #\return tp) (write-char #\newline tp) (write-char #\b tp)
+    (bv->list (get-output-bytevector bp))))
+(test-equal "eol lf: a CRLF split across two write-char calls stays one LF"
+  '(97 10 98)
+  (let* ((bp (open-output-bytevector))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'lf 'replace))))
+    (write-char #\a tp) (write-char #\return tp) (write-char #\newline tp) (write-char #\b tp)
+    (bv->list (get-output-bytevector bp))))
+(test-equal "eol crlf: two consecutive lone CRs across calls are two line endings"
+  '(13 10 13 10)
+  (let* ((bp (open-output-bytevector))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'crlf 'replace))))
+    (write-char #\return tp) (write-char #\return tp)
+    (bv->list (get-output-bytevector bp))))
+(test-equal "eol crlf: a CR followed by a non-LF character was a lone line ending"
+  '(13 10 98)
+  (let* ((bp (open-output-bytevector))
+         (tp (transcoded-port bp (make-transcoder (utf-8-codec) 'crlf 'replace))))
+    (write-char #\return tp) (write-char #\b tp)
+    (bv->list (get-output-bytevector bp))))
 
 ;; A newline-only round trip is unaffected, which localises #1997 to CR.
 (test-equal "control for #1997: a newline-only crlf round trip is lossless"
@@ -998,17 +1031,18 @@
     (close-port bp)
     (raises? (lambda () (read-char tp)))))
 
-;; FAIL: #1943 (flush-output-port on a transcoded port is a silent no-op)
-;; (test-equal "flush-output-port on a transcoded port reaches the wrapped port's flush"
-;;   '(w f)
-;;   (let ((out '()))
-;;     (let* ((cop (make-custom-binary-output-port "o"
-;;                   (lambda (bv s c) (set! out (cons 'w out)) c) #f #f #f
-;;                   (lambda () (set! out (cons 'f out)))))
-;;            (top (transcoded-port cop (native-transcoder))))
-;;       (write-string "x" top)
-;;       (flush-output-port top))
-;;     (reverse out)))
+;; #1943 (fixed): flush-output-port on a transcoded port cascades to the
+;; wrapped port, where every pending byte lives.
+(test-equal "flush-output-port on a transcoded port reaches the wrapped port's flush"
+  '(w f)
+  (let ((out '()))
+    (let* ((cop (make-custom-binary-output-port "o"
+                  (lambda (bv s c) (set! out (cons 'w out)) c) #f #f #f
+                  (lambda () (set! out (cons 'f out)))))
+           (top (transcoded-port cop (native-transcoder))))
+      (write-string "x" top)
+      (flush-output-port top))
+    (reverse out)))
 
 ;;; --- bytevector->string / string->bytevector ---
 
@@ -1142,31 +1176,47 @@
 ;; R7RS 6.13.1: "the close-input-port and close-output-port procedures can
 ;; then be used to close the input and output sides of the port
 ;; independently."
-;; FAIL: #1998 (close-input-port closes the output side too, and vice versa)
-;; (test-equal "close-input-port on a bidirectional port leaves the output side open"
-;;   '(#f #t 0)
-;;   (let ((n 0))
-;;     (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
-;;                                                     #f #f (lambda () (set! n (+ n 1))))))
-;;       (close-input-port io)
-;;       (list (input-port-open? io) (output-port-open? io) n))))
-;; (test-equal "close-output-port on a bidirectional port leaves the input side open"
-;;   '(#t #f 0)
-;;   (let ((n 0))
-;;     (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
-;;                                                     #f #f (lambda () (set! n (+ n 1))))))
-;;       (close-output-port io)
-;;       (list (input-port-open? io) (output-port-open? io) n))))
-
-;; Pinning today's behaviour so #1998's fix flips a test rather than
-;; silently changing something nothing asserted.
-(test-equal "current (wrong) behaviour: close-input-port closes the output side of a bidirectional port"
-  '(#f #f 1)
+;; #1998 (fixed): close-input-port / close-output-port close the two sides
+;; of a bidirectional port independently; the close callback runs only when
+;; the second side goes.
+(test-equal "close-input-port on a bidirectional port leaves the output side open"
+  '(#f #t 0)
   (let ((n 0))
     (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
                                                     #f #f (lambda () (set! n (+ n 1))))))
       (close-input-port io)
       (list (input-port-open? io) (output-port-open? io) n))))
+(test-equal "close-output-port on a bidirectional port leaves the input side open"
+  '(#t #f 0)
+  (let ((n 0))
+    (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
+                                                    #f #f (lambda () (set! n (+ n 1))))))
+      (close-output-port io)
+      (list (input-port-open? io) (output-port-open? io) n))))
+(test-equal "closing the second side of a bidirectional port runs close exactly once"
+  '(#f #f 1)
+  (let ((n 0))
+    (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
+                                                    #f #f (lambda () (set! n (+ n 1))))))
+      (close-input-port io)
+      (close-output-port io)
+      (close-output-port io)          ; idempotent: no second callback
+      (list (input-port-open? io) (output-port-open? io) n))))
+(test-equal "close-port on a half-closed bidirectional port completes the close, callback once"
+  '(#f #f 1)
+  (let ((n 0))
+    (let ((io (make-custom-binary-input/output-port "x" (lambda (b s c) 0) (lambda (b s c) c)
+                                                    #f #f (lambda () (set! n (+ n 1))))))
+      (close-input-port io)
+      (close-port io)
+      (list (input-port-open? io) (output-port-open? io) n))))
+(test-assert "the closed output side rejects writes while the open input side still reads"
+  (let ((io (make-custom-binary-input/output-port "x"
+              (lambda (b s c) (if (= c 0) 0 (begin (bytevector-u8-set! b s 65) 1)))
+              (lambda (b s c) c) #f #f #f)))
+    (close-output-port io)
+    (and (raises? (lambda () (write-u8 66 io)))
+         (= 65 (read-u8 io)))))
 
 ;;; ==================================================================
 ;;; 12. Bulk I/O through the readOneByte / portWriteBytes funnel

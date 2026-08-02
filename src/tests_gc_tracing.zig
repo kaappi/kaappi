@@ -1316,14 +1316,18 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     });
     expectFields(types.Vector, &.{ "header", "data" });
     expectFields(types.Bytevector, &.{ "header", "data", "shared" });
+    // `input_closed`/`output_closed` (kaappi#1998) are plain bools, not
+    // Value-bearing, so they add no marking or sweeping obligation -- only
+    // this re-pin.
     expectFields(types.Port, &.{
-        "header",         "fd",             "is_input",       "is_output",
-        "is_open",        "name",           "owns_name",      "peek_byte",
-        "peek_extra",     "peek_extra_len", "is_string_port", "string_data",
-        "string_pos",     "string_out_buf", "string_out_len", "string_out_cap",
-        "string_out_pos", "is_binary",      "read_buf",       "read_buf_len",
-        "random_gen",     "nonblocking",    "write_buf",      "write_buf_start",
-        "write_buf_len",  "fd_state",       "custom_backend", "transcode",
+        "header",         "fd",              "is_input",       "is_output",
+        "is_open",        "input_closed",    "output_closed",  "name",
+        "owns_name",      "peek_byte",       "peek_extra",     "peek_extra_len",
+        "is_string_port", "string_data",     "string_pos",     "string_out_buf",
+        "string_out_len", "string_out_cap",  "string_out_pos", "is_binary",
+        "read_buf",       "read_buf_len",    "random_gen",     "nonblocking",
+        "write_buf",      "write_buf_start", "write_buf_len",  "fd_state",
+        "custom_backend", "transcode",
     });
     // `has_protocol` (kaappi#1974) is a plain bool, not Value-bearing, so it
     // adds no marking or sweeping obligation -- only this re-pin.
@@ -1416,8 +1420,10 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "read_proc",         "write_proc", "get_position_proc",
         "set_position_proc", "close_proc", "flush_proc",
     });
+    // `pending_cr` (kaappi#1997) is a plain bool, not Value-bearing, so it
+    // adds no marking or sweeping obligation -- only this re-pin.
     expectFields(types.TranscodeState, &.{
-        "wrapped_port", "codec", "eol_style", "error_mode",
+        "wrapped_port", "codec", "eol_style", "error_mode", "pending_cr",
     });
     expectFields(types.HashEntry, &.{ "key", "value", "state" });
     expectFields(types.GuardEntry, &.{ "watched", "payload" });
