@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785630775929,
+  "lastUpdate": 1785632056543,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0822034d6d86cea9ac665ef3eb99a0f8c98e350a",
-          "message": "Reclassify digit-led glued identifiers from KP1002 to KP1004 (#1848)\n\n* Reclassify digit-led glued identifiers from KP1002 to KP1004\n\n`3-state`, `5foo`, `1.2.3`, and similar tokens are correctly rejected --\nR7RS identifiers can never begin with a digit -- but the reader had\nalready committed to parsing a number on the leading digit, so the\ngeneric KP1002 (\"unexpected character\", whose explanation talks about\nstray '#'-syntax) named the wrong category, gave no hint, and pointed\nthe caret one column past the token's actual start.\n\nSuch a token now reports KP1004 (\"invalid number literal\"), the\naccurate code since the reader already committed to a number, with the\ncaret at the token's start and a message that echoes the offending\ntoken and states the rule. Surfaced consistently across the CLI's text\noutput, `kaappi check`, `kaappi compile`, and `--diagnostics=json` via a\nnew reader detail-message channel mirroring the compiler's existing one.\n\nFixes #1723.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review findings on the digit-led-identifier fix\n\n- readNumber's wrapper reclassified to KP1004 whenever any non-delimiter\n  followed a number, not just an identifier-continuation character. A\n  stray backtick or comma (e.g. `3\\``) is neither a delimiter nor an\n  R7RS <subsequent> char, so it wrongly took the new path and reported\n  \"invalid number literal '3': ... cannot begin with a digit\" -- both\n  mislabeling the valid number '3' and dropping the actual offending\n  character. Now only reclassifies when consumeGluedIdentifierChars\n  actually consumes at least one character; otherwise it falls through\n  to the original, accurate UnexpectedChar (KP1002).\n\n- setReadErrorDetail's bufPrint-overflow fallback claimed the full\n  256-byte buffer as valid content without knowing how much a failed\n  write actually populated. Rebuilt on Io.Writer + buffered().len --\n  the same pattern compiler.formatSyntaxError already uses -- so a\n  pathologically long malformed token (the format string embeds it\n  twice) truncates to a clean prefix instead of risking a stale tail.\n\n- Strengthened the \"valid numbers are unaffected\" test to assert each\n  case's actual type/value (fixnum/complex/flonum/rational) rather than\n  just that reading succeeded, and added regression tests for both\n  fixes above plus the equivalent CLI-level cases.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T17:26:19Z",
-          "tree_id": "36ee992365ae3d5ee4934aa12b56146634115bb2",
-          "url": "https://github.com/kaappi/kaappi/commit/0822034d6d86cea9ac665ef3eb99a0f8c98e350a"
-        },
-        "date": 1785348131357,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.08385,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.791491,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.436813,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.17329,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003767,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034303,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.227202,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041663,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.772529,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.888564,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.170878,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.238203,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.314515,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.40522,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035602,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037114,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "337027c2ecc57ed5fb1bcfcf9306b2660573b82c",
+          "message": "Phase 6E: thottam audit — 301 assertions, and a nightly tag installs as a release (#2146)\n\n* Phase 6E: thottam audit — 301 assertions, and a nightly tag installs as a release\n\nthottam had 3 tests over 932 lines of package manager that ships on every\nplatform. This adds 233 Zig assertions over the surface that needs no\nnetwork (src/tests_thottam.zig) and 68 end-to-end assertions over the full\ninstall/list/verify/remove/update lifecycle run against a directory of local\nbare git repositories via KAAPPI_ORG (tests/scheme/thottam/, wired into\nrun-all.sh). Both are hermetic: KAAPPI_HOME and KAAPPI_ORG point at\nthrowaway directories, which matters here because `thottam remove` deletes\ntrees.\n\nThe oracle for the constraint operators is SemVer 2.0.0 for what a version\nis and node-semver's range grammar for what ^ and ~ mean, since neither\noperator is in the SemVer spec.\n\nTen issues filed; the assertions that document them are commented out with\nFAIL markers for the fix PRs to re-enable.\n\n  #2130  Semver.parse reads three dot-separated components and discards the\n         rest, and delegates each to std.fmt.parseInt — so Zig's integer\n         literal grammar becomes the version grammar. A tag\n         v2.0.0.nightly-UNRELEASED parses as 2.0.0 and >=1.0.0 installs it;\n         v1_0.0.0 parses as 10.0.0 and outranks v2.0.0. The control is that\n         v2.0.0-rc1 is correctly rejected.\n  #2131  An omitted version component is filled with 0 and then treated as\n         written, so ~1 means 1.0.x rather than node-semver's 1.x.\n  #2132  Six distinct constraint parse failures all surface as \"no version\n         matching X\" — including `>= 1.0.0`, whose space is legal in\n         node-semver, while `>=1.0.0, <2.0.0` parses fine.\n  #2133  A CRLF lockfile makes verify print\n         \"MISMATCH (locked: 75f253e118c0, actual: 75f253e118c0)\" — the \\r\n         is outside the 12-character display prefix.\n  #2134  install pkg@ver on an installed package is a silent no-op, exit 0;\n         update can never move a package off a pin (git pull on a detached\n         HEAD), and one pinned package fails the whole-tree update.\n  #2135  verify iterates the lockfile, not installed.txt: an empty lockfile\n         reports \"All packages verified.\" and exits 0.\n  #2136  remove unlinks .sld files by name with no ownership record, so\n         removing one package deletes a file another still-installed\n         package needs — and verify still reports it OK.\n  #2137  --locked enforces the SHA but not the source URL, then overwrites\n         the lockfile's recorded provenance with the URL it was handed.\n  #2138  kaappi.pkg `source:` and `name:` are parsed and never read.\n  #2144  isValidPkgName guards install and remove only; list, verify and\n         update build paths from names read back out of state files.\n\nNegative results worth not re-testing: a package name cannot escape\n$KAAPPI_HOME via install or remove (the byte-range property test pins the\naccepted set exhaustively), the transitive depends: path is guarded too,\ngit refuses the ext:: transport, and the #614 option-injection guard on\nsource URLs holds.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: fix a vacuous lockfile assertion, and pin --locked's provenance erasure\n\nCodeRabbit's four findings on #2146, all valid:\n\n- The stale-entry check in the updateLockfile round trip searched for\n  \"sha-a\\n\", but an entry that carries a source URL never ends with its\n  SHA, so the assertion could not fail. Now matches the whole superseded\n  line and pins the line count, so an append-instead-of-replace regression\n  is caught.\n- \"isConstraintSpec routes exactly the four operator-led forms\" asserts\n  six (>=, >, <=, <, ^, ~); four is the number of leading *characters* it\n  branches on. Renamed.\n- saved_lock was computed and never used in the --locked section. Using it\n  found a sharper symptom of #2137: a --locked restore does not overwrite\n  the recorded source URL, it ERASES it — doInstall rewrites the entry from\n  parsed.source, which is null when no ::url was given, so a committed\n  lockfile degrades to the org default after one restore. Pinned as a\n  disabled assertion with an enabled control showing the SHA does survive;\n  reported on #2137.\n- The manifest-traversal probe read a fixed /tmp path that a previous run or\n  a concurrent leg could have created. Cleared on both sides.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Probe the local-bare-clone capability instead of assuming it (#2150)\n\nThe lifecycle suite's whole method is pointing KAAPPI_ORG at local bare git\nrepositories, so the install/verify/lockfile path can be exercised with no\nnetwork. That works on macOS and Linux and fails on all three BSD legs:\n\n    Installing kaappi-alpha...\n    Cloning /tmp/tmp.r4La2k2vHN/kaappi-alpha.git...\n    Failed to clone repository\n\ngit is present there (the OpenBSD leg installs it explicitly), the command is\nan unremarkable `git clone --quiet -- <url> <dir>`, and the fixture's own\ninit/commit/clone --bare steps did not fail. I could not identify the cause\nand did not want a red CI or a silent deletion, so the suite now probes the\ncapability directly — create a bare repo, clone it — and exits 77 when that\nfails.\n\nProbing beats hardcoding a platform list: if this is a git-version boundary\nrather than an OS one, or if it gets fixed, the suite resumes on its own with\nno allowlist to maintain. The skip message names #2150 so the coverage loss\nis visible rather than assumed to be intentional.\n\nDistinct from #2149 (head -c is not POSIX), which hit a different suite on\nOpenBSD alone.\n\nLocally unaffected: 69 passed, 0 failed.\n\n* Skip on the real precondition: thottam hardcodes /usr/bin/git (#2152)\n\nThe previous commit guessed that git could not clone a local bare repository\non the BSD legs, and probed for that. The probe PASSED on OpenBSD and the\nsuite still failed — which is what located the actual bug.\n\nthottam_proc.zig:148 invokes git as the absolute path /usr/bin/git on every\nnon-Windows platform. That exists on macOS and CI's Linux images and on none\nof the three BSDs (FreeBSD/OpenBSD put git in /usr/local/bin, NetBSD in\n/usr/pkg/bin), so every git-backed thottam operation fails there. My probe\nused a PATH lookup; thottam does not. That difference was the whole thing.\n\nFiled as #2152, along with the compounding defect that made it hard to see:\nrunGit discards git's stderr, so a missing binary and a real clone failure\nboth print \"Failed to clone repository\" and three runs of CI logs contain no\ngit diagnostic at all.\n\nThe gate now tests the exact path thottam will execute, so it skips precisely\nwhere thottam is broken and nowhere else, and the comment says to replace it\nwith `command -v git` once #2152 makes thottam search PATH.\n\n69 passed, 0 failed locally; `bash -n` clean.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T05:37:48+05:30",
+          "tree_id": "a273e63b9c5f586244e56c8b6e2e6bab7a86ee45",
+          "url": "https://github.com/kaappi/kaappi/commit/337027c2ecc57ed5fb1bcfcf9306b2660573b82c"
+        },
+        "date": 1785632054505,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.946468,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.03803,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571726,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.834079,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005008,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045753,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302166,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054853,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.303016,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.154802,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.527682,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304614,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.684751,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.843818,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045392,
             "unit": "seconds"
           }
         ]
