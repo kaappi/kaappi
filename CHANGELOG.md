@@ -66,6 +66,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`eqv?` now distinguishes an exact complex from an inexact one** (#2167).
+  R7RS 6.1 requires `(eqv? a b)` to be `#f` whenever one number is exact and
+  the other inexact, but every eqv?-semantics comparator — `eqv?`, `equal?`,
+  `memv`/`assv`, compiled `case`, and SRFI 69 eqv-keyed hash tables — compared
+  a complex number's two f64 components bitwise and never consulted the
+  exactness flags, so `(eqv? (make-rectangular -3/2 -1) -1.5-1.0i)` was `#t`.
+  The comparison was duplicated four times and every copy had the same gap;
+  all four now share one `types.complexEqv`, which keeps the bitwise component
+  rule (NaN and signed zero compare as before) and additionally requires the
+  per-component exactness flags to match. `=` still treats them as
+  numerically equal, as R7RS intends.
+
+- **Negating an exact complex stays exact** (#2166).
+  `(- (make-rectangular 3/2 1))` returned inexact `-1.5-1.0i`; R7RS — and the
+  advertised `exact-closed`/`exact-complex` feature identifiers — require
+  exact `-3/2-1i`. Unary `(- z)` and the `(- 0 z)` spelling now preserve the
+  exactness flags: these are the two rounding-free cases (f64 negation is
+  always exact), and an exact zero component normalizes to `+0.0` so the
+  result stays `eqv?` to the same value built with `make-rectangular`. The
+  rest of complex arithmetic still collapses to inexact — that is the
+  f64-backed representation problem #2166 tracks, and two audit-suite
+  expectations it had been masking (through the `equal?` bug above) are now
+  `test-expect-fail` pending it.
+
 - **`define-property` inside a top-level `cond`, `case` or `do` is no longer
   miscompiled by the native backend** (#1896). `isRejectedFormHead` was a
   hand-maintained list parallel to the comptime-derived

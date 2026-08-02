@@ -138,13 +138,10 @@ fn eqvEqual(a: Value, b: Value) bool {
         return eqvEqual(ra.numerator, rb.numerator) and eqvEqual(ra.denominator, rb.denominator);
     }
     if (types.isComplex(a) and types.isComplex(b)) {
-        const ca = types.toComplex(a);
-        const cb = types.toComplex(b);
-        const ra: u64 = @bitCast(ca.real);
-        const rb: u64 = @bitCast(cb.real);
-        const ia: u64 = @bitCast(ca.imag);
-        const ib: u64 = @bitCast(cb.imag);
-        return ra == rb and ia == ib;
+        // Bitwise + exactness flags (types.complexEqv). Hashing is unchanged:
+        // keys differing only in flags hash equal, which is a collision, not
+        // a correctness problem.
+        return types.complexEqv(a, b);
     }
     return false;
 }

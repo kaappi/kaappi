@@ -15,6 +15,7 @@ const numeric = @import("primitives_numeric.zig");
 const isAnyComplex = numeric.isAnyComplex;
 const toComplexParts = numeric.toComplexParts;
 const makeComplexOrReal = numeric.makeComplexOrReal;
+const makeComplexOrRealEx = numeric.makeComplexOrRealEx;
 
 pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
     if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
@@ -357,11 +358,28 @@ fn add(args: []const Value) PrimitiveError!Value {
     return makeFixnumChecked(sum);
 }
 
+/// Negate a complex number, preserving its exactness flags. Negation is the
+/// one complex operation where keeping the flags is honest — f64 negation
+/// never rounds — while the rest of complex arithmetic still collapses to
+/// inexact through toComplexParts/makeComplexOrReal (#2166). An exact zero
+/// component normalizes to +0.0: the exact tower has no -0, and leaving the
+/// sign bit would make the result un-eqv? to (make-rectangular 0 ...).
+fn negateComplex(v: Value) PrimitiveError!Value {
+    const c = types.toComplex(v);
+    const nr: f64 = if (c.exact_real and c.real == 0.0) 0.0 else -c.real;
+    const ni: f64 = if (c.exact_imag and c.imag == 0.0) 0.0 else -c.imag;
+    return makeComplexOrRealEx(nr, ni, c.exact_real, c.exact_imag);
+}
+
 fn sub(args: []const Value) PrimitiveError!Value {
     std.debug.assert(args.len > 0);
     if (isAnyComplex(args)) {
+        // (- z) and (- 0 z) are exactly negation; both are rounding-free, so
+        // exactness survives. Everything else stays on the inexact path (#2166).
+        if (args.len == 1) return negateComplex(args[0]);
+        if (args.len == 2 and types.isFixnum(args[0]) and types.toFixnum(args[0]) == 0)
+            return negateComplex(args[1]);
         const first = try toComplexParts(args[0]);
-        if (args.len == 1) return makeComplexOrReal(-first.real, -first.imag);
         var real = first.real;
         var imag = first.imag;
         for (args[1..]) |a| {

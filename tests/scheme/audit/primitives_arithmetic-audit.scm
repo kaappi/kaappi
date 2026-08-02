@@ -59,7 +59,11 @@
 (test-equal 3 (+ 1 2))
 (test-equal #t (= 3.5 (+ 1 2.5)))
 (test-equal 5/6 (+ 1/3 1/2))
-(test-equal 3+4i (+ 1+2i 2+2i))
+;; #2166: complex + still drops exactness (f64-backed components). This
+;; correct expectation used to pass only because equal? ignored the exactness
+;; flags — #2167 unmasked it. Drop the expect-fail when #2166 lands.
+(test-expect-fail 1)
+(test-equal "complex + stays exact (#2166)" 3+4i (+ 1+2i 2+2i))
 (test-equal #t (> (+ (expt 2 100) 1) (expt 2 100)))
 
 ;; - with all types
@@ -73,7 +77,9 @@
 (test-equal 6 (* 2 3))
 (test-equal #t (= 6.0 (* 2 3.0)))
 (test-equal 1/6 (* 1/2 1/3))
-(test-equal -5+10i (* 1+2i 3+4i))
+;; #2166 again, same masking story as the + case above.
+(test-expect-fail 1)
+(test-equal "complex * stays exact (#2166)" -5+10i (* 1+2i 3+4i))
 
 ;; / with all types
 (test-equal 1/2 (/ 1 2))

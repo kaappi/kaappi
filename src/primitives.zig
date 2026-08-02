@@ -831,15 +831,10 @@ fn eqvP(args: []const Value) PrimitiveError!Value {
         return if (bignum_mod.compare(args[0], args[1]) == 0) types.TRUE else types.FALSE;
     }
     // Two complex numbers are eqv? if both components match bitwise (same rule
-    // as flonums, so NaN/-0.0 behave consistently).
+    // as flonums, so NaN/-0.0 behave consistently) AND their exactness flags
+    // agree — R7RS 6.1 requires #f when one is exact and the other inexact.
     if (types.isComplex(args[0]) and types.isComplex(args[1])) {
-        const ca = types.toComplex(args[0]);
-        const cb = types.toComplex(args[1]);
-        const ra: u64 = @bitCast(ca.real);
-        const rb: u64 = @bitCast(cb.real);
-        const ia: u64 = @bitCast(ca.imag);
-        const ib: u64 = @bitCast(cb.imag);
-        return if (ra == rb and ia == ib) types.TRUE else types.FALSE;
+        return if (types.complexEqv(args[0], args[1])) types.TRUE else types.FALSE;
     }
     // Two rationals are eqv? if they have the same numerator and denominator
     // (they are always in lowest terms so this is sufficient)
@@ -877,13 +872,7 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *VisitedMap) bool {
         }
     }
     if (types.isComplex(a) and types.isComplex(b)) {
-        const ca = types.toComplex(a);
-        const cb = types.toComplex(b);
-        const ra: u64 = @bitCast(ca.real);
-        const rb: u64 = @bitCast(cb.real);
-        const ia: u64 = @bitCast(ca.imag);
-        const ib: u64 = @bitCast(cb.imag);
-        return ra == rb and ia == ib;
+        return types.complexEqv(a, b);
     }
     if (types.isRationalObj(a) and types.isRationalObj(b)) {
         const ra = types.toRational(a);
