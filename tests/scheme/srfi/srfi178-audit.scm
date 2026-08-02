@@ -443,14 +443,14 @@
             '((1 0)) (map L (bitvector-segment (bitvector 1 0) 9)))
 (test-equal "segment of the empty bitvector" '() (bitvector-segment (bitvector) 2))
 
-;; FAIL: #2084 (bitvector-segment recurses once per segment; a legal call on a
-;;              200,000-bit vector overflows the stack, and n=0 recurses without
-;;              bound into an uncatchable KP3008)
-;; (test-equal "segment of a 200,000-bit vector with n=1"
-;;             200000 (length (bitvector-segment (make-bitvector 200000 1) 1)))
-;; FAIL: #2084
-;; (test-assert "segment with n=0 raises a catchable error"
-;;              (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
+;; Regression, #2084: the loop now accumulates in tail position (one frame
+;; total, not one per segment) and rejects a non-positive n at entry.
+(test-equal "segment of a 200,000-bit vector with n=1"
+            200000 (length (bitvector-segment (make-bitvector 200000 1) 1)))
+(test-assert "segment with n=0 raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
+(test-assert "segment with an inexact n raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 2.0))))
 
 ;; Discriminating control: the same shape at a size the recursion survives.
 (test-equal "segment of a 1,000-bit vector with n=1 does terminate"

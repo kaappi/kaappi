@@ -164,12 +164,17 @@
     (define (bitvector-drop-right bv n) (bitvector-copy bv 0 (- (%len bv) n)))
 
     (define (bitvector-segment bv n)
+      ;; "It is an error if n is not an exact positive integer." n = 0 would
+      ;; never advance the loop below (#2084), so reject it up front. The loop
+      ;; accumulates in tail position — a cons around the recursive call costs
+      ;; one frame per segment and overflows uncatchably on large inputs.
+      (unless (and (exact-integer? n) (positive? n))
+        (error "bitvector-segment: size must be an exact positive integer" n))
       (let ((len (%len bv)))
-        (let loop ((i 0))
+        (let loop ((i 0) (acc '()))
           (if (>= i len)
-              '()
-              (cons (bitvector-copy bv i (min len (+ i n)))
-                    (loop (+ i n)))))))
+              (reverse acc)
+              (loop (+ i n) (cons (bitvector-copy bv i (min len (+ i n))) acc))))))
 
     (define (%refs bvs i) (map (lambda (bv) (bitvector-ref/int bv i)) bvs))
 

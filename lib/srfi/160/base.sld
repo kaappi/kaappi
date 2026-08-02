@@ -355,6 +355,12 @@
     (define (%uvec-drop-right kind v n) (%uvec-copy kind v 0 (- (%uvec-length v) n)))
 
     (define (%uvec-segment kind v n)
+      ;; "It is an error if n is not an exact positive integer." n = 0 would
+      ;; never advance the loop below (#1949), so reject it up front.
+      (unless (and (exact-integer? n) (positive? n))
+        (error (string-append (symbol->string kind)
+                              "vector-segment: size must be an exact positive integer")
+               n))
       (let ((len (%uvec-length v)))
         (let loop ((start 0) (acc '()))
           (if (>= start len) (reverse acc)

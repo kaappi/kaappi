@@ -200,6 +200,10 @@
             (write-char (string-ref s (+ start (modulo i slen))) out)))))
 
     (define (string-segment s k)
+      ;; No finite list of length-0 substrings covers a non-empty string, and
+      ;; k = 0 would never advance the loop below (#2172) — reject it up front.
+      (unless (and (exact-integer? k) (positive? k))
+        (error "string-segment: size must be an exact positive integer" k))
       (let ((len (string-length s)))
         (let loop ((i 0) (result '()))
           (if (>= i len)

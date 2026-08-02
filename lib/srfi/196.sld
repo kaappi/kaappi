@@ -103,6 +103,10 @@
       (%make-range (- end start) (lambda (i) (range-ref r (+ start i)))))
 
     (define (range-segment r len)
+      ;; No finite list of length-0 subranges covers a non-empty range, and
+      ;; len = 0 would never advance the loop below (#2172) — reject it up front.
+      (unless (and (exact-integer? len) (positive? len))
+        (error "range-segment: length must be an exact positive integer" len))
       (let ((total (range-length r)))
         (let loop ((i 0) (result '()))
           (if (>= i total) (reverse result)
