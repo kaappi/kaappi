@@ -99,11 +99,13 @@ material, not a result — this section is the map.
 | Distinct root-cause groups the 170 fall into | **35** |
 | Groups where one fix closes ≥ 2 issues | 24 |
 | Issues where **the process dies or wedges** on ordinary input | **19** |
-| Disabled assertions (`;; FAIL:` lines, 35 files) | 435 |
+| Disabled assertions (`;;`- and `;;;`-style markers, 36 files) | 434 |
 
-Two issues were reachable only through the disabled-test markers: **2129**
-carries the `audit` label but not the footer, and **1920** carries neither.
-The `;; FAIL:` inventory is what found them, which is an argument for keeping it.
+Neither tracking query alone finds every campaign issue. **2129** carries the
+`audit` label but not the footer; **1870** carries the footer but not the
+label; and **1920** carries **neither** — it is recoverable only from the
+`;; FAIL:` markers, which is an argument for keeping that inventory as a
+tracking artefact rather than only a test-hygiene one.
 
 ### The ten groups that matter
 
@@ -195,7 +197,8 @@ Checked and **not** duplicates, so nobody re-tests them:
 
 ### The `;; FAIL:` inventory
 
-435 marker lines in 35 files citing **101 distinct numbers**. Result:
+**434** marker lines in **36** files citing **101 distinct numbers** — counting
+both spellings, `;;` (431) and `;;;` (3). Result:
 
 - **No marker cites a closed issue.** Nothing is sitting disabled behind a fix
   that already landed — the convention held for the whole campaign.
