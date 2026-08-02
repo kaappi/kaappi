@@ -62,6 +62,17 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             if (bignum_mod.isZero(den)) return ReadError.InvalidNumber;
             return arith.makeRationalReduced(self.gc, slot_num.get(), den) catch return ReadError.OutOfMemory;
         },
+        .prefixed_real => |p| {
+            // #e/#i literal body: same parser as string->number, so the two
+            // can never disagree on an exactness-prefixed number (#1911).
+            const numeric = @import("primitives_numeric.zig");
+            const v = numeric.parseNumberText(self.gc, p.str, p.radix, if (p.exact) .exact else .inexact) catch |err| switch (err) {
+                error.OutOfMemory => return ReadError.OutOfMemory,
+                else => return ReadError.InvalidNumber,
+            };
+            if (v == types.FALSE) return ReadError.InvalidNumber;
+            return v;
+        },
         .complex => |c| return self.gc.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag) catch return ReadError.OutOfMemory,
         .boolean => |b| return if (b) types.TRUE else types.FALSE,
         .character => |c| return types.makeChar(c),

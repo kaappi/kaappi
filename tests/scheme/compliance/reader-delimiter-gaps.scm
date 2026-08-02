@@ -214,7 +214,10 @@
   (test-eqv "#e-1/2" -1/2 #e-1/2)
   (test-eqv "hex bignum" 725355491768777504823705 #x99999999999999999999)
   (test-assert "hex bignum reads clean" (clean? "#x99999999999999999999"))
-  (test-assert "#e+inf.0 reads clean"   (clean? "#e+inf.0"))
+  ;; #e+inf.0 is a read error since #1911: no exact representation exists,
+  ;; and string->number already rejected it (#419).  #i+inf.0 stays valid.
+  (test-assert "#e+inf.0 rejected"      (rejects? "#e+inf.0"))
+  (test-assert "#i+inf.0 reads clean"   (clean? "#i+inf.0"))
   ;; A digit that is out of range for the radix is a read error, not a split
   ;; -- the token has no valid digits at all, so there is nothing to split.
   (test-assert "#b2 rejected" (rejects? "#b2"))
@@ -505,14 +508,14 @@
 ;;; ---------------------------------------------------------------------
 
 (test-group "reader vs string->number, non-delimiter divergences"
-  ;; `#e+inf.0` reads as the inexact +inf.0 while `string->number` rejects
-  ;; the same string.  Chibi 0.12 also reads it as +inf.0, so the reader
-  ;; side matches the project's own differential oracle and the divergence
-  ;; is on the `string->number` side.
-  (test-assert "reader accepts #e+inf.0" (clean? "#e+inf.0"))
-  ;; FAIL: TBD (string->number "#e+inf.0" returns #f where READ yields +inf.0)
-  ;; (test-assert "s->n agrees with read on #e+inf.0"
-  ;;   (string->number "#e+inf.0"))
+  ;; `#e+inf.0`: the reader used to yield the inexact +inf.0 while
+  ;; string->number rejected the same string.  R7RS 6.2.3 permits either
+  ;; treatment of an unrepresentable exact constant (Chibi reads it as
+  ;; +inf.0, Racket errors), but 6.2.7 requires the two parsers to agree;
+  ;; #1911 settled the divergence on the #419 side, so both now reject.
+  (test-assert "reader rejects #e+inf.0" (rejects? "#e+inf.0"))
+  (test-assert "s->n agrees with read on #e+inf.0"
+    (not (string->number "#e+inf.0")))
 
   ;; The same shape again: the READER accepts `1/2+3i`, which R7RS 7.1.1's
   ;; <complex R> --> <real R> + <ureal R> i production allows (and Chibi

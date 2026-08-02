@@ -79,6 +79,11 @@ pub const Token = union(enum) {
     /// Rational literal whose numerator or denominator overflows i64.
     /// Digit runs are parsed as bignums at datum construction.
     big_rational: struct { num_str: []const u8, den_str: []const u8, radix: u8 },
+    /// Number body carrying an explicit #e/#i prefix (str = the body span,
+    /// prefixes already consumed). Converted at datum construction through
+    /// the same digit-exact parseNumberText that backs string->number, so
+    /// the two parsers cannot diverge on exactness (R7RS 6.2.7, #1911).
+    prefixed_real: struct { str: []const u8, exact: bool, radix: u8 },
     complex: struct { real: f64, imag: f64, exact_real: bool = false, exact_imag: bool = false },
     eof,
 };

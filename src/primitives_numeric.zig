@@ -974,9 +974,9 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
     return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return PrimitiveError.OutOfMemory;
 }
 
-const Exactness = enum { unspecified, exact, inexact };
+pub const Exactness = enum { unspecified, exact, inexact };
 
-fn applyExactness(_: *@import("memory.zig").GC, val: Value, exactness: Exactness) PrimitiveError!Value {
+fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactness) PrimitiveError!Value {
     switch (exactness) {
         .unspecified => return val,
         .inexact => {
@@ -997,6 +997,11 @@ fn applyExactness(_: *@import("memory.zig").GC, val: Value, exactness: Exactness
                 const den_f = types.toF64(rat.denominator);
                 return types.makeFlonum(num_f / den_f);
             }
+            if (types.isComplex(val)) {
+                const c = types.toComplex(val);
+                if (!c.exact_real and !c.exact_imag) return val;
+                return gc.allocComplexEx(c.real, c.imag, false, false) catch return PrimitiveError.OutOfMemory;
+            }
             return val;
         },
         .exact => {
@@ -1004,6 +1009,15 @@ fn applyExactness(_: *@import("memory.zig").GC, val: Value, exactness: Exactness
                 const f = types.toFlonum(val);
                 if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
                 return exactFn(&.{val});
+            }
+            if (types.isComplex(val)) {
+                // A complex stays f64+flag pairs; #e sets both flags. A
+                // non-finite part has no exact representation (same rule as
+                // the flonum arm above -- #f, per #419).
+                const c = types.toComplex(val);
+                if (!std.math.isFinite(c.real) or !std.math.isFinite(c.imag)) return types.FALSE;
+                if (c.exact_real and c.exact_imag) return val;
+                return gc.allocComplexEx(c.real, c.imag, true, true) catch return PrimitiveError.OutOfMemory;
             }
             return val;
         },
@@ -1102,7 +1116,6 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    var s: []const u8 = str.data[0..str.len];
 
     var radix: u8 = 10;
     if (args.len > 1) {
@@ -1112,9 +1125,23 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         radix = @intCast(@as(u64, @bitCast(r)));
     }
 
+    return parseNumberText(gc, str.data[0..str.len], radix, .unspecified);
+}
+
+/// Parse a complete number text into a Value, or `types.FALSE` when the text
+/// is not a number. This is the single number grammar behind BOTH
+/// `string->number` and the reader's `#e`/`#i` literals: R7RS 6.2.7 requires
+/// the two to agree, and until kaappi#1911 they were separate parsers whose
+/// divergence produced #1891/#1907/#1908/#1909. The reader hands the token
+/// body over with `exactness_in` set (its own prefixes already consumed)
+/// instead of re-implementing exactness at the token level.
+pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in: u8, exactness_in: Exactness) PrimitiveError!Value {
+    var s: []const u8 = text;
+    var radix = radix_in;
+
     // R7RS prefix handling: #b #o #d #x (radix) and #e #i (exactness)
     // Both can appear in either order: #e#xff or #x#eff
-    var exactness: Exactness = .unspecified;
+    var exactness: Exactness = exactness_in;
     for (0..2) |_| {
         if (s.len >= 2 and s[0] == '#') {
             switch (s[1] | 0x20) { // case-insensitive
@@ -1227,11 +1254,17 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         return applyExactness(gc, result, exactness);
     } else |err| {
         if (err == error.Overflow) {
-            const result = bignum_mod.parseBignumString(gc, s, radix) catch |e| switch (e) {
-                error.InvalidCharacter => return types.FALSE,
+            // A digit run that overflows i64 may still be a valid decimal
+            // float rather than a bignum -- "9223372036854775808.0" hits
+            // Overflow on its last digit before parseInt ever sees the '.'
+            // (#1921). InvalidCharacter therefore falls through to the
+            // decimal shapes below instead of rejecting outright.
+            if (bignum_mod.parseBignumString(gc, s, radix)) |result| {
+                return applyExactness(gc, result, exactness);
+            } else |e| switch (e) {
+                error.InvalidCharacter => {},
                 else => return PrimitiveError.OutOfMemory,
-            };
-            return applyExactness(gc, result, exactness);
+            }
         }
     }
 

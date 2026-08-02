@@ -23,14 +23,16 @@
 ;;   has bignums and exact rationals, so the constants below ARE representable
 ;;   and this escape hatch does not apply.
 ;;
-;; Every disabled assertion below was reproduced against a fresh ReleaseSafe
-;; build with an isolated KAAPPI_HOME.  Each disabled group carries a
-;; discriminating control that stays ENABLED, so the file keeps proving that
-;; the neighbouring path still works.
+;; This file was written while the #1911 family (#1891/#1907/#1908/#1909/
+;; #1910/#1921) was open, with the failing cells disabled.  Those are all
+;; fixed -- the reader's `#e`/`#i` path now routes through the same
+;; digit-exact parseNumberText as string->number -- and every cell is
+;; enabled as a regression guard, except section 9's trailing-junk cases
+;; (#1892, closed NOT_PLANNED), which stay disabled as documentation.
 ;;
-;; NOTE: numbers whose reading crashes the process are exercised only through
-;; `(read (open-input-string ...))`, never as source literals, so that
-;; re-enabling a test cannot abort the whole suite at read time.
+;; NOTE: numbers whose reading once crashed the process are exercised only
+;; through `(read (open-input-string ...))`, never as source literals, so a
+;; regression cannot abort the whole suite at read time.
 
 ;; `(scheme inexact)` is declared for finite?/infinite?/nan?.  They resolve at
 ;; top level even without it -- a script reaches vm.globals directly -- so
@@ -83,9 +85,11 @@
 ;; ---------------------------------------------------------------------------
 ;; 2. `#e` at and beyond the i64 boundary.
 ;;
-;;    Known bug #1891: the flonum->exact conversion in reader_tokens.zig
-;;    `applyExactness` bails out to the unconverted flonum once the value
-;;    exceeds i64 range, so the `#e` prefix is silently dropped.
+;;    Regression guard for #1891: the reader's token-level flonum->exact
+;;    conversion bailed out to the unconverted flonum past i64 range,
+;;    silently dropping the `#e` prefix.  Fixed by #1911's unification: the
+;;    reader now routes `#e`/`#i` bodies through the same digit-exact
+;;    parseNumberText as string->number.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: below the cliff `#e` works, in both signs.
@@ -99,18 +103,12 @@
 (test-assert "#e on a bignum literal stays exact"
              (exact? (rd "#e10000000000000000000")))
 
-;; FAIL: #1891 (#e1e19 reads inexact -- exactness prefix dropped past i64)
-;; (test-assert "#e1e19 is exact" (exact? (rd "#e1e19")))
-;; FAIL: #1891 (#e1e20 reads inexact)
-;; (test-assert "#e1e20 is exact" (exact? (rd "#e1e20")))
-;; FAIL: #1891 (#e-1e19 reads inexact -- same cliff, negative side)
-;; (test-assert "#e-1e19 is exact" (exact? (rd "#e-1e19")))
-;; FAIL: #1891 (#e1e19 value)
-;; (test-equal "#e1e19 value" 10000000000000000000 (rd "#e1e19"))
-;; FAIL: #1891 (#e1e400 yields +inf.0 -- an exactness prefix producing infinity)
-;; (test-assert "#e1e400 is exact" (exact? (rd "#e1e400")))
-;; FAIL: #1891 (#e1e400 must not be infinite)
-;; (test-assert "#e1e400 is finite" (finite? (rd "#e1e400")))
+(test-assert "#e1e19 is exact" (exact? (rd "#e1e19")))
+(test-assert "#e1e20 is exact" (exact? (rd "#e1e20")))
+(test-assert "#e-1e19 is exact" (exact? (rd "#e-1e19")))
+(test-equal "#e1e19 value" 10000000000000000000 (rd "#e1e19"))
+(test-assert "#e1e400 is exact" (exact? (rd "#e1e400")))
+(test-assert "#e1e400 is finite" (finite? (rd "#e1e400")))
 
 ;; R7RS 6.2.7 parity: string->number gets all of these RIGHT, which is what
 ;; makes the divergence a 6.2.7 violation rather than a shared limitation.
@@ -118,22 +116,21 @@
 (test-assert "string->number #e1e400 is exact" (exact? (string->number "#e1e400")))
 (test-equal  "string->number #e1e19 value"
              10000000000000000000 (string->number "#e1e19"))
-;; FAIL: #1891 (6.2.7 consistency: read and string->number must agree)
-;; (test-equal "read/string->number agree on #e1e19"
-;;             (rd "#e1e19") (string->number "#e1e19"))
+(test-equal "read/string->number agree on #e1e19"
+            (rd "#e1e19") (string->number "#e1e19"))
 
 ;; ---------------------------------------------------------------------------
-;; 3. NEW: reader panic on `#e<decimal that rounds to exactly 2^63>`.
+;; 3. Regression guard for #1907: reader panic on `#e<decimal that rounds to
+;;    exactly 2^63>`.
 ;;
-;;    reader_tokens.zig guards the conversion with `f > max_i64_f`, where
+;;    The old token-level conversion guarded with `f > max_i64_f`, where
 ;;    max_i64_f is @floatFromInt(maxInt(i64)) -- which rounds UP to 2^63.  A
-;;    value of exactly 2^63 therefore passes the guard and then overflows
+;;    value of exactly 2^63 therefore passed the guard and then overflowed
 ;;    @intFromFloat, panicking with "integer part of floating point value out
-;;    of bounds" (exit 134).  minInt(i64) = -2^63 is exactly representable, so
-;;    the negative side is unaffected -- hence the asymmetry below.
-;;
-;;    This also aborts `kaappi check` and `kaappi fmt --check`, i.e. tools that
-;;    never execute the program.
+;;    of bounds" (exit 134), aborting `kaappi check`/`fmt`/`ast` too.  The
+;;    digit-exact path has no f64 conversion to guard, so the whole window is
+;;    gone; minInt(i64) = -2^63 is exactly representable, which is why the
+;;    negative side never crashed.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: the neighbouring doubles on both sides are fine.
@@ -160,26 +157,28 @@
              (let ((v (string->number "#e9223372036854775808.0")))
                (or (not v) (number? v))))
 
-;; FAIL: #1907 (reader panics: #e<double == 2^63> overflows @intFromFloat)
-;; (test-equal "#e2^63 as a decimal float" 9223372036854775808
-;;             (rd "#e9223372036854775808.0"))
-;; FAIL: #1907 (same panic -- lowest decimal that rounds up to 2^63)
-;; (test-equal "#e lowest double rounding to 2^63" 9223372036854775808
-;;             (rd "#e9223372036854775296.0"))
-;; FAIL: #1907 (same panic via exponent notation)
-;; (test-equal "#e2^63 via exponent" 9223372036854775808
-;;             (rd "#e9.223372036854776e18"))
+(test-equal "#e2^63 as a decimal float" 9223372036854775808
+            (rd "#e9223372036854775808.0"))
+;; Digit-exact: the literal denotes its own decimal value.  The old disabled
+;; expectation (9223372036854775808) encoded the un-round-the-f64 strategy;
+;; #e9223372036854775296.0 IS 9223372036854775296, and string->number agrees.
+(test-equal "#e decimal just below 2^63 (used to panic)" 9223372036854775296
+            (rd "#e9223372036854775296.0"))
+(test-equal "#e2^63 via exponent" 9223372036854776000
+            (rd "#e9.223372036854776e18"))
+(test-equal "#e2^63 via exponent = string->number"
+            (rd "#e9.223372036854776e18")
+            (string->number "#e9.223372036854776e18"))
 
 ;; ---------------------------------------------------------------------------
-;; 4. NEW: `#i` on a radix-prefixed BIGNUM reinterprets its digits as decimal.
+;; 4. Regression guard for #1908: `#i` on a radix-prefixed BIGNUM
+;;    reinterpreted its digits as decimal.
 ;;
-;;    reader_tokens.zig's `.bignum_str` arm of the inexact path calls
-;;    parseFloat on the raw digit slice without consulting `bs.radix`.  The
-;;    adjacent `.big_rational` arm DOES check the radix, and the comment above
-;;    `.bignum_str` even asserts the invariant the code fails to enforce.
-;;
-;;    Silent wrong answers when the digits happen to be decimal-valid, and a
-;;    spurious read error when they are not (hex a-f).
+;;    The old token-level `.bignum_str` arm called parseFloat on the raw
+;;    digit slice without consulting the radix: silent wrong answers when
+;;    the digits happened to be decimal-valid, a spurious read error when
+;;    not (hex a-f).  The unified path parses the bignum in its radix and
+;;    converts with the identical limb walk string->number uses.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: without `#i`, every radix reads the bignum correctly.
@@ -203,36 +202,33 @@
 (test-equal "string->number #i#x bignum with letters"
             4.722366482869645e21 (string->number "#i#xFFFFFFFFFFFFFFFFFF"))
 
-;; FAIL: #1908 (#i#x<bignum> parses hex digits as decimal: gives 1e18, want ~4.72e21)
-;; (test-equal "#i#x bignum" 4.722366482869645e21 (rd "#i#x1000000000000000000"))
-;; FAIL: #1908 (#i#b<bignum> parses binary digits as decimal: gives 1.111...e64)
-;; (test-equal "#i#b bignum" 3.6893488147419103e19
-;;             (rd "#i#b11111111111111111111111111111111111111111111111111111111111111111"))
-;; FAIL: #1908 (#i#o<bignum> parses octal digits as decimal: gives 1.0e23)
-;; (test-equal "#i#o bignum" 5.902958103587057e20
-;;             (rd "#i#o100000000000000000000000"))
-;; FAIL: #1908 (#i#x<bignum with a-f> raises a spurious read error)
-;; (test-equal "#i#x bignum with letters" 4.722366482869645e21
-;;             (rd "#i#xFFFFFFFFFFFFFFFFFF"))
-;; FAIL: #1908 (#i on a radix-prefixed bignum RATIONAL raises a spurious read error)
-;; (test-assert "#i#x bignum rational"
-;;              (inexact? (rd "#i#x1000000000000000000/3")))
+(test-equal "#i#x bignum" 4.722366482869645e21 (rd "#i#x1000000000000000000"))
+(test-equal "#i#b bignum" 3.6893488147419103e19
+            (rd "#i#b11111111111111111111111111111111111111111111111111111111111111111"))
+(test-equal "#i#o bignum" 5.902958103587057e20
+            (rd "#i#o100000000000000000000000"))
+(test-equal "#i#x bignum with letters" 4.722366482869645e21
+            (rd "#i#xFFFFFFFFFFFFFFFFFF"))
+(test-assert "#i#x bignum rational"
+             (inexact? (rd "#i#x1000000000000000000/3")))
+(test-equal "#i#x bignum rational = string->number"
+            (rd "#i#x1000000000000000000/3")
+            (string->number "#i#x1000000000000000000/3"))
 
 ;; Control for the rational case: `#e` on the same text is correct.
 (test-equal "#e#x bignum rational" 4722366482869645213696/3
             (rd "#e#x1000000000000000000/3"))
 
 ;; ---------------------------------------------------------------------------
-;; 5. NEW: `#e` on a decimal below 1e-15 collapses to exact ZERO.
+;; 5. Regression guard for #1909: `#e` on a decimal below 1e-15 collapsed to
+;;    exact ZERO.
 ;;
-;;    The continued-fraction conversion in reader_tokens.zig terminates on
-;;    ABSOLUTE tolerances (`< 1e-15`).  For a magnitude below that tolerance
-;;    the very first iteration already "converges", yielding 0/1.  The whole
-;;    value is lost.  At exactly 1e-15 the same tolerance produces an
-;;    off-by-one denominator.
-;;
-;;    This is the opposite end of the number line from #1891, and a different
-;;    mechanism: nothing here overflows anything.
+;;    The old continued-fraction conversion terminated on ABSOLUTE
+;;    tolerances (`< 1e-15`): below that magnitude the very first iteration
+;;    already "converged" at 0/1, losing the whole value, sign included.  At
+;;    exactly 1e-15 the same tolerance produced an off-by-one denominator.
+;;    The digit-exact path never approximates, so there is no tolerance to
+;;    fall inside.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: down to 1e-14 the conversion is exact and correct.
@@ -252,36 +248,28 @@
 (test-assert "(exact 1e-19) is not zero" (not (zero? (exact 1e-19))))
 (test-assert "(exact 1e-30) is not zero" (not (zero? (exact 1e-30))))
 
-;; FAIL: #1909 (#e1e-16 collapses to exact 0 -- entire value lost)
-;; (test-assert "#e1e-16 is not zero" (not (zero? (rd "#e1e-16"))))
-;; FAIL: #1909 (#e1e-19 collapses to exact 0)
-;; (test-assert "#e1e-19 is not zero" (not (zero? (rd "#e1e-19"))))
-;; FAIL: #1909 (#e1e-30 collapses to exact 0)
-;; (test-assert "#e1e-30 is not zero" (not (zero? (rd "#e1e-30"))))
-;; FAIL: #1909 (#e-1e-20 collapses to exact 0, sign lost too)
-;; (test-assert "#e-1e-20 is negative" (negative? (rd "#e-1e-20")))
-;; FAIL: #1909 (#e1.5e-18 collapses to exact 0)
-;; (test-assert "#e1.5e-18 is not zero" (not (zero? (rd "#e1.5e-18"))))
-;; FAIL: #1909 (#e1e-15 off-by-one denominator: gives 1/999999999999999)
-;; (test-equal "#e1e-15" 1/1000000000000000 (rd "#e1e-15"))
-;; FAIL: #1909 (#e0.000000000000001 off-by-one denominator)
-;; (test-equal "#e0.000000000000001" 1/1000000000000000 (rd "#e0.000000000000001"))
-;; FAIL: #1909 (6.2.7 consistency for the tiny end)
-;; (test-equal "read/string->number agree on #e1e-16"
-;;             (rd "#e1e-16") (string->number "#e1e-16"))
+(test-assert "#e1e-16 is not zero" (not (zero? (rd "#e1e-16"))))
+(test-assert "#e1e-19 is not zero" (not (zero? (rd "#e1e-19"))))
+(test-assert "#e1e-30 is not zero" (not (zero? (rd "#e1e-30"))))
+(test-assert "#e-1e-20 is negative" (negative? (rd "#e-1e-20")))
+(test-assert "#e1.5e-18 is not zero" (not (zero? (rd "#e1.5e-18"))))
+(test-equal "#e1e-16 value" 1/10000000000000000 (rd "#e1e-16"))
+(test-equal "#e1e-15" 1/1000000000000000 (rd "#e1e-15"))
+(test-equal "#e0.000000000000001" 1/1000000000000000 (rd "#e0.000000000000001"))
+(test-equal "read/string->number agree on #e1e-16"
+            (rd "#e1e-16") (string->number "#e1e-16"))
 
 ;; ---------------------------------------------------------------------------
-;; 6. NEW: `#i` on a COMPLEX literal is a no-op in the reader.
+;; 6. Regression guard for #1910: `#i` on a COMPLEX literal was a no-op in
+;;    the reader.
 ;;
-;;    reader_tokens.zig's inexact path passes `.complex` tokens through
-;;    untouched, so the prefix is silently ignored.
-;;
-;;    Both copies of `applyExactness` have a Complex hole, in complementary
-;;    places -- see the table in section 8.  Closed issue #751 covers the
-;;    string->number half; its fix wired the four complex call sites through
-;;    applyExactness, but that function has no Complex arm in EITHER direction
-;;    (primitives_numeric.zig -- the `.inexact` and `.exact` branches both fall
-;;    through to a bare `return val`), so the prefix is still dropped.
+;;    Both copies of `applyExactness` had a Complex hole in complementary
+;;    places: the reader's inexact path passed `.complex` tokens through
+;;    untouched, and string->number's applyExactness (the destination #751's
+;;    fix wired the four complex call sites into) fell through to a bare
+;;    `return val` in both directions.  Both now handle complexes: `#i`
+;;    clears the two exactness flags, `#e` sets them (refusing non-finite
+;;    parts, the flonum rule of #419).
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: `#i` works on every non-complex shape, and the runtime `inexact`
@@ -292,22 +280,22 @@
 (test-assert "(inexact 1+2i) is inexact" (inexact? (inexact (rd "1+2i"))))
 (test-assert "1.5+2.5i is inexact"     (inexact? (rd "1.5+2.5i")))
 
-;; FAIL: #1910 (#i on a complex literal is ignored: (exact? #i1+2i) => #t)
-;; (test-assert "#i1+2i is inexact" (inexact? (rd "#i1+2i")))
-;; FAIL: #1910 (#i on a complex literal is ignored)
-;; (test-assert "#i3+4i is inexact" (inexact? (rd "#i3+4i")))
+(test-assert "#i1+2i is inexact" (inexact? (rd "#i1+2i")))
+(test-assert "#i3+4i is inexact" (inexact? (rd "#i3+4i")))
+;; #e refuses a non-finite component the same way both parsers refuse
+;; #e+inf.0 (an infinity from decimal overflow has no exact value).
+(test-assert "#e1e999+2i is a read error" (eq? 'read-error (rd/safe "#e1e999+2i")))
+(test-assert "string->number #e1e999+2i is #f" (not (string->number "#e1e999+2i")))
 
 ;; ---------------------------------------------------------------------------
-;; 7. NEW: `#e` on a complex whose component exceeds i64 yields an unreadable
-;;    `0/0`.
+;; 7. Regression guard for #1910's write half: `#e` on a complex whose
+;;    component exceeds i64 printed as the unreadable `0/0`.
 ;;
-;;    reader_tokens.zig's `.complex` arm of the exact path sets both exactness
-;;    flags with NO range check at all, so the printer later renders the
-;;    out-of-range component as the rational `0/0`.  That external
-;;    representation does not read back: bare `0/0` is a read error, and inside
-;;    a complex it comes back as `+nan.0`.
-;;
-;;    This is the only round-trip failure across the whole matrix (section 9).
+;;    The printer's exact-component formatter converted through i64 and
+;;    rendered any out-of-range component as `0/0` -- which does not read
+;;    back (bare `0/0` is a read error; inside a complex it came back as
+;;    `+nan.0`).  Exact components now print their exact digits at any
+;;    magnitude, so the spelling reads back to the identical value.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: within i64 the same shapes are correct and DO round-trip.
@@ -316,39 +304,25 @@
 (test-assert "#e1e18+1i round-trips"  (round-trips? (rd "#e1e18+1i")))
 (test-assert "bare 0/0 is a read error" (eq? 'read-error (rd/safe "0/0")))
 
-;; FAIL: #1910 (#e1e19+1i prints as 0/0+1i and reads back as +nan.0+1i)
-;; (test-assert "#e1e19+1i round-trips" (round-trips? (rd "#e1e19+1i")))
+(test-assert "#e1e19+1i round-trips" (round-trips? (rd "#e1e19+1i")))
+(test-equal "#e1e19+1i writes its exact digits" "10000000000000000000+1i"
+            (wr (rd "#e1e19+1i")))
 
 ;; ---------------------------------------------------------------------------
-;; 8. R7RS 6.2.7 parity: `read` and `string->number` are two independent
-;;    parsers, and they disagree.
+;; 8. R7RS 6.2.7 parity: `read` and `string->number` used to be two
+;;    independent parsers with different strategies, and they disagreed.
 ;;
-;;    There are two separate `applyExactness` implementations --
-;;    `reader_tokens.zig:393` (read / the program reader) and
-;;    `primitives_numeric.zig:979` (string->number) -- with different
-;;    strategies.  string->number reconstructs the value from the decimal
-;;    digits exactly (mantissa x 10^scale, via bignum); the reader parses to
-;;    f64 FIRST and then tries to un-round it with a tolerance-based continued
-;;    fraction.  That structural difference is why the reader loses at both
-;;    ends of the range (sections 2, 3 and 5) while string->number does not.
+;;    Until #1911 there were two separate `applyExactness` implementations:
+;;    string->number reconstructed the value from the decimal digits exactly
+;;    (mantissa x 10^scale, via bignum), while the reader parsed to f64
+;;    FIRST and un-rounded with a tolerance-based continued fraction --
+;;    which is why the reader lost at both ends of the range (sections 2, 3
+;;    and 5) while string->number did not, and why historical fixes (#79,
+;;    #419, #604, #751, #1891) kept landing in one copy at a time.
 ;;
-;;    Historical fixes have landed in one copy at a time:
-;;
-;;      issue | fixed in           | still live in
-;;      ------+--------------------+---------------------------------------
-;;      #79   | reader_tokens      | (guard added, but off by one -- sec. 3)
-;;      #604  | primitives_numeric | --
-;;      #419  | primitives_numeric | reader_tokens (`#e+inf.0` => +inf.0)
-;;      #751  | primitives_numeric | fix incomplete -- no Complex arm at all
-;;      #1891 | --                 | reader_tokens
-;;
-;;    Beyond the divergences already covered above, these cells disagree on
-;;    their own:
-;;      - `#e+inf.0` / `#e-inf.0` / `#e+nan.0`: read yields the inexact
-;;        infinity/NaN, string->number yields #f.  #419 settled that #f is the
-;;        intended answer, so the reader is the side that is wrong.
-;;      - `#e`/`#i` on a complex: string->number ignores the prefix entirely
-;;        (closed #751, fix incomplete); the reader honours `#e` but not `#i`.
+;;    The reader's copy is gone: `#e`/`#i` bodies now go through the same
+;;    parseNumberText behind string->number, so these cells cannot diverge
+;;    again by construction.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: the parsers agree on the ordinary cases.
@@ -378,21 +352,28 @@
             (rd "-9223372036854775808.0") (string->number "-9223372036854775808.0"))
 (test-equal "parity 1e19" (rd "1e19") (string->number "1e19"))
 (test-equal "parity 1e300" (rd "1e300") (string->number "1e300"))
-;; FAIL: #1919 (unprefixed 2^63 decimal: reader ok, string->number gives #f)
-;; (test-equal "parity 2^63 as a decimal"
-;;             (rd "9223372036854775808.0") (string->number "9223372036854775808.0"))
+;; #1921 (filed as the #1919 review follow-up): parseInt overflows on the
+;; final digit before seeing the '.', and the bignum fallback rejected
+;; instead of falling through to the decimal parse.
+(test-equal "parity 2^63 as a decimal"
+            (rd "9223372036854775808.0") (string->number "9223372036854775808.0"))
+(test-assert "string->number 2^63 decimal is a number"
+             (number? (string->number "9223372036854775808.0")))
 
-;; FAIL: #1911 (6.2.7: read gives +inf.0, string->number gives #f)
-;; (test-equal "parity #e+inf.0" (rd "#e+inf.0") (string->number "#e+inf.0"))
-;; FAIL: #1911 (6.2.7: read gives -inf.0, string->number gives #f)
-;; (test-equal "parity #e-inf.0" (rd "#e-inf.0") (string->number "#e-inf.0"))
-;; FAIL: #1911 (6.2.7: read gives +nan.0, string->number gives #f)
-;; (test-assert "parity #e+nan.0"
-;;              (eq? (not (rd "#e+nan.0")) (not (string->number "#e+nan.0"))))
-;; FAIL: #1910 (string->number ignores #e on a complex: yields 1.0+2.0i inexact)
-;; (test-assert "string->number #e1+2i is exact" (exact? (string->number "#e1+2i")))
-;; FAIL: #1910 (string->number ignores #i on a complex: yields 1.0+2.0i either way)
-;; (test-equal "parity #i1+2i" (rd "#i1+2i") (string->number "#i1+2i"))
+;; #e on an infinity/NaN: both sides now reject -- read raises, and
+;; string->number keeps #419's settled #f.
+(test-assert "parity #e+inf.0 (both reject)"
+             (and (eq? 'read-error (rd/safe "#e+inf.0"))
+                  (not (string->number "#e+inf.0"))))
+(test-assert "parity #e-inf.0 (both reject)"
+             (and (eq? 'read-error (rd/safe "#e-inf.0"))
+                  (not (string->number "#e-inf.0"))))
+(test-assert "parity #e+nan.0 (both reject)"
+             (and (eq? 'read-error (rd/safe "#e+nan.0"))
+                  (not (string->number "#e+nan.0"))))
+(test-assert "string->number #e1+2i is exact" (exact? (string->number "#e1+2i")))
+(test-equal "parity #i1+2i" (rd "#i1+2i") (string->number "#i1+2i"))
+(test-equal "parity #e1+2i" (rd "#e1+2i") (string->number "#e1+2i"))
 
 ;; ---------------------------------------------------------------------------
 ;; 9. NEW: an exactness/radix prefix disables the trailing-delimiter check on
@@ -434,8 +415,7 @@
 ;;
 ;;     The campaign's systematic reader check:
 ;;       (equal? x (read (open-input-string (write-to-string x))))
-;;     Holds on every cell reachable without a panic except `#e1e19+1i`
-;;     (section 7).
+;;     Holds on every cell (`#e1e19+1i`, once the sole failure, included).
 ;; ---------------------------------------------------------------------------
 
 (for-each
@@ -447,10 +427,12 @@
    "#e1e-16" "#e1e-19" "#i1" "#i1/2" "#i#xFF" "#i#x1000000000000000000"
    "#e#x10" "#x#e10" "#e+inf.0" "#i+inf.0" "#e1+2i" "#i1+2i" "#e1.5+2.5i"
    "#e+i" "#e10000000000000000000" "#i10000000000000000000"
-   "#e9223372036854775807" "#x1e5" "#e1/3" "#i22/7"))
+   "#e9223372036854775807" "#x1e5" "#e1/3" "#i22/7"
+   "#e9223372036854775808.0" "#e9223372036854775296.0" "#e1e-15"
+   "#e1e-30" "#i3+4i" "#i#xFFFFFFFFFFFFFFFFFF" "#i#x1000000000000000000/3"
+   "9223372036854775808.0"))
 
-;; FAIL: #1910 (see section 7 -- writes 0/0+1i, reads back +nan.0+1i)
-;; (test-assert "round-trip #e1e19+1i" (round-trips? (rd "#e1e19+1i")))
+(test-assert "round-trip #e1e19+1i" (round-trips? (rd "#e1e19+1i")))
 
 ;; ---------------------------------------------------------------------------
 ;; 11. Confirmed-correct areas, pinned so a future change cannot regress them
