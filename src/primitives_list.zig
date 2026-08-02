@@ -207,13 +207,7 @@ fn isEqv(a: Value, b: Value) bool {
         return bignum_mod.compare(a, b) == 0;
     }
     if (types.isComplex(a) and types.isComplex(b)) {
-        const ca = types.toComplex(a);
-        const cb = types.toComplex(b);
-        const ra: u64 = @bitCast(ca.real);
-        const rb: u64 = @bitCast(cb.real);
-        const ia: u64 = @bitCast(ca.imag);
-        const ib: u64 = @bitCast(cb.imag);
-        return ra == rb and ia == ib;
+        return types.complexEqv(a, b);
     }
     if (types.isRationalObj(a) and types.isRationalObj(b)) {
         const ra = types.toRational(a);

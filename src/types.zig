@@ -755,6 +755,23 @@ pub fn toComplex(v: Value) *Complex {
     return toObject(v).as(Complex);
 }
 
+/// eqv? semantics for two complex numbers (R7RS 6.1): components compare
+/// bitwise — the flonum rule, so NaN and signed zero stay consistent — and
+/// the per-component exactness flags must match, because an exact and an
+/// inexact number are never eqv? however equal their f64 images (#2167).
+/// Shared by eqv?, equal?, memv/assv, and eqv-keyed hash tables so the four
+/// call sites cannot drift apart again.
+pub fn complexEqv(a: Value, b: Value) bool {
+    const ca = toComplex(a);
+    const cb = toComplex(b);
+    const ra: u64 = @bitCast(ca.real);
+    const rb: u64 = @bitCast(cb.real);
+    const ia: u64 = @bitCast(ca.imag);
+    const ib: u64 = @bitCast(cb.imag);
+    return ra == rb and ia == ib and
+        ca.exact_real == cb.exact_real and ca.exact_imag == cb.exact_imag;
+}
+
 pub fn isParameter(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .parameter;
 }

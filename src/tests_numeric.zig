@@ -396,3 +396,59 @@ test "bignum rational arithmetic survives GC stress (#1414)" {
         "(= 2 (string->number \"36893488147419103232/18446744073709551616\"))",
     ));
 }
+
+test "complex negation preserves exactness (#2166)" {
+    // R7RS 6.2: negating an exact complex must stay exact. Unary (- z) and
+    // (- 0 z) are rounding-free, so the exactness flags survive; the rest of
+    // complex arithmetic still collapses to inexact (#2166 tracks it).
+    try th.expectEvalTrue("(exact? (- (make-rectangular 3/2 1)))");
+    try th.expectEvalTrue(
+        "(let ((n (- (make-rectangular 3/2 1)))) (and (= (real-part n) -3/2) (= (imag-part n) -1)))",
+    );
+    try th.expectEvalTrue("(exact? (- 0 (make-rectangular 3/2 1)))");
+    try th.expectEvalTrue("(eqv? (- 0 (make-rectangular 3/2 1)) (- (make-rectangular 3/2 1)))");
+    // An inexact-zero minuend must NOT take the exact shortcut.
+    try th.expectEvalTrue("(inexact? (- 0.0 (make-rectangular 3/2 1)))");
+    // Inexact complexes stay inexact; mixed flags are preserved componentwise.
+    try th.expectEvalTrue("(inexact? (- (make-rectangular 1.5 1.0)))");
+    try th.expectEvalTrue(
+        "(eqv? (- (make-rectangular 3/2 1.0)) (make-rectangular -3/2 -1.0))",
+    );
+    // An exact zero component normalizes to +0.0, not -0.0: the negation must
+    // stay eqv? to the same value built directly by make-rectangular.
+    try th.expectEvalTrue("(eqv? (- (make-rectangular 0 1)) (make-rectangular 0 -1))");
+    try th.expectEvalTrue("(exact? (- (make-rectangular 0 1)))");
+    // Double negation round-trips to an eqv? value.
+    try th.expectEvalTrue(
+        "(let ((z (make-rectangular 3/2 1))) (eqv? (- (- z)) z))",
+    );
+}
+
+test "eqv? discriminates exact and inexact complex (#2167)" {
+    // R7RS 6.1: one exact and one inexact number are never eqv?, however
+    // equal their f64 images. = keeps saying #t (it ignores exactness).
+    try th.expectEvalBool("(eqv? (make-rectangular -3/2 -1) -1.5-1.0i)", false);
+    try th.expectEvalBool("(equal? (make-rectangular -3/2 -1) -1.5-1.0i)", false);
+    try th.expectEvalBool("(= (make-rectangular -3/2 -1) -1.5-1.0i)", true);
+    try th.expectEvalBool("(eqv? (make-rectangular 3/2 1) (make-rectangular 1.5 1))", false);
+    // Mixed-component values compare flags componentwise.
+    try th.expectEvalBool("(eqv? (make-rectangular 3/2 1.0) 1.5+1.0i)", false);
+    // Same exactness still compares equal...
+    try th.expectEvalBool("(eqv? (make-rectangular 3/2 1) (make-rectangular 3/2 1))", true);
+    try th.expectEvalBool("(eqv? 1.5+1.0i 1.5+1.0i)", true);
+    // ...and the bitwise component rule is untouched: signed zero and NaN.
+    try th.expectEvalBool("(eqv? 0.0+1i -0.0+1i)", false);
+    try th.expectEvalBool("(eqv? +nan.0+1i +nan.0+1i)", true);
+    // memv/assv (isEqv) and case (compiled to an eqv? call) follow.
+    try th.expectEvalBool("(memv (make-rectangular -3/2 -1) (list -1.5-1.0i))", false);
+    try th.expectEvalBool(
+        "(assv (make-rectangular -3/2 -1) (list (cons -1.5-1.0i 'x)))",
+        false,
+    );
+    try th.expectEvalTrue(
+        "(eq? 'else-branch (case (make-rectangular -3/2 -1) ((-1.5-1.0i) 'inexact-branch) (else 'else-branch)))",
+    );
+    try th.expectEvalTrue(
+        "(eq? 'hit (case (- (make-rectangular 3/2 1)) ((-3/2-1i) 'hit) (else 'miss)))",
+    );
+}
