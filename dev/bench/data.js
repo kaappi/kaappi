@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785673434618,
+  "lastUpdate": 1785674220296,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d529fdcc8d584641f05c69b0d7bedbd530af85be",
-          "message": "Report an uninstalled bootstrap as KP9001, not a caller type error (#1877)\n\n`primitives.bootstrapStub` stands in for the 9 procedures whose real bodies\nare Scheme installed by `vm_bootstrap.install()`. It fired `TypeError`, which\n`diagnostics.runtimeErrorCode` maps to KP3002 — telling `--diagnostics=json`,\nthe LSP and `error-object-code` that the caller passed a bad argument type.\nThe truth is the opposite: Kaappi is mis-initialized, and nothing the user\ndoes to their program will help. That is KP9001's job, and its registry text\n(\"please report it with the program that triggered it\") is the right\ninstruction. Both lines are `InvalidBytecode` now.\n\nThe two were not equally wrong. The second sets a detail first, so only the\ncode misled. The first — the no-VM guard — set none, so `mapNativeError`\nsynthesized `type error in 'map': got <args[0]>`, naming a real list element\nas the culprit: wrong code *and* wrong message, the exact trap #1868 closed\neverywhere else. Both `bare-ok` annotations go away with the tag.\n\n#1874 left this alone for a good reason: its rule is that a guard returns the\ntag its function was going to return anyway, and the guard did mirror the\nfunction. The function's own tag is a separate question, and this answers it.\nBoth prose sites that recorded bootstrapStub as a settled Rule 1 keeper are\nupdated, with the distinction written down — a correct guard on a wrongly\ntagged function reads exactly like a site the rule has already cleared.\n\nThe stub is unreachable from every shipped entry point (every one calls\n`install()`; `runtime_exports` bails out if it fails), so this is a tripwire\nfor a new embedding that forgets the call — precisely when a code pointing at\nKaappi rather than at the user's arguments is worth the most. The existing\n#1375 regression test is kept and retargeted, and now also derives the\ndiagnostic code from the error the eval actually returned, so a silent\nre-tagging fails it; `runtimeErrorCode`'s own table stays pinned separately\nin tests_diagnostics.zig.\n\nCloses #1876\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T05:54:19+05:30",
-          "tree_id": "2e1d8cfe47b9df35d8b96d4cfc768a8aabdb8371",
-          "url": "https://github.com/kaappi/kaappi/commit/d529fdcc8d584641f05c69b0d7bedbd530af85be"
-        },
-        "date": 1785459831428,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.059243,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.600001,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.437131,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.232096,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003879,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034503,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.228697,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042366,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.793723,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.888163,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.179701,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.243072,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.309579,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.415215,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034944,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043171,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa4f8887e9bb8a32ae73ace6a22bf39972622202",
+          "message": "Split vm_dispatch.zig and fiber.zig under the 1500-line policy (#2189)\n\nBoth had crossed the 1500-line file-size limit (1531 and 1530), the\nfirst non-exempt files to do so since the 2026-07-30 sweep. Each is cut\nalong the seam its own structure suggests, as pure code motion:\n\n- vm_dispatch.zig keeps runUntil (the hot dispatch loop) and its\n  loop-control helpers; the support layer the opcode arms call —\n  operand/bytecode readers, register-window validation, the shared\n  global-resolution helper (kaappi#1831/#1860), the noinline error\n  raisers, buildRestList — moves to vm_dispatch_helpers.zig.\n- fiber.zig keeps the Fiber/FiberScheduler structs and scheduling\n  core; the blocking-wait machinery — waitForFd, wakeIoWaitersOnFd,\n  IoWait, parkOnReactor, and the shared in-place scheduler drive\n  runSchedulerStep — moves to fiber_wait.zig.\n\nSame-name re-exports keep every unqualified call site and external\nvm_dispatch.X / fiber.X reference resolving; visibility widens only\nwhere the file boundary requires it. The one non-motion change: the\ntwo debug-pause wrappers are dropped in favor of calling vm_debug\ndirectly at their single call site. tests_gc_tracing.zig (1720) is\ndeliberately not split — a flat list of independent per-type test\nblocks is the breadth the policy exempts.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T12:06:29Z",
+          "tree_id": "dd3e53691bb0018203b94d3468fdbf40c5f56bf0",
+          "url": "https://github.com/kaappi/kaappi/commit/aa4f8887e9bb8a32ae73ace6a22bf39972622202"
+        },
+        "date": 1785674217981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.949649,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.218807,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57374,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.882515,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004892,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044709,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.292572,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05533,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.394153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.153756,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.534883,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30769,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.727792,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.786498,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045682,
             "unit": "seconds"
           }
         ]
