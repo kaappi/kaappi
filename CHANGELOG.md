@@ -79,10 +79,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `:-dispatch-ref`, `:-dispatch-set!`, `make-initial-:-dispatch`,
   `dispatch-union`, and `:generator-proc` are exported, so user dispatchers
   compose per the spec. Typed generators also accept multiple arguments now
-  (`(:list x '(1 2) '(3))` concatenates, per the spec). The `(index i)`
-  variable form remains unsupported, and `:parallel` accepts only
-  single-variable sub-generator forms — both documented in the library
-  header.
+  (`(:list x '(1 2) '(3))` concatenates, per the spec). A zero step is
+  rejected loudly in `:range` (matching the reference implementation) and
+  in `:real-range` (going beyond it: the reference loops forever on an
+  inexact zero step) — before, `(:range i 5 3 0)` spun forever yielding 5.
+  The `(index i)` variable form remains unsupported, and `:parallel`
+  accepts only single-variable sub-generator forms — both documented in
+  the library header.
 
 - **`eqv?` now distinguishes an exact complex from an inexact one** (#2167).
   R7RS 6.1 requires `(eqv? a b)` to be `#f` whenever one number is exact and

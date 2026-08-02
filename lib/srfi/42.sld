@@ -27,6 +27,11 @@
 ;;;   - The reference's make-initial-:-dispatch tests (string? a1) twice
 ;;;     in its 2- and 3-argument string cases where a2/a3 were meant —
 ;;;     corrected here.
+;;;   - A zero step is rejected loudly in :real-range too, not just in
+;;;     :range (where the reference already rejects it).  The reference's
+;;;     :real-range instead raises division-by-zero for an exact zero
+;;;     step and loops forever on an inexact one (istop = +inf.0);
+;;;     silent non-termination is the failure mode worth closing.
 ;;;   - :parallel steps every sub-generator once per iteration and stops
 ;;;     at the first exhausted one, so longer generators are advanced one
 ;;;     step past the shortest — the same one-step-ahead the reference's
@@ -143,6 +148,8 @@
               (else empty))))))
 
     (define (%gen-range from to step)
+      (if (zero? step)
+          (error "step size must not be zero in :range"))
       (let ((x from))
         (lambda (empty)
           (if (if (positive? step) (< x to) (> x to))
@@ -152,6 +159,8 @@
     (define (%gen-real-range from to step)
       (if (not (and (real? from) (real? to) (real? step)))
           (error "arguments of :real-range are not real" from to step))
+      (if (zero? step)
+          (error "step size must not be zero in :real-range"))
       (let* ((a (if (and (exact? from)
                          (not (and (exact? to) (exact? step))))
                     (inexact from)
@@ -315,6 +324,8 @@
                (%lp (+ var 1))))))
         ((_ s (:range var a b c) rest1 rest2 ...)
          (let ((%b b) (%c c))
+           (if (zero? %c)
+               (error "step size must not be zero in :range"))
            (let %lp ((var a))
              (when (and (if (positive? %c) (< var %b) (> var %b))
                         (not s))
@@ -330,6 +341,8 @@
          (let ((%a a) (%b b) (%c c))
            (if (not (and (real? %a) (real? %b) (real? %c)))
                (error "arguments of :real-range are not real" %a %b %c))
+           (if (zero? %c)
+               (error "step size must not be zero in :real-range"))
            (let* ((%x (if (and (exact? %a)
                                (not (and (exact? %b) (exact? %c))))
                           (inexact %a)

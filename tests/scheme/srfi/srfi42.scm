@@ -221,6 +221,36 @@
 (test-equal ": still handles integers after extension" '(0 1 2)
   (list-ec (: i 3) i))
 
+;;; --- zero step is rejected loudly (PR #2180 review) ---
+;; Before the fix, (:range i 5 3 0) looped forever yielding 5 (the macro
+;; arm and the new %gen-range never advance x), and an inexact zero step
+;; in :real-range gave istop = +inf.0 — another silent infinite loop.
+;; An exact zero step in :real-range already errored (division by zero);
+;; the explicit check just names the actual mistake.
+(define (caught-message thunk)
+  (guard (e (#t (error-object-message e))) (thunk)))
+(test-equal ":range zero step raises (macro path)"
+  "step size must not be zero in :range"
+  (caught-message (lambda () (list-ec (:range i 5 3 0) i))))
+(test-equal ":range zero step raises even when from < to"
+  "step size must not be zero in :range"
+  (caught-message (lambda () (list-ec (:range i 5 7 0) i))))
+(test-equal ":range zero step raises (dispatch path)"
+  "step size must not be zero in :range"
+  (caught-message (lambda () (list-ec (: i 5 3 0) i))))
+(test-equal ":range zero step raises (:generator-proc path)"
+  "step size must not be zero in :range"
+  (caught-message (lambda () (:generator-proc (:range 5 3 0)))))
+(test-equal ":real-range exact zero step raises"
+  "step size must not be zero in :real-range"
+  (caught-message (lambda () (list-ec (:real-range x 0 1 0) x))))
+(test-equal ":real-range inexact zero step raises (was an infinite loop)"
+  "step size must not be zero in :real-range"
+  (caught-message (lambda () (list-ec (:real-range x 0.0 1.0 0.0) x))))
+(test-equal ":real-range zero step raises (dispatch path)"
+  "step size must not be zero in :real-range"
+  (caught-message (lambda () (list-ec (: x 0.0 1.0 0.0) x))))
+
 ;;; --- multi-argument typed generators (concatenation) ---
 (test-equal ":list multi-arg" '(1 2 3) (list-ec (:list x '(1 2) '(3)) x))
 (test-equal ":string multi-arg" "abcd" (string-ec (:string c "ab" "cd") c))
