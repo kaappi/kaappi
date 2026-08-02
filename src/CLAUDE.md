@@ -51,6 +51,7 @@ Then add the re-export in `compiler_forms.zig` (thin hub — don't add logic the
 | File | Hot path? | Responsibility |
 |------|:---------:|---------------|
 | `vm_dispatch.zig` | **yes** | Bytecode loop, opcode handlers |
+| `vm_dispatch_helpers.zig` | **yes** | Operand readers, register-window checks, global resolution (re-exported by vm_dispatch.zig) |
 | `vm_calls.zig` | yes | callValue, callClosure, execute |
 | `vm.zig` | no | State, init/deinit, error helpers |
 | `vm_eval.zig` | no | eval, top-level form dispatch |

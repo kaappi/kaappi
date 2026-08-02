@@ -339,12 +339,13 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_define_syntax.zig` | Macro-defining forms: define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution (SRFI 147), syntax-rules parsing, transformer finalization |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (split into 9 files)
+### VM (split into 10 files)
 
 | File | Responsibility |
 |------|---------------|
 | `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
-| `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers, bytecode readers |
+| `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers; re-exports vm_dispatch_helpers.zig |
+| `vm_dispatch_helpers.zig` | Dispatch support: bytecode/operand readers, register-window validation, the shared global-resolution helper (lookupGlobalLocked, #1831/#1860), noinline error raisers, buildRestList |
 | `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
 | `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
 | `vm_library.zig` | handleDefineLibrary, .sld file loading, SRFI 261 normalization, cond-expand features, include; re-exports vm_imports.zig |
@@ -561,7 +562,8 @@ tail position only, because `get_global` carried the vm.globals fallback
 and the `call_global` superinstruction the compiler emits for every
 non-tail call did not. Ordinary (non-`%`) names looked unaffected only
 because `(scheme base)` puts them in lib_env; all three global-reference
-opcodes now resolve through one helper in `vm_dispatch.zig`. That fix left
+opcodes now resolve through one helper (`lookupGlobalLocked`, now in
+`vm_dispatch_helpers.zig`). That fix left
 one residual, closed in kaappi#1860: the fallback is gated on
 `Function.restricted_globals`, which was derived per-function, so it was
 off for the outer function of each library-body form and on for every
@@ -1403,7 +1405,11 @@ The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig`:
 kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` backends + a
 userspace timer heap), created
-lazily with the scheduler by `fiber.ensureScheduler`. Port reads/writes that
+lazily with the scheduler by `fiber.ensureScheduler`. The blocking-wait
+machinery — `waitForFd`, reactor parking (`parkOnReactor`), and the shared
+in-place scheduler drive (`runSchedulerStep`) — lives in `src/fiber_wait.zig`,
+re-exported through `fiber.zig`, so the `fiber.X` names below are unchanged.
+Port reads/writes that
 would block (`EAGAIN`) suspend the calling fiber instead of the thread
 (`fiber.waitForFd`): a fiber dispatched directly by a scheduler loop parks
 (`.io_waiting` + the yield-retry re-execution protocol — callers stash
