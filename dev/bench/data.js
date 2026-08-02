@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785638097894,
+  "lastUpdate": 1785639573609,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ac7369522e55d0bf4d5269079d1ab488548069d",
-          "message": "Stop (scheme base) from exporting %-prefixed internals (#1859)\n\n* Stop (scheme base) from exporting %-prefixed internals\n\n`(scheme base)` exported 22 `%`-prefixed internal primitives. Since v0.22.0\nalso began enforcing R7RS 5.2 (#1726), any user library that defined one of\nthose names and imported `(scheme base)` failed to load outright — the\ndocumented C-extension walkthrough, whose example exported `%length`, was\none such casualty. `%` is this codebase's own private-helper marker, so\nuser code has good reason to treat that namespace as its own.\n\nThe 22 names move off the `scheme.base` tag, and a comptime check in\nprimitives.zig now rejects any `%` name tagged with a `scheme.*` library.\nWhere they went depends on who names them:\n\n  - Only Zig-generated code names them (`%make-promise-lazy`,\n    `%parameter-set!`, `%parameter-convert`, the record substrate and its\n    `/inherit` variants): `.internal` — registered in vm.globals, exported\n    by nothing.\n  - A portable `.sld` names them in its own Scheme source (SRFI 27's\n    random-source accessors, SRFI 74's endianness probe, SRFI 271's random\n    ports, the record substrate SRFI 57/131/136/150/237 build on): also\n    `.internal`, plus a new `(kaappi primitives)` library those `.sld`s\n    import, so each declares the dependency it actually has.\n\nUnexporting them alone would have converted a loud error into a silent\nwrong answer: a library defining its own `%record-ref` would load, and its\n`define-record-type` accessors would then call it. Compiler-synthesized\nreferences therefore go through `Compiler.trueBuiltinRefOrSymbol` /\n`globals_mod.baseBindingSymbol`, resolving against a pristine startup\nsnapshot (`LibraryRegistry.internal_bindings`) rather than vm.globals —\nthe mechanism #1715 already used for let-values.\n\n`%length` is deleted rather than relocated: case-lambda's arity dispatch\nnow references `length`'s pristine `(scheme base)` binding directly, which\nis what the alias existed to approximate (#1714) and is strictly stronger,\nsince a top-level `(define (%length x) ...)` could overwrite the alias but\ncannot touch the export table.\n\nTwo adjacent fixes fall out:\n\n  - `kaappi check` no longer reports KP4001 on base-binding-prefixed\n    references. This was already wrong for let-values' synthesized\n    `call-with-values`; case-lambda, define-record-type, parameterize and\n    delay would have made it common.\n  - The globals drift guard now tests the invariant it meant to\n    (`vm_bootstrap.internal_helpers` are purged) instead of assuming every\n    `.internal` spec is purged, which only held while the two sets\n    coincided.\n\nFull suite: 2014 Scheme tests pass, 0 fail; unit suite green; sandbox,\nWASM, and x86_64-linux cross-compile verified.\n\nCloses #1856\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix stale primitive-registration docs (CodeRabbit)\n\n`reg()` has had no caller outside `registerAll`/`registerSandboxed` looping\nover `all_specs` for some time, but CLAUDE.md and src/CLAUDE.md still told\ncontributors to call it from a `registerXxx` function — which, after the\nprevious commit added the spec-table step beside it, left CLAUDE.md\ndescribing two registration workflows, one of which does not exist.\nBoth now describe the spec table alone.\n\nThe /add-builtin skill only mentioned `INTERNAL`; it now distinguishes it\nfrom `INTERNAL_PUBLIC` the way CLAUDE.md and docs/dev/adding-features.md\nalready do.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T14:10:13+05:30",
-          "tree_id": "2c48981d86056b3b6c5e5f355dff2deaf3da8be4",
-          "url": "https://github.com/kaappi/kaappi/commit/5ac7369522e55d0bf4d5269079d1ab488548069d"
-        },
-        "date": 1785403553400,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.227755,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.265657,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.599782,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.984523,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004969,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04676,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311196,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057363,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.654206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.223407,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.586201,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.290857,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.809233,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.59505,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043186,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036176,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc9215a61bb9287d99925956e2add22bc238043c",
+          "message": "Tick the last seven units — every audit unit is complete, 50 of 53 (#2169)\n\nOnly Phase 8 (synthesis) remains. These seven entries are written from each\nunit's report plus my own re-verification of its headline, and where those\ndisagreed the entry says so.\n\nThree findings in this batch came from a unit's own hypothesis being wrong:\n\n- 6E guessed the BSD legs could not clone a local bare repo, built a probe\n  for exactly that, and the probe PASSED while the suite still failed. That\n  falsification located #2152 — thottam hardcodes /usr/bin/git, so the\n  package manager is non-functional on three platforms it ships for.\n- 5A found the reconnaissance had credited the wrong guard for a claim that\n  is genuinely retired, and then found a live crash (#2129) on a fourth\n  entry path nobody had written down.\n- 7E's own first mutation was caught by neither build, which is what taught\n  it that gc-stress detects a lost root when the object is later marked,\n  not merely read.\n\n7C is the only unit in the whole campaign that confirmed both of its\ntracker claims rather than correcting one.\n\nAnd 7E's #2163 caught my own false claim about 5F's Scheme half, corrected\nin #2168 — that entry now carries the correction inline rather than the\noverclaim.",
+          "timestamp": "2026-08-02T07:09:51+05:30",
+          "tree_id": "28776d8ef31a71650481c399b8ad4e224cb40744",
+          "url": "https://github.com/kaappi/kaappi/commit/dc9215a61bb9287d99925956e2add22bc238043c"
+        },
+        "date": 1785639571409,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.405634,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.654756,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.595402,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.114359,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004814,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046261,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311183,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057505,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.779518,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.232598,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578423,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.291188,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.790371,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667007,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044353,
             "unit": "seconds"
           }
         ]
