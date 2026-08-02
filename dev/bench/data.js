@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785658968720,
+  "lastUpdate": 1785661130568,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "eed2ea6fc8eb9a42f7209d7f2531af66a30e61f2",
-          "message": "End a timed wait whose deadline the dispatch tick already popped (#1870) (#1873)\n\n`runSchedulerStep` evaluates `!ctx.isDone() and !me.timed_out`, then calls\n`scheduleForDispatch()`, whose own per-tick `runReactorTick()` pops expired\ntimers. When that tick pops *this* fiber's deadline, `wakeReadyFiber` sets\n`me.timed_out` and the entry leaves the timer heap — but the loop guard has\nalready been spent on the pre-tick state, so the idle branch went straight\ninto `parkOnReactor` with nothing left to bound `reactor.poll()`. The\nfiber's own `shared_waiters` entry keeps `hasRunnableFibers()` true, so the\n\"nothing can ever happen\" early return is skipped too, and the poll blocks\nuntil some unrelated cross-thread notify arrives. The loop guard never gets\nits turn, because the park never returns.\n\nThat is the srfi120.scm flake: a timer thread parked on its control channel\nfor a 30 ms task would sleep indefinitely and only wake when the caller's\nown `timer-cancel!` message rang its notifier seconds later — by which point\ndelivery-wins hands it the `stop` message and the task never runs at all.\nWindows is where it showed up because `WaitForMultipleObjects` returns\nspuriously often enough (an auto-reset notify event left signalled by an\nearlier `SetEvent`) to put a loop iteration exactly where it needs to be:\npast the guard, with the deadline expiring during the tick.\n\nMeasured on the Windows ARM64 reference VM, one `(srfi 120)` timer per\niteration: 4 wedges in 13,500 iterations before, 0 in 9,000 after. macOS\nnever reproduced it in 7,000.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T21:52:14+05:30",
-          "tree_id": "71c991a9c4b1e000442a702a133f95ee60802fb9",
-          "url": "https://github.com/kaappi/kaappi/commit/eed2ea6fc8eb9a42f7209d7f2531af66a30e61f2"
-        },
-        "date": 1785431274194,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.036862,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.295983,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.433564,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.249385,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003781,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034661,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.227601,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042621,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.853378,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.885467,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.178073,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.233648,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.301973,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.365367,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035083,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.024902,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e77bbf7b264609de34831718c2dc56868263870d",
+          "message": "Route reader #e/#i through string->number's digit-exact parser (#2181)\n\nThe reader and string->number each had their own applyExactness with\nstructurally different strategies: string->number rebuilt exact values\nfrom the decimal digits (mantissa x 10^scale via bignum) while the\nreader parsed to f64 first and un-rounded it with an i64 continued\nfraction under an absolute 1e-15 tolerance. R7RS 6.2.7 requires the two\nto agree, and every past fix (#79, #419, #604, #751, #1891) had landed\nin one copy at a time.\n\nstringToNumber's body is now the pub parseNumberText, and an\nexactness-prefixed number body in the reader becomes a prefixed_real\ntoken whose span datum construction re-parses through it — the\ntokenizer still runs first, so token boundaries and incremental-input\nsemantics are untouched, and the two parsers cannot diverge on #e/#i\nagain by construction. The reader's f64-unrounding conversion is\ndeleted. Complex tokens are the one exception (readNumber's complex\ngrammar is wider than parseNumberText's): exactness there is exactly\nthe two flags, with #e refusing non-finite parts.\n\nFixes, one per issue: #1891 (#e dropped past i64), #1907 (panic at the\n2^63 guard's off-by-one, aborting check/fmt/ast), #1908 (#i radix\nbignums read as decimal), #1909 (sub-1e-15 collapse to exact 0), #1910\n(Complex arms on both applyExactness sides plus exact-component\nprinting at any magnitude, so #e1e19+1i round-trips instead of writing\n0/0), #1921 (string->number rejecting the unprefixed 2^63 decimal),\nand the #e+inf.0 parity gap (now a read error, matching #419's #f).\n\nThe tiny exact-complex round-trip gap surfaced in review is pinned in\nboth directions and sequenced as #2183 then #2182 — the reader grammar\nextension must wait for the scaled rational->f64 conversion or the\nprinted form would read back as a silent 0.0.\n\nCloses #1891, closes #1907, closes #1908, closes #1909, closes #1910,\ncloses #1911, closes #1921.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T14:01:18+05:30",
+          "tree_id": "761dfde96f16b91a8f28a8acc419740fcaf16ed0",
+          "url": "https://github.com/kaappi/kaappi/commit/e77bbf7b264609de34831718c2dc56868263870d"
+        },
+        "date": 1785661129212,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.300078,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.94211,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56797,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.009793,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00468,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046769,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314975,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056449,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.627618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.222602,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.582356,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276255,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.783741,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.610414,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043114,
             "unit": "seconds"
           }
         ]
