@@ -371,6 +371,13 @@ assert_output_contains "uncaught raise of non-error object shows the value" \
 assert_output_contains "uncaught exception inside procedure shows message" \
     '(define (f) (error "boom" 1)) (f)' 'error[KP3000]: boom 1'
 
+# The `read` procedure's error object names what failed instead of a bare
+# "read error" (#1920): the reader's KP1xxx registry template (or its richer
+# detail string, when one was recorded) rides along in the message.
+assert_output_contains "read procedure error names the failure" \
+    '(import (scheme read)) (read (open-input-string "\"abc"))' \
+    'error[KP3000]: read error: unterminated string literal'
+
 cat > "$TMPDIR/uncaught.scm" << 'SCHEME'
 (error "script boom" 7)
 SCHEME

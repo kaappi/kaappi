@@ -1583,16 +1583,25 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
 }
 
 /// Parses one datum with R7RS 6.13.2 `read` semantics: EOF before any datum
-/// text begins yields null (the caller returns the EOF object); EOF that
+/// text begins — including after trailing comments or a trailing `#!`
+/// directive — yields null (the caller returns the EOF object); EOF that
 /// interrupts an incomplete datum — including an unterminated comment —
 /// propagates as an error so the caller can signal one satisfying read-error?.
 fn parseDatumForRead(reader: *reader_mod.Reader) reader_mod.ReadError!?Value {
-    if (!try reader.hasMore()) return null;
-    return try reader.readDatum();
+    return reader.readDatumOrEof();
 }
 
-fn raiseReadError(gc: *@import("memory.zig").GC) PrimitiveError!Value {
-    var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
+fn raiseReadError(gc: *@import("memory.zig").GC, err: anyerror) PrimitiveError!Value {
+    // Name what actually failed instead of a bare "read error" (#1920): the
+    // registry template for the reader's error, or — when the reader left
+    // one — its own richer detail (e.g. the malformed token echoed back).
+    const diagnostics = @import("diagnostics.zig");
+    const detail = reader_mod.getReadErrorDetail();
+    const specific: []const u8 = if (detail.len > 0) detail else diagnostics.readErrorCode(err).message();
+    var buf: [320]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "read error: {s}", .{specific}) catch "read error";
+    reader_mod.resetReadErrorDetail();
+    var msg = gc.allocString(text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
     defer gc.popRoot();
     const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
@@ -1611,7 +1620,7 @@ fn readFromPeekByteOnly(gc: *@import("memory.zig").GC, port: *types.Port) Primit
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
-        return raiseReadError(gc);
+        return raiseReadError(gc, err);
     };
     return maybe_datum orelse types.EOF;
 }
@@ -1646,7 +1655,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         defer reader.deinit();
         const maybe_datum = parseDatumForRead(&reader) catch |err| {
             if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
-            return raiseReadError(gc);
+            return raiseReadError(gc, err);
         };
         const datum = maybe_datum orelse return types.EOF;
         // Advance string_pos by amount consumed
@@ -1691,10 +1700,17 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     maybeSetNonblocking(port);
     var tmp: [read_chunk_size]u8 = undefined;
     while (true) {
-        // Try to parse a datum from what we already have.
+        // Try to parse a datum from what we already have. The buffer is a
+        // possibly-truncated prefix of the input, so parse in incomplete-
+        // input mode: any token or datum cut off at the end of the buffer
+        // reports exactly UnexpectedEof — the signal to read another chunk —
+        // rather than a spurious final error (#1893/#1920/#1945) or a
+        // silently split token (#1940). Only the post-EOF parse below, which
+        // sees the whole input, delivers final verdicts.
         if (buf.items.len > 0) {
             var reader = reader_mod.Reader.init(gc, buf.items);
             reader.mark_immutable = false;
+            reader.incomplete_input = true;
             defer reader.deinit();
             const result = parseDatumForRead(&reader);
             if (result) |maybe_datum| {
@@ -1709,11 +1725,14 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
                     }
                     return datum;
                 }
-                // Buffer was only whitespace/comments — discard and read more.
-                buf.clearRetainingCapacity();
+                // Buffer was only whitespace/comments — discard and read
+                // more. Not when a `#!` directive was among them: it carries
+                // state (fold-case) that each refill's fresh Reader recovers
+                // by re-parsing the buffer from its start.
+                if (!reader.saw_directive) buf.clearRetainingCapacity();
             } else |err| {
                 if (err != reader_mod.ReadError.UnexpectedEof)
-                    return if (err == reader_mod.ReadError.OutOfMemory) PrimitiveError.OutOfMemory else raiseReadError(gc);
+                    return if (err == reader_mod.ReadError.OutOfMemory) PrimitiveError.OutOfMemory else raiseReadError(gc, err);
                 // Incomplete datum — fall through to read more.
             }
         }
@@ -1739,7 +1758,9 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
-    // Reached EOF — parse whatever remains.
+    // Reached EOF — parse whatever remains, now with the whole input known
+    // (incomplete_input stays false): a token ending here genuinely ends,
+    // and a datum still cut short is a real error satisfying read-error?.
     if (buf.items.len == 0) return types.EOF;
 
     var reader = reader_mod.Reader.init(gc, buf.items);
@@ -1747,7 +1768,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
-        return raiseReadError(gc);
+        return raiseReadError(gc, err);
     };
     const datum = maybe_datum orelse return types.EOF;
 

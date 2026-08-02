@@ -12,6 +12,7 @@ test {
     _ = @import("tests_exceptions.zig");
     _ = @import("tests_records.zig");
     _ = @import("tests_io.zig");
+    _ = @import("tests_reader_incremental.zig");
     _ = @import("tests_continuations.zig");
     _ = @import("tests_advanced.zig");
     _ = @import("tests_filesystem.zig");

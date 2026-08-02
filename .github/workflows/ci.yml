@@ -291,7 +291,13 @@ jobs:
           #     after 25 minutes stressed, while the other 602 files completed
           #     in 11 minutes in aggregate on the same run. srfi14.scm
           #     (Unicode inversion lists) and srfi264.scm are the same shape at
-          #     ~10 and ~9 minutes.
+          #     ~10 and ~9 minutes. reader-port-refill-gaps.scm sweeps ~800
+          #     chunk-boundary fixtures, each an incremental `read` that
+          #     re-parses a 4 KiB buffer per refill (~1 s plain, exit 124 at
+          #     the 900 s stress timeout on this job's first run against it,
+          #     PR #2174); the incomplete-input reader mode it guards gets its
+          #     stress coverage from src/tests_reader_incremental.zig in the
+          #     gc-stress unit job instead.
           #
           # (b) REAL BUGS THIS GATE FOUND ON ITS FIRST RUN -- excluded so the
           #     gate is green for everything else, exactly as the campaign
@@ -305,7 +311,7 @@ jobs:
           #              GC-owned strings, so a nongenerative uid stops
           #              resolving once its string is collected (19 assertions)
           #
-          # All nine still run stressed in the nightly fuzz.yml legs' unit
+          # All ten still run stressed in the nightly fuzz.yml legs' unit
           # phase where applicable, and unstressed under run-all.sh on every
           # other leg here, so nothing is untested -- only unstressed.
           #
@@ -313,6 +319,7 @@ jobs:
           # cannot rot into a silent no-op.
           KAAPPI_GC_STRESS_SKIP: >-
             trampoline-polish-1375.scm srfi14.scm srfi264.scm
+            reader-port-refill-gaps.scm
             primitives_srfi1-audit.scm srfi1-ext.scm srfi1-gc-stress.scm
             primitives_srfi237-audit.scm srfi237.scm srfi240-audit.scm
 
