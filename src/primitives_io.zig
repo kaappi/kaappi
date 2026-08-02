@@ -29,13 +29,13 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "open-input-file", .func = &openInputFile, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
     .{ .name = "open-output-file", .func = &openOutputFile, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
     .{ .name = "close-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "close-input-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
-    .{ .name = "close-output-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "close-input-port", .func = &closeInputPort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "close-output-port", .func = &closeOutputPort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     // SRFI 192 (built-in, no .sld -- see lib.zig's Lib.canonicalName srfi_192)
     .{ .name = "port-position", .func = &portPosition, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
     .{ .name = "set-port-position!", .func = &setPortPositionBang, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_192) },
     .{ .name = "port-has-port-position?", .func = &portHasPortPositionP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
-    .{ .name = "port-has-set-port-position!?", .func = &portHasPortPositionP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
+    .{ .name = "port-has-set-port-position!?", .func = &portHasSetPortPositionP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_192) },
     .{ .name = "read-char", .func = &readCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "peek-char", .func = &peekCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "read-line", .func = &readLineFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
@@ -88,7 +88,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitiv
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "output port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_output) return primitives.typeError(proc, "output port", args[arg_idx]);
-        if (!port.is_open) return primitives.argError(proc, "output port is closed", .{});
+        if (!port.is_open or port.output_closed) return primitives.argError(proc, "output port is closed", .{});
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -103,7 +103,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
         if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "input port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
         if (!port.is_input) return primitives.typeError(proc, "input port", args[arg_idx]);
-        if (!port.is_open) return primitives.argError(proc, "input port is closed", .{});
+        if (!port.is_open or port.input_closed) return primitives.argError(proc, "input port is closed", .{});
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -273,7 +273,16 @@ fn portFdWrite(port: *types.Port, buf: [*]const u8, len: usize) isize {
 fn waitPortFd(port: *types.Port, interest: reactor_mod.Interest) PrimitiveError!void {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     try fiber_mod.waitForFd(vm, port.fd, interest);
+    // The half-close checks (#1998) mirror the full-close one for the same
+    // reason: a parked waiter re-runs getInputPort/getOutputPort, which
+    // reject the closed side, but a scheduler-driving waiter resumes right
+    // here and would otherwise loop back into another wait on a side that
+    // can never produce anything again.
     if (!port.is_open) return raisePortClosedDuringIo();
+    switch (interest) {
+        .read => if (port.input_closed) return raisePortClosedDuringIo(),
+        .write => if (port.output_closed) return raisePortClosedDuringIo(),
+    }
 }
 
 fn raisePortClosedDuringIo() PrimitiveError {
@@ -558,13 +567,14 @@ fn writeBytesToCustomPort(port: *types.Port, cb: *types.CustomBacking, bytes: []
 /// through ts.eol_style, then forwards the result to wrapped_port in one
 /// call.
 ///
-/// No batching hazard here, unlike the decode loop: one input character
-/// always maps to an immediately-known, fixed-size output sequence, and
-/// the whole translated span is computed before wrapped_port is ever
-/// touched -- so a park inside the wrapped write is retried by simply
-/// recomputing this same translation again from the same `bytes`; nothing
-/// here is lost across a Yielded retry the way decodeOneChar's
-/// byte-at-a-time reads could be.
+/// No batching hazard here, unlike the decode loop: the whole translated
+/// span is computed before wrapped_port is ever touched, and the one
+/// durable mutation (ts.pending_cr, the split-CRLF state — #1997) commits
+/// only after the wrapped write fully succeeds -- so a park inside the
+/// wrapped write is retried by simply recomputing this same translation
+/// again from the same `bytes` and the same flag; nothing here is lost
+/// across a Yielded retry the way decodeOneChar's byte-at-a-time reads
+/// could be.
 ///
 /// Encoding itself cannot fail under UTF-8, the only codec v1 supports
 /// (every valid Kaappi character has a UTF-8 encoding by construction) --
@@ -575,27 +585,51 @@ fn writeBytesToTranscodedPort(ts: *types.TranscodeState, bytes: []const u8) Prim
     const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
     if (!wrapped.is_open) return raiseWrappedPortClosed();
 
-    // `none` and `lf` both forward `bytes` unchanged: an encoded
-    // #\newline is already the single byte 0x0A, which *is* lf's own
-    // rendering, and UTF-8 guarantees 0x0A never appears as part of any
-    // other character's encoding (continuation and multi-byte lead bytes
-    // are always >= 0x80). Only `crlf` needs an actual rewrite.
-    switch (ts.eol_style) {
-        .none, .lf => return portWriteBytes(wrapped, bytes),
-        .crlf => {},
-    }
+    // `none` performs no translation in either direction.
+    if (ts.eol_style == .none) return portWriteBytes(wrapped, bytes);
+    if (bytes.len == 0) return;
+
+    // `lf`/`crlf` rewrite every line ending — bare LF, bare CR, or the CRLF
+    // pair — to the style's own rendering, mirroring what the decode
+    // direction already recognizes (#1997: only LF was rewritten, so a crlf
+    // transcoder turned one CRLF into CR CR LF). CR and LF are single-byte
+    // ASCII, and UTF-8 guarantees neither appears inside any other
+    // character's encoding (continuation and multi-byte lead bytes are
+    // always >= 0x80), so a byte-level scan is safe.
+    //
+    // Fast path for `lf`: with no CR in the span and no pending split pair,
+    // every #\newline is already lf's own rendering — forward unchanged
+    // (and pending_cr, checked false, stays correctly false).
+    if (ts.eol_style == .lf and !ts.pending_cr and
+        std.mem.indexOfScalar(u8, bytes, '\r') == null)
+        return portWriteBytes(wrapped, bytes);
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(gc.allocator);
-    for (bytes) |b| {
-        if (b == '\n') {
-            out.appendSlice(gc.allocator, "\r\n") catch return PrimitiveError.OutOfMemory;
+    const eol: []const u8 = if (ts.eol_style == .crlf) "\r\n" else "\n";
+    var i: usize = 0;
+    // A CR at the tail of the previous span was already rendered as one
+    // full line ending; an LF opening this span is that same (split) CRLF
+    // pair's second half — e.g. write-char #\return, write-char #\newline —
+    // not a new line ending.
+    if (ts.pending_cr and bytes[0] == '\n') i = 1;
+    while (i < bytes.len) : (i += 1) {
+        const b = bytes[i];
+        if (b == '\r') {
+            if (i + 1 < bytes.len and bytes[i + 1] == '\n') i += 1; // CRLF pair
+            out.appendSlice(gc.allocator, eol) catch return PrimitiveError.OutOfMemory;
+        } else if (b == '\n') {
+            out.appendSlice(gc.allocator, eol) catch return PrimitiveError.OutOfMemory;
         } else {
             out.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
         }
     }
-    try portWriteBytes(wrapped, out.items);
+    if (out.items.len > 0) try portWriteBytes(wrapped, out.items);
+    // Committed only after the wrapped write fully succeeded: a park above
+    // retries this whole call from the same `bytes` and must recompute the
+    // identical translation from the flag's pre-call value.
+    ts.pending_cr = bytes[bytes.len - 1] == '\r';
 }
 
 // ---------------------------------------------------------------------------
@@ -704,13 +738,13 @@ fn binaryPortP(args: []const Value) PrimitiveError!Value {
 fn inputPortOpenP(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("input-port-open?", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
-    return if (port.is_input and port.is_open) types.TRUE else types.FALSE;
+    return if (port.is_input and port.is_open and !port.input_closed) types.TRUE else types.FALSE;
 }
 
 fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("output-port-open?", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
-    return if (port.is_output and port.is_open) types.TRUE else types.FALSE;
+    return if (port.is_output and port.is_open and !port.output_closed) types.TRUE else types.FALSE;
 }
 
 fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
@@ -844,6 +878,86 @@ fn closePort(args: []const Value) PrimitiveError!Value {
     return closePortObj(types.toObject(args[0]).as(types.Port));
 }
 
+fn closeInputPort(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("close-input-port", "port", args[0]);
+    return closePortSide(types.toObject(args[0]).as(types.Port), .input);
+}
+
+fn closeOutputPort(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("close-output-port", "port", args[0]);
+    return closePortSide(types.toObject(args[0]).as(types.Port), .output);
+}
+
+const PortSide = enum { input, output };
+
+/// R7RS 6.13.1: on a port that is simultaneously an input and an output
+/// port, close-input-port and close-output-port "close the input and
+/// output sides of the port independently" — the shared backing (SRFI 181
+/// close callback, fd) is released only when the second side goes (#1998).
+/// On a single-direction port both names keep behaving exactly like
+/// close-port, as they always have.
+fn closePortSide(port: *types.Port, side: PortSide) PrimitiveError!Value {
+    if (port.is_input and port.is_output and port.is_open) {
+        const other_already_closed = switch (side) {
+            .input => port.output_closed,
+            .output => port.input_closed,
+        };
+        if (!other_already_closed) {
+            // Repeating a close of the same side is a no-op — R7RS: these
+            // routines "have no effect if the port has already been
+            // closed", which for a side-close means this side.
+            const this_already_closed = switch (side) {
+                .input => port.input_closed,
+                .output => port.output_closed,
+            };
+            if (this_already_closed) return types.VOID;
+            // Half-close. Closing the output side still flushes — R7RS:
+            // "if port is an output port, it is flushed before being
+            // closed" — and, exactly like closePortObj's own drain-then-
+            // mark order, the flag is set only after the (possibly
+            // suspending) flush completes: waitPortFd's half-close
+            // re-check would otherwise misread this close's own drain as
+            // a sibling's close. A parked retry re-enters with the flag
+            // still unset and resumes the drain from the port's progress.
+            // Consequence worth keeping true: output_closed implies an
+            // empty write_buf, since the flush completed first and
+            // getOutputPort rejects every later write.
+            if (side == .output) try flushPortObj(port);
+            switch (side) {
+                .input => port.input_closed = true,
+                .output => port.output_closed = true,
+            }
+            // Wake fibers parked on the fd of the now-closed side so they
+            // re-execute and raise cleanly instead of waiting for bytes
+            // that no longer matter — the same close discipline
+            // closePortObj applies on full close. A waiter for the still-
+            // open side just re-parks. Only real-fd ports can have parked
+            // waiters (custom-port callbacks cannot block).
+            if (!port.is_string_port and port.custom_backend == null and
+                port.transcode == null and port.fd > 2)
+            {
+                if (vm_mod.vm_instance) |vm| {
+                    if (vm.scheduler) |sched| fiber_mod.wakeIoWaitersOnFd(sched, port.fd);
+                }
+            }
+            return types.VOID;
+        }
+        // Second side: full close (callback and fd released exactly once —
+        // closePortObj's own is_open guards). The flag is set after it
+        // completes for the same drain-then-mark reason as above; a park
+        // inside propagates first and the retry re-enters this same path.
+        const result = try closePortObj(port);
+        switch (side) {
+            .input => port.input_closed = true,
+            .output => port.output_closed = true,
+        }
+        return result;
+    }
+    // Single-direction port or an already fully-closed port: behave
+    // exactly like close-port, as these names always did.
+    return closePortObj(port);
+}
+
 /// The actual close-port body, taking a *Port directly (matching the house
 /// style readOneByte/portWriteBytes already establish) so SRFI 181's
 /// transcoded-port close cascade below can call it on wrapped_port without
@@ -933,8 +1047,18 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
     // silently reposition that unrelated file instead of erroring.
     if (!port.is_open) return primitives.argError("port-position", "port is closed", .{});
     if (port.is_string_port) {
-        const pos: i64 = if (port.is_input) @intCast(port.string_pos) else @intCast(port.string_out_pos);
-        return types.makeFixnum(pos);
+        if (port.is_input) {
+            // Subtract software read-ahead exactly as the fd branch below
+            // does: read-line's CR handling pushes a byte back via
+            // peek_byte on a string port too, and string_pos has already
+            // advanced past it (#1941). read_buf/peek_extra are included
+            // for symmetry — no string-port path fills them today.
+            const ahead: i64 = @as(i64, @intCast(port.read_buf_len)) +
+                @as(i64, if (port.peek_byte != null) 1 else 0) +
+                @as(i64, port.peek_extra_len);
+            return types.makeFixnum(@as(i64, @intCast(port.string_pos)) - ahead);
+        }
+        return types.makeFixnum(@intCast(port.string_out_pos));
     }
     if (port.custom_backend) |cb| {
         return portPositionFromCustomPort(cb);
@@ -955,9 +1079,27 @@ fn portCanPosition(port: *types.Port) bool {
     return platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
 }
 
+/// SRFI 192: whether set-port-position! would succeed — the *setter*
+/// question, distinct from portCanPosition's getter question. The two
+/// answers differ exactly for a custom port carrying one of
+/// get-position/set-position! without the other (#1942); every other port
+/// kind supports both or neither, which is how registering both predicates
+/// to one function stayed invisible on ordinary ports.
+fn portCanSetPosition(port: *types.Port) bool {
+    if (!port.is_open) return false;
+    if (port.is_string_port) return true;
+    if (port.custom_backend) |cb| return cb.set_position_proc != types.FALSE;
+    return platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
+}
+
 fn portHasPortPositionP(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("port-has-port-position?", "port", args[0]);
     return if (portCanPosition(types.toObject(args[0]).as(types.Port))) types.TRUE else types.FALSE;
+}
+
+fn portHasSetPortPositionP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return primitives.typeError("port-has-set-port-position!?", "port", args[0]);
+    return if (portCanSetPosition(types.toObject(args[0]).as(types.Port))) types.TRUE else types.FALSE;
 }
 
 /// SRFI 192: reposition a port. Per spec, an output port is flushed
@@ -990,6 +1132,16 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
             const len = if (port.string_data) |d| d.len else 0;
             if (pos > len) return primitives.indexError("set-port-position!", pos, len);
             port.string_pos = @intCast(pos);
+            // Discard stale read-ahead exactly as the fd branch below
+            // does: a pushed-back peek byte describes the *old* position
+            // and would otherwise be served first after the seek (#1941).
+            port.peek_byte = null;
+            port.peek_extra_len = 0;
+            if (port.read_buf) |rb| {
+                if (memory.gc_instance) |gc| gc.allocator.free(rb);
+                port.read_buf = null;
+                port.read_buf_len = 0;
+            }
         } else {
             // Move the write cursor only -- string_out_len (the buffer's
             // total extent, what get-output-string reads up to) is
@@ -1758,6 +1910,31 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             }
         }
 
+        // SRFI 181 ports have no fd (the -1 sentinel): refill through
+        // readOneByte — the single byte source for every port kind — which
+        // invokes the read! callback / transcoder decode and stashes the
+        // burst's tail into read_buf, drained right back out here. Before
+        // #1995 this fell through to portFdRead(-1, ...), whose EBADF read
+        // as EOF, so `read` never invoked the callback at all.
+        if (port.custom_backend != null or port.transcode != null) {
+            // A park (only the transcoded path can park, on the wrapped
+            // port's fd) re-stashes the accumulation so the re-executed
+            // primitive re-drains it on entry; the wrapped port's own
+            // mid-decode bytes were already stashed one level down.
+            const first = readOneByte(port) catch |err|
+                return propagateReadErr(port, err, &.{buf.items});
+            const b = first orelse break; // EOF
+            buf.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
+            if (port.read_buf) |rb| {
+                const pos = rb.len - port.read_buf_len;
+                buf.appendSlice(gc.allocator, rb[pos .. pos + port.read_buf_len]) catch return PrimitiveError.OutOfMemory;
+                gc.allocator.free(rb);
+                port.read_buf = null;
+                port.read_buf_len = 0;
+            }
+            continue;
+        }
+
         const raw_n = portFdRead(port, &tmp, tmp.len);
         if (raw_n < 0) {
             const e = platform.errno(raw_n);
@@ -1888,17 +2065,35 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
-fn flushOutputPort(args: []const Value) PrimitiveError!Value {
-    const port = try getOutputPort(args, 0, "flush-output-port");
+/// The flush-output-port body for one port, factored out so a transcoded
+/// port can cascade to the port it wraps (#1943) — which may itself be a
+/// custom port or a buffered fd port, so the cascade is a recursive call,
+/// not a drain. String ports and the unbuffered standard fds have nothing
+/// pending; buffered fd ports drain fully (suspending the fiber as needed —
+/// idempotent across a parked retry since progress lives in the port).
+fn flushPortObj(port: *types.Port) PrimitiveError!void {
     if (port.custom_backend) |cb| {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-        try flushCustomPortIfNeeded(vm, cb);
-        return types.VOID;
+        return flushCustomPortIfNeeded(vm, cb);
     }
-    // String ports and the unbuffered standard fds have nothing pending;
-    // buffered fd ports drain fully (suspending the fiber as needed —
-    // idempotent across a parked retry since progress lives in the port).
+    // SRFI 181: everything a transcoded port ever wrote is already in the
+    // wrapped port (writeBytesToTranscodedPort forwards each span
+    // immediately), so flushing it IS flushing the wrapped port. Before
+    // #1943 there was no branch here, and a transcoded port fell through
+    // both fd checks (fd = -1) into a silent no-op. Same closed-wrapped
+    // check as the read/write paths: getOutputPort vetted the transcoded
+    // port itself, not the port underneath.
+    if (port.transcode) |ts| {
+        const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
+        if (!wrapped.is_open) return raiseWrappedPortClosed();
+        return flushPortObj(wrapped);
+    }
     if (isBufferedFdPort(port)) try drainWriteBuffer(port);
+}
+
+fn flushOutputPort(args: []const Value) PrimitiveError!Value {
+    const port = try getOutputPort(args, 0, "flush-output-port");
+    try flushPortObj(port);
     return types.VOID;
 }
 

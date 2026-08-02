@@ -526,3 +526,33 @@ test "current-input-port survives extreme GC pressure (#1013)" {
     try std.testing.expectEqual(types.TRUE, try vm.eval("(output-port? (current-output-port))"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(output-port? (current-error-port))"));
 }
+
+test "string-port port-position subtracts the pushed-back peek byte (#1941)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // read-line on "a\rb" consumes 'a', the CR, and then reads 'b' to check
+    // for a CRLF pair -- pushing 'b' back via peek_byte. string_pos is 3,
+    // but the port's logical position is 2; before #1941 the string branch
+    // reported the raw cursor while the fd branch already subtracted.
+    _ = try vm.eval("(define p (open-input-string \"a\\rb\"))");
+    _ = try vm.eval("(read-line p)");
+    try std.testing.expectEqual(types.makeFixnum(2), try vm.eval("(port-position p)"));
+    try std.testing.expectEqual(types.makeChar('b'), try vm.eval("(read-char p)"));
+}
+
+test "set-port-position! on a string port discards the pushed-back peek byte (#1941)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The pushed-back 'X' describes the pre-seek position; before #1941 it
+    // survived the seek and was served first, so read-char yielded #\X.
+    _ = try vm.eval("(define p (open-input-string \"a\\rXbcd\"))");
+    _ = try vm.eval("(read-line p)");
+    _ = try vm.eval("(set-port-position! p 0)");
+    try std.testing.expectEqual(types.makeChar('a'), try vm.eval("(read-char p)"));
+}
