@@ -68,6 +68,15 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
             const param = types.car(param_list);
             if (!types.isSymbol(param)) return CompileError.InvalidSyntax;
 
+            // arity is a u8, and the call ISA encodes nargs as one byte, so
+            // no call site could ever supply a 256th argument (the apply
+            // path already rejects >255 loudly). Reject the formals list
+            // cleanly instead of overflowing the counter below (#2185).
+            // InvalidSyntax, not TooManyLocals: the latter reads as a KP9001
+            // "internal error -- report this bug", and an oversized formals
+            // list is the user's, matching parseRecordSpec's 255-field cap.
+            if (arity == 255) return CompileError.InvalidSyntax;
+
             const slot = child.allocReg() catch return CompileError.TooManyLocals;
             child.locals.append(child.gc.allocator, .{
                 .name = types.symbolName(param),

@@ -222,6 +222,20 @@ pub fn hasLiveChildThreads() bool {
     return @atomicLoad(usize, &live_child_threads, .acquire) > 0;
 }
 
+/// Relative seconds -> saturated nanoseconds, shared by
+/// timeoutToDeadlineNs's number branch and threadSleepFn (#1983). One
+/// implementation on purpose: the bug existed as three diverged copies of
+/// this exact conversion, so any future policy change (say, to NaN
+/// handling) must have a single edit point. lossyCast saturates where the
+/// old @intFromFloat panicked: +inf.0 and any product >= 2^64 become
+/// maxInt(u64) ("never times out"), NaN becomes 0 (the old @max treatment
+/// of it -- @max(0.0, secs) before the multiply and @max on the product
+/// are equivalent here, since scaling by a positive constant is monotone
+/// and NaN propagates either way), negatives clamp to 0.
+fn saturatedNsFromSeconds(secs: f64) u64 {
+    return std.math.lossyCast(u64, @max(0.0, secs) * 1_000_000_000.0);
+}
+
 /// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
 /// channel-send/channel-receive timeouts reuse this exact SRFI-18-shaped
 /// number-or-time-object-or-#f parsing rather than duplicating it.
@@ -231,18 +245,26 @@ pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
         const t = types.toSrfi18Time(timeout);
         if (t.seconds < 0) return 0;
         const ns_clamped: u64 = if (t.nanoseconds > 0) @intCast(t.nanoseconds) else 0;
-        const sec_ns: u64 = @as(u64, @intCast(t.seconds)) * 1_000_000_000 + ns_clamped;
+        // Saturating arithmetic throughout (#1983): a deadline past what the
+        // u64 nanosecond clock can express (wall time beyond ~year 2554) is a
+        // perfectly legal time object, and "so far out it never fires" is the
+        // correct reading of it -- the SRFI-18 timeout convention treats
+        // +inf.0 as "never time out" (Gambit). The old unchecked multiply
+        // aborted the whole process instead, uncatchably, and through this
+        // pub function took (kaappi fibers) channel timeouts down too.
+        const sec_ns: u64 = @as(u64, @intCast(t.seconds)) *| 1_000_000_000 +| ns_clamped;
         const now_rt = platform.realTime();
         const now_ns = @as(u64, @intCast(now_rt.sec)) * 1_000_000_000 + @as(u64, @intCast(now_rt.nsec));
         if (sec_ns <= now_ns) return 0;
         const mono_now = fiber_mod.clockNs();
-        return mono_now + (sec_ns - now_ns);
+        return mono_now +| (sec_ns - now_ns);
     }
     const secs = primitives.toF64(timeout) catch
         return primitives.typeError("thread", "time object or number", timeout);
     const mono_now = fiber_mod.clockNs();
-    const delta_ns: u64 = @intFromFloat(@max(0.0, secs) * 1_000_000_000.0);
-    return mono_now + delta_ns;
+    // The saturating add keeps a saturated delta pinned at "never" instead
+    // of wrapping around into the past (#1983).
+    return mono_now +| saturatedNsFromSeconds(secs);
 }
 
 pub fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
@@ -601,8 +623,12 @@ fn threadSleepFn(args: []const Value) PrimitiveError!Value {
     if (me.deadline_ns == null) {
         const seconds = try getSleepSeconds(args[0]);
         if (seconds <= 0) return types.VOID;
-        const total_ns: u64 = @intFromFloat(@max(0.0, seconds * 1e9));
-        const deadline = fiber_mod.clockNs() + total_ns;
+        // Saturation + saturating add (#1983): a duration too large for the
+        // u64 nanosecond clock (+inf.0, 1e300, an overflowed computation)
+        // saturates to a deadline that never fires -- an unbounded sleep,
+        // per the SRFI-18 "+inf.0 never times out" convention -- where the
+        // old @intFromFloat aborted the process uncatchably.
+        const deadline = fiber_mod.clockNs() +| saturatedNsFromSeconds(seconds);
 
         me.waiting_on = types.VOID;
         me.status = .waiting;
@@ -1394,6 +1420,17 @@ fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const secs = primitives.toF64(args[0]) catch
         return primitives.typeError("seconds->time", "number", args[0]);
+    // A time object stores whole seconds in an i64, so anything outside
+    // [-2^63, 2^63) has no representation -- including +inf.0/-inf.0 and
+    // +nan.0, which fail both comparisons here. The old unchecked
+    // @intFromFloat aborted the process on all of them (#1983). Unlike a
+    // timeout, this constructs an observable value, so saturating would
+    // silently build a wrong time; raise catchably instead. The upper bound
+    // must be 2^63 written exactly, not @floatFromInt(maxInt(i64)): that
+    // constant rounds UP to 2^63 and would re-admit the first aborting
+    // value -- the same off-by-one-ULP guard bug #1907 was made of.
+    if (!(secs >= -0x1p63 and secs < 0x1p63))
+        return primitives.argError("seconds->time", "{d} is outside the representable time range", .{secs});
     const int_secs = @as(i64, @intFromFloat(@floor(secs)));
     const frac = secs - @floor(secs);
     const ns = @as(i64, @intFromFloat(@round(frac * 1_000_000_000.0)));

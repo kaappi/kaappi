@@ -300,3 +300,90 @@ test "record-set! field survives full GC" {
     try std.testing.expect(types.isPair(result));
     try std.testing.expect(types.isSymbol(types.car(result)));
 }
+
+// #1973: allocRecordInstance sized its allocation as
+// `@sizeOf(RecordInstance) + num_fields * @sizeOf(Value)` in u8 arithmetic
+// (num_fields is a u8), so instantiating any record with >= 27 fields
+// (40 + 8*27 = 256) aborted the process with an uncatchable integer-overflow
+// panic. The type itself was created without complaint; only the first
+// instance died. A 256-field spec was worse: parseRecordSpec admitted it and
+// handleDefineRecordType's @intCast into the u8 panicked at DEFINITION time.
+test "wide records: 27 and 255 fields instantiate; 256 fields error cleanly" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const a = std.testing.allocator;
+
+    // Builds "(define-record-type big<n> (mk<n> f0 ... f<n-1>) big<n>?
+    //          (f0 g<n>-0) ... )" plus "(g<n>-<n-1> (mk<n> 0 1 ... <n-1>))".
+    const Gen = struct {
+        fn append(buf: *std.ArrayList(u8), al: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
+            const s = try std.fmt.allocPrint(al, fmt, args);
+            defer al.free(s);
+            try buf.appendSlice(al, s);
+        }
+        fn defSource(al: std.mem.Allocator, n: usize) ![]u8 {
+            var buf: std.ArrayList(u8) = .empty;
+            errdefer buf.deinit(al);
+            try append(&buf, al, "(define-record-type big{d} (mk{d}", .{ n, n });
+            for (0..n) |i| try append(&buf, al, " f{d}", .{i});
+            try append(&buf, al, ") big{d}?", .{n});
+            for (0..n) |i| try append(&buf, al, " (f{d} g{d}-{d})", .{ i, n, i });
+            try buf.appendSlice(al, ")");
+            return buf.toOwnedSlice(al);
+        }
+        fn probeSource(al: std.mem.Allocator, n: usize) ![]u8 {
+            var buf: std.ArrayList(u8) = .empty;
+            errdefer buf.deinit(al);
+            try append(&buf, al, "(g{d}-{d} (mk{d}", .{ n, n - 1, n });
+            for (0..n) |i| try append(&buf, al, " {d}", .{i});
+            try buf.appendSlice(al, "))");
+            return buf.toOwnedSlice(al);
+        }
+    };
+
+    // 27 fields: the first count past the old u8 cliff.
+    {
+        const def = try Gen.defSource(a, 27);
+        defer a.free(def);
+        _ = try vm.eval(def);
+        const probe = try Gen.probeSource(a, 27);
+        defer a.free(probe);
+        const got = try vm.eval(probe);
+        try std.testing.expectEqual(@as(i64, 26), types.toFixnum(got));
+    }
+
+    // 254 fields: the syntactic ceiling. The desugared constructor body is
+    // (%make-record __rt f0 ... fN-1), a call with N+1 arguments, and the
+    // call ISA encodes nargs as a u8 -- so 254 fields is the widest record
+    // a syntactic define-record-type can build (255 needs a 256-argument
+    // call). The record TYPE itself supports 255 (procedural layer).
+    {
+        const def = try Gen.defSource(a, 254);
+        defer a.free(def);
+        _ = try vm.eval(def);
+        const probe = try Gen.probeSource(a, 254);
+        defer a.free(probe);
+        const got = try vm.eval(probe);
+        try std.testing.expectEqual(@as(i64, 253), types.toFixnum(got));
+    }
+
+    // 255 fields: the desugared %make-record call exceeds the ISA's 255-arg
+    // width -- a clean, pre-existing compile error (not part of #1973).
+    {
+        const def = try Gen.defSource(a, 255);
+        defer a.free(def);
+        try std.testing.expectError(vm_mod.VMError.CompileError, vm.eval(def));
+    }
+
+    // 256 fields: over RecordType.num_fields' u8 ceiling -- must be a clean
+    // compile error from parseRecordSpec, not a definition-time @intCast
+    // panic in handleDefineRecordType.
+    {
+        const def = try Gen.defSource(a, 256);
+        defer a.free(def);
+        try std.testing.expectError(vm_mod.VMError.CompileError, vm.eval(def));
+    }
+}

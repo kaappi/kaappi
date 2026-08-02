@@ -690,3 +690,93 @@ test "call_global heal does not serve a stale callee after rebinding" {
     const result = try ctx.vm.eval("(h)");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
 }
+
+// #2185: 255 is the largest argument count the call ISA can encode (nargs is
+// a u8), and it is exactly the count that aborted the process -- callClosure
+// computed `nargs + 1` in u8 arithmetic for the register window, and the
+// three tail-dispatch paths computed the variadic `arity + 1` rest-slot the
+// same way. A 256-parameter lambda additionally overflowed the compiler's own
+// u8 arity counter at DEFINITION time. All paths must now either work (255)
+// or fail as a clean compile error (256).
+test "255-argument calls work on every dispatch path; 256 params reject cleanly (#2185)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const a = std.testing.allocator;
+    const Gen = struct {
+        fn append(buf: *std.ArrayList(u8), al: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
+            const s = try std.fmt.allocPrint(al, fmt, args);
+            defer al.free(s);
+            try buf.appendSlice(al, s);
+        }
+        /// "(p0 p1 ... pN-1)" without parens; ".. . rest" appended when rest.
+        fn params(al: std.mem.Allocator, n: usize, rest: bool) ![]u8 {
+            var buf: std.ArrayList(u8) = .empty;
+            errdefer buf.deinit(al);
+            for (0..n) |i| try append(&buf, al, " p{d}", .{i});
+            if (rest) try buf.appendSlice(al, " . rest");
+            return buf.toOwnedSlice(al);
+        }
+        fn nums(al: std.mem.Allocator, n: usize) ![]u8 {
+            var buf: std.ArrayList(u8) = .empty;
+            errdefer buf.deinit(al);
+            for (0..n) |i| try append(&buf, al, " {d}", .{i});
+            return buf.toOwnedSlice(al);
+        }
+    };
+
+    const p255 = try Gen.params(a, 255, false);
+    defer a.free(p255);
+    const p255r = try Gen.params(a, 255, true);
+    defer a.free(p255r);
+    const p256 = try Gen.params(a, 256, false);
+    defer a.free(p256);
+    const n255 = try Gen.nums(a, 255);
+    defer a.free(n255);
+
+    // Exact 255-ary callee: direct call (callClosure's u8 `nargs + 1`),
+    // tail call, and apply (255 args is the apply limit itself).
+    {
+        const def = try std.fmt.allocPrint(a, "(define (f {s}) p254)", .{p255});
+        defer a.free(def);
+        _ = try vm.eval(def);
+        const direct = try std.fmt.allocPrint(a, "(f {s})", .{n255});
+        defer a.free(direct);
+        try std.testing.expectEqual(@as(i64, 254), types.toFixnum(try vm.eval(direct)));
+        const tail = try std.fmt.allocPrint(a, "(define (g) (f {s})) (g)", .{n255});
+        defer a.free(tail);
+        try std.testing.expectEqual(@as(i64, 254), types.toFixnum(try vm.eval(tail)));
+        const applied = try std.fmt.allocPrint(a, "(apply f (list {s}))", .{n255});
+        defer a.free(applied);
+        try std.testing.expectEqual(@as(i64, 254), types.toFixnum(try vm.eval(applied)));
+    }
+
+    // Variadic callee with 255 FIXED params: its frame needs arity + 1 = 256
+    // arg slots (the rest list), the exact quantity the tail paths computed
+    // in u8. The rest list is necessarily empty (nargs tops out at 255).
+    {
+        const def = try std.fmt.allocPrint(a, "(define (v {s}) (cons p254 rest))", .{p255r});
+        defer a.free(def);
+        _ = try vm.eval(def);
+        const direct = try std.fmt.allocPrint(a, "(equal? '(254) (v {s}))", .{n255});
+        defer a.free(direct);
+        try std.testing.expectEqual(types.TRUE, try vm.eval(direct));
+        const tail = try std.fmt.allocPrint(a, "(define (h) (v {s})) (equal? '(254) (h))", .{n255});
+        defer a.free(tail);
+        try std.testing.expectEqual(types.TRUE, try vm.eval(tail));
+        const applied = try std.fmt.allocPrint(a, "(equal? '(254) (apply v (list {s})))", .{n255});
+        defer a.free(applied);
+        try std.testing.expectEqual(types.TRUE, try vm.eval(applied));
+    }
+
+    // 256 fixed params: uncallable by construction, so definition must be a
+    // clean compile error (the compiler's own u8 arity counter overflowed
+    // here before the fix).
+    {
+        const def = try std.fmt.allocPrint(a, "(define (w {s}) p0)", .{p256});
+        defer a.free(def);
+        try std.testing.expectError(vm_mod.VMError.CompileError, vm.eval(def));
+    }
+}
