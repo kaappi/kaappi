@@ -228,6 +228,43 @@
 (test-equal "#1215 three-streams" '((a) (b) (c))
   (list (stream->list (stream 'a)) (stream->list (stream 'b)) (stream->list (stream 'c))))
 
+;;; --- regression: #2176 variadic stream-map / stream-for-each ---
+;; SRFI 41 specifies (stream-map proc strm strm ...) and
+;; (stream-for-each proc strm strm ...); both were unary-only.
+(test-equal "#2176 two-stream stream-map" '(11 22 33)
+  (stream->list (stream-map + (stream 1 2 3) (stream 10 20 30))))
+(test-equal "#2176 three-stream stream-map" '(111 222)
+  (stream->list (stream-map + (stream 1 2) (stream 10 20) (stream 100 200))))
+(test-equal "#2176 map stops at shortest stream" '(5 7)
+  (stream->list (stream-map + (stream 1 2) (stream 4 5 6))))
+(test-equal "#2176 unary stream-map unchanged" '(2 4 6)
+  (stream->list (stream-map (lambda (x) (* 2 x)) (stream 1 2 3))))
+(test-equal "#2176 variadic map over infinite streams stays lazy" '(0 2 4)
+  (stream->list (stream-take 3 (stream-map + nat nat))))
+
+;; the SRFI document's canonical self-referential Fibonacci stream —
+;; exercises laziness, recursion, and the variadic map in one expression
+(define fibs
+  (stream-cons 0 (stream-cons 1 (stream-map + fibs (stream-cdr fibs)))))
+(test-equal "#2176 self-referential fibs" '(0 1 1 2 3 5 8 13 21 34)
+  (stream->list (stream-take 10 fibs)))
+
+(test-equal "#2176 two-stream stream-for-each" '((1 a) (2 b))
+  (let ((acc '()))
+    (stream-for-each (lambda (x y) (set! acc (cons (list x y) acc)))
+                     (stream 1 2) (stream 'a 'b))
+    (reverse acc)))
+(test-equal "#2176 for-each stops at shortest stream" '((1 x))
+  (let ((acc '()))
+    (stream-for-each (lambda (a b) (set! acc (cons (list a b) acc)))
+                     (stream 1) (stream 'x 'y 'z))
+    (reverse acc)))
+(test-equal "#2176 for-each with infinite second stream terminates" '((1 0) (2 1))
+  (let ((acc '()))
+    (stream-for-each (lambda (a b) (set! acc (cons (list a b) acc)))
+                     (stream 1 2) (stream-from 0))
+    (reverse acc)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-41")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
