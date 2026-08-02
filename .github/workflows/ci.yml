@@ -127,8 +127,13 @@ jobs:
           fi
           exit "$code"
 
+      # --summary all deliberately: `zig build test` prints NOTHING on success,
+      # so a passing run and a run that compiled everything and executed no
+      # test produce byte-identical logs. The summary's `run test unit-tests
+      # N pass` line is the only thing that tells them apart, and it is what
+      # the gc-stress job below is read against (its skip count differs).
       - name: Unit tests (leak detection via std.testing.allocator)
-        run: zig build test -Doptimize=${{ matrix.optimize }}
+        run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
 
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
@@ -171,6 +176,145 @@ jobs:
           zig-out/bin/thottam remove kaappi-json
           ! zig-out/bin/thottam list | grep kaappi-json
           rm -rf "$KAAPPI_HOME"
+
+  # -------------------------------------------------------------------------
+  # gc-stress: a collection is ATTEMPTED AT EVERY ALLOCATION.
+  #
+  # This is the only configuration that turns a GC rooting bug -- a heap value
+  # held in a Zig local across an allocation without `gc.pushRoot` -- from
+  # rare, unattributable corruption into a deterministic failure at the site
+  # that caused it (.claude/rules/gc-safety.md; #1401 crashed ~440 of 690 tests
+  # this way, #1687 added the freed-owner sentinel and quarantine that make it
+  # panic instead of aliasing by luck).
+  #
+  # Until audit v2 Phase 7E no pull request was ever gated on it (#1898):
+  # `-Dgc-stress` appeared 0 times in this file. It was not absent from CI
+  # altogether -- fuzz.yml's two gc-stress legs run this same unit suite as
+  # their pre-fuzz phase -- but daily at 02:47 UTC against whatever landed that
+  # day, not against the diff that introduced it. On a green nightly the
+  # difference is nothing; on a red one it is the difference between a named
+  # PR and a bisect.
+  #
+  # WHY IT IS AFFORDABLE NOW, WHEN IT WAS NOT WHEN THAT SPLIT WAS DECIDED.
+  # The cost fell by roughly 30x with #1802/#1804 and #1809, which stopped
+  # ReleaseSafe 0xAA-filling `= undefined` buffers. Both surviving estimates
+  # predate that and are stale by about that factor: .claude/skills/
+  # do-stress-test said "1.5-3 hours" until Phase 5F measured 5 min and
+  # corrected it, and fuzz.yml still says "~35 min locally on M-series" beside
+  # a 300-minute timeout. Measured on hosted runners by fuzz.yml itself, its
+  # WHOLE gc-stress leg -- checkout, Zig, build, this unit suite, and 100 fuzz
+  # runs across 7 targets -- completes in 10-13 min (10m20s / 12m22s on
+  # 2026-08-01; 12m54s / 12m58s on 2026-07-31).
+  #
+  # WALL CLOCK. Both jobs below hang off `format` and run concurrently with
+  # everything else. The critical path through this workflow is
+  # `test (ubuntu-latest, Debug)` at 19 min, with riscv64-test and netbsd-test
+  # at 17 and the macOS/OpenBSD legs at 16 (last main run). Staying inside that
+  # shadow is the design constraint, and it is why the unit suite and the
+  # Scheme corpus are two jobs rather than two steps of one: serialised they
+  # would exceed 19 min and become the new critical path; in parallel each is
+  # comfortably under it and the cost is CPU minutes, which this workflow
+  # already spends 18 legs' worth of.
+  gc-stress:
+    needs: format
+    runs-on: ubuntu-latest
+    # Not a budget -- a hang bound. A rooting bug can present as a livelock in
+    # the collector rather than a crash, and that must not sit until the job
+    # limit. Healthy runs are ~10 min (see above).
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: gc-stress
+
+      # `--summary all` is load-bearing here, not decoration. `zig build test`
+      # prints nothing on success, so this step's log would be identical
+      # whether it ran 1582 tests or zero -- and a build flag that silently
+      # fails to apply is exactly the failure mode a stress gate has (Phase 5F
+      # nearly reported a false clean on it). The summary line is the evidence:
+      # a stressed run reports `1582 pass` where the plain legs above report
+      # `1579 pass, 3 skip`, because three tests opt out of stress builds
+      # (#1447, #1452, src/tests_fuzz.zig). Different counts, same suite.
+      - name: Unit tests (collection on every allocation)
+        run: zig build test -Dgc-stress=true --summary all
+
+  # The Scheme half. Not redundant with the unit suite above: these 600+ files
+  # drive the library loader, the macro expander and all 178 SRFIs at a scale
+  # no Zig unit test reaches, and src/tests_gc_root_boundary.zig's own OOM
+  # sweeps find leaks *only* in the expander. Before Phase 5F ran it by hand on
+  # a droplet, the Scheme corpus had never executed against a stress build at
+  # all; this makes it a gate rather than a one-off.
+  gc-stress-scheme:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        with:
+          version: 0.16.0
+          cache-key: gc-stress-scheme
+
+      - name: Build (gc-stress)
+        run: zig build -Dgc-stress=true
+
+      # Nothing about running a .scm file reveals which build options produced
+      # the binary, so a plain build would pass every assertion in the suite
+      # and the job would go green having stressed nothing. The script refuses
+      # to run unless `kaappi features --json` reports gc_stress:true; this
+      # step is the same check, hoisted so a mis-build fails in one second
+      # instead of ten minutes.
+      - name: Confirm the flag applied
+        run: zig-out/bin/kaappi features --json | grep -q '"gc_stress":true'
+
+      - name: Scheme corpus + R7RS suite (gc-stress binary)
+        run: bash tools/run-gc-stress-suite.sh zig-out/bin/kaappi
+        env:
+          # Two kinds of exclusion, both temporary, both named.
+          #
+          # (a) TOO SLOW UNDER STRESS -- same knob, same spelling and the same
+          #     reason as the Debug leg's KAAPPI_TEST_SKIP above. Stress
+          #     collection costs O(live heap) per allocation, so a file that
+          #     allocates against a large live heap is quadratic:
+          #     trampoline-polish-1375.scm builds a 300,000-character string
+          #     and maps over it -- ~0.2 s plain, and it had not finished
+          #     after 25 minutes stressed, while the other 602 files completed
+          #     in 11 minutes in aggregate on the same run. srfi14.scm
+          #     (Unicode inversion lists) and srfi264.scm are the same shape at
+          #     ~10 and ~9 minutes.
+          #
+          # (b) REAL BUGS THIS GATE FOUND ON ITS FIRST RUN -- excluded so the
+          #     gate is green for everything else, exactly as the campaign
+          #     comments out a failing assertion behind a `;; FAIL: #N` marker
+          #     rather than leaving the suite red. Each fix PR deletes its
+          #     names from this list:
+          #       #2160  primitives_srfi1 buildList reads freed values from its
+          #              unrooted `items` slice -- all three abort with
+          #              "GC: marking freed object (use-after-free)"
+          #       #2161  record_uid_registry keys are borrowed slices into
+          #              GC-owned strings, so a nongenerative uid stops
+          #              resolving once its string is collected (19 assertions)
+          #
+          # All nine still run stressed in the nightly fuzz.yml legs' unit
+          # phase where applicable, and unstressed under run-all.sh on every
+          # other leg here, so nothing is untested -- only unstressed.
+          #
+          # The script FAILS if a name here matches no file, so this list
+          # cannot rot into a silent no-op.
+          KAAPPI_GC_STRESS_SKIP: >-
+            trampoline-polish-1375.scm srfi14.scm srfi264.scm
+            primitives_srfi1-audit.scm srfi1-ext.scm srfi1-gc-stress.scm
+            primitives_srfi237-audit.scm srfi237.scm srfi240-audit.scm
 
   riscv64-test:
     needs: format
