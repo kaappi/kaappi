@@ -371,21 +371,20 @@ fn printStructured(
 }
 
 /// Numerator/denominator of a rational -- always an exact integer.
-fn writeExactIntPart(writer: anytype, v: Value) anyerror!void {
+fn writeExactIntPart(allocator: std.mem.Allocator, writer: anytype, v: Value) anyerror!void {
     if (types.isFixnum(v)) {
         try writer.print("{d}", .{types.toFixnum(v)});
         return;
     }
     if (types.isPointer(v) and types.toObject(v).tag == .bignum) {
-        try writeBignum(writer, v);
+        try writeBignum(allocator, writer, v);
         return;
     }
     try writer.writeAll("#<unknown>");
 }
 
-fn writeBignum(writer: anytype, v: Value) anyerror!void {
+fn writeBignum(allocator: std.mem.Allocator, writer: anytype, v: Value) anyerror!void {
     const bignum_mod = @import("bignum.zig");
-    const allocator = std.heap.page_allocator;
     const s = bignum_mod.toString(allocator, v) catch {
         try writer.writeAll("?bignum?");
         return;
@@ -742,16 +741,16 @@ fn printValueOnce(
                 try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, ns });
             },
             .bignum => {
-                try writeBignum(writer, value);
+                try writeBignum(allocator, writer, value);
             },
             .rational => {
                 // Rendered atomically: both parts are always exact integers,
                 // so no depth accounting can split this leaf into the
                 // symbol-shaped `.../...` of kaappi#1953.
                 const rat = obj.as(types.Rational);
-                try writeExactIntPart(writer, rat.numerator);
+                try writeExactIntPart(allocator, writer, rat.numerator);
                 try writer.writeByte('/');
-                try writeExactIntPart(writer, rat.denominator);
+                try writeExactIntPart(allocator, writer, rat.denominator);
             },
             .file_info => {
                 const fi = obj.as(types.FileInfo);
@@ -1208,15 +1207,17 @@ test "write-shared shared substructure" {
     try std.testing.expectEqualStrings("(#0=(1) #0#)", s);
 }
 
-// Regression tests for #1713: record instances were invisible to both the
-// `write`/`display` cycle-detection pre-pass and the `write-shared`
+// Regression tests for #1713: record instances were once invisible to both
+// the `write`/`display` cycle-detection pre-pass and the `write-shared`
 // shared-structure pre-pass, so a self-referential record fell through to
-// the plain depth-limited recursive printer instead of getting a datum
-// label. A single direct self-reference "only" recurses ~1024 times before
-// hitting the depth cap, but a fan-out cycle (a record field that's a
-// vector of records each pointing back) blows up combinatorially at every
-// level of that recursion -- see the Scheme-level regression test
-// tests/scheme/smoke/cyclic-record-printer-1713.scm for that shape.
+// the (since-removed) depth-limited recursive printer instead of getting a
+// datum label -- and a fan-out cycle (a record field that's a vector of
+// records each pointing back) blew up combinatorially before that depth cap
+// could stop it. Records now sit in `isTraversable`/`childAt` like every
+// other printed container; these tests pin the labelled rendering, the
+// per-tag lock lives in tests_printer.zig ("every traversable
+// container..."), and tests/scheme/smoke/cyclic-record-printer-1713.scm
+// pins the fan-out shape end to end.
 
 test "write circular record instance" {
     const memory = @import("memory.zig");

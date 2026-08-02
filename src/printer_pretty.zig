@@ -2,12 +2,18 @@
 //!
 //! Human-facing layout only: `prettyPrint` first renders the value exactly
 //! via `printer.valueToString` (cycle-labelled, never truncated) and returns
-//! that when it fits the terminal width. Only the multi-line layout fallback
-//! below uses the bounded diagnostic `printer.printValue`, whose
-//! MAX_PRINT_DEPTH cap (and per-element spine tick) keeps layout probing
-//! cheap and terminating even on cyclic sub-structure -- `exactFlatLen` on a
-//! cdr-cyclic value looped forever before the printer rework (the tail of
-//! kaappi#859, noted in tests/scheme/compliance/printer-gaps.scm).
+//! that whenever it fits the terminal width. The multi-line fallback below
+//! -- all of `ppValue`, its layout probes AND its flat emissions -- runs on
+//! the bounded diagnostic `printer.printValue` instead, deliberately: the
+//! fit decisions and the emitted text must come from the same renderer (an
+//! exact emission behind a bounded measurement could be arbitrarily wider
+//! than the width the layout just budgeted for), and MAX_PRINT_DEPTH plus
+//! the per-element spine tick keep both cheap and terminating even on
+//! cyclic sub-structure. So wrapped REPL output truncates past
+//! MAX_PRINT_DEPTH with `...`, exactly as it did before the printer rework;
+//! `write` is the exact channel. `exactFlatLen` on a cdr-cyclic value
+//! looped forever before the rework (the tail of kaappi#859, noted in
+//! tests/scheme/compliance/printer-gaps.scm).
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -38,9 +44,13 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16, depth: u32) a
         return;
     }
 
-    // Anything that fits on one line — print flat
+    // Anything that fits on one line — print flat. Widened add:
+    // `exactFlatLen` saturates at maxInt(u16), so u16 arithmetic overflowed
+    // (a ReleaseSafe panic, reachable from the REPL) for any nested subtree
+    // whose flat form reaches 64 KiB — pre-existing, caught in review of
+    // kaappi#2190.
     const flat_len = exactFlatLen(value);
-    if (indent + flat_len <= width) {
+    if (@as(u32, indent) + flat_len <= width) {
         try printValue(writer, value, .write);
         return;
     }
@@ -300,6 +310,34 @@ test "prettyPrint clause form indentation" {
     try std.testing.expectEqualStrings("(cond\n  (#t 1)\n  (#f 2))", s);
 }
 
+test "prettyPrint survives a subtree whose flat form exceeds 64 KiB" {
+    // `exactFlatLen` saturates at maxInt(u16); the fits-check used to add it
+    // to `indent` in u16 arithmetic, so any nested (indent > 0) subtree with
+    // a >=64 KiB flat rendering panicked with integer overflow in
+    // ReleaseSafe — reachable by echoing ((<70000-char string>)) in the
+    // REPL, on the pre-rework printer too (caught in review of kaappi#2190).
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const big = try std.testing.allocator.alloc(u8, 70000);
+    defer std.testing.allocator.free(big);
+    @memset(big, 'a');
+    var str = try gc.allocString(big);
+    gc.pushRoot(&str);
+    defer gc.popRoot();
+    const inner_items = [_]Value{str};
+    var inner = try gc.makeList(&inner_items);
+    gc.pushRoot(&inner);
+    defer gc.popRoot();
+    const outer_items = [_]Value{inner};
+    const outer = try gc.makeList(&outer_items);
+
+    const s = try prettyPrint(std.testing.allocator, outer, 30);
+    defer std.testing.allocator.free(s);
+    try std.testing.expect(s.len > 70000);
+}
+
 test "prettyPrint terminates on a cyclic value at narrow width" {
     // Pre-rework, `exactFlatLen` fed a cdr-cyclic value to a printer with no
     // spine bound and never returned (kaappi#859's surviving tail; the REPL
@@ -316,6 +354,7 @@ test "prettyPrint terminates on a cyclic value at narrow width" {
     // (1 2 3 . <self>)
     const third = types.cdr(types.cdr(cyc));
     types.setCdr(third, cyc);
+    gc.writeBarrier(types.toObject(third), cyc);
 
     const s = try prettyPrint(std.testing.allocator, cyc, 5);
     defer std.testing.allocator.free(s);

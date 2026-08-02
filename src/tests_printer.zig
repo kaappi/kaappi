@@ -170,12 +170,23 @@ test "write terminates on a cyclic mutex / condition-variable name (#1954)" {
 
 test "every traversable container terminates when it closes a cycle itself" {
     // The mutation lock for "detection covers what printing walks": one
-    // self-referential instance per traversable tag. A new recursive print
-    // arm added without its detection edge fails here by hanging (caught by
-    // the suite timeout) rather than by silently shipping #1954 again.
+    // self-referential instance per traversable tag — all SEVEN of
+    // `isTraversable`, so this one test alone owns the checklist CLAUDE.md
+    // points new-container authors at. A new recursive print arm added
+    // without its detection edge fails here by hanging (caught by the suite
+    // timeout) rather than by silently shipping #1954 again.
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
+    // pair: p = (p) — its own car
+    {
+        const p = try gc.allocPair(types.NIL, types.NIL);
+        types.setCar(p, p);
+        gc.writeBarrier(types.toObject(p), p);
+        const s = try printer.valueToString(std.testing.allocator, p, .write);
+        defer std.testing.allocator.free(s);
+        try std.testing.expectEqualStrings("#0=(#0#)", s);
+    }
     // vector: v = #(v)
     {
         const elems = [_]Value{types.NIL};
@@ -185,6 +196,19 @@ test "every traversable container terminates when it closes a cycle itself" {
         const s = try printer.valueToString(std.testing.allocator, v, .write);
         defer std.testing.allocator.free(s);
         try std.testing.expectEqualStrings("#0=#(#0#)", s);
+    }
+    // record instance: r = #<cell r> (the #1713 shape; repeated here so the
+    // lock alone covers the full isTraversable set)
+    {
+        const rt_val = try gc.allocRecordType("cell", 1);
+        const rt = types.toObject(rt_val).as(types.RecordType);
+        const placeholder = [_]Value{types.NIL};
+        const ri = try gc.allocRecordInstance(rt, &placeholder);
+        types.toObject(ri).as(types.RecordInstance).fields[0] = ri;
+        gc.writeBarrier(types.toObject(ri), ri);
+        const s = try printer.valueToString(std.testing.allocator, ri, .write);
+        defer std.testing.allocator.free(s);
+        try std.testing.expectEqualStrings("#0=#<cell #0#>", s);
     }
     // error object: e = #<error "m" e>
     {
