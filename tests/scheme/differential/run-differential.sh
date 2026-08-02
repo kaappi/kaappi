@@ -76,36 +76,42 @@
 #
 # WHICH FILES POPULATE THE CACHE.  `src/main.zig`'s `runFile` writes an entry
 # iff caching is enabled (no `--sandbox`, no `--no-ir-opt`, a home directory
-# resolves), at least one top-level form compiled to a Function, and
-# `has_imports` stayed false.  That last flag is set by ANY top-level form
+# resolves), at least one top-level form compiled to a Function, and none of
+# three refusal flags fired.  `has_imports` is set by ANY top-level form
 # `vm_eval.handleTopLevelForm` claims, which is eight head symbols, not one:
 #
 #     import   define-library   define-record-type   define-values
 #     include  include-ci       begin                cond-expand
 #
-# One occurrence of any of them, anywhere at top level, makes the whole file
-# uncacheable — and `--timings` still reports `not cached: imports`.
-# docs/dev/cache.md documents only the `import` case (kaappi#2114; the import
-# half alone is kaappi#1888).  MEASURED over the default corpus: 40 of 345
-# files populate the cache; of the 305 that do not, 303 have a top-level
-# `import`, one is disabled by a top-level `begin` and one by a top-level
-# `define-values`.  probes/sbc-population.scm pins the rule, including the
-# control that a NESTED `begin`/`cond-expand`/`define-values`/
-# `define-record-type` leaves caching alive.
+# `defines_syntax` (kaappi#2112) is set when compiling a form registered a
+# macro or syntax property — a `define-syntax`/`define-property`, or a macro
+# use expanding into one — since a HIT would not replay the registration and
+# a run-time `eval` would diverge.  `had_compile_error` is set when any form
+# failed to compile, since a HIT would silently run the partial program with
+# exit 0 where the cold run reported the error with exit 1.  One occurrence of
+# any of these, anywhere at top level, makes the whole file uncacheable — and
+# `--timings` reports `not cached: imports` / `define-syntax` /
+# `compile error`.  MEASURED over the default corpus: 40 of 345 files populate
+# the cache; of the 305 that do not, 303 have a top-level `import`, one is
+# disabled by a top-level `begin` and one by a top-level `define-values`.
+# probes/sbc-population.scm pins the rule, including the control that a NESTED
+# `begin`/`cond-expand`/`define-values`/`define-record-type` leaves caching
+# alive.
 #
 # The summary reports how many files created an `.sbc` entry, so a regression
 # that silently disables caching shows up as that count collapsing rather than
 # as a vacuously green run.
 #
-# WRITING AN ENTRY IS NOT THE SAME AS USING ONE.  The write half of the codec
-# enforces almost no size limits and the read half enforces several, so a file
-# can write an entry that can never be loaded: it recompiles and rewrites the
-# same `.sbc` on every run, forever, while `kaappi cache status` reports the
-# entry as "current".  Counting entries alone reads that as covered.  So for
-# every file that wrote one, this script now runs `--timings` once more and
-# requires the entry to actually HIT; an unexpected permanent miss FAILS the
-# run.  probes/sbc-constant-depth.scm is the one deliberate exception (a
-# quoted list past `MAX_CONSTANT_DEPTH`), listed in KNOWN_NEVER_HIT below.
+# WRITING AN ENTRY IS NOT THE SAME AS USING ONE.  Since kaappi#2113 the write
+# half refuses (with a `--timings` reason) anything the read half would
+# reject, so an entry that can never load is never written — before that, a
+# constant past a reader-side cap recompiled and rewrote the same `.sbc` on
+# every run, forever, while `kaappi cache status` reported the entry as
+# "current".  Counting entries alone reads that as covered.  So for every file
+# that wrote one, this script runs `--timings` once more and requires the
+# entry to actually HIT; an unexpected permanent miss FAILS the run — that is
+# the regression net for any new writer/reader drift.  KNOWN_NEVER_HIT below
+# is the suppression list for deliberate exceptions; it is empty today.
 #
 # ---------------------------------------------------------------------------
 # Exclusions
@@ -312,41 +318,13 @@ is_skipped() {
 # entry.  That is deliberately a NOTE and not a failure — a gate that goes red
 # the moment someone FIXES a bug teaches people to distrust it.
 #
-# d:cache-error-location.scm
-#   A cache HIT loses a runtime error's source line and snippet when the error
-#   is located by `Function.source_line` rather than by the line table:
-#   `toplevel_driver.vmErrorLocation`'s `fallback_line` is a hardcoded 0 on the
-#   cache-HIT path (src/main.zig:732) where the fresh-compile path passes the
-#   top-level datum's line (src/main.zig:815).  stdout and the exit code agree;
-#   only the diagnostic degrades.  Found by this harness (audit v2, Phase 4B);
-#   see the header of probes/cache-error-location.scm for the full repro and
-#   its discriminating control.  Tracked as kaappi#1922 -- delete this entry
-#   when that is fixed, and the STALE check below will confirm it.
-#
-# d:sbc-literal-immutability.scm
-#   A cache HIT makes every literal constant mutable: `writeConstant` /
-#   `readConstant` carry no `Object.flags.immutable` bit, so a HIT rebuilds
-#   constants through the ordinary allocators, whose default is mutable.  A
-#   `set-car!` on a literal that must raise KP3002 (R7RS 4.1.2) instead
-#   succeeds, and the process exits 0 where the cold run exits 1.  Found by
-#   audit v2 Phase 4E; tracked as kaappi#2110.
-#
-# d:sbc-shared-structure.scm
-#   A cache HIT unshares datum-label structure: `writeConstant` is a recursive
-#   walk with no visited-set, so `'(#1=(1 2) #1#)` is emitted twice and read
-#   back as two objects.  `(eq? (car v) (cadr v))` flips #t -> #f, contradicting
-#   R7RS 2.4.  Found by audit v2 Phase 4E; tracked as kaappi#2111.
-#
-# d:sbc-macro-table.scm
-#   A cache HIT leaves the macro table empty, so a top-level `define-syntax`
-#   is invisible to a run-time `eval`: `define-syntax` registers its
-#   transformer as a compile-time side effect and emits no bytecode, and a HIT
-#   skips compilation.  Found by audit v2 Phase 4E; tracked as kaappi#2112.
+# Empty today.  The four entries this list carried — cache-error-location.scm
+# (kaappi#1922), sbc-literal-immutability.scm (kaappi#2110),
+# sbc-shared-structure.scm (kaappi#2111), sbc-macro-table.scm (kaappi#2112) —
+# were all fixed together with kaappi#2113/#2155 in the .sbc format v11
+# change; the probe files remain in the corpus as ordinary regression probes,
+# so any of those divergences coming back FAILS the run.
 KNOWN_DIFFS="
-d:cache-error-location.scm
-d:sbc-literal-immutability.scm
-d:sbc-shared-structure.scm
-d:sbc-macro-table.scm
 "
 
 # Files that DO write an `.sbc` entry but can never load it back, so every run
@@ -354,14 +332,13 @@ d:sbc-macro-table.scm
 # and does not fail the run, and the summary prints a STALE line when a listed
 # file starts hitting.  An UNLISTED permanent miss fails the run.
 #
-# sbc-constant-depth.scm
-#   A quoted list of 300 elements reaches depth 300 in `writeConstant`, which
-#   truncates past 256, and `readConstant` rejects the file at the same depth.
-#   The reader being the stricter half is what keeps this from being a silent
-#   wrong answer; the cost is an invisible permanent miss instead.  Found by
-#   audit v2 Phase 4E; tracked as kaappi#2113.
+# Empty today: since kaappi#2113 the writer refuses what the reader rejects
+# (`--timings` says `not cached: constant exceeds .sbc limits`), so a
+# permanent miss can only mean a new writer/reader drift — exactly what this
+# check exists to catch.  sbc-constant-depth.scm, the one former entry, now
+# HITs: the codec walks list spines iteratively (depth counts nesting only)
+# and cyclic literals terminate via back-references.
 KNOWN_NEVER_HIT="
-sbc-constant-depth.scm
 "
 
 is_known_never_hit() {   # is_known_never_hit <file>

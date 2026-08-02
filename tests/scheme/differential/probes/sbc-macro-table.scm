@@ -1,33 +1,27 @@
-;; Probe / KNOWN DIVERGENCE: a cache HIT leaves the macro table empty, so a
-;; top-level `define-syntax` is invisible to a run-time `eval`.
+;; Regression probe for kaappi#2112 (FIXED): a cache HIT used to leave the
+;; macro table empty, making a top-level `define-syntax` invisible to a
+;; run-time `eval`.
 ;;
-;; Audit v2, Phase 4E.  Listed in run-differential.sh's KNOWN_DIFFS, so the
-;; suite stays green until the fix lands; delete the entry there (and this
-;; note) once it does.  Tracked as kaappi#2112.
+;; Audit v2, Phase 4E.  Was a KNOWN_DIFFS entry until the fix; now an
+;; ordinary probe — cold and warm must agree on every line below.
 ;;
 ;; `define-syntax` is a *compiler* form: `compileDefineSyntax`
 ;; (src/compiler_define_syntax.zig) registers the transformer in the live macro
 ;; table as a side effect of compiling the file, and emits no bytecode that
 ;; would re-register it.  A cache HIT skips compilation entirely, so on the
-;; warm run `vm.macros` never learns the name, and `eval` — which compiles its
-;; argument at run time against that table — reports it as an undefined
-;; variable:
+;; warm run `vm.macros` never learned the name, and `eval` — which compiles
+;; its argument at run time against that table — reported it as an undefined
+;; variable (exit 1 where the cold run exited 0).
 ;;
-;;   $ kaappi t.scm       # cold — cache MISS
-;;   42
-;;   10
-;;   ...exit 0
-;;
-;;   $ kaappi t.scm       # warm — cache HIT
-;;   42
-;;   t.scm:3: error[KP3001]: undefined variable 'dbl'
-;;   ...exit 1
-;;
-;; Discriminating control: the first line of output is the macro used at
-;; *compile* time.  It agrees in both runs, because that use was already
-;; compiled into the cached bytecode.  So the defect is precisely "compile-time
-;; side effects of the source are not replayed on a HIT", not "macros are
-;; broken after a HIT".
+;; The fix refuses to cache any file whose compilation registered a macro or
+;; syntax property (`runFile` snapshots `vm.macros.count()` /
+;; `vm.syntax_properties.count()` around each form's compilation, which also
+;; catches a macro use expanding into a `define-syntax`).  This file is
+;; therefore never cached — `--timings` reports `not cached: define-syntax` —
+;; which makes cold and warm the identical configuration, exactly the safe
+;; option kaappi#2112 blessed.  If caching is ever taught to replay these
+;; registrations instead (the .sbc preamble mechanism), this probe verifies
+;; the replay too, with no edits.
 ;;
 ;; `define-property` (SRFI 213) is the same shape and is included below: it
 ;; writes into the VM-owned `syntax_properties` table at compile time.

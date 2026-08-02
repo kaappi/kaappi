@@ -130,11 +130,35 @@ fn findFunctionIndex(all_funcs: []*Function, func: *Function) ?u32 {
 // Write constant
 // ---------------------------------------------------------------------------
 
-fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs: []*Function, depth: u32) !void {
-    if (depth > 256) {
-        try w.writeU8(allocator, bf.TAG_NIL);
-        return;
-    }
+/// Shared-structure map (kaappi#2111): heap address → back-reference id for
+/// every pair/string/vector/bytevector already emitted, in pre-order
+/// first-encounter order. `readConstant` rebuilds the same table in the same
+/// order, so `TAG_BACKREF n` names the same object on both sides. This is
+/// what keeps datum-label sharing (`eq?`), makes shared DAGs linear instead
+/// of exponential in the output, and lets cyclic literals terminate.
+const SharedMap = std.AutoHashMap(usize, u32);
+
+fn noteShared(seen: *SharedMap, obj: *types.Object) !void {
+    const id: u32 = @intCast(seen.count());
+    seen.put(@intFromPtr(obj), id) catch return BytecodeError.OutOfMemory;
+}
+
+fn immutableByte(obj: *types.Object) u8 {
+    return if (obj.flags.immutable) @as(u8, 1) else 0;
+}
+
+/// Serialize one constant. Refuses — never truncates — anything the reader
+/// would reject (kaappi#2113): `error.LimitExceeded` for a size/depth cap,
+/// `error.UnsupportedConstant` for a value the format cannot represent. A
+/// refused write means no `.sbc` is produced at all, so the alternative
+/// failure mode (an entry that recompiles and rewrites itself on every run,
+/// forever, while `cache status` calls it "current") cannot happen.
+///
+/// `depth` counts *nesting* (car descent, vector elements, rational parts);
+/// the cdr spine of a list is walked iteratively at constant depth, so a long
+/// quoted list is cacheable and only pathological nesting hits the cap.
+fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs: []*Function, seen: *SharedMap, depth: u32) !void {
+    if (depth > bf.MAX_CONSTANT_DEPTH) return BytecodeError.LimitExceeded;
     if (types.isFixnum(val)) {
         try w.writeU8(allocator, bf.TAG_FIXNUM);
         try w.writeI64(allocator, types.toFixnum(val));
@@ -187,17 +211,33 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
 
     if (types.isPointer(val)) {
         const obj = types.toObject(val);
+        // A shareable object already emitted becomes a back-reference
+        // (kaappi#2111), so shared structure and cycles read back as the same
+        // object, not a fresh copy per reference.
+        switch (obj.tag) {
+            .pair, .string, .vector, .bytevector => {
+                if (seen.get(@intFromPtr(obj))) |id| {
+                    try w.writeU8(allocator, bf.TAG_BACKREF);
+                    try w.writeU32(allocator, id);
+                    return;
+                }
+            },
+            else => {},
+        }
         switch (obj.tag) {
             .symbol => {
                 const sym = obj.as(types.Symbol);
-                if (sym.name.len > bf.MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
+                if (sym.name.len > bf.MAX_SYMBOL_BYTES) return BytecodeError.LimitExceeded;
                 try w.writeU8(allocator, bf.TAG_SYMBOL);
                 try w.writeU16(allocator, @intCast(sym.name.len));
                 try w.writeBytes(allocator, sym.name);
             },
             .string => {
                 const str = obj.as(types.SchemeString);
+                if (str.data.len > bf.MAX_STRING_BYTES) return BytecodeError.LimitExceeded;
+                try noteShared(seen, obj);
                 try w.writeU8(allocator, bf.TAG_STRING);
+                try w.writeU8(allocator, immutableByte(obj));
                 try w.writeU32(allocator, @intCast(str.data.len));
                 try w.writeBytes(allocator, str.data);
             },
@@ -208,26 +248,57 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try w.writeU32(allocator, idx);
             },
             .pair => {
-                try w.writeU8(allocator, bf.TAG_PAIR);
-                try writeConstant(w, allocator, types.car(val), all_funcs, depth + 1);
-                try writeConstant(w, allocator, types.cdr(val), all_funcs, depth + 1);
+                // Iterative over the cdr spine: a quoted list of N elements
+                // costs no recursion depth (kaappi#2113). Registration order —
+                // this pair, then its car's subtree, then the cdr — must
+                // mirror readConstant's exactly so back-reference ids agree.
+                var cur = val;
+                while (true) {
+                    const cobj = types.toObject(cur);
+                    try noteShared(seen, cobj);
+                    try w.writeU8(allocator, bf.TAG_PAIR);
+                    try w.writeU8(allocator, immutableByte(cobj));
+                    try writeConstant(w, allocator, types.car(cur), all_funcs, seen, depth + 1);
+                    const cdr_val = types.cdr(cur);
+                    if (types.isPointer(cdr_val) and
+                        types.toObject(cdr_val).tag == .pair and
+                        !seen.contains(@intFromPtr(types.toObject(cdr_val))))
+                    {
+                        cur = cdr_val;
+                        continue;
+                    }
+                    // Immediate, non-pair, or an already-seen pair (a shared
+                    // or cyclic tail, emitted as a back-reference above).
+                    try writeConstant(w, allocator, cdr_val, all_funcs, seen, depth + 1);
+                    return;
+                }
             },
             .vector => {
                 const vec = obj.as(types.Vector);
+                if (vec.data.len > bf.MAX_VECTOR_LEN) return BytecodeError.LimitExceeded;
+                try noteShared(seen, obj);
                 try w.writeU8(allocator, bf.TAG_VECTOR);
+                try w.writeU8(allocator, immutableByte(obj));
                 try w.writeU32(allocator, @intCast(vec.data.len));
                 for (vec.data) |elem| {
-                    try writeConstant(w, allocator, elem, all_funcs, depth + 1);
+                    try writeConstant(w, allocator, elem, all_funcs, seen, depth + 1);
                 }
             },
             .bytevector => {
                 const bv = obj.as(types.Bytevector);
+                if (bv.data.len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.LimitExceeded;
+                try noteShared(seen, obj);
                 try w.writeU8(allocator, bf.TAG_BYTEVECTOR);
+                try w.writeU8(allocator, immutableByte(obj));
                 try w.writeU32(allocator, @intCast(bv.data.len));
                 try w.writeBytes(allocator, bv.data);
             },
             .bignum => {
                 const bn = obj.as(types.Bignum);
+                if (bn.len > bf.MAX_BIGNUM_LIMBS) return BytecodeError.LimitExceeded;
+                // The reader rejects a denormalized bignum (zero limbs, or a
+                // zero top limb); a canonical one never has either.
+                if (bn.len == 0 or bn.limbs[bn.len - 1] == 0) return BytecodeError.UnsupportedConstant;
                 try w.writeU8(allocator, bf.TAG_BIGNUM);
                 try w.writeU8(allocator, if (bn.positive) @as(u8, 1) else @as(u8, 0));
                 try w.writeU32(allocator, @intCast(bn.len));
@@ -238,8 +309,8 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
             .rational => {
                 const rat = obj.as(types.Rational);
                 try w.writeU8(allocator, bf.TAG_RATIONAL);
-                try writeConstant(w, allocator, rat.numerator, all_funcs, depth + 1);
-                try writeConstant(w, allocator, rat.denominator, all_funcs, depth + 1);
+                try writeConstant(w, allocator, rat.numerator, all_funcs, seen, depth + 1);
+                try writeConstant(w, allocator, rat.denominator, all_funcs, seen, depth + 1);
             },
             .complex => {
                 const cx = obj.as(types.Complex);
@@ -249,15 +320,12 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try w.writeU8(allocator, if (cx.exact_real) @as(u8, 1) else @as(u8, 0));
                 try w.writeU8(allocator, if (cx.exact_imag) @as(u8, 1) else @as(u8, 0));
             },
-            else => {
-                try w.writeU8(allocator, bf.TAG_NIL);
-            },
+            else => return BytecodeError.UnsupportedConstant,
         }
         return;
     }
 
-    // Fallback for unrecognized values
-    try w.writeU8(allocator, bf.TAG_NIL);
+    return BytecodeError.UnsupportedConstant;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,8 +333,22 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
 // ---------------------------------------------------------------------------
 
 fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, source_path: []const u8) !std.ArrayList(*Function) {
-    const all_funcs_list = try collectFunctions(allocator, top_level_funcs);
+    var all_funcs_list = try collectFunctions(allocator, top_level_funcs);
+    // The refusal paths below (kaappi#2113) make mid-write errors ordinary;
+    // don't leak the collected list when one fires.
+    errdefer all_funcs_list.deinit(allocator);
     const all_funcs = all_funcs_list.items;
+
+    // Refuse anything the reader's structural caps would reject (kaappi#2113):
+    // an entry past any of them could be written but never loaded — a
+    // permanent, invisible cache miss.
+    if (all_funcs.len > bf.MAX_FUNCTIONS) return BytecodeError.LimitExceeded;
+    if (top_level_funcs.len > bf.MAX_TOP_LEVEL_FUNCTIONS) return BytecodeError.LimitExceeded;
+
+    // Shared-structure ids span the whole file, matching the reader's single
+    // table across all functions (kaappi#2111).
+    var seen = SharedMap.init(allocator);
+    defer seen.deinit();
 
     try w.writeBytes(allocator, &bf.MAGIC);
     try w.writeU16(allocator, bf.VERSION);
@@ -282,13 +364,17 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     try w.writeU32(allocator, @intCast(top_level_funcs.len));
 
     for (all_funcs) |func| {
+        if (func.code.items.len > bf.MAX_CODE_BYTES) return BytecodeError.LimitExceeded;
+        if (func.constants.items.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded;
+        if (func.line_table.items.len > bf.MAX_CODE_BYTES) return BytecodeError.LimitExceeded;
+
         try w.writeU8(allocator, func.arity);
         try w.writeU16(allocator, func.locals_count);
         try w.writeU16(allocator, func.upvalue_count);
         try w.writeU8(allocator, if (func.is_variadic) @as(u8, 1) else @as(u8, 0));
 
         if (func.name) |name| {
-            if (name.len > bf.MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
+            if (name.len > bf.MAX_SYMBOL_BYTES) return BytecodeError.LimitExceeded;
             try w.writeU16(allocator, @intCast(name.len));
             try w.writeBytes(allocator, name);
         } else {
@@ -300,7 +386,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
 
         try w.writeU32(allocator, @intCast(func.constants.items.len));
         for (func.constants.items) |constant| {
-            try writeConstant(w, allocator, constant, all_funcs, 0);
+            try writeConstant(w, allocator, constant, all_funcs, &seen, 0);
         }
 
         // Debug info: source_line and line_table (added in v7; col added in v9)

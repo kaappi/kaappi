@@ -239,7 +239,22 @@ const Entry = struct {
     size: u64,
     current_build: bool,
     parsed: bool,
+    loadable: bool,
 };
+
+/// Dry-run the body deserialization: would a plain run of this entry's
+/// (unchanged) source actually hit? The header alone cannot answer that — a
+/// truncated or writer/reader-drifted entry parses a valid header and is then
+/// rejected by the body load, recompiling forever while looking "current"
+/// (kaappi#2113). The functions land in a throwaway GC and are freed with it.
+fn entryLoads(allocator: std.mem.Allocator, data: []const u8) bool {
+    var gc = memory.GC.init(allocator);
+    defer gc.deinit();
+    const loaded = bytecode_file.readFromBuffer(&gc, data) catch return false;
+    var result = loaded orelse return false;
+    bytecode_file.freeDeserializeResult(allocator, &result);
+    return true;
+}
 
 /// Renders `cache status` output for the entries in `dir` into `w`. Split from
 /// `runStatus` (which resolves the real `~/.kaappi/cache`) so tests can drive a
@@ -282,6 +297,7 @@ pub fn renderStatus(allocator: std.mem.Allocator, dir: []const u8, w: *std.Io.Wr
             .size = data.len,
             .current_build = false,
             .parsed = false,
+            .loadable = true,
         };
         if (bytecode_file.readHeaderInfo(data)) |info| {
             entry.source_path = allocator.dupe(u8, info.source_path) catch continue;
@@ -291,6 +307,10 @@ pub fn renderStatus(allocator: std.mem.Allocator, dir: []const u8, w: *std.Io.Wr
             };
             entry.current_build = info.current_build;
             entry.parsed = true;
+            // Only a current-build entry can claim "a plain run would hit", so
+            // only those pay for the dry run; stale entries are misses at the
+            // compiler-hash gate regardless of their body (kaappi#2113).
+            if (info.current_build) entry.loadable = entryLoads(allocator, data);
         } else {
             entry.source_path = allocator.dupe(u8, name) catch continue;
             entry.build_id = allocator.dupe(u8, "?") catch {
@@ -317,21 +337,23 @@ pub fn renderStatus(allocator: std.mem.Allocator, dir: []const u8, w: *std.Io.Wr
     var szbuf: [16]u8 = undefined;
     var totbuf: [16]u8 = undefined;
     for (entries.items) |e| {
-        if (e.parsed) {
-            try w.print("  {s:>9}  {s:<18} {s:<7} {s}\n", .{
-                fmtSize(&szbuf, e.size),
-                e.build_id,
-                if (e.current_build) "current" else "stale",
-                e.source_path,
-            });
-        } else {
-            try w.print("  {s:>9}  {s:<18} {s:<7} {s}\n", .{
-                fmtSize(&szbuf, e.size),
-                "?",
-                "unknown",
-                e.source_path,
-            });
-        }
+        // "current" is documented as "a plain run of its still-unchanged
+        // source would hit"; an entry whose body the reader rejects can never
+        // hit, so it is reported as "unloadable" instead (kaappi#2113).
+        const state = if (!e.parsed)
+            "unknown"
+        else if (!e.current_build)
+            "stale"
+        else if (!e.loadable)
+            "unloadable"
+        else
+            "current";
+        try w.print("  {s:>9}  {s:<18} {s:<10} {s}\n", .{
+            fmtSize(&szbuf, e.size),
+            if (e.parsed) e.build_id else "?",
+            state,
+            e.source_path,
+        });
     }
     try w.print("{d} {s}, {s}\n", .{
         entries.items.len,
@@ -492,4 +514,44 @@ test "clearDir on a missing directory is a no-op" {
     const res = clearDir(allocator, "/nonexistent/kaappi/cache/path/xyzzy");
     try std.testing.expectEqual(@as(usize, 0), res.removed);
     try std.testing.expectEqual(@as(u64, 0), res.bytes);
+}
+
+test "renderStatus reports a current-build entry the reader rejects as unloadable (kaappi#2113)" {
+    // A valid header over a body the loader rejects used to render as
+    // "current" — documented as "a plain run would hit" — while every run
+    // recompiled forever. The dry run must catch it. Corruption here is a
+    // trailing garbage byte: the header parses, and deserializeFromBuffer
+    // then rejects the buffer (r.pos != data.len).
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var rel_buf: [platform.PATH_MAX]u8 = undefined;
+    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    var real_buf: [platform.PATH_MAX]u8 = undefined;
+    const dir = try allocator.dupe(u8, platform.realPath(rel, &real_buf) orelse return error.FileNotFound);
+    defer allocator.free(dir);
+
+    try writeTestCacheEntry(allocator, dir, "good.sbc", "/home/u/good.scm");
+    try writeTestCacheEntry(allocator, dir, "bad.sbc", "/home/u/bad.scm");
+    {
+        const full = try std.fmt.allocPrint(allocator, "{s}/bad.sbc", .{dir});
+        defer allocator.free(full);
+        const data = try file_utils.readWholeFile(allocator, full, MAX_CACHE_FILE_BYTES);
+        defer allocator.free(data);
+        const corrupted = try std.mem.concat(allocator, u8, &.{ data, &[_]u8{0xAA} });
+        defer allocator.free(corrupted);
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "bad.sbc", .data = corrupted });
+    }
+
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    try renderStatus(allocator, dir, &aw.writer);
+    const out = aw.written();
+    // The corrupt entry is unloadable; the intact one stays current.
+    const bad_line_start = std.mem.indexOf(u8, out, "/home/u/bad.scm") orelse return error.TestUnexpectedResult;
+    const bad_line = out[0..bad_line_start];
+    try std.testing.expect(std.mem.lastIndexOf(u8, bad_line, "unloadable") != null);
+    const good_line_start = std.mem.indexOf(u8, out, "/home/u/good.scm") orelse return error.TestUnexpectedResult;
+    const good_line = out[0..good_line_start];
+    try std.testing.expect(std.mem.lastIndexOf(u8, good_line, "current") != null);
 }
