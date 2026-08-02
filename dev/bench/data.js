@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785661130568,
+  "lastUpdate": 1785668636093,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6b1f4b9c20761581a51434dcd42e81063e140b03",
-          "message": "Scope the procedure shorthand's internal define to its enclosing body (#1861) (#1872)\n\n* Scope the procedure shorthand's internal define to its enclosing body (#1861)\n\n`(define (f …) …)` inside a natively compiled `let` or lambda body compiled to\na global define, so an internal definition overwrote an outer one of the same\nname instead of shadowing it — and a helper referencing an enclosing binding\ncompiled to a global function whose body looked that binding up as a global,\nkilling the binary on code the interpreter runs:\n\n    (let ((a 3)) (define (h n) (* n a)) (h 5))   ; undefined variable 'a'\n\n#819 fixed this class for the symbol form and #1854 gave it a rooted slot, both\nin `emitDefine`. `lowerDefine` turns a pair target into a `.passthrough`, so the\nshorthand never reaches that path; it landed in `emitPassthrough`, whose two\npaths both define a global — `kaappi_define_global` when the body compiles\nnatively, and otherwise an `emitEvalExpr` that runs in the global environment.\n\nDecline the form whenever a lexical scope is active, so the enclosing scope goes\nto the interpreter whole (#827's rule). The gate is `inLexicalScope()`, not\n`locals != null`: a lambda body has no locals map and is lexical because of its\nparams, and had the identical bug. A `let` body abandons via `emitLet`; a\nfunction body fails `emitLambdaFunction` so the whole define falls back.\n\nDeclining also drops the name from `native_fns`/`rebound_globals` first. This\ninterpreter rebinds a body define that is *not* at the head of its body as a\nglobal, and a later call site that kept its direct call to the top-level\nfunction of the same name cannot observe that.\n\nCompiling it as a native local binding is the fuller fix, but it needs the\nclosure value in a rooted slot (#1854's machinery extended to a lambda-valued\ndefine) plus a way to keep the inner name out of the module-wide `native_fns`\nmap, where it would capture direct call sites outside its own scope.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Assert the direct-call binding without assuming the tailcc fast entry\n\nThe #1861 direct-call test matched only `call tailcc i64 @`, which exists only\nwhere `llvm_emit.fast_tailcalls_supported` — aarch64 and x86_64. On the\nQEMU-tier arches every direct call is the uniform array ABI instead, so the\nassertion passed vacuously and its own positive control failed, breaking\nppc64le-test, riscv64-test and s390x-test.\n\nMatch the callee position against all three spellings instead: the fast entry\n`@r{i}.fast`, and the uniform entry under a reserved name (`@r{i}`) or an\nunreserved one (`@lambda_{i}`). Anchoring on what follows `call [tailcc ]i64 `\nkeeps the `ptr @r0` *argument* of a kaappi_create_native_closure — present in\nboth the fixed and control programs — from being read as a call to it.\n\nVerified both ways by forcing `fast_tailcalls_supported` to false locally: the\ntest passes under either ABI, and still fails under either when the invalidation\nit guards is removed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T22:26:06+05:30",
-          "tree_id": "6a3844a99afc11b09419532e540e51ccc0d35412",
-          "url": "https://github.com/kaappi/kaappi/commit/6b1f4b9c20761581a51434dcd42e81063e140b03"
-        },
-        "date": 1785432971533,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.973066,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.302041,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573159,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.864319,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004874,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044883,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.300815,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055648,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.381858,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.167287,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.510843,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.299486,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.694847,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.618973,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044446,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043114,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67fc69d0950091602a0c3ba778cdc9bef362aa68",
+          "message": "Fix the uncatchable-abort family: record sizing, devfs stat, SRFI-18 timeouts, 255-arg calls (#2186)\n\n* Fix the uncatchable-abort family: record sizing, devfs stat, SRFI-18 timeouts, 255-arg calls\n\nAll four are one root cause — unguarded narrow arithmetic or conversion\nat a representation boundary — each an exit-134 process abort reachable\nfrom an ordinary program, invisible to guard.\n\n#1973: allocRecordInstance sized its allocation as\n`num_fields * @sizeOf(Value)` in u8 arithmetic (num_fields is a u8), so\nthe first instantiation of any record with >= 27 fields aborted; under\nReleaseFast it would instead corrupt GC accounting silently. Widened to\nusize. parseRecordSpec also admitted 256-field specs whose later u8\n@intCast aborted at definition time; capped at 255 to match the R6RS\nparser. The three audit assertions disabled against this are re-enabled,\nplus new ceiling pins: 254 fields is the construction ceiling everywhere\n(the rtd+fields call hits the 255-arg ISA limit), loudly.\n\n#1976: doStat @intCast a signed dev_t (i32 on macOS/OpenBSD) into u64,\nso file-info aborted on every devfs path — macOS /dev/null stats as\nst_dev = -1296473318. New devToU64 reinterprets the bits as unsigned\nbefore widening (a device id is an opaque identity, not a quantity),\napplied to dev and rdev on both stat branches. The audit's disabled\ndevfs assertions are re-enabled.\n\n#1983: seconds->time, thread-sleep!, and timeoutToDeadlineNs converted\nuser-supplied numbers with unchecked @intFromFloat / u64 multiplies.\nTwo deliberate behaviors now:\n- seconds->time raises a catchable KP3007 outside [-2^63, 2^63)\n  (including inf/nan) — it constructs an observable value, so clamping\n  would silently build a wrong time. The bound is written 0x1p63\n  exactly; @floatFromInt(maxInt(i64)) rounds up and would re-admit the\n  first aborting value (the same off-by-one-ULP shape as #1907).\n- Timeouts saturate (*|, +|, std.math.lossyCast): +inf.0 and any\n  beyond-range duration or far-future time object mean \"never times\n  out\", the SRFI-18 convention (Gambit), continuous with #f. NaN stays\n  0 as before. timeoutToDeadlineNs is pub and shared with\n  (kaappi fibers), so this also fixes channel-send/receive timeouts.\nThe audit file's disabled abort cases are re-enabled under the new\ncontract, and its stale \"TODAY\" NaN pin updated.\n\n#2185 (found by sweeping for sibling sites while fixing #1973):\ncallClosure computed `nargs + 1` in u8, aborting every 255-argument\ncall — the ISA's own maximum; three tail-dispatch paths computed a\nvariadic callee's `arity + 1` rest-slot count the same way; and both\ncompileLambda copies (compiler_lambda.zig and the live IR path in\ncompiler_ir.zig) overflowed their u8 arity counter on a 256-parameter\nlambda, aborting at compile time — including from `kaappi check`. Calls\nwidened to usize; a 256th fixed parameter is now a clean KP2001\n(InvalidSyntax, not TooManyLocals, which surfaces as a KP9001\n\"internal error — report this bug\" and would blame kaappi for user\nsyntax).\n\n#1907 (reader #e panic at 2^63) needed no code here: verified fixed by\n#2181 on this branch — read, check, ast, and fmt all handle the\nformerly-aborting literal, and both boundary values are pinned by\n#2181's tests.\n\nRegression tests: tests_records.zig (27/254/255/256-field ladder),\ntests_filesystem.zig (devfs), tests_srfi18.zig (seconds->time bounds,\ntimeout saturation), tests_fibers.zig (channel timeout, unbounded sleep\nparks with progress pinned), tests_core_eval.zig (255-arg direct/tail/\napply x exact/variadic, 256-param rejection), plus scheme suites\nsrfi170-devfs-1976.scm, srfi18-timeout-saturation-1983.scm,\ncall-255-args-2185.scm and the re-enabled audit assertions.\n\nCloses #1973. Closes #1976. Closes #1983. Closes #2185.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #2186 review: single saturating-conversion helper, tolerant /dev/fd pin\n\nExtract saturatedNsFromSeconds, shared by timeoutToDeadlineNs's number\nbranch and threadSleepFn. #1983 existed as three diverged copies of this\nexact conversion, so a future policy change (say, to NaN handling) must\nhave a single edit point; the helper's doc records why the two sites'\nhistoric @max spellings were equivalent, making the unification visibly\nbehavior-preserving.\n\nThe audit's re-enabled /dev/fd assertion no longer requires the path to\nresolve: on Linux it is a symlink into /proc, which a minimal environment\nmay not have mounted. It still pins 'directory wherever /dev/fd does\nresolve — dropping that entirely would lose the assertion's dev-vs-rdev\ndiscriminating role — and accepts only a catchable failure otherwise,\nnever the abort #1976 fixed.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T10:35:23Z",
+          "tree_id": "df04952741bac1c99f7918293d27dff0442cc151",
+          "url": "https://github.com/kaappi/kaappi/commit/67fc69d0950091602a0c3ba778cdc9bef362aa68"
+        },
+        "date": 1785668634448,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.291526,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.11757,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.580341,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.989124,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004637,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046691,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311422,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056474,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.737304,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.219034,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.585378,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281098,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.787294,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.614896,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043378,
             "unit": "seconds"
           }
         ]
