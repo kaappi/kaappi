@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785683901679,
+  "lastUpdate": 1785688470784,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3fbfc0a575efff60ad66152ef7b62e5b3e799268",
-          "message": "Let a record's constructor be named `fields` or `parent` (#1882)\n\nSRFI 237's R6RS clause grammar is ambient — `(scheme base)`'s\n`define-record-type` accepts it with no `(import (srfi 237))` — so the two\nsyntaxes are told apart structurally. The detector inspected only the head\nof the form's 2nd element, which in R7RS syntax is the *constructor's*\nname, so `(define-record-type point (fields x y) point? (x point-x) (y\npoint-y))` was parsed as R6RS and rejected. Nothing in such a program\nsignals that the R6RS grammar is in play, and the diagnostic was a bare\nKP2001 whose follow-on `undefined variable 'fields'` pointed away from the\ncause.\n\nThe 3rd element separates the grammars unambiguously: R7RS always has one\nand it is always the bare-symbol `<predicate>`, while an R6RS `<record\nclause>` is always a list — or absent, when there is at most one clause.\nAdding that as a second condition is a pure narrowing, so every R6RS form\nkeeps its path and every malformed form keeps its diagnostic; only valid\nR7RS forms move.\n\nTwo paths beyond the top-level handler shared the misdetection. In a body\nit aborted the internal-define scan, so sibling `define`s written after\nthe record lost their mutual visibility. In a library body, where the R6RS\ngrammar is rejected outright as a documented top-level-only feature, the\nwhole library failed to load.\n\nTests: a compliance suite with a library fixture (18 assertions, 8 of them\nfailing before the fix) plus three unit tests — the R7RS one demonstrates\nthe fix, the R6RS-detection and malformed-form ones bound it.",
-          "timestamp": "2026-07-31T11:20:10+05:30",
-          "tree_id": "998eea705c31025c9b6744147610e7f0e8726ec9",
-          "url": "https://github.com/kaappi/kaappi/commit/3fbfc0a575efff60ad66152ef7b62e5b3e799268"
-        },
-        "date": 1785479085311,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.055786,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.203136,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.43785,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.215485,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003795,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034516,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.231392,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042579,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.774703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.917524,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.175114,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.237565,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.312865,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.381513,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035481,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042921,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92e3133cd159233b601f804d64b5b84e39715bcf",
+          "message": "Fix six port-layer defects across SRFI 181, SRFI 192 and R7RS 6.13.1 (#2192)\n\nEvery one of these is a branch that was never written for a port kind that\ndoes not have an fd. A custom port and a transcoded port both carry the\n`fd = -1` sentinel, so a path missing their branch fell through to a real\nsyscall on -1, failed with EBADF, and reported the failure as ordinary end\nof input or as nothing at all.\n\n#1995 — `read` returned #<eof> on every custom and transcoded port.\n`readDatumFn` is the one input primitive that does not go through\n`readOneByte`; its refill called `portFdRead(-1, ...)` directly, so the\nread! callback was never invoked even once. It now refills through\n`readOneByte` for these two port kinds, restoring the invariant CLAUDE.md\nalready states. That also removes the spurious KP3000 the partially-drained\ncase produced, and the chunk-size dependence that made a whole-datum burst\nwork by accident.\n\n#1997 — the encode half of a transcoder converted only #\\newline, while\nthe decode half already treated bare CR, bare LF, and CRLF alike. So a\n`crlf` transcoder turned one CRLF into CR CR LF and a round trip doubled\nevery line break. Encode now recognizes the same three line endings the\ndecode side does. A CRLF split across two writes stays one line ending via\na new `TranscodeState.pending_cr`, committed only after the wrapped write\nsucceeds so a parked write's retry recomputes the identical translation.\n\n#1943 — `flush-output-port` on a transcoded port was a silent no-op: the\nfunction had a custom_backend branch and an isBufferedFdPort branch and no\ntranscode branch. The body is now `flushPortObj`, which cascades to the\nwrapped port — itself possibly a custom or buffered fd port, hence a\nrecursive call rather than a drain.\n\n#1942 — `port-has-set-port-position!?` was registered to\n`portHasPortPositionP`, which inspects `get_position_proc`, so it answered\na question about the getter. Wrong in both directions for a custom port\ncarrying one of the two procedures without the other; invisible on every\nother port kind, which supports both or neither. It gets its own function.\n\n#1941 — the string-port branch of `port-position`/`set-port-position!`\nneither subtracted software read-ahead nor discarded it on seek, though\nthe fd branch has always done both and `read-line`'s CR handling pushes a\nbyte back on string ports too. Position over-reported by one and a seek\nserved the stale byte first.\n\n#1998 — `close-input-port` and `close-output-port` both closed the whole\nport, and ran the custom port's close callback on the first side closed.\nR7RS 6.13.1 gives them independent semantics on a port that is\nsimultaneously input and output, which `make-custom-binary-input/output-port`\nconstructs. `Port` gains `input_closed`/`output_closed`; the shared backing\nis released only when the second side goes, so the callback still runs\nexactly once. Single-direction ports are unaffected. Both flags are set\nafter the (possibly suspending) flush completes, mirroring closePortObj's\nown drain-then-mark order.\n\nVerified against the pre-fix v0.22.1 binary: all six symptoms reproduce\nthere and none here. 17 previously disabled audit assertions are\nre-enabled and the two \"current (wrong) behaviour\" pins are flipped.\n\nCloses #1941, #1942, #1943, #1995, #1997, #1998\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T21:37:26+05:30",
+          "tree_id": "5a24fcedf97363b14aaff6e63b1e2b7291104e00",
+          "url": "https://github.com/kaappi/kaappi/commit/92e3133cd159233b601f804d64b5b84e39715bcf"
+        },
+        "date": 1785688468537,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.082884,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.259096,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.451214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.194074,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003802,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034944,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.228877,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.043055,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.808707,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.899476,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.184787,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238339,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.312717,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.411236,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035582,
             "unit": "seconds"
           }
         ]
