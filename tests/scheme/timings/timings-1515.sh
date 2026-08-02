@@ -154,6 +154,19 @@ check "deep-nesting json: recorded as a miss" '"status":"miss"' "$json"
 check "deep-nesting json: not written to cache" '"written":false' "$json"
 check "deep-nesting json: reason names the limit" '"reason":"constant exceeds .sbc limits"' "$json"
 
+# A file with a top-level compile error is never cached — a HIT would run the
+# partial program with exit 0 and the diagnostic gone (kaappi#2187).
+CE="$PROGDIR/ce.scm"
+cat > "$CE" <<'SCM'
+(display "a")
+(newline)
+(if)
+SCM
+json="$(stderr_of "$KAAPPI" --timings=json "$CE" || true)"
+check "compile-error json: recorded as a miss" '"status":"miss"' "$json"
+check "compile-error json: not written to cache" '"written":false' "$json"
+check "compile-error json: reason names the compile error" '"reason":"compile error"' "$json"
+
 # ── 6. Compile path (--compile): stages + output, no cache/execute ──────────
 json="$(stderr_of "$KAAPPI" --timings=json --compile "$PROG" -o "$PROGDIR/square.sbc")"
 check_json_parses "compile json" "$json"

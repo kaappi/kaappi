@@ -57,6 +57,15 @@ pub const MAX_VECTOR_LEN: u32 = 262_144;
 pub const MAX_BYTEVECTOR_LEN: u32 = 1_048_576;
 pub const MAX_BIGNUM_LIMBS: u32 = 262_144;
 pub const MAX_CONSTANT_DEPTH: u32 = 256;
+// Bundle-section caps (`--compile` artifacts; the auto-run cache writes both
+// sections empty). Shared by both halves so the writer refuses what the
+// reader rejects, same contract as the constant limits above. A bundled-file
+// *path* is additionally capped at `MAX_HEADER_STR_BYTES` on the write side —
+// stricter than the reader's u16 length encoding, which is safe (a stricter
+// writer can never produce an unloadable artifact) and keeps the `@intCast`
+// to u16 from being reachable.
+pub const MAX_BUNDLED_FILES: u32 = 4_096;
+pub const MAX_PREAMBLE_FORMS: u32 = 4_096;
 
 // Constant type tags
 pub const TAG_FIXNUM: u8 = 0;
@@ -604,6 +613,61 @@ test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#211
     }
     try std.testing.expectEqual(@as(i64, 401), n);
     try std.testing.expectEqual(types.NIL, cur);
+}
+
+test "bytecode write: bundle sections refuse what the reader would reject too" {
+    // writeFileWithBundle's sections have the same refusal contract as the
+    // constants: an oversized bundled file or preamble form fails the WRITE
+    // with LimitExceeded, instead of producing a --compile artifact whose own
+    // embedded bytecode the loader rejects at run time.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+    var funcs_arr = [_]*Function{func};
+    const path = "/tmp/kaappi_test_refuse_bundle.sbc";
+
+    const big = allocator.alloc(u8, MAX_STRING_BYTES + 1) catch unreachable;
+    defer allocator.free(big);
+    @memset(big, ';');
+
+    // Oversized bundled library source.
+    var files = std.StringHashMap([]const u8).init(allocator);
+    defer files.deinit();
+    try files.put("srfi/big.sld", big);
+    const no_preamble = [_][]const u8{};
+    try std.testing.expectError(
+        BytecodeError.LimitExceeded,
+        writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &no_preamble, path),
+    );
+
+    // Oversized preamble form.
+    files.clearRetainingCapacity();
+    const preamble = [_][]const u8{big};
+    try std.testing.expectError(
+        BytecodeError.LimitExceeded,
+        writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &preamble, path),
+    );
+
+    // Both refusals left nothing on disk.
+    const missing = file_utils.readWholeFile(allocator, path, 1 << 20);
+    try std.testing.expectError(error.FileNotFound, missing);
+
+    // An in-bounds bundle still writes and reads back.
+    try files.put("srfi/ok.sld", "(define-library (srfi ok) (export) (begin))");
+    const preamble_ok = [_][]const u8{"(import (srfi ok))"};
+    try writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &preamble_ok, path);
+    defer _ = platform.unlink(path);
+    var loaded = (try readFileWithTopLevel(&gc, 0x1234, path)) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(loaded.bundled_files != null);
+    try std.testing.expectEqual(@as(usize, 1), loaded.preamble.?.len);
+    freeDeserializeResult(allocator, &loaded);
+    // The uniform reset makes a second call a no-op rather than a double-free.
+    freeDeserializeResult(allocator, &loaded);
 }
 
 test "bytecode write: refuses what the reader would reject (kaappi#2113)" {

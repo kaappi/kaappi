@@ -453,12 +453,19 @@ pub fn writeFileWithBundle(
     var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash, source_path);
     defer all_funcs_list.deinit(allocator);
 
-    // Bundled files section
+    // Bundled files section. Same refusal contract as the constant limits
+    // (kaappi#2113): anything the reader would reject fails the write with
+    // the reason, instead of producing an artifact that only fails at run
+    // time as "invalid embedded bytecode". The key cap also keeps the u16
+    // length cast below from being reachable.
+    if (bundled_files.count() > bf.MAX_BUNDLED_FILES) return BytecodeError.LimitExceeded;
     try w.writeU32(allocator, @intCast(bundled_files.count()));
     var it = bundled_files.iterator();
     while (it.next()) |entry| {
         const key = entry.key_ptr.*;
         const val = entry.value_ptr.*;
+        if (key.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        if (val.len > bf.MAX_STRING_BYTES) return BytecodeError.LimitExceeded;
         try w.writeU16(allocator, @intCast(key.len));
         try w.writeBytes(allocator, key);
         try w.writeU32(allocator, @intCast(val.len));
@@ -466,8 +473,10 @@ pub fn writeFileWithBundle(
     }
 
     // Preamble section (top-level forms to replay at runtime)
+    if (preamble.len > bf.MAX_PREAMBLE_FORMS) return BytecodeError.LimitExceeded;
     try w.writeU32(allocator, @intCast(preamble.len));
     for (preamble) |src| {
+        if (src.len > bf.MAX_STRING_BYTES) return BytecodeError.LimitExceeded;
         try w.writeU32(allocator, @intCast(src.len));
         try w.writeBytes(allocator, src);
     }

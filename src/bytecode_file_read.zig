@@ -413,6 +413,9 @@ pub fn freeDeserializeResult(allocator: std.mem.Allocator, result: *DeserializeR
     allocator.free(result.funcs);
     if (result.bundled_files) |*b| freeBundledFiles(allocator, b);
     if (result.preamble) |p| freePreambleEntries(allocator, p, p.len);
+    // Reset all three fields uniformly, so an (unsupported, but cheap to
+    // survive) second call frees nothing rather than double-freeing funcs.
+    result.funcs = &.{};
     result.bundled_files = null;
     result.preamble = null;
 }
@@ -534,7 +537,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     const bf_count = r.readU32() catch return null;
     var bundled_files: ?std.StringHashMap([]const u8) = null;
     if (bf_count > 0) {
-        if (bf_count > 4096) return null;
+        if (bf_count > bf.MAX_BUNDLED_FILES) return null;
         var bfm = std.StringHashMap([]const u8).init(allocator);
         for (0..bf_count) |_| {
             const path_len = r.readU16() catch {
@@ -583,7 +586,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     };
     var preamble: ?[][]const u8 = null;
     if (preamble_count > 0) {
-        if (preamble_count > 4096) {
+        if (preamble_count > bf.MAX_PREAMBLE_FORMS) {
             if (bundled_files) |*b| freeBundledFiles(allocator, b);
             return null;
         }
