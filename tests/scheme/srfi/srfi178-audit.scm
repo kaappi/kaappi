@@ -443,17 +443,28 @@
             '((1 0)) (map L (bitvector-segment (bitvector 1 0) 9)))
 (test-equal "segment of the empty bitvector" '() (bitvector-segment (bitvector) 2))
 
-;; FAIL: #2084 (bitvector-segment recurses once per segment; a legal call on a
-;;              200,000-bit vector overflows the stack, and n=0 recurses without
-;;              bound into an uncatchable KP3008)
-;; (test-equal "segment of a 200,000-bit vector with n=1"
-;;             200000 (length (bitvector-segment (make-bitvector 200000 1) 1)))
-;; FAIL: #2084
-;; (test-assert "segment with n=0 raises a catchable error"
-;;              (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
+;; Regression, #2084: the loop now accumulates in tail position (one frame
+;; total, not one per segment) and rejects a non-positive n at entry. The
+;; full-depth 200,000-segment case lives in srfi178-segment-stack-2084.scm —
+;; its own file so the gc-stress leg can skip just it (building 200k
+;; bitvectors is quadratic in the live heap under stress collection) without
+;; skipping this file's assertions.
+(test-assert "segment with n=0 raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
+(test-assert "segment with n=-1 raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) -1))))
+(test-assert "segment with an inexact n raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 2.0))))
+;; The guard runs before the length check, so the empty bitvector — which
+;; used to return () under n=0, the loop's only terminating case — raises too.
+(test-assert "segment with n=0 raises even on the empty bitvector"
+             (raises? (lambda () (bitvector-segment (bitvector) 0))))
 
-;; Discriminating control: the same shape at a size the recursion survives.
-(test-equal "segment of a 1,000-bit vector with n=1 does terminate"
+;; Smaller n=1 case kept here (and under gc-stress): with the accumulate-
+;; then-reverse loop every size costs one frame, so this is a plain smoke
+;; check — the cap-exceeding depth case lives in
+;; srfi178-segment-stack-2084.scm.
+(test-equal "segment of a 1,000-bit vector with n=1"
             1000 (length (bitvector-segment (make-bitvector 1000 1) 1)))
 
 ;;; ------------------------------------------------------------------

@@ -175,6 +175,18 @@
 (test-equal '("ab" "cd" "e") (string-segment "abcde" 2))
 (test-equal '("abc") (string-segment "abc" 5))
 (test-equal '() (string-segment "" 3))
+;; Regression, #2172: k = 0 never advanced the loop, hanging forever on any
+;; non-empty string. It must raise a catchable error instead.
+(test-equal "string-segment k=0 raises catchably"
+            'caught (guard (e (#t 'caught)) (string-segment "abcdef" 0) 'no-error))
+(test-equal "string-segment k=-1 raises catchably"
+            'caught (guard (e (#t 'caught)) (string-segment "abcdef" -1) 'no-error))
+(test-equal "string-segment inexact k=2.0 raises catchably"
+            'caught (guard (e (#t 'caught)) (string-segment "abcdef" 2.0) 'no-error))
+;; Guard runs before the length check: the empty string — which used to
+;; return () under k=0, the loop's only terminating case — raises too.
+(test-equal "string-segment k=0 raises even on the empty string"
+            'caught (guard (e (#t 'caught)) (string-segment "" 0) 'no-error))
 
 ;;; --- splitting ---
 (test-equal '("a" "b" "c") (string-split "a,b,c" ","))

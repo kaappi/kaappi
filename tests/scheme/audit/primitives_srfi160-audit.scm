@@ -702,21 +702,31 @@
 (test-equal '((1) (2)) (map s8vector->list (s8vector-segment (s8vector 1 2) 1)))
 (test-equal '() (s8vector-segment (s8vector) 2))
 ;; SRFI 160: "It is an error if n is not an exact positive integer."
-;; n = -1 raises; n = 0 does not — see the disabled case below.
-(test-equal 'ERR (try (lambda () (s8vector-segment (s8vector 1 2) -1))))
-;; Discriminating control for the hang below: with an EMPTY vector the
-;; loop's (>= start len) guard is true on entry, so n = 0 terminates.
-(test-equal '() (s8vector-segment (s8vector) 0))
-
-;;; FAIL: #1949 (Uvector-segment with n = 0 never terminates)
-;;; %uvec-segment (lib/srfi/160/base.sld:357) advances with
-;;;   (loop (min len (+ start n)) ...)
-;;; so n = 0 leaves `start` unchanged forever while consing a fresh
-;;; zero-length copy each iteration — an unbounded-allocation infinite
-;;; loop, on all 12 kinds. SRFI 160 makes n = 0 "an error", so any raise
-;;; would conform; a hang does not. Controls above: n = -1 raises, n = 1
-;;; and n = 3 work, and an empty vector with n = 0 returns ().
-;;; (test-equal 'ERR (try (lambda () (s8vector-segment (s8vector 1 2 3 4) 0))))
+;; Regression, #1949: %uvec-segment used to advance with
+;; (min len (+ start n)), so n = 0 looped forever on any non-empty vector
+;; while consing a fresh zero-length copy each iteration — on all 12 kinds.
+;; It now rejects a non-positive (or inexact, or non-integer) n at entry,
+;; before the loop, so even the empty vector raises rather than answering.
+(test-equal "segment n = -1 raises" 'ERR (try (lambda () (s8vector-segment (s8vector 1 2) -1))))
+(test-equal "segment n = 0 raises catchably (NumericVector branch)"
+            'ERR (try (lambda () (s8vector-segment (s8vector 1 2 3 4) 0))))
+(test-equal "segment n = 0 raises catchably (bytevector branch)"
+            'ERR (try (lambda () (u8vector-segment (u8vector 1 2 3 4) 0))))
+(test-equal "segment n = 0 raises even on the empty vector"
+            'ERR (try (lambda () (s8vector-segment (s8vector) 0))))
+(test-equal "segment with an inexact n raises"
+            'ERR (try (lambda () (s8vector-segment (s8vector 1 2) 2.0))))
+;; The guard lives once in %uvec-segment, so s8/u8 above already prove both
+;; dispatch branches — this sweep pins that every public wrapper reaches it,
+;; so a future per-kind split cannot drop the guard for one kind unnoticed.
+(for-each
+ (lambda (row seg)
+   (test-equal (nm (k-name row) "vector-segment rejects n = 0") 'ERR
+               (try (lambda () (seg ((k-make row) 2) 0)))))
+ all-kinds
+ (list s8vector-segment u8vector-segment u16vector-segment s16vector-segment
+       u32vector-segment s32vector-segment u64vector-segment s64vector-segment
+       f32vector-segment f64vector-segment c64vector-segment c128vector-segment))
 
 ;;; ------------------------------------------------------------------
 ;;; 11. Comparators

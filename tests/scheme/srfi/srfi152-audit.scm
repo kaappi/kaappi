@@ -154,6 +154,9 @@
 (test-equal "string-split on a delimiter" '("a" "b") (s152:string-split "a,b" ","))
 (test-equal "string-segment chops into fixed-size pieces" '("ab" "cd" "e")
             (s152:string-segment "abcde" 2))
+;; Regression, #2172: k = 0 hung forever; it must raise catchably.
+(test-equal "string-segment rejects k = 0 catchably" 'caught
+            (guard (e (#t 'caught)) (s152:string-segment "abcde" 0) 'no-error))
 (test-equal "string-take-while" "ab" (s152:string-take-while "abZd" (lambda (c) (char-lower-case? c))))
 (test-equal "string-drop-while" "Zd" (s152:string-drop-while "abZd" (lambda (c) (char-lower-case? c))))
 (test-equal "string-span returns the matching prefix"
