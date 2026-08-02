@@ -76,6 +76,14 @@
 (check "segment length=-1 raises catchably"
        (guard (e (#t 'caught)) (range-segment (numeric-range 0 6) -1) 'no-error)
        'caught)
+(check "segment inexact length=2.0 raises catchably"
+       (guard (e (#t 'caught)) (range-segment (numeric-range 0 6) 2.0) 'no-error)
+       'caught)
+;; Guard runs before the length check: the empty range — which used to
+;; return () under length=0, the loop's only terminating case — raises too.
+(check "segment length=0 raises even on an empty range"
+       (guard (e (#t 'caught)) (range-segment (numeric-range 0 0) 0) 'no-error)
+       'caught)
 
 ;; Append
 (let ((r (range-append (numeric-range 0 3) (numeric-range 10 13))))

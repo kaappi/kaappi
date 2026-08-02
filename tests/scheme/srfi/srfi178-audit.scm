@@ -451,11 +451,20 @@
 ;; skipping this file's assertions.
 (test-assert "segment with n=0 raises a catchable error"
              (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
+(test-assert "segment with n=-1 raises a catchable error"
+             (raises? (lambda () (bitvector-segment (bitvector 1 0 1) -1))))
 (test-assert "segment with an inexact n raises a catchable error"
              (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 2.0))))
+;; The guard runs before the length check, so the empty bitvector — which
+;; used to return () under n=0, the loop's only terminating case — raises too.
+(test-assert "segment with n=0 raises even on the empty bitvector"
+             (raises? (lambda () (bitvector-segment (bitvector) 0))))
 
-;; Discriminating control: the same shape at a size the recursion survives.
-(test-equal "segment of a 1,000-bit vector with n=1 does terminate"
+;; Smaller n=1 case kept here (and under gc-stress): with the accumulate-
+;; then-reverse loop every size costs one frame, so this is a plain smoke
+;; check — the cap-exceeding depth case lives in
+;; srfi178-segment-stack-2084.scm.
+(test-equal "segment of a 1,000-bit vector with n=1"
             1000 (length (bitvector-segment (make-bitvector 1000 1) 1)))
 
 ;;; ------------------------------------------------------------------

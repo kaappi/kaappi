@@ -716,6 +716,17 @@
             'ERR (try (lambda () (s8vector-segment (s8vector) 0))))
 (test-equal "segment with an inexact n raises"
             'ERR (try (lambda () (s8vector-segment (s8vector 1 2) 2.0))))
+;; The guard lives once in %uvec-segment, so s8/u8 above already prove both
+;; dispatch branches — this sweep pins that every public wrapper reaches it,
+;; so a future per-kind split cannot drop the guard for one kind unnoticed.
+(for-each
+ (lambda (row seg)
+   (test-equal (nm (k-name row) "vector-segment rejects n = 0") 'ERR
+               (try (lambda () (seg ((k-make row) 2) 0)))))
+ all-kinds
+ (list s8vector-segment u8vector-segment u16vector-segment s16vector-segment
+       u32vector-segment s32vector-segment u64vector-segment s64vector-segment
+       f32vector-segment f64vector-segment c64vector-segment c128vector-segment))
 
 ;;; ------------------------------------------------------------------
 ;;; 11. Comparators

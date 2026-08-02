@@ -316,9 +316,15 @@ jobs:
           #              GC-owned strings, so a nongenerative uid stops
           #              resolving once its string is collected (19 assertions)
           #
-          # All eleven still run stressed in the nightly fuzz.yml legs' unit
-          # phase where applicable, and unstressed under run-all.sh on every
-          # other leg here, so nothing is untested -- only unstressed.
+          # Listing a file here removes its stressed Scheme run entirely --
+          # fuzz.yml's gc-stress legs run fuzz targets and the Zig unit
+          # suite, never this corpus. Every listed file still runs plain
+          # under run-all.sh on every other leg, so nothing is untested,
+          # only unstressed; where the guarded behavior has a counterpart,
+          # that half keeps stress coverage (tests_reader_incremental.zig in
+          # the gc-stress unit job for reader-port-refill-gaps.scm, and
+          # srfi178-audit.scm, still in this run, for the n = 0 half of
+          # srfi178-segment-stack-2084.scm).
           #
           # The script FAILS if a name here matches no file, so this list
           # cannot rot into a silent no-op.
