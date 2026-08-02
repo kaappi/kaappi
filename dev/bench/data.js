@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785636399416,
+  "lastUpdate": 1785638097894,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1ecf1c4cd41701054b8c7e2766bb1c5b30062a1e",
-          "message": "Root internal-define slots in native let bodies (#1854) (#1857)\n\n* Root internal-define slots in native let bodies (#1854)\n\nThe LLVM backend gave an internal `define` in a `let` body its own alloca\nbut never pushed it on the GC shadow stack, so the binding held the only\nreference to a freshly allocated value across every later allocation in\nthat body. A collection freed it and the memory was recycled into\nwhatever the body allocated next — a wrong answer in a compiled binary,\nwith no crash and no divergence in the interpreter:\n\n  (let ((a 1))\n    (define xs (list 11 22 33))\n    (do ((i 0 (+ i 1))) ((= i 200000)) (list i i i))\n    (car xs))            ; => 198492, not 11\n\nWhen the define held a procedure it was worse: calling the collected\nclosure died with \"not a procedure\".\n\nMove ownership of these slots to emitLet, which already owns the scope's\nroot accounting. Before emitting the body it walks the leading run of\n`(define <symbol> <expr>)` forms — R7RS's position for internal\ndefinitions — and for each mints an alloca, stores VOID, pushes it, and\ncounts it into the same binding_root_count the let's own bindings use.\nemitDefine's internal path now only evaluates the initializer and stores\ninto that slot, recognizing it through the new\nLLVMEmitter.scope_define_names.\n\nemitLet has to be the owner because the scope pops a fixed n at exit, so\nevery push it counts must execute exactly once. Pushes at the head of the\nbody dominate it; one emitted at a define nested inside an `if` would run\non one path only. Those are exactly the defines scope_define_names omits,\nand emitDefine answers UnsupportedNodeType for them so the enclosing let\nabandons and the interpreter — which binds a non-head define correctly —\ntakes the whole form.\n\nPre-creating every slot before any initializer runs is also letrec*\nsemantics, which is what a body of internal definitions means: a forward\nor self reference now reads VOID (bound but not yet assigned) instead of\nthe uninitialized alloca it read before.\n\nNo musttail interaction (#1499): mustTailSafe already requires\nself.locals == null, never true inside a let body.\n\nThe new compile test diffs native output against the interpreter for\nhead defines under GC pressure (single, multiple, nested lets, let*,\n`(let () ...)`, a procedure-valued define, redefinition, letrec*\nordering), pins the fallback shapes (a define inside `if`, after an\nexpression, begin-spliced), keeps #819's shadowing guard, and asserts\nthe emitted push/pop counts in @main balance. Nine of its cases fail\nagainst the pre-fix binary; the balance assertion catches a dropped\nroot count.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address CodeRabbit review on the #1854 regression test\n\nTwo real problems in the new test driver, both flagged in review of #1857:\n\n- The runtime-archive setup hard-coded `zig-out/lib/libkaappi_rt.a` and\n  called `zig build lib` directly, copied from the older compile tests.\n  `shell-common.sh` has `ensure_runtime_lib` for exactly this: it knows\n  the archive's per-platform name (`rt_lib_name`) and accepts a prebuilt\n  one on a box with no Zig toolchain, so a machine running\n  cross-compiled binaries still exercises the compile+link path instead\n  of dying at `zig: not found`.\n\n- `--emit-llvm` was invoked with `|| true`, so a failed emission (or a\n  missing `.ll`) parsed as zero `kaappi_eval_cached` calls — which is\n  what a `native` case asserts. The one check meant to keep a silent\n  interpreter fallback from making a case pass vacuously could itself\n  pass vacuously. It now fails loudly; mutation-tested by replacing the\n  invocation with `false`.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T14:09:40+05:30",
-          "tree_id": "4f28fdf7862de077935dcbf6570130467890429c",
-          "url": "https://github.com/kaappi/kaappi/commit/1ecf1c4cd41701054b8c7e2766bb1c5b30062a1e"
-        },
-        "date": 1785403178859,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.274031,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.563857,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.567699,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.849652,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004425,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045187,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.303359,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056609,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.504615,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.156775,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.59125,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.273202,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.764437,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.511801,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044747,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044017,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0bba2a1f114c22816cdce31114c8c5b46d7a7f12",
+          "message": "Correct 5F: its Scheme half never ran under gc-stress (#2168)\n\nI reported that 5F ran the Scheme suite against a gc-stress binary on\nx86-64 Linux for the first time, 2061 pass / 0 fail. That is wrong.\n\n`zig build test -Dgc-stress=true` builds *test* binaries. It does not\nrebuild `zig-out/bin/kaappi`, which is what `run-all.sh` executes. On the\ndroplet I had run a plain `zig build` for the sanity check, so the Scheme\nhalf ran against that plain binary and demonstrated nothing about gc-stress.\n\nVerified directly: after `zig build test -Dgc-stress=true`, the installed\nbinary still reports `gc_stress = False`.\n\nPhase 7E found this (#2163) the right way — not by re-reading my claim but\nby noticing the reported timings were arithmetically inconsistent with a\nstressed binary, since three corpus files exceed run-all.sh's 60s budget by\n100x under stress.\n\n5F's unit-suite result stands: 1570/1570 under a genuinely stressed build,\nconfirmed by the 6x slowdown and the differing skip count. Only the Scheme\nhalf was unsupported.\n\n7E's new `gc-stress-scheme` job is what actually closes that gap, and it\nfound two real bugs on its first run (#2160, #2161) — which is the clearest\nevidence that the coverage I claimed did not previously exist.",
+          "timestamp": "2026-08-02T07:05:08+05:30",
+          "tree_id": "788232f70e4d76757254eb1e3b986040b8857639",
+          "url": "https://github.com/kaappi/kaappi/commit/0bba2a1f114c22816cdce31114c8c5b46d7a7f12"
+        },
+        "date": 1785638096054,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.064231,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.274582,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.461624,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.207746,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004072,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034804,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231721,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.043024,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.828458,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.904849,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.172182,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.243874,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.308319,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.450899,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036176,
             "unit": "seconds"
           }
         ]
