@@ -1,8 +1,8 @@
-;; Probe / KNOWN DIVERGENCE: a cache HIT makes every literal constant mutable.
+;; Regression probe for kaappi#2110 (FIXED): a cache HIT used to make every
+;; literal constant mutable.
 ;;
-;; Audit v2, Phase 4E.  Listed in run-differential.sh's KNOWN_DIFFS, so the
-;; suite stays green until the fix lands; delete the entry there (and this
-;; note) once it does.  Tracked as kaappi#2110.
+;; Audit v2, Phase 4E.  Was a KNOWN_DIFFS entry until the fix; now an
+;; ordinary probe — every mutation below must raise in BOTH runs.
 ;;
 ;; R7RS 4.1.2: "It is an error to alter a constant (i.e. the value of a literal
 ;; expression) using a mutation procedure like set-car! or string-set!."
@@ -10,21 +10,12 @@
 ;; on every datum it reads under `mark_immutable`, and the four mutators reject
 ;; it with KP3002 "expected mutable <type>".
 ;;
-;; `writeConstant`/`readConstant` carry no immutability bit, so a cache HIT
-;; rebuilds every constant through the ordinary `gc.allocPair` / `allocString`
-;; / `allocVectorFill` / `allocBytevector` constructors, whose `immutable`
-;; defaults to false:
-;;
-;;   $ kaappi t.scm            # cold — cache MISS
-;;   t.scm:2:1: error[KP3002]: type error in 'set-car!': expected mutable pair
-;;   ...exit 1
-;;
-;;   $ kaappi t.scm            # warm — cache HIT
-;;   (99 2)
-;;   ...exit 0
-;;
-;; So this is not a diagnostic degradation like kaappi#1922: the program takes
-;; a different branch, prints different bytes, and exits 0 instead of 1.
+;; `writeConstant`/`readConstant` used to carry no immutability bit, so a HIT
+;; rebuilt every constant through the ordinary allocators, whose `immutable`
+;; defaults to false — a `set-car!` that raised cold succeeded warm, and the
+;; process exited 0 where the cold run exited 1.  Format v11 serializes the
+;; bit for all four types (pair, string, vector, bytevector), so a HIT now
+;; rejects exactly what a MISS rejects.
 ;;
 ;; Discriminating control: the last group builds the same shapes with `list` /
 ;; `string-copy` / `vector` / `bytevector` at run time.  Those are mutable in

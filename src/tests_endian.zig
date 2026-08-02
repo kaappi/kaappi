@@ -355,7 +355,7 @@ const GOLDEN_BODY =
     [_]u8{ 0x02, 0x00 } ++ "fn".* ++ // name: u16 length 2, then bytes
     [_]u8{ 0x06, 0x00, 0x00, 0x00 } ++ // code_len u32 = 6
     [_]u8{ LOAD_VOID, 0x00, 0x00, RETURN, 0x00, 0x00 } ++
-    [_]u8{ 0x12, 0x00, 0x00, 0x00 } ++ // const_count u32 = 18
+    [_]u8{ 0x13, 0x00, 0x00, 0x00 } ++ // const_count u32 = 19
 
     // 0: fixnum -2, i64 0xFFFFFFFFFFFFFFFE
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } ++
@@ -363,8 +363,9 @@ const GOLDEN_BODY =
     [_]u8{bf.TAG_FLONUM} ++ [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x3F } ++
     // 2: symbol "ab", u16 length prefix
     [_]u8{bf.TAG_SYMBOL} ++ [_]u8{ 0x02, 0x00 } ++ "ab".* ++
-    // 3: string "cd", u32 length prefix
-    [_]u8{bf.TAG_STRING} ++ [_]u8{ 0x02, 0x00, 0x00, 0x00 } ++ "cd".* ++
+    // 3: string "cd" (mutable), v11 immutability byte, u32 length prefix.
+    //    Back-reference id 0 (first shareable object registered).
+    [_]u8{ bf.TAG_STRING, 0x00 } ++ [_]u8{ 0x02, 0x00, 0x00, 0x00 } ++ "cd".* ++
     [_]u8{ bf.TAG_BOOLEAN, 0x01 } ++ // 4: #t
     [_]u8{ bf.TAG_BOOLEAN, 0x00 } ++ // 5: #f
     [_]u8{bf.TAG_NIL} ++ // 6: '()
@@ -375,15 +376,18 @@ const GOLDEN_BODY =
     [_]u8{bf.TAG_CHAR} ++ [_]u8{ 0x00, 0xF6, 0x01, 0x00 } ++
     // 11: function reference, index u32 = 1
     [_]u8{bf.TAG_FUNCTION} ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
-    // 12: pair (3 . 4), two nested fixnum constants
-    [_]u8{bf.TAG_PAIR} ++
+    // 12: pair (3 . 4), IMMUTABLE (v11 byte = 1), two nested fixnum
+    //     constants. Back-reference id 1.
+    [_]u8{ bf.TAG_PAIR, 0x01 } ++
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    // 13: vector #(5), u32 length then one nested fixnum
-    [_]u8{bf.TAG_VECTOR} ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
+    // 13: vector #(5) (mutable), u32 length then one nested fixnum.
+    //     Back-reference id 2.
+    [_]u8{ bf.TAG_VECTOR, 0x00 } ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    // 14: bytevector #u8(7 8), u32 length then raw bytes
-    [_]u8{bf.TAG_BYTEVECTOR} ++ [_]u8{ 0x02, 0x00, 0x00, 0x00 } ++ [_]u8{ 0x07, 0x08 } ++
+    // 14: bytevector #u8(7 8) (mutable), u32 length then raw bytes.
+    //     Back-reference id 3.
+    [_]u8{ bf.TAG_BYTEVECTOR, 0x00 } ++ [_]u8{ 0x02, 0x00, 0x00, 0x00 } ++ [_]u8{ 0x07, 0x08 } ++
     // 15: bignum +0x0102030405060708: sign u8, limb count u32, one limb u64
     [_]u8{bf.TAG_BIGNUM} ++ [_]u8{0x01} ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
     [_]u8{ 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01 } ++
@@ -397,6 +401,9 @@ const GOLDEN_BODY =
     [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40 } ++
     [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40 } ++
     [_]u8{ 0x00, 0x00 } ++
+    // 18: the pair from constant 12 again — a v11 back-reference, u32 id 1
+    //     (LSB first; its byte-reverse is a different id, so a swap shows)
+    [_]u8{bf.TAG_BACKREF} ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
     [_]u8{ 0x01, 0x02, 0x03, 0x00 } ++ // source_line u32 = 0x00030201
     [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++ // line_table count u32 = 1
     [_]u8{ 0x02, 0x01 } ++ // entry offset u16 = 0x0102
@@ -492,7 +499,11 @@ fn buildGoldenGraph(gc: *GC, allocator: std.mem.Allocator, roots: *[2]types.Valu
     c.append(allocator, types.UNDEFINED) catch unreachable;
     c.append(allocator, types.makeChar(0x1F600)) catch unreachable;
     c.append(allocator, types.makePointer(&child.header)) catch unreachable;
-    c.append(allocator, try gc.allocPair(types.makeFixnum(3), types.makeFixnum(4))) catch unreachable;
+    // Constant 12 is immutable, pinning the v11 immutability byte; constant 18
+    // is the same pair again, pinning TAG_BACKREF (kaappi#2110/#2111).
+    const pair = try gc.allocPair(types.makeFixnum(3), types.makeFixnum(4));
+    types.toObject(pair).flags.immutable = true;
+    c.append(allocator, pair) catch unreachable;
     const vec_data = [_]types.Value{types.makeFixnum(5)};
     c.append(allocator, try gc.allocVector(&vec_data)) catch unreachable;
     c.append(allocator, try gc.allocBytevector(&[_]u8{ 7, 8 })) catch unreachable;
@@ -500,6 +511,7 @@ fn buildGoldenGraph(gc: *GC, allocator: std.mem.Allocator, roots: *[2]types.Valu
     c.append(allocator, try gc.allocBignumFromLimbs(&limbs, 1, true)) catch unreachable;
     c.append(allocator, try gc.allocRational(types.makeFixnum(22), types.makeFixnum(7))) catch unreachable;
     c.append(allocator, try gc.allocComplexEx(3.0, 4.0, false, false)) catch unreachable;
+    c.append(allocator, pair) catch unreachable;
 
     parent.source_line = 0x00030201;
     parent.line_table.append(allocator, .{ .offset = 0x0102, .line = 0x00040302, .col = 0x00070605 }) catch unreachable;
@@ -563,7 +575,7 @@ test "endian: the deserializer decodes the golden .sbc byte sequence" {
     try std.testing.expectEqualSlices(u8, &.{ LOAD_VOID, 0, 0, RETURN, 0, 0 }, f.code.items);
 
     const k = f.constants.items;
-    try std.testing.expectEqual(@as(usize, 18), k.len);
+    try std.testing.expectEqual(@as(usize, 19), k.len);
     try std.testing.expectEqual(@as(i64, -2), types.toFixnum(k[0]));
     try std.testing.expectEqual(@as(f64, 1.5), types.toFlonum(k[1]));
     try std.testing.expectEqualStrings("ab", types.symbolName(k[2]));
@@ -579,7 +591,13 @@ test "endian: the deserializer decodes the golden .sbc byte sequence" {
     try std.testing.expect(types.toObject(k[11]).as(Function) == result.funcs[1]);
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.car(k[12])));
     try std.testing.expectEqual(@as(i64, 4), types.toFixnum(types.cdr(k[12])));
+    // v11: the immutability byte round-trips (kaappi#2110)…
+    try std.testing.expect(types.toObject(k[12]).flags.immutable);
+    try std.testing.expect(!types.toObject(k[3]).flags.immutable);
+    // …and the back-reference decodes to the SAME object (kaappi#2111).
+    try std.testing.expectEqual(k[12], k[18]);
     try std.testing.expectEqual(@as(i64, 5), types.toFixnum(types.toVector(k[13]).data[0]));
+    try std.testing.expect(!types.toObject(k[13]).flags.immutable);
     try std.testing.expectEqualSlices(u8, &.{ 7, 8 }, types.toBytevector(k[14]).data);
 
     const bn = types.toBignum(k[15]);
@@ -631,5 +649,8 @@ test "endian: sourceHash is host-independent" {
 }
 
 test "endian: compilerHashFor is host-independent" {
-    try std.testing.expectEqual(@as(u64, 15108339539155468146), bf.compilerHashFor("0.0.0-test", "abc1234"));
+    // Captured constant (see the section comment): re-captured when the key
+    // gained its target component (kaappi#2155), which deliberately changed
+    // the value for every input.
+    try std.testing.expectEqual(@as(u64, 9530204811558404380), bf.compilerHashFor("0.0.0-test", "abc1234", "aarch64-macos-none;r7rs"));
 }

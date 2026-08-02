@@ -125,6 +125,48 @@ check "imports json: recorded as a miss" '"status":"miss"' "$json"
 check "imports json: not written to cache" '"written":false' "$json"
 check "imports json: reason names imports" '"reason":"imports"' "$json"
 
+# ── 5b. Other honest not-cached reasons (kaappi#2112, #2113) ───────────────
+# A top-level define-syntax registers its transformer at compile time, which a
+# cache HIT would not replay — the file is refused with a named reason.
+DS="$PROGDIR/ds.scm"
+cat > "$DS" <<'SCM'
+(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))
+(display (dbl 21))
+(newline)
+SCM
+json="$(stderr_of "$KAAPPI" --timings=json "$DS")"
+check "define-syntax json: recorded as a miss" '"status":"miss"' "$json"
+check "define-syntax json: not written to cache" '"written":false' "$json"
+check "define-syntax json: reason names define-syntax" '"reason":"define-syntax"' "$json"
+
+# A constant past the reader's limits is REFUSED by the writer (kaappi#2113) —
+# with a reason — instead of being written as an entry that can never load.
+DEEP="$PROGDIR/deep.scm"
+{
+    printf "(define deep '"
+    i=0; while [ $i -lt 260 ]; do printf '('; i=$((i + 1)); done
+    printf '1'
+    i=0; while [ $i -lt 260 ]; do printf ')'; i=$((i + 1)); done
+    printf ')\n(display (pair? deep))\n(newline)\n'
+} > "$DEEP"
+json="$(stderr_of "$KAAPPI" --timings=json "$DEEP")"
+check "deep-nesting json: recorded as a miss" '"status":"miss"' "$json"
+check "deep-nesting json: not written to cache" '"written":false' "$json"
+check "deep-nesting json: reason names the limit" '"reason":"constant exceeds .sbc limits"' "$json"
+
+# A file with a top-level compile error is never cached — a HIT would run the
+# partial program with exit 0 and the diagnostic gone (kaappi#2187).
+CE="$PROGDIR/ce.scm"
+cat > "$CE" <<'SCM'
+(display "a")
+(newline)
+(if)
+SCM
+json="$(stderr_of "$KAAPPI" --timings=json "$CE" || true)"
+check "compile-error json: recorded as a miss" '"status":"miss"' "$json"
+check "compile-error json: not written to cache" '"written":false' "$json"
+check "compile-error json: reason names the compile error" '"reason":"compile error"' "$json"
+
 # ── 6. Compile path (--compile): stages + output, no cache/execute ──────────
 json="$(stderr_of "$KAAPPI" --timings=json --compile "$PROG" -o "$PROGDIR/square.sbc")"
 check_json_parses "compile json" "$json"

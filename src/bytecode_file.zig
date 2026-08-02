@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const platform = @import("platform.zig");
 const build_options = @import("build_options");
 const types = @import("types.zig");
@@ -23,6 +24,14 @@ const GC = memory.GC;
 
 // File format constants
 pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
+// v11 (kaappi#2110/#2111/#2113): pair/string/vector/bytevector constants carry
+// an immutability byte after their tag, so a literal that must reject
+// `set-car!` cold still rejects it warm; a shareable constant reached twice is
+// emitted once and referenced by `TAG_BACKREF` afterwards, so datum-label
+// sharing and cycles round-trip as the same object; and the writer now
+// enforces every limit the reader enforces, refusing (never truncating) an
+// entry that could not be read back. The compiler hash also folds in the
+// compile target (kaappi#2155).
 // v10 (kaappi#1516): the header carries the producing build id and the source
 // path after the compiler hash, so `kaappi cache status` can report which
 // source and which binary produced each cache entry. The compiler hash itself
@@ -33,7 +42,7 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
 // silently recompiled — no stale-cache hazard.
-pub const VERSION: u16 = 10;
+pub const VERSION: u16 = 11;
 pub const MAX_FUNCTIONS: u32 = 16_384;
 pub const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 pub const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -48,6 +57,15 @@ pub const MAX_VECTOR_LEN: u32 = 262_144;
 pub const MAX_BYTEVECTOR_LEN: u32 = 1_048_576;
 pub const MAX_BIGNUM_LIMBS: u32 = 262_144;
 pub const MAX_CONSTANT_DEPTH: u32 = 256;
+// Bundle-section caps (`--compile` artifacts; the auto-run cache writes both
+// sections empty). Shared by both halves so the writer refuses what the
+// reader rejects, same contract as the constant limits above. A bundled-file
+// *path* is additionally capped at `MAX_HEADER_STR_BYTES` on the write side —
+// stricter than the reader's u16 length encoding, which is safe (a stricter
+// writer can never produce an unloadable artifact) and keeps the `@intCast`
+// to u16 from being reachable.
+pub const MAX_BUNDLED_FILES: u32 = 4_096;
+pub const MAX_PREAMBLE_FORMS: u32 = 4_096;
 
 // Constant type tags
 pub const TAG_FIXNUM: u8 = 0;
@@ -67,6 +85,11 @@ pub const TAG_RATIONAL: u8 = 13;
 pub const TAG_COMPLEX: u8 = 14;
 pub const TAG_EOF: u8 = 15;
 pub const TAG_UNDEFINED: u8 = 16;
+/// Back-reference to an already-decoded pair/string/vector/bytevector, by
+/// pre-order first-encounter index (kaappi#2111). This is what lets datum-label
+/// sharing (`'(#1=(1 2) #1#)`) and cyclic literals round-trip as the *same*
+/// object instead of a copy per reference.
+pub const TAG_BACKREF: u8 = 17;
 
 pub const BytecodeError = error{
     InvalidMagic,
@@ -78,6 +101,17 @@ pub const BytecodeError = error{
     FileNotFound,
     ReadError,
     WriteError,
+    /// The writer refused a value that would exceed a limit the reader
+    /// enforces (constant nesting, string/vector/bytevector/bignum size,
+    /// constants-per-function, code size, function count). Writing it anyway
+    /// would produce an entry that can never load — a permanent cache miss
+    /// (kaappi#2113) — so the write fails loudly instead.
+    LimitExceeded,
+    /// The writer met a constant the format cannot represent (an unexpected
+    /// heap tag, or a denormalized bignum). Before kaappi#2113 these were
+    /// silently written as TAG_NIL, which a cache HIT would then serve as a
+    /// wrong constant.
+    UnsupportedConstant,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +123,7 @@ pub const writeFileWithTopLevel = write.writeFileWithTopLevel;
 pub const writeFileWithBundle = write.writeFileWithBundle;
 
 pub const DeserializeResult = read.DeserializeResult;
+pub const freeDeserializeResult = read.freeDeserializeResult;
 pub const HeaderInfo = read.HeaderInfo;
 pub const deserializeFromBuffer = read.deserializeFromBuffer;
 pub const readFromBuffer = read.readFromBuffer;
@@ -103,14 +138,30 @@ pub fn sourceHash(source: []const u8) u64 {
     return std.hash.Wyhash.hash(0, source);
 }
 
+/// The target identity this binary bakes into bytecode (kaappi#2155): the
+/// triple, plus the compile-time feature set `cond-expand` is resolved
+/// against. All 17 release binaries are built from one clean checkout, so
+/// without this component they would share a compiler hash and load each
+/// other's `.sbc` — with only the *producing* target's `cond-expand` branch
+/// present in it. Hashing the feature list (not just the triple) also makes
+/// the key change automatically the day a feature identifier becomes arch- or
+/// OS-gated in a way the triple alone would not capture.
+pub const compile_target_id = blk: {
+    var s: []const u8 = @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ "-" ++ @tagName(builtin.abi);
+    for (types.platform_features) |f| s = s ++ ";" ++ f;
+    break :blk s;
+};
+
 /// The cache-key half that identifies the *compiler*. Combines the release
-/// version string with the git build id (short HEAD hash, `-dirty` when the
-/// tree had uncommitted changes; "unknown" when git is unavailable at build
-/// time). Two binaries built from the same commit with a clean tree share a
-/// key and may reuse each other's cache; a different commit, or a dirty vs.
-/// clean tree, differs — so a stale entry is rejected on load and recompiled.
-/// This closes most of the long-standing footgun where same-version rebuilds
-/// silently ran the previous binary's bytecode (kaappi#1516).
+/// version string, the git build id (short HEAD hash, `-dirty` when the tree
+/// had uncommitted changes; "unknown" when git is unavailable at build time),
+/// and the compile target (`compile_target_id`, kaappi#2155). Two binaries
+/// built from the same commit with a clean tree *for the same target* share a
+/// key and may reuse each other's cache; a different commit, a dirty vs.
+/// clean tree, or a different target differs — so a stale or cross-target
+/// entry is rejected on load and recompiled. This closes most of the
+/// long-standing footgun where same-version rebuilds silently ran the
+/// previous binary's bytecode (kaappi#1516).
 ///
 /// It does NOT separate two *dirty* builds at the same commit: `-dirty` is a
 /// flag, not a hash of the working tree, so every uncommitted state shares one
@@ -118,16 +169,18 @@ pub fn sourceHash(source: []const u8) u64 {
 /// entries. `kaappi cache clear` between rebuilds is still required when
 /// A/B-testing compiler changes — see docs/dev/cache.md and
 /// docs/dev/performance.md. Pure in its inputs so the keying is unit-testable.
-pub fn compilerHashFor(version_str: []const u8, build_id: []const u8) u64 {
+pub fn compilerHashFor(version_str: []const u8, build_id: []const u8, target: []const u8) u64 {
     var h = std.hash.Wyhash.init(0);
     h.update(version_str);
-    h.update(&[_]u8{0}); // separator: keep version/build-id boundary unambiguous
+    h.update(&[_]u8{0}); // separator: keep each boundary unambiguous
     h.update(build_id);
+    h.update(&[_]u8{0});
+    h.update(target);
     return h.final();
 }
 
 pub fn compilerHash() u64 {
-    return compilerHashFor(main.version, build_options.git_build_id);
+    return compilerHashFor(main.version, build_options.git_build_id, compile_target_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +428,302 @@ test "source hash computation" {
     try std.testing.expect(h1 != h3);
 }
 
+/// A minimal single-function fixture for the constant round-trip tests below:
+/// a return-only body, arity 0, ready to receive constants.
+fn makeRoundTripFunc(gc: *GC) !*Function {
+    const allocator = gc.allocator;
+    const func = try gc.allocFunction();
+    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.arity = 0;
+    func.locals_count = 1;
+    return func;
+}
+
+fn roundTrip(gc: *GC, func: *Function, path: [:0]const u8) !DeserializeResult {
+    var funcs_arr = [_]*Function{func};
+    try writeFileWithTopLevel(gc.allocator, &funcs_arr, 0x1234, "test.scm", path);
+    defer _ = platform.unlink(path);
+    const result = try readFileWithTopLevel(gc, 0x1234, path);
+    return result orelse error.TestUnexpectedResult;
+}
+
+test "bytecode round-trip: immutability flag preserved (kaappi#2110)" {
+    // A literal's Object.flags.immutable must survive the codec, or a warm
+    // run accepts a set-car! the cold run rejected. One immutable and one
+    // mutable instance of each of the four types, so both flag values are
+    // exercised for every tag.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+
+    const c = &func.constants;
+    inline for (.{ true, false }) |immutable| {
+        const pair = try gc.allocPair(types.makeFixnum(1), types.makeFixnum(2));
+        types.toObject(pair).flags.immutable = immutable;
+        c.append(allocator, pair) catch unreachable;
+        const str = try gc.allocString("abc");
+        types.toObject(str).flags.immutable = immutable;
+        c.append(allocator, str) catch unreachable;
+        const vec = try gc.allocVectorFill(2, types.makeFixnum(7));
+        types.toObject(vec).flags.immutable = immutable;
+        c.append(allocator, vec) catch unreachable;
+        const bv = try gc.allocBytevector(&[_]u8{ 1, 2, 3 });
+        types.toObject(bv).flags.immutable = immutable;
+        c.append(allocator, bv) catch unreachable;
+    }
+
+    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_immutable.sbc");
+    defer allocator.free(loaded.funcs);
+
+    const k = loaded.funcs[0].constants.items;
+    try std.testing.expectEqual(@as(usize, 8), k.len);
+    for (k[0..4]) |v| try std.testing.expect(types.toObject(v).flags.immutable);
+    for (k[4..8]) |v| try std.testing.expect(!types.toObject(v).flags.immutable);
+}
+
+test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#2111)" {
+    // '(#1=(1 2) #1#) and friends: an object reached twice must decode as the
+    // SAME object (eq?), not a copy per reference.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+
+    // shared = (1 2); outer = (shared shared); also a vector #(shared "s" "s")
+    var shared_pair = try gc.allocPair(types.makeFixnum(1), try gc.allocPair(types.makeFixnum(2), types.NIL));
+    gc.pushRoot(&shared_pair);
+    var tail = try gc.allocPair(shared_pair, types.NIL);
+    gc.pushRoot(&tail);
+    const outer = try gc.allocPair(shared_pair, tail);
+    func.constants.append(allocator, outer) catch unreachable;
+
+    var shared_str = try gc.allocString("s");
+    gc.pushRoot(&shared_str);
+    const vec = try gc.allocVectorFill(3, types.NIL);
+    const vecp = types.toVector(vec);
+    vecp.data[0] = shared_pair;
+    vecp.data[1] = shared_str;
+    vecp.data[2] = shared_str;
+    gc.writeBarrier(types.toObject(vec), shared_pair);
+    gc.writeBarrier(types.toObject(vec), shared_str);
+    func.constants.append(allocator, vec) catch unreachable;
+    gc.popRoot(); // shared_str
+    gc.popRoot(); // tail
+    gc.popRoot(); // shared_pair
+
+    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_shared.sbc");
+    defer allocator.free(loaded.funcs);
+
+    const k = loaded.funcs[0].constants.items;
+    // (car outer) and (cadr outer) are the same object again.
+    const car0 = types.car(k[0]);
+    const cadr0 = types.car(types.cdr(k[0]));
+    try std.testing.expectEqual(car0, cadr0);
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(car0)));
+    // Sharing also holds ACROSS constants: the vector's slot 0 is that pair.
+    const lv = types.toVector(k[1]);
+    try std.testing.expectEqual(car0, lv.data[0]);
+    // And the two string slots are one string.
+    try std.testing.expectEqual(lv.data[1], lv.data[2]);
+}
+
+test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaappi#2111)" {
+    // '#0=(1 2 . #0#): before backrefs this recursed to the depth guard,
+    // wrote a truncated entry, and the reader rejected it — a permanent miss.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+
+    var head = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    gc.pushRoot(&head);
+    const second = try gc.allocPair(types.makeFixnum(2), head);
+    types.toObject(head).as(types.Pair).cdr = second;
+    gc.writeBarrier(types.toObject(head), second);
+    func.constants.append(allocator, head) catch unreachable;
+    gc.popRoot();
+
+    // A self-referential vector too: #0=#(1 #0#).
+    var cyc_vec = try gc.allocVectorFill(2, types.makeFixnum(1));
+    gc.pushRoot(&cyc_vec);
+    types.toVector(cyc_vec).data[1] = cyc_vec;
+    gc.writeBarrier(types.toObject(cyc_vec), cyc_vec);
+    func.constants.append(allocator, cyc_vec) catch unreachable;
+    gc.popRoot();
+
+    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_cycle.sbc");
+    defer allocator.free(loaded.funcs);
+
+    const k = loaded.funcs[0].constants.items;
+    // (cddr k0) is k0 itself again.
+    try std.testing.expectEqual(k[0], types.cdr(types.cdr(k[0])));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(k[0])));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(k[0]))));
+    try std.testing.expectEqual(k[1], types.toVector(k[1]).data[1]);
+}
+
+test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#2113)" {
+    // The cdr spine is iterative on both sides, so a 400-element list — well
+    // past MAX_CONSTANT_DEPTH — writes and reads back. Before this, element
+    // 257 hit the writer's depth guard and the entry never loaded.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+
+    var list = types.NIL;
+    gc.pushRoot(&list);
+    var i: i64 = 400;
+    while (i > 0) : (i -= 1) {
+        list = try gc.allocPair(types.makeFixnum(i), list);
+    }
+    func.constants.append(allocator, list) catch unreachable;
+    gc.popRoot();
+
+    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_longlist.sbc");
+    defer allocator.free(loaded.funcs);
+
+    var cur = loaded.funcs[0].constants.items[0];
+    var n: i64 = 1;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        try std.testing.expectEqual(n, types.toFixnum(types.car(cur)));
+        n += 1;
+    }
+    try std.testing.expectEqual(@as(i64, 401), n);
+    try std.testing.expectEqual(types.NIL, cur);
+}
+
+test "bytecode write: bundle sections refuse what the reader would reject too" {
+    // writeFileWithBundle's sections have the same refusal contract as the
+    // constants: an oversized bundled file or preamble form fails the WRITE
+    // with LimitExceeded, instead of producing a --compile artifact whose own
+    // embedded bytecode the loader rejects at run time.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+    var funcs_arr = [_]*Function{func};
+    const path = "/tmp/kaappi_test_refuse_bundle.sbc";
+
+    const big = allocator.alloc(u8, MAX_STRING_BYTES + 1) catch unreachable;
+    defer allocator.free(big);
+    @memset(big, ';');
+
+    // Oversized bundled library source.
+    var files = std.StringHashMap([]const u8).init(allocator);
+    defer files.deinit();
+    try files.put("srfi/big.sld", big);
+    const no_preamble = [_][]const u8{};
+    try std.testing.expectError(
+        BytecodeError.LimitExceeded,
+        writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &no_preamble, path),
+    );
+
+    // Oversized preamble form.
+    files.clearRetainingCapacity();
+    const preamble = [_][]const u8{big};
+    try std.testing.expectError(
+        BytecodeError.LimitExceeded,
+        writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &preamble, path),
+    );
+
+    // Both refusals left nothing on disk.
+    const missing = file_utils.readWholeFile(allocator, path, 1 << 20);
+    try std.testing.expectError(error.FileNotFound, missing);
+
+    // An in-bounds bundle still writes and reads back.
+    try files.put("srfi/ok.sld", "(define-library (srfi ok) (export) (begin))");
+    const preamble_ok = [_][]const u8{"(import (srfi ok))"};
+    try writeFileWithBundle(allocator, &funcs_arr, 0x1234, "t.scm", &files, &preamble_ok, path);
+    defer _ = platform.unlink(path);
+    var loaded = (try readFileWithTopLevel(&gc, 0x1234, path)) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(loaded.bundled_files != null);
+    try std.testing.expectEqual(@as(usize, 1), loaded.preamble.?.len);
+    freeDeserializeResult(allocator, &loaded);
+    // The uniform reset makes a second call a no-op rather than a double-free.
+    freeDeserializeResult(allocator, &loaded);
+}
+
+test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
+    // The writer must never produce an entry the reader rejects — that is a
+    // permanent, invisible cache miss. Nesting past MAX_CONSTANT_DEPTH and an
+    // oversized string both fail the WRITE with LimitExceeded, and no file
+    // appears on disk.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try makeRoundTripFunc(&gc);
+    var func_root = types.makePointer(&func.header);
+    gc.pushRoot(&func_root);
+    defer gc.popRoot();
+
+    // ((((…1…)))) nested MAX_CONSTANT_DEPTH+2 deep via car.
+    var nested = types.makeFixnum(1);
+    gc.pushRoot(&nested);
+    var d: u32 = 0;
+    while (d < MAX_CONSTANT_DEPTH + 2) : (d += 1) {
+        nested = try gc.allocPair(nested, types.NIL);
+    }
+    func.constants.append(allocator, nested) catch unreachable;
+    gc.popRoot();
+
+    var funcs_arr = [_]*Function{func};
+    const path = "/tmp/kaappi_test_refuse_depth.sbc";
+    try std.testing.expectError(BytecodeError.LimitExceeded, writeFileWithTopLevel(allocator, &funcs_arr, 0x1234, "test.scm", path));
+    // Refused means refused: nothing was left on disk.
+    const missing = file_utils.readWholeFile(allocator, path, 1 << 20);
+    try std.testing.expectError(error.FileNotFound, missing);
+
+    // Same for an oversized string constant.
+    func.constants.clearRetainingCapacity();
+    const big = allocator.alloc(u8, MAX_STRING_BYTES + 1) catch unreachable;
+    defer allocator.free(big);
+    @memset(big, 'x');
+    func.constants.append(allocator, try gc.allocString(big)) catch unreachable;
+    try std.testing.expectError(BytecodeError.LimitExceeded, writeFileWithTopLevel(allocator, &funcs_arr, 0x1234, "test.scm", path));
+
+    // And exactly AT the cap still round-trips — the two halves agree on the
+    // boundary, not merely near it.
+    func.constants.clearRetainingCapacity();
+    var at_cap = types.makeFixnum(1);
+    gc.pushRoot(&at_cap);
+    var d2: u32 = 0;
+    while (d2 < MAX_CONSTANT_DEPTH) : (d2 += 1) {
+        at_cap = try gc.allocPair(at_cap, types.NIL);
+    }
+    func.constants.append(allocator, at_cap) catch unreachable;
+    gc.popRoot();
+    const loaded = try roundTrip(&gc, func, path);
+    allocator.free(loaded.funcs);
+}
+
 test "stale compiler version rejects cache" {
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
@@ -402,13 +751,32 @@ test "compilerHashFor: same version, different build id → different key" {
     // changes the git build id (new commit, or clean→dirty). The compiler key
     // must change so the older binary's bytecode is never reused.
     const v = "9.9.9";
-    try std.testing.expect(compilerHashFor(v, "aaaaaaa") != compilerHashFor(v, "bbbbbbb"));
-    try std.testing.expect(compilerHashFor(v, "aaaaaaa") != compilerHashFor(v, "aaaaaaa-dirty"));
+    const t = "arm-macos-none;r7rs";
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa", t) != compilerHashFor(v, "bbbbbbb", t));
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa", t) != compilerHashFor(v, "aaaaaaa-dirty", t));
     // A clean rebuild of the exact same commit keeps the key (caches shareable).
-    try std.testing.expect(compilerHashFor(v, "aaaaaaa") == compilerHashFor(v, "aaaaaaa"));
+    try std.testing.expect(compilerHashFor(v, "aaaaaaa", t) == compilerHashFor(v, "aaaaaaa", t));
     // The version/build-id separator prevents boundary collisions: "a"+"bc"
     // must not hash equal to "ab"+"c".
-    try std.testing.expect(compilerHashFor("a", "bc") != compilerHashFor("ab", "c"));
+    try std.testing.expect(compilerHashFor("a", "bc", t) != compilerHashFor("ab", "c", t));
+}
+
+test "compilerHashFor: same clean commit, different target → different key" {
+    // kaappi#2155: all release binaries are built from one clean checkout, so
+    // version and build id are identical across all 17 targets. Only the
+    // target component separates them — a POSIX-compiled entry (with only the
+    // posix cond-expand branch in it) must be a miss for a Windows binary.
+    const v = "9.9.9";
+    const bid = "aaaaaaa";
+    const posix = "aarch64-macos-none;r7rs;posix";
+    const windows = "aarch64-windows-gnu;r7rs;windows";
+    try std.testing.expect(compilerHashFor(v, bid, posix) != compilerHashFor(v, bid, windows));
+    try std.testing.expect(compilerHashFor(v, bid, posix) == compilerHashFor(v, bid, posix));
+    // Build-id/target separator: "b"+"ct" must not equal "bc"+"t".
+    try std.testing.expect(compilerHashFor(v, "b", "ct") != compilerHashFor(v, "bc", "t"));
+    // The real target id names this build's arch, OS, and feature set.
+    try std.testing.expect(std.mem.indexOf(u8, compile_target_id, @tagName(builtin.os.tag)) != null);
+    try std.testing.expect(std.mem.indexOf(u8, compile_target_id, ";r7rs") != null);
 }
 
 test "dev rebuild (different build id) rejects cache" {
@@ -424,7 +792,7 @@ test "dev rebuild (different build id) rejects cache" {
     defer w.buf.deinit(allocator);
 
     const hash: u64 = 0x5EED;
-    const other_build_key = compilerHashFor(main.version, "0000000-other-build");
+    const other_build_key = compilerHashFor(main.version, "0000000-other-build", compile_target_id);
     try std.testing.expect(other_build_key != compilerHash()); // precondition
     try w.writeBytes(allocator, &MAGIC);
     try w.writeU16(allocator, VERSION);

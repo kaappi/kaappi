@@ -1,8 +1,8 @@
-;; Probe / KNOWN DIVERGENCE: a cache HIT unshares datum-label structure.
+;; Regression probe for kaappi#2111 (FIXED): a cache HIT used to unshare
+;; datum-label structure.
 ;;
-;; Audit v2, Phase 4E.  Listed in run-differential.sh's KNOWN_DIFFS, so the
-;; suite stays green until the fix lands; delete the entry there (and this
-;; note) once it does.  Tracked as kaappi#2111.
+;; Audit v2, Phase 4E.  Was a KNOWN_DIFFS entry until the fix; now an
+;; ordinary probe — every eq? below answers the same in BOTH runs.
 ;;
 ;; R7RS 2.4 (Datum labels): "#<n>= <datum> reads as <datum>, but also results
 ;; in <datum> being labelled by <n>.  #<n># serves as a reference to some
@@ -11,26 +11,26 @@
 ;; one labelled object — so cold, `(eq? (car v) (cadr v))` on `'(#1=(1 2) #1#)`
 ;; is #t.
 ;;
-;; `writeConstant` is a plain recursive walk with no visited-set, so it emits
-;; the labelled datum once per *reference*, and `readConstant` allocates a
-;; fresh object for each.  A cache HIT therefore answers #f:
-;;
-;;   $ kaappi t.scm      # cold  -> #t
-;;   $ kaappi t.scm      # warm  -> #f
+;; `writeConstant` was a plain recursive walk with no visited-set, so it
+;; emitted the labelled datum once per *reference*, and `readConstant`
+;; allocated a fresh object for each — a HIT answered #f where the cold run
+;; answered #t.  Format v11 emits every already-seen pair/string/vector/
+;; bytevector as a TAG_BACKREF to its first occurrence, so sharing (and
+;; therefore eq?) round-trips.
 ;;
 ;; Discriminating control: the last group writes the same shape WITHOUT a
 ;; label.  Cold already answers #f there, and warm agrees — so this is sharing
 ;; being lost, not `eq?` behaving differently after a HIT.
 ;;
-;; Same root cause, two more symptoms, neither probed here because neither can
-;; be a deterministic corpus file:
+;; Same root cause, two more former symptoms, both also closed by the
+;; back-reference encoding:
 ;;
-;;   - a CYCLIC literal (`'#0=(1 . #0#)`) recurses until `writeConstant`'s
-;;     depth-256 guard truncates it, and `readConstant`'s matching guard then
-;;     rejects the file — a permanent MISS.  See sbc-constant-depth.scm.
-;;   - a shared DAG makes the .sbc exponential in the source: labels nested
-;;     `#k=(#k-1# #k-1#)` 20 deep are 241 source bytes and 4.7 MB of .sbc,
-;;     doubling per level.
+;;   - a CYCLIC literal (`'#0=(1 . #0#)`) used to recurse to the depth guard
+;;     and write an entry the reader rejected — a permanent MISS.  It now
+;;     terminates and HITs; sbc-constant-depth.scm probes it.
+;;   - a shared DAG made the .sbc exponential in the source (labels nested
+;;     `#k=(#k-1# #k-1#)` 20 deep were 241 source bytes and 4.7 MB of .sbc);
+;;     each level is now emitted once, so the entry stays linear (~474 B).
 
 (define shared-pair '(#1=(1 2) #1#))
 (define shared-vector '#(#2=(a) #2# #2#))

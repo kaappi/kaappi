@@ -106,9 +106,38 @@ fn freePreambleEntries(allocator: std.mem.Allocator, entries: [][]const u8, coun
 // Read constant
 // ---------------------------------------------------------------------------
 
-fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value {
-    if (depth > bf.MAX_CONSTANT_DEPTH) return BytecodeError.CorruptedFile;
+/// Decoded-object table for `TAG_BACKREF` (kaappi#2111): every
+/// pair/string/vector/bytevector is appended at the same pre-order position
+/// the writer assigned its id, so `shared.items[n]` is the object
+/// `TAG_BACKREF n` names. Entries need no rooting of their own: an object is
+/// registered only after being linked into (or while rooted as part of) the
+/// constant under construction, whose spine is rooted, and completed
+/// constants hang off functions rooted in `gc.extra_roots`.
+const SharedTable = std.ArrayList(Value);
+
+/// The `1`/`0` immutability byte v11 adds after the tag of the four mutable
+/// literal types (kaappi#2110). The reader restores `Object.flags.immutable`
+/// so a `set-car!` on a literal raises KP3002 warm exactly as it does cold.
+fn readImmutableByte(r: *Reader) !bool {
+    const v = try r.readU8();
+    if (v > 1) return BytecodeError.CorruptedFile;
+    return v != 0;
+}
+
+fn markImmutable(val: Value, immutable: bool) void {
+    if (immutable) types.toObject(val).flags.immutable = true;
+}
+
+fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *SharedTable, depth: u32) BytecodeError!Value {
     const tag = try r.readU8();
+    return readConstantTagged(r, gc, all_funcs, shared, depth, tag);
+}
+
+/// `depth` counts nesting only — the cdr spine of a list is read iteratively
+/// at constant depth, mirroring `writeConstant`, so both halves accept and
+/// refuse exactly the same shapes (kaappi#2113).
+fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *SharedTable, depth: u32, tag: u8) BytecodeError!Value {
+    if (depth > bf.MAX_CONSTANT_DEPTH) return BytecodeError.CorruptedFile;
     switch (tag) {
         bf.TAG_FIXNUM => {
             const n = try r.readI64();
@@ -126,10 +155,14 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             return gc.allocSymbol(name) catch return BytecodeError.OutOfMemory;
         },
         bf.TAG_STRING => {
+            const immutable = try readImmutableByte(r);
             const data_len = try r.readU32();
             if (data_len > bf.MAX_STRING_BYTES) return BytecodeError.CorruptedFile;
             const data = try r.readBytes(data_len);
-            return gc.allocString(data) catch return BytecodeError.OutOfMemory;
+            const v = gc.allocString(data) catch return BytecodeError.OutOfMemory;
+            markImmutable(v, immutable);
+            shared.append(gc.allocator, v) catch return BytecodeError.OutOfMemory;
+            return v;
         },
         bf.TAG_BOOLEAN => {
             const v = try r.readU8();
@@ -152,22 +185,51 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             return types.makePointer(&all_funcs[idx].header);
         },
         bf.TAG_PAIR => {
-            const car_val = try readConstant(r, gc, all_funcs, depth + 1);
-            // Root car to protect from GC during cdr read
-            var car_root = car_val;
-            gc.pushRoot(&car_root);
+            // Allocate before reading children and register immediately, so a
+            // back-reference inside this pair's own subtree — a cycle — can
+            // resolve to it. Fields are filled as each child completes, which
+            // is also what keeps every registered object transitively rooted
+            // while later children allocate.
+            const head_immutable = try readImmutableByte(r);
+            var head = gc.allocPair(types.NIL, types.NIL) catch return BytecodeError.OutOfMemory;
+            markImmutable(head, head_immutable);
+            shared.append(gc.allocator, head) catch return BytecodeError.OutOfMemory;
+            gc.pushRoot(&head);
             defer gc.popRoot();
-            const cdr_val = try readConstant(r, gc, all_funcs, depth + 1);
-            return gc.allocPair(car_root, cdr_val) catch return BytecodeError.OutOfMemory;
+            var cur = head;
+            while (true) {
+                const car_val = try readConstant(r, gc, all_funcs, shared, depth + 1);
+                types.toObject(cur).as(types.Pair).car = car_val;
+                gc.writeBarrier(types.toObject(cur), car_val);
+                const cdr_tag = try r.readU8();
+                if (cdr_tag == bf.TAG_PAIR) {
+                    // Continue the spine iteratively, mirroring the writer.
+                    const next_immutable = try readImmutableByte(r);
+                    const next = gc.allocPair(types.NIL, types.NIL) catch return BytecodeError.OutOfMemory;
+                    markImmutable(next, next_immutable);
+                    shared.append(gc.allocator, next) catch return BytecodeError.OutOfMemory;
+                    types.toObject(cur).as(types.Pair).cdr = next;
+                    gc.writeBarrier(types.toObject(cur), next);
+                    cur = next;
+                    continue;
+                }
+                const cdr_val = try readConstantTagged(r, gc, all_funcs, shared, depth + 1, cdr_tag);
+                types.toObject(cur).as(types.Pair).cdr = cdr_val;
+                gc.writeBarrier(types.toObject(cur), cdr_val);
+                return head;
+            }
         },
         bf.TAG_VECTOR => {
+            const immutable = try readImmutableByte(r);
             const len = try r.readU32();
             if (len > bf.MAX_VECTOR_LEN) return BytecodeError.CorruptedFile;
             var vec_val = gc.allocVectorFill(len, types.NIL) catch return BytecodeError.OutOfMemory;
+            markImmutable(vec_val, immutable);
+            shared.append(gc.allocator, vec_val) catch return BytecodeError.OutOfMemory;
             gc.pushRoot(&vec_val);
             defer gc.popRoot();
             for (0..len) |i| {
-                const elem = try readConstant(r, gc, all_funcs, depth + 1);
+                const elem = try readConstant(r, gc, all_funcs, shared, depth + 1);
                 const vec = types.toVector(vec_val);
                 vec.data[i] = elem;
                 gc.writeBarrier(types.toObject(vec_val), elem);
@@ -175,10 +237,14 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             return vec_val;
         },
         bf.TAG_BYTEVECTOR => {
+            const immutable = try readImmutableByte(r);
             const len = try r.readU32();
             if (len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
             const data = try r.readBytes(len);
-            return gc.allocBytevector(data) catch return BytecodeError.OutOfMemory;
+            const v = gc.allocBytevector(data) catch return BytecodeError.OutOfMemory;
+            markImmutable(v, immutable);
+            shared.append(gc.allocator, v) catch return BytecodeError.OutOfMemory;
+            return v;
         },
         bf.TAG_BIGNUM => {
             const positive = (try r.readU8()) != 0;
@@ -194,12 +260,12 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             return gc.allocBignumFromLimbs(limbs, len, positive) catch return BytecodeError.OutOfMemory;
         },
         bf.TAG_RATIONAL => {
-            const num = try readConstant(r, gc, all_funcs, depth + 1);
+            const num = try readConstant(r, gc, all_funcs, shared, depth + 1);
             if (!types.isFixnum(num) and !types.isBignum(num)) return BytecodeError.CorruptedFile;
             var num_root = num;
             gc.pushRoot(&num_root);
             defer gc.popRoot();
-            const den = try readConstant(r, gc, all_funcs, depth + 1);
+            const den = try readConstant(r, gc, all_funcs, shared, depth + 1);
             if (!types.isFixnum(den) and !types.isBignum(den)) return BytecodeError.CorruptedFile;
             if (types.isFixnum(den) and types.toFixnum(den) == 0) return BytecodeError.CorruptedFile;
             if (types.isBignum(den) and types.toBignum(den).len == 0) return BytecodeError.CorruptedFile;
@@ -211,6 +277,11 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             const exact_real = (try r.readU8()) != 0;
             const exact_imag = (try r.readU8()) != 0;
             return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return BytecodeError.OutOfMemory;
+        },
+        bf.TAG_BACKREF => {
+            const id = try r.readU32();
+            if (id >= shared.items.len) return BytecodeError.CorruptedFile;
+            return shared.items[id];
         },
         else => return BytecodeError.InvalidConstantTag,
     }
@@ -333,6 +404,22 @@ pub const DeserializeResult = struct {
     preamble: ?[][]const u8 = null,
 };
 
+/// Frees everything a successful deserialize allocated with `allocator` — the
+/// function-pointer slice, the bundled-file map, the preamble entries. The
+/// `Function` objects themselves belong to the GC that loaded them (and stay
+/// in its `extra_roots`). For callers like `cache status`'s loadability dry
+/// run (kaappi#2113) that load an entry only to discard it.
+pub fn freeDeserializeResult(allocator: std.mem.Allocator, result: *DeserializeResult) void {
+    allocator.free(result.funcs);
+    if (result.bundled_files) |*b| freeBundledFiles(allocator, b);
+    if (result.preamble) |p| freePreambleEntries(allocator, p, p.len);
+    // Reset all three fields uniformly, so an (unsupported, but cheap to
+    // survive) second call frees nothing rather than double-freeing funcs.
+    result.funcs = &.{};
+    result.bundled_files = null;
+    result.preamble = null;
+}
+
 pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
     const allocator = gc.allocator;
 
@@ -389,6 +476,11 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
         gc.extra_roots.append(allocator, types.makePointer(&all_funcs[i].header)) catch return BytecodeError.OutOfMemory;
     }
 
+    // One back-reference table across all functions' constants, mirroring the
+    // writer's single map (kaappi#2111).
+    var shared: SharedTable = .empty;
+    defer shared.deinit(allocator);
+
     for (0..func_count) |i| {
         const func = all_funcs[i];
 
@@ -421,7 +513,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
         const const_count = r.readU32() catch return null;
         if (const_count > bf.MAX_CONSTANTS_PER_FUNCTION) return null;
         for (0..const_count) |_| {
-            const val = readConstant(&r, gc, all_funcs, 0) catch return null;
+            const val = readConstant(&r, gc, all_funcs, &shared, 0) catch return null;
             func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
         }
 
@@ -445,7 +537,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     const bf_count = r.readU32() catch return null;
     var bundled_files: ?std.StringHashMap([]const u8) = null;
     if (bf_count > 0) {
-        if (bf_count > 4096) return null;
+        if (bf_count > bf.MAX_BUNDLED_FILES) return null;
         var bfm = std.StringHashMap([]const u8).init(allocator);
         for (0..bf_count) |_| {
             const path_len = r.readU16() catch {
@@ -494,7 +586,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     };
     var preamble: ?[][]const u8 = null;
     if (preamble_count > 0) {
-        if (preamble_count > 4096) {
+        if (preamble_count > bf.MAX_PREAMBLE_FORMS) {
             if (bundled_files) |*b| freeBundledFiles(allocator, b);
             return null;
         }

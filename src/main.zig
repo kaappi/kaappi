@@ -603,6 +603,18 @@ fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
     return bytecode_file.getSbcPath(allocator, scm_path);
 }
 
+/// `--compile` writes an artifact the user asked for by name, so a refused
+/// constant (kaappi#2113) must fail loudly with the reason — the old behavior
+/// wrote an artifact whose embedded bytecode the loader would reject at run
+/// time, which surfaced as "invalid embedded bytecode" long after the fact.
+fn reportBytecodeWriteError(err: anyerror) void {
+    switch (err) {
+        error.LimitExceeded => writeStderr("error: a constant exceeds the .sbc format limits (nesting deeper than 256, or an oversized literal) and cannot be serialized\n"),
+        error.UnsupportedConstant => writeStderr("error: a constant cannot be represented in the .sbc format\n"),
+        else => writeStderr("Error writing bytecode file\n"),
+    }
+}
+
 /// SRFI 59/193: absolute-ize `path` without following symlinks -- a pure
 /// lexical join+normalize (`.`/`..` collapsed) against the process's
 /// starting cwd, never a `realpath`-style syscall. Returns `null` (rather
@@ -729,9 +741,14 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 const result = exec_result catch |err| {
                     vm.gc.popRoot();
                     script_had_error = true;
-                    const loc = toplevel_driver.vmErrorLocation(vm, path, 0);
+                    // kaappi#1922: fall back to the form's own line — serialized
+                    // as Function.source_line — exactly as the fresh-compile
+                    // path passes datum_lc.line, so an error with no line-table
+                    // entry (raise, division by zero) keeps its location and
+                    // snippet on a cache HIT.
+                    const loc = toplevel_driver.vmErrorLocation(vm, path, func.source_line);
                     toplevel_driver.reportRuntimeError(vm, err, loc);
-                    if (loc.line > 0) toplevel_driver.printSourceSnippet(source, loc.line);
+                    toplevel_driver.printSourceSnippet(source, loc.line);
                     toplevel_driver.printStackTrace(vm);
                     continue;
                 };
@@ -750,6 +767,8 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
     var has_imports = false;
+    var defines_syntax = false;
+    var had_compile_error = false;
 
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
@@ -793,9 +812,22 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         crash.noteStage(.compiling);
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
+        // kaappi#2112: `define-syntax` / `define-property` register into the
+        // VM's macro and syntax-property tables as a side effect of
+        // *compilation* and emit no bytecode that would replay them, so a
+        // cache HIT (which compiles nothing) leaves both tables empty and a
+        // run-time `eval` diverges from the cold run. Detect the side effect
+        // semantically — did compiling this form grow either table? — which
+        // also covers a macro use that expands into a `define-syntax`.
+        const macros_before = vm.macros.count();
+        const props_before = vm.syntax_properties.count();
+        const compile_result = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false);
+        if (vm.macros.count() != macros_before or vm.syntax_properties.count() != props_before)
+            defines_syntax = true;
+        const func = compile_result catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
             script_had_error = true;
+            had_compile_error = true;
             continue;
         };
 
@@ -823,19 +855,37 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         printTopLevelResult(allocator, result);
     }
 
-    // Cache compiled bytecode (skip when imports are used — GC may have freed
-    // collected function pointers during library loading). Best-effort: a
-    // failed write (read-only home, etc.) just means the next run recompiles.
-    if (!has_imports and compiled_funcs.items.len > 0) {
+    // Cache compiled bytecode. Skipped when imports are used (GC may have
+    // freed collected function pointers during library loading), when a form
+    // registered a macro or syntax property at compile time (a HIT would not
+    // replay the registration and run-time `eval` would diverge — kaappi#2112),
+    // and when any form failed to compile (a HIT would silently run the
+    // partial program with exit 0 where the cold run reported the error with
+    // exit 1). Best-effort: a failed write (read-only home, etc.) just means
+    // the next run recompiles.
+    if (!has_imports and !defines_syntax and !had_compile_error and compiled_funcs.items.len > 0) {
         if (sbc_path) |sp| {
             cache.ensureDir();
             if (bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sp)) |_| {
                 timings.cacheWrote(); // kaappi#1515: the miss's bytecode is now cached
-            } else |_| {}
+            } else |err| switch (err) {
+                // kaappi#2113: the writer refuses entries the reader would
+                // reject rather than truncating them, so a permanent-miss
+                // entry is never written — record why for `--timings`.
+                error.LimitExceeded => timings.cacheReason("constant exceeds .sbc limits"),
+                error.UnsupportedConstant => timings.cacheReason("unsupported constant"),
+                else => {},
+            }
         }
-    } else if (has_imports and sbc_path != null) {
-        // A miss was recorded, but imported programs are never cached — say so.
-        timings.cacheReason("imports");
+    } else if (sbc_path != null) {
+        // A miss was recorded but nothing will be written — say why.
+        if (has_imports) {
+            timings.cacheReason("imports");
+        } else if (defines_syntax) {
+            timings.cacheReason("define-syntax");
+        } else if (had_compile_error) {
+            timings.cacheReason("compile error");
+        }
     }
 }
 
@@ -1099,14 +1149,14 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                 &collect_files,
                 preamble.items,
                 sbc_path,
-            ) catch {
-                writeStderr("Error writing bytecode file\n");
+            ) catch |err| {
+                reportBytecodeWriteError(err);
                 script_had_error = true;
                 return;
             };
         } else {
-            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sbc_path) catch {
-                writeStderr("Error writing bytecode file\n");
+            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sbc_path) catch |err| {
+                reportBytecodeWriteError(err);
                 script_had_error = true;
                 return;
             };
