@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785668636093,
+  "lastUpdate": 1785673434618,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f47679a7a0b1dede740a84280be47e3af5cb640",
-          "message": "Settle the vm_instance/gc_instance guard tag, and write the rule down (#1875)\n\nThe ~450 threadlocal guards had drifted into a 46/34 TypeError/OutOfMemory\nsplit for the same \"the runtime is not initialized\" failure — two lines apart\nin primitives_hashtable.zig, and arbitrary in both directions (21 TypeError\nsites allocate; 13 OutOfMemory sites never do). There was already an implicit\nrule holding most of them together, but it was nowhere written down, which is\nhow the rest drifted.\n\nBoth halves of the fix:\n\nRule 1, unchanged and now stated: a guard returns the tag the function was\ngoing to return anyway, just without the formatted detail. That covers\ntypeError/indexError/argError/raiseDivByZero and the arity helpers, and — at\nscale — the 348 gc_instance guards in allocating functions, where no GC means\nthe allocation the function exists to perform cannot happen, so OutOfMemory\n*is* its error. None of those change.\n\nRule 2, the decision this issue asked for: with no natural tag, InvalidBytecode.\nA null threadlocal is an implementation-invariant violation, and that is the one\nKaappiError variant that means so. runtimeErrorCode already maps it to\n.internal_error (KP9001), whose registry template is the whole message the user\nsees since these guards set no detail — \"internal error … please report it\".\nOutOfMemory would send the reader after heap size; a bare TypeError is worse,\nbecause mapNativeError dresses it up as `type error in '<proc>': got <args[0]>`\nand so blames a real argument (the trap #1868 was about).\n\n82 sites move. The one-offs go with them: primitives_control's two no-VM\nfallback blocks retag whole rather than one return of four, and expander.zig's\nodd `error.TypeError` spelling becomes `error.InvalidBytecode`, which is a tag\nthat file can use honestly. Sites the issue blessed keep theirs, including\nbootstrapStub, whose guard mirrors its function's own tag.\n\nKP9001's template said \"internal compiler error\"; KP9xxx is stage .internal and\nthe code is now reached from the runtime too, so it is \"internal error\", with\nthe uninitialized-runtime path named in the explanation. One assertion pins\nruntimeErrorCode(InvalidBytecode) → .internal_error, since ~80 sites depend on\nthat arm and losing it would silently downgrade every one of them to the\nuncategorized catch-all.\n\nThe rule itself lands in docs/dev/gc-safety-and-error-handling.md, with the\nrejected alternatives named and one seam flagged: the raise* helpers ending in\nExceptionRaised split across both rules, because ExceptionRaised is the one tag\na guard cannot borrow — it promises vm.current_exception was set, and the guard\nfired precisely because there is no VM to set it on. adding-features.md, the\nadd-builtin skill, .claude/rules/gc-safety.md and the CI gate's own help text\nall taught the retired pattern by example, so they move too.\n\nNo behavior change: the threadlocals are set during VM init, before registerAll,\nso none of these guards fires in a working build.\n\nCloses #1874\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T23:39:46+05:30",
-          "tree_id": "f793cadf890fe52bd056b5af462cbf871d89b081",
-          "url": "https://github.com/kaappi/kaappi/commit/9f47679a7a0b1dede740a84280be47e3af5cb640"
-        },
-        "date": 1785437290587,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.275755,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.730863,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573825,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.976157,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004688,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046403,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314943,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057281,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.650338,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231441,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.589625,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27321,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.792627,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.596818,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04317,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043378,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53a989b4f612cbcff2b5ed403551ef468aca3508",
+          "message": "Make the .sbc cache transparent: format v11, honest write gating, target-keyed compiler hash (#2188)\n\n* Make the .sbc cache transparent: format v11 + honest write gating\n\nSix cache defects, one root theme: a HIT behaved differently from a MISS.\n\nFormat v11 (bytecode_file*, #2110 #2111 #2113):\n- Pair/string/vector/bytevector constants carry their immutability byte,\n  so a set-car! on a literal raises KP3002 warm exactly as cold (#2110).\n- A shareable constant reached twice is emitted once and referenced via\n  TAG_BACKREF, so datum-label sharing keeps eq?, shared DAGs stay linear\n  on disk (a 20-level DAG drops 4.7 MB -> 474 B), and cyclic literals\n  terminate and load (#2111).\n- List spines are walked iteratively on both halves — depth counts\n  nesting only — so a quoted list past 257 elements is cacheable; and\n  the writer now refuses (never truncates) anything the reader would\n  reject, so an entry that recompiles forever cannot be written (#2113).\n\nCache gating and reporting (main.zig, cache.zig):\n- A file whose compilation registered a macro or syntax property is not\n  cached (--timings: \"define-syntax\") — a HIT compiles nothing, so a\n  top-level define-syntax/define-property was invisible to run-time\n  eval (#2112). Detection is semantic (table-count snapshots around each\n  form), so a macro expanding into define-syntax is covered too.\n- A file with a top-level compile error is not cached (\"compile error\")\n  — the warm run used to execute the partial program with exit 0 and no\n  diagnostic (found during this work; probe cache-compile-error.scm).\n- The HIT path feeds runtime errors the same per-form fallback line\n  (Function.source_line) the fresh path uses, so errors with no\n  line-table entry keep their file:line and snippet (#1922).\n- cache status dry-runs each current-build entry's body and reports one\n  the reader rejects as \"unloadable\" instead of \"current\" (#2113).\n\nCache key (#2155): compilerHashFor gains a target component — the triple\nplus types.platform_features — so the 17 release binaries built from one\nclean checkout no longer share a key, and a cond-expand-bearing .sbc\ncompiled on POSIX is a loud miss for a Windows binary instead of silently\nrunning the wrong branch.\n\nThe differential harness's KNOWN_DIFFS and KNOWN_NEVER_HIT lists are both\nempty now; the five probes stay in the corpus as regression probes, so\nany of these divergences coming back fails the run. Docs: cache.md gains\nthe target key component, the full refusal list, the unloadable state,\nand a transparency-guarantees section.\n\nCloses #1922, closes #2110, closes #2111, closes #2112, closes #2113,\ncloses #2155.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Extend writer/reader limit parity to the bundle sections (review)\n\nCodeRabbit review of #2188, all three findings taken:\n\n- writeFileWithBundle now refuses (LimitExceeded) a bundled-file count,\n  bundled path/content length, preamble count, or preamble form length\n  the reader would reject, completing the parity the v11 header comment\n  claims — the gap was --compile artifacts, not the auto-run cache\n  (which writes both sections empty), so the failure mode was a bundle\n  that only fails at run time as \"invalid embedded bytecode\", not an\n  invisible permanent miss. The path cap also makes the u16 length cast\n  unreachable (it could panic in ReleaseSafe on a >65535-byte path).\n  The reader's magic 4096s become shared MAX_BUNDLED_FILES /\n  MAX_PREAMBLE_FORMS constants, and a unit test pins refusal, no\n  file-on-disk, the in-bounds round-trip, and double-free safety.\n\n- freeDeserializeResult resets funcs alongside bundled_files/preamble,\n  so all three fields are uniformly safe against a second call.\n\n- timings-1515.sh asserts the \"compile error\" refusal reason, matching\n  the coverage the other two new reasons already had (kaappi#2187).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T11:51:08Z",
+          "tree_id": "64b3821fc021cad21dc9f6b86242ac296541cddc",
+          "url": "https://github.com/kaappi/kaappi/commit/53a989b4f612cbcff2b5ed403551ef468aca3508"
+        },
+        "date": 1785673432818,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.319065,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.928382,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571273,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.028937,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004657,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046632,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313994,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058127,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.65308,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.229475,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.586626,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279474,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.800902,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.569061,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043171,
             "unit": "seconds"
           }
         ]
