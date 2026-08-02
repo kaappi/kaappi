@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785632056543,
+  "lastUpdate": 1785632734475,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "784bcc9954f55443add315f8c19eafb096d9bc88",
-          "message": "Add /create-announcement skill for release announcements (#1851)\n\n* Add /create-announcement skill for release announcements\n\nPosting a release to the org forum was an undocumented manual task, and\nthe one non-obvious fact it depends on was written down nowhere: org-level\ndiscussions at github.com/orgs/kaappi are backed by the kaappi/kaappi\nrepository, not by kaappi/.github, which has discussions disabled entirely.\nA skill that guessed the obvious repo would fail on every run, so the repo\nand category ids are pinned in the file for the GraphQL fallback that\ncovers `gh discussion` still being a preview command.\n\nThe skill carries the editorial half as well as the mechanics. Release\nnotes are exhaustive by design; an announcement is not a second copy of\nthem, so the file specifies how to pick 3-6 highlights (what a user can now\ndo, not what changed), a body template, and a rule that every claim trace\nback to the notes. Posting stops for explicit approval first: it publishes\npublic content in a maintainer-restricted category and notifies every org\nwatcher.\n\nRunning it against v0.21.0 surfaced a defect in the skill itself that also\naffects skill authoring generally, hence the harness-doc section. A dollar\nsign followed by a digit inside a SKILL.md is rewritten by slash-command\nargument expansion before the body is ever read, so a snippet in the file\nis not necessarily the snippet that runs. The numbering is zero-indexed --\nthe zeroth token takes the *first* argument -- an absent argument leaves the\ntoken untouched rather than emptying it, and code fences do not protect\nanything. All of that is measured from probe invocations at 0, 2, and 3\narguments rather than inferred; an earlier inference here was wrong in a way\nthat would have caused three unnecessary edits.\n\nThe awk field variables in the DigitalOcean skills are therefore left alone:\nthey read the third argument, those skills take none, and they were never\nbroken. Their cost notes were the real exposure, since a dollar sign followed\nby zero claims the first argument and a single stray argument is enough to\ngarble the figure.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: harden duplicate detection and fix two contradictions\n\nDuplicate detection listed the 30 newest announcements, which is exactly\nbackwards for the case that needs it most: announcing an older release, where\na duplicate is by definition not among the newest. Searches by tag instead --\nverified it returns the v0.21.0 announcement and nothing for an unannounced\ntag.\n\nThe GraphQL fallback fired on any non-zero exit from `gh discussion create`.\nThat mutation is a non-idempotent write, and a lost response -- posted server\nside, reply never arrived -- is indistinguishable from an outright failure at\nthe call site, so the fallback could publish a second announcement and notify\nevery watcher twice. It now re-runs the tag search first and only proceeds on\na zero count.\n\nTwo contradictions were self-inflicted. The troubleshooting row still claimed\nthe `@` and `*` forms get substituted, contradicting the measured table added\nin the same branch, which records that they never do. And the harness guide\nsaid \"seven steps\" for a skill that numbers eight, 0 through 7.\n\nThe link checker's character class excluded whitespace but not `>`, so an\nangle-bracket autolink contributed a URL with the delimiter attached and\nreported a spurious failure -- which blocks approval on a phantom defect,\nthe one failure mode a pre-flight check must not have. Also narrowed the\nmaintainer-restriction note: `kaappi/kaappi` is public, so a read-only token\ngets through both read steps and fails only on the write.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T23:33:24+05:30",
-          "tree_id": "7558634fc17729f8435095fec0415861482ed320",
-          "url": "https://github.com/kaappi/kaappi/commit/784bcc9954f55443add315f8c19eafb096d9bc88"
-        },
-        "date": 1785351459760,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.301584,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.509072,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.575373,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.945859,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004666,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046999,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312916,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057159,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.650102,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216049,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.598656,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276192,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.794445,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.60208,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042692,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045392,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8003c2401ed3aeddc6c7d68cee48c7e57573bd5",
+          "message": "Phase 5G: reactor backend parity — kqueue and epoll agree on all 1593 unit tests, and WASI is executed by nothing (#2153, #2154) (#2158)\n\nThe reactor has four backends behind one API and they must be\nbehaviourally interchangeable. The tracker assumed nothing asserted\nthat; the measurement corrects it. `tests_reactor.zig`'s 23 tests and\n5B's `tests_waitforfd.zig` already run on whichever backend the target\nhas, and CI executes them on three of the four — so parity *is*\nasserted for what they cover. What was missing is a set of contracts\nthat `reactor.zig`'s own doc comments state and nothing checked.\n\n`tests_reactor_parity.zig` adds 15, written against the\nbackend-independent `Reactor` surface and naming no backend, so a\nproperty that holds on one leg and fails on another is a parity defect\nby construction: deadline-ordered timer firing, an already-due deadline\nflooring `effectiveTimeout` at 0, `popExpiredTimers` standalone (the\nscheduler's per-tick path), `isEmpty` with only a timer pending,\n`removeTimer`'s sibling isolation, `poll`'s documented duplicate wake,\na hangup waking *both* directions rather than only the read one, both\ndirections of one ready fd in a single poll, `removeWaiter` actually\nsilencing the removed fiber, a zero timeout probing rather than\nblocking, and a cross-thread notify interrupting a wait without\nconsuming the timer or the fd arming underneath it.\n\n`msFromNs` becomes `pub`: epoll's nanoseconds-to-milliseconds ceil is\nthe one backend-specific rule that is a pure function, so a kqueue host\ncan verify epoll's arithmetic directly — never rounds down, both\nsentinels, and saturation instead of an overflow into a negative\n\"block forever\".\n\nEvery assertion was mutation-tested individually; all 15 mutations were\nkilled. Both backends were executed, not inferred: macOS aarch64\n(kqueue) and aarch64 Linux (epoll) via a cross-compiled test binary in\na container, full suite green on both — 1594/1597 macOS, 1593/1597\nLinux, zero failures. Two findings, neither a live divergence:\n\n- #2153: `zig build test -Dtarget=wasm32-wasi` does not compile (20\n  errors, the 32-bit-usize class of #1912), so `WasiPollBackend` is not\n  even a compile gate, and the one CI step named \"reactor poll_oneoff\n  backend\" covers only the CLOCK path — `arm`, `disarmAll`, `subFd`,\n  the fd branch of `wait` and the whole userspace ONESHOT emulation in\n  `clearInterest` are executed by nothing anywhere. `porting.md`\n  Stage 3 makes \"the fd-readiness unit suites pass\" the acceptance\n  criterion for a backend, so it lists one this backend cannot meet.\n- #2154: the ceil-to-milliseconds rule is written twice by hand, and\n  the Windows copy cites `msFromNs` by name while restating its\n  arithmetic. They agree on every reachable input — the only\n  disagreement is a clamp at 24.9 vs 49.7 days, where an early return\n  is always safe — but only the epoll copy is reachable from a test.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T06:06:14+05:30",
+          "tree_id": "06ec0e19ac4713b2638917c9b5ff0e25c4692a00",
+          "url": "https://github.com/kaappi/kaappi/commit/b8003c2401ed3aeddc6c7d68cee48c7e57573bd5"
+        },
+        "date": 1785632733066,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.164388,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.637416,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.435841,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.206107,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00382,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034726,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231543,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042687,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.812556,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.905984,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.167241,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.233661,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.314637,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.399086,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035064,
             "unit": "seconds"
           }
         ]
