@@ -83,6 +83,145 @@ oracle is *the implementation's own other half*. The latter is the fuzzers' job.
 
 ---
 
+## Findings
+
+Phase 8's synthesis, 2026-08-02. The campaign filed **188 issues** across 53
+units; **170 are open**, 18 were fixed while it ran. A pile that size is raw
+material, not a result — this section is the map.
+
+### The shape of it
+
+| | |
+|---|---:|
+| Issues filed carrying the campaign footer | 186 |
+| Open campaign issues (footer ∪ `audit` label ∪ `;; FAIL:`-cited) | **170** |
+| Closed during the campaign | 18 |
+| Distinct root-cause groups the 170 fall into | **35** |
+| Groups where one fix closes ≥ 2 issues | 24 |
+| Issues where **the process dies or wedges** on ordinary input | **19** |
+| Disabled assertions (`;; FAIL:` lines, 35 files) | 435 |
+
+Two issues were reachable only through the disabled-test markers: **2129**
+carries the `audit` label but not the footer, and **1920** carries neither.
+The `;; FAIL:` inventory is what found them, which is an argument for keeping it.
+
+### The ten groups that matter
+
+Full assignment of all 170 lives in the tracking issue's synthesis comment.
+These are the ones where the grouping changes what a maintainer should do.
+
+| Group | n | Root cause | The fix that closes the group |
+|---|--:|---|---|
+| **R1** cross-heap ownership | 13 | `Object.owner` enforcement is opt-**in** and exists for exactly **2 of 36 heap types** — channels and thread handles. `gc_deep_copy.zig:526` says so in a comment | Make the owner check a shared, opt-*out* helper at every primitive that dereferences a heap object it did not allocate |
+| **R16** error taxonomy | 10 | Shared helpers cannot name their caller; the type branch and the range branch share one message | Thread the caller's name; split the two branches |
+| **R19** thottam | 11 | Hand-rolled permissive version parsing (3), and the lockfile treated as the source of truth instead of the installation (5) | Two patches, one per sub-root |
+| **R10** green-but-testing-nothing | 8 | Five separate mechanisms, one consequence: a check reports success having asserted nothing | Make failure detectable *first* — see "What to do first" |
+| **R15** macro hygiene | 7 | Hygiene is renaming-**by-spelling**, so a template's free reference is resolved at the use site by name | Resolve template free references at definition site |
+| **R3** reader exactness | 6 | `applyExactness` exists **twice** with different strategies (`reader_tokens.zig:393` un-rounds an f64; `primitives_numeric.zig:979` rebuilds from digits) | Delete the reader's copy and call the other |
+| **R7** `.sbc` cache | 6 | A HIT round-trips *values* but not the *properties attached to them* — immutability, sharing, the macro table, source lines | Serialise the properties; add the target to the key |
+| **R4** reader refill | 4 | The tokenizer does not preserve a partial token across the 4096-byte chunk boundary | One fix; **merge the four into one issue** |
+| **R2** unvalidated → abort | 4 | An unvalidated value reaches a Zig `@intCast`/`@intFromFloat`/size computation and the process **panics** | Validate or widen at four sites |
+| **R8** top-level dispatch | 2 | `handleTopLevelForm` both *recognises* a top-level head and *evaluates* it, so every caller gets evaluation as a side effect of asking | Split into `classify` + `run` |
+
+### What to do first
+
+Ranked by reachability × blast radius ÷ cost, not by severity label.
+
+1. **R10 — make failure detectable, before fixing anything else.** Until this
+   lands, every fix's regression test is of unknown value. Verified: the
+   `(chibi test)` shim prints `1 fail` and **exits 0**, and five `ci.yml` steps
+   run `r7rs-tests.scm` bare — 1,395 assertions gate nothing on those legs;
+   `run-all.sh:125`'s net requires a failure *count*, so it matches neither
+   `#f` nor a bare `FAIL:`, leaving 54 files unable to fail. Both are cheap.
+   This is the campaign's most-repeated finding and its only *meta* one.
+2. **R2 — four ways ordinary Scheme kills the process.** Reproduced two:
+   a 27-field record (plain R7RS `define-record-type`) panics with an integer
+   overflow in `allocRecordInstance`, and `#e` on a decimal near 2^63 panics
+   **inside `kaappi check` and `kaappi fmt`**, which execute nothing — so an
+   editor opening an untrusted file is enough. Four sites, one fix pattern.
+3. **R1 — the thread model's ownership hole.** Four of the ten `critical`
+   issues live here, and the failure mode is the worst available: silent abort
+   with empty stdout *and* stderr. One structural change retires the
+   missing-owner-check half outright.
+4. **R8 + R9 — split the dispatcher.** Reproduced both: `kaappi --compile`
+   *executes* top-level `begin`/`cond-expand`/`define-values` bodies, and all
+   eight uncacheable heads report `not cached: imports`. The same split also
+   deletes `vm_eval.zig:135`'s `isSpecialTopLevelForm`, a hand-maintained
+   mirror whose own comment says "Keep this list in sync" — **unfiled**, and a
+   fourth instance of R9's pattern.
+5. **R3 — delete the reader's second `applyExactness`.** Six issues, one
+   deletion; 1911 is already written as the umbrella and 1907 (item 2) is the
+   same code.
+
+**Deliberately not first**, with reasons — severity alone would have ranked
+these higher:
+
+- **SRFI 166 (R25, 8 issues)** is the largest single count in the campaign and
+  the *lowest* leverage per issue. The tracker's "close to one root cause"
+  claim is **false**: re-verified in Phase 8 by routing the three issues it
+  names as derived through the working procedural mechanism, which still gives
+  the wrong answer — the failures are on the *consumer* side. These are 11
+  separate procedures to write. Treat SRFI 166 as unimplemented rather than
+  buggy, and let R11 make `cond-expand` stop claiming it.
+- **thottam (R19, 11)** — low reachability, and no defect corrupts a running
+  program.
+- **Error taxonomy (R16, 10)** — nothing computes a wrong answer.
+
+### Deduplication
+
+Recommended closes, each verified:
+
+- **1892 → close, superseded by 1929.** 1929 is the real defect: the guard has
+  never executed since it was written.
+- **1902 → close, decomposed** by Phase 1D into 1953 / 1954 / 1955 — three
+  mechanisms with three distinct cliffs.
+- **1900 → close, already fixed.** `tests/scheme/srfi/slow/` no longer exists
+  (deleted in `e699b451`, PR 2071) and `run-all.sh:432` now carries the
+  `test-begin` gate. Stale-open.
+- **1893 / 1940 / 1945 / 1920 → merge into one.** One defect, four symptoms.
+- **1911 stays** as the umbrella; its five members close with it.
+
+Checked and **not** duplicates, so nobody re-tests them:
+
+- **2003 vs 2074** — Phase 3.7 already recorded the negative result: a
+  template's `car` is hijacked in argument position too, so the mechanisms
+  differ.
+- **1949 vs 2084** — the same missing precondition in two independently written
+  files, and 2084 carries a second, unrelated defect (non-tail recursion).
+- **2034 vs 1999** — same bug *class*, no shared code: `callHandler`/`callThunk`
+  (`vm_calls.zig`) and `spawnFiber` (`fiber.zig:386`) each hand-roll frame setup
+  instead of routing through `callClosure`, and each inherits none of its
+  validation. Two patches, one narrative.
+
+### The `;; FAIL:` inventory
+
+435 marker lines in 35 files citing **101 distinct numbers**. Result:
+
+- **No marker cites a closed issue.** Nothing is sitting disabled behind a fix
+  that already landed — the convention held for the whole campaign.
+- **One marker cites a merged PR, not an issue.**
+  `tests/scheme/compliance/reader-exactness-gaps.scm:381` reads `;; FAIL: #1919`;
+  1919 is the *pull request* "Stop a VM limit from arriving as a catchable
+  condition". Its text matches issue **1921** exactly. Because a PR reports as
+  `MERGED`, any mechanical audit of marker states reads this one as done.
+- **Three markers use `;;;`, not the documented `;;`**
+  (`tests/scheme/audit/primitives_srfi160-audit.scm:265,711,757`). A grep for
+  the convention misses them — which is R9's pattern inside the convention
+  meant to guard against it.
+
+### Two new findings the synthesis produced
+
+- **The `segment`-at-`n=0` class has four members, not two.** 1949 and 2084 are
+  filed; `string-segment` (`lib/srfi/152.sld:202`) and `range-segment`
+  (`lib/srfi/196.sld:105`) are **unfiled** and hang identically — verified, with
+  `n=1` as the control. `tsegment` (`lib/srfi/171-impl.scm:327`) raises
+  `"argument to tsegment must be a positive integer"`, which is the
+  discriminating control: this is a missing precondition, not an inherent shape.
+- **`isSpecialTopLevelForm` is a fourth hand-maintained parallel list**
+  (`vm_eval.zig:135`), unfiled, and it disappears if R8's split is done.
+
+---
+
 ## Reconnaissance findings (2026-07-31)
 
 A seven-agent reconnaissance pass ran before this document was written. It
