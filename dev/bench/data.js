@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785624560733,
+  "lastUpdate": 1785629991580,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f5fefdd98f6ab54f4f6eacff3e142aa175e6639b",
-          "message": "Surface procedural macro transformer errors instead of bare \"invalid syntax\" (#1847)\n\nA Scheme-level condition raised inside a SRFI 211 er-macro-transformer/\nlisp-transformer was computed, stored on the VM, and discarded before the\ncompiler's TransformerFailed collapsed to a generic InvalidSyntax -- #1831\nwas a one-line resolution bug whose real message was \"undefined variable\n'cadar'\", none of which reached the user, so it was chased for days as a\ncadar-specific primitives bug instead.\n\nglobals.error_detail_for_macro exposes the VM's last error detail to the\ncompiler (which cannot import vm.zig), and compiler_macro.zig's two\nTransformerFailed arms copy it into the same syntax_error_detail channel\nsyntax-error already reports through. vm.callProcForMacro also now calls\nnoteUncaughtException on failure: callReentrant (used to invoke the\ntransformer's own closure) preserves last_error_detail across its cleanup\nbut never populates it from current_exception the way execute()'s\ntop-level boundary does, so a plain (error \"msg\" ...) raised with no\nactive handler left last_error_detail empty -- confirmed with a throwaway\ndebug print before writing the real fix. A primitive's own type error\n(e.g. (car 7)) already set the detail directly and needed no VM change.\n\nFixes #1846.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T19:34:59+05:30",
-          "tree_id": "3e25d8b6cac716966277cac77537ad3788f4aa8f",
-          "url": "https://github.com/kaappi/kaappi/commit/f5fefdd98f6ab54f4f6eacff3e142aa175e6639b"
-        },
-        "date": 1785336095846,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.052888,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.049565,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.572425,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.465807,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004673,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.049463,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.368885,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056292,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.650948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.422637,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.619859,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28025,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.955041,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.556314,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046612,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043278,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c16b1a331404b5f220f344c6d5132182442df825",
+          "message": "Make the priority rubric generic — the tracker is the precedent source (#2151)\n\ngithub-issues.md is a top-level docs/dev/ guide, which docs/dev/CLAUDE.md\nclasses as evergreen. It had accumulated a hand-maintained second copy of\ntracker state: a 14-row table of every issue ever labelled critical, four\nworked reachability/silence comparisons, and a sample command naming a real\nissue. All of it goes stale on the next triage pass, and a label that moves\nsilently falsifies the doc.\n\nEvery citation is converted into the rule it encoded rather than dropped.\nThe generalised forms are the more portable rules anyway — \"compare the\ntrigger against the limit that path documents; inside the envelope is\ncritical, far past the cap is high\" applies to a subsystem that has never\nhad an issue filed against it, which four worked examples did not.\n\nWith the examples gone, \"Calibrate before labeling\" is the only remaining\nroute to precedent, so it now says so and gains two cautions: the rubric\ntext is the authority and neighbours are only a contradiction check, and\nmatch on failure shape rather than subsystem.\n\nThe four-bullet condensation in the core CLAUDE.md is kept in step; it\ncarried the same count and issue reference, and described the doc as\nholding \"worked boundary cases\".\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T04:58:57+05:30",
+          "tree_id": "0d74dd9cc06d56304b18dddba405c06db6a18386",
+          "url": "https://github.com/kaappi/kaappi/commit/c16b1a331404b5f220f344c6d5132182442df825"
+        },
+        "date": 1785629989592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.24778,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.097699,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.572798,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.035514,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004689,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045965,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311144,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057288,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.797897,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23864,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.568936,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283573,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.790441,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.574804,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043565,
             "unit": "seconds"
           }
         ]
