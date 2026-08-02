@@ -66,6 +66,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SRFI 42's generic `:` qualifier works, along with `:real-range`,
+  `:char-range`, `:dispatched`, and the full dispatch machinery** (#2177).
+  `(list-ec (: i 5) i)` — the first form in every SRFI 42 tutorial — was
+  `invalid syntax`, because the port defined only the typed qualifiers. The
+  same fix revealed that three qualifiers the library already *exported* —
+  `:port`, `:do`, and `:parallel` — had no expansion rules either and failed
+  identically inside a comprehension; all three now work. `:` dispatches at
+  run time on the argument types (lists, strings, vectors, exact-integer
+  ranges, real ranges, char ranges, ports) through the SRFI's generator-
+  procedure protocol, and the extension surface is complete:
+  `:-dispatch-ref`, `:-dispatch-set!`, `make-initial-:-dispatch`,
+  `dispatch-union`, and `:generator-proc` are exported, so user dispatchers
+  compose per the spec. Typed generators also accept multiple arguments now
+  (`(:list x '(1 2) '(3))` concatenates, per the spec). A zero step is
+  rejected loudly in `:range` (matching the reference implementation) and
+  in `:real-range` (going beyond it: the reference loops forever on an
+  inexact zero step) — before, `(:range i 5 3 0)` spun forever yielding 5.
+  `(:while (gen ...) test)` and `(:until (gen ...) test)` now stop only
+  the generator they wrap, as the spec scopes them, instead of ending the
+  whole comprehension — the bare `(:while test)`/`(:until test)` forms
+  (this port's extension, absent from the spec's grammar) keep their
+  stop-everything meaning, now documented. The spec's `(nested ...)`
+  grouping and `(begin ...)` command qualifiers are implemented too. The
+  `(index i)` variable form remains unsupported, and `:parallel` accepts
+  only single-variable sub-generator forms — both documented in the
+  library header.
+
 - **`eqv?` now distinguishes an exact complex from an inexact one** (#2167).
   R7RS 6.1 requires `(eqv? a b)` to be `#f` whenever one number is exact and
   the other inexact, but every eqv?-semantics comparator — `eqv?`, `equal?`,
