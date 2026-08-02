@@ -207,10 +207,18 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
       is conditional. All byte I/O already funnels through `readOneByte`
       / `portWriteBytes` — hook there, not around.
 - [ ] The fd-readiness unit suites (`tests_reactor.zig`,
-      `tests_scheduler.zig`, `tests_port_io.zig`) pass. If the OS lacks
+      `tests_reactor_parity.zig`, `tests_scheduler.zig`,
+      `tests_port_io.zig`) pass. If the OS lacks
       POSIX pipes/socketpairs, extend `testing_helpers.zig`'s
       `makeFdPair`/`makeBidiFdPair` (Windows substitutes loopback TCP
       pairs) rather than skipping the suites.
+      `tests_reactor_parity.zig` is the one written *as* the
+      cross-backend comparison: it names no backend, so a property that
+      holds on kqueue/epoll/Windows and fails on the new one is a parity
+      defect by construction. Note that this criterion is currently
+      unmet for WASI — `zig build test -Dtarget=wasm32-wasi` does not
+      compile, so `WasiPollBackend`'s fd path is executed nowhere
+      (kaappi#2153).
 
 ### Stage 4 — feature identifier, gates, degradations
 
