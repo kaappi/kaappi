@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785680169464,
+  "lastUpdate": 1785683901679,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f1c323f402bd5265086faa059bd861df592c4c4",
-          "message": "Say what R6RS rejected, instead of raising a bare type error (#1880)\n\n`define-record-type`'s R6RS clause syntax had two conditions that reported\n`error[KP3002]: type error` and nothing else -- no procedure, no expected\ntype, no value, the three things KP3002's own registry entry promises. Both\nreproduce in five lines: a sealed parent rtd, and a `nongenerative` uid\nalready bound to a non-equivalent type.\n\nNeither is a type error. Both arguments are of a perfectly good type and the\nprocedure rejects them anyway, which is what KP3007 (invalid-argument) is\nfor -- and R6RS's own wording for the first is \"an exception is raised if\nparent is sealed\", nothing about types.\n\nThe procedural half of the same two rules (`%make-record-type-descriptor`)\nhas been getting this right since #1868, so the fix is to stop stating the\nrule twice: `RtdShape`, `sealedParentError` and `reuseNongenerativeRtd` in\nprimitives_srfi237.zig now hold both the equivalence test and its wording,\nand the syntactic and procedural routes share them. Only the procedure name\ndiffers -- a caller who wrote `define-record-type` should not be told about\nthe internal primitive it desugars to. A uid collision now names the one axis\nthat actually differs rather than listing every axis it might have been.\n\nReading those two functions turned up a third condition of the same shape\nthat #1880's census could not see, because it is spelled as a `return switch`\narm rather than a bare return: more than 255 fields once a parent's are\ncounted. Its procedural half was the worse of the two -- a bare TypeError out\nof a primitive is not anonymous, `mapNativeError` fills the detail in from\n`args[0]`, so it confidently blamed the type's *name* for a limit the field\nlist broke.\n\nAlso folds `callFfi`'s four call sites into one `vm_calls.mapFfiError`. Two\nof them supplied a fallback message when callFfi returned without setting a\ndetail and two did not, and the two that did not are the hot ones. That is\nlatent today -- callFfi guarantees a detail on every path it can currently\nfail through -- but one shared mapper is cheaper than separate copies of the\nsame guard staying in sync. Worth knowing for anyone testing this: the four\nsites are *not* reached by direct call / apply / map, which all land in\nvm_calls.zig; the two vm_dispatch.zig sites are the tail-call and tail-apply\nopcodes, so the regression test uses tail-position forms.\n\nThe two remaining bare returns outside ffi.zig already call `setErrorDetail`\non the line above and are now annotated as such, leaving every non-FFI site\nin src/ either fixed or carrying a stated reason.\n\nNot done: ffi.zig's 27 sites (the issue's Group D), which are internal\npass/fail signalling behind `validateArgsDetailed` -- retagging them would\nchange nothing a user sees and would break the caller's switch. The\n`format` job's grep is unchanged; widening it is now a single question about\nthose 27 rather than a mixed bag.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T08:52:21+05:30",
-          "tree_id": "7ea2e112ab6fae5ee525bfdd6b07ff6533a21058",
-          "url": "https://github.com/kaappi/kaappi/commit/9f1c323f402bd5265086faa059bd861df592c4c4"
-        },
-        "date": 1785470289832,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.300079,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.89231,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.580175,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.981307,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004642,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046457,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311103,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057056,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.616138,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.232008,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.578073,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280976,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.797544,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.486603,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046708,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044693,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "990eae71da27761ad31ec11beb96cee6b8704c5c",
+          "message": "Reject non-positive segment sizes across SRFIs 152/160/178/196 (#2191)\n\n* Reject non-positive segment sizes across SRFIs 152/160/178/196\n\nFour segment procedures shared one missing precondition: none rejected\na non-positive size, and each loop advances by that size per iteration,\nso n = 0 never advanced — an unbounded-allocation hang (%uvec-segment on\nall 12 kinds, string-segment, range-segment) or unbounded recursion into\nan uncatchable KP3008 (bitvector-segment). SRFI 171's tsegment already\nrejected n = 0 at entry; the other four now do the same, raising a\ncatchable error for any size that is not an exact positive integer —\nwhich SRFI 160 and 178 spell out verbatim, and which is the only sane\nreading for 152/196, where no finite list of length-0 pieces can cover\na non-empty input.\n\nbitvector-segment also recursed once per segment with the cons outside\nthe recursive call, so a legal call on a 200,000-bit vector died with an\nuncatchable stack overflow. It now accumulates in tail position and\nreverses, the shape the other three already had.\n\nOne observable change beyond the hangs: (s8vector-segment (s8vector) 0)\nreturned () — the empty vector was the sole input where n = 0\nterminated. The guard runs before the loop, so it raises now too, per\nthe spec's unconditional \"it is an error\".\n\nRe-enables the assertions disabled with FAIL: #1949 / FAIL: #2084 and\nadds n = 0, n = -1, and inexact-n regressions across both dispatch\nbranches and all five test files.\n\nFixes #1949\nFixes #2084\nFixes #2172\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Move the deep bitvector-segment case to its own stress-skipped file\n\nThe 200,000-segment regression for #2084 timed out the gc-stress-scheme\njob (exit 124): stress collection runs on every allocation, so building\n200k bitvectors against a growing live heap is quadratic — measured\n4.2 s at 5k, 42 s at 20k, ~3 min at 40k on a fast machine, extrapolating\nfar past the job's 900 s per-file budget at 200k. Shrinking the count is\nno escape: any count that still exceeds the 32,768 frame cap (the point\nof the test) is already minutes under stress.\n\nSo the deep case moves to srfi178-segment-stack-2084.scm, listed in\nKAAPPI_GC_STRESS_SKIP under reason (a) like reader-port-refill-gaps.scm\nbefore it — run-all.sh still runs it plain on every PR (~0.1 s), and\nsrfi178-audit.scm keeps its other 369 assertions stressed (5.3 s under\nthe stress binary), including the n = 0 guard half of #2084.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: uniform guard coverage, accurate skip-list prose\n\nReview follow-ups on #2191, from CodeRabbit and inline notes:\n\n- primitives_srfi160-audit.scm sweeps n = 0 through all 12 public\n  segment wrappers via the existing all-kinds table. The guard is one\n  shared definition in %uvec-segment and s8/u8 already proved both\n  dispatch branches, so this pins wrapper reach, not 12 copies of the\n  guard — a future per-kind split cannot drop it for one kind unnoticed.\n- Every segment site now covers the full predicate matrix uniformly:\n  n = 0, n = -1, an inexact 2.0, and n = 0 on the empty input — the\n  last one pinning guard-before-length-check order, the one subtle\n  placement decision in the fix (empty inputs used to return ()).\n- srfi178-audit.scm's \"discriminating control\" comment predated the\n  tail rewrite; the 1,000-bit case is now labeled the smoke check it is,\n  with the depth job pointed at srfi178-segment-stack-2084.scm.\n- ci.yml no longer claims skipped files \"still run stressed in the\n  nightly fuzz.yml legs\": fuzz.yml's gc-stress legs run fuzz targets\n  and the Zig unit suite, never the Scheme corpus. The rewritten\n  paragraph says what is actually true — listing a file removes its\n  stressed Scheme run entirely, plain coverage stays on every other\n  leg, and named counterparts keep the stressed half.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T14:49:11Z",
+          "tree_id": "a261b2aa30ed45097d399178188a139a61a1f2e6",
+          "url": "https://github.com/kaappi/kaappi/commit/990eae71da27761ad31ec11beb96cee6b8704c5c"
+        },
+        "date": 1785683900303,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.263764,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.207414,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568913,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.965574,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004699,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046445,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309608,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056598,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.684413,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.235654,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.568085,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281014,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.784887,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.60288,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042921,
             "unit": "seconds"
           }
         ]
