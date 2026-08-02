@@ -914,6 +914,7 @@ test {
     _ = proc;
     _ = state;
     _ = tfs;
+    _ = @import("tests_thottam.zig");
 }
 
 test "markVisited copies keys so freed dependency names stay valid (issue #784)" {

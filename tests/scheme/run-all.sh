@@ -509,6 +509,7 @@ run_shell_suite "Cache" tests/scheme/cache
 run_shell_suite "Timings" tests/scheme/timings
 run_shell_suite "Shell completions" tests/scheme/completions
 run_shell_suite "Language server" tests/scheme/lsp
+run_shell_suite "Package manager" tests/scheme/thottam
 # Execution-tier differential: every corpus file must give the same answer with
 # the IR optimiser off and from a warm bytecode cache as it does from a cold
 # one. Defaults to the smoke+compliance+audit corpus plus its own probes
