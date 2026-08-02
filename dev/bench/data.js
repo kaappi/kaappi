@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785632734475,
+  "lastUpdate": 1785633035017,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "ca18ae69c906ea598462a9d4a92438048f1ee880",
-          "message": "Release v0.22.0\n\n93 new SRFIs (85 -> 178), closing the #1694 numeric-vector/array family,\n#1695 records, #1699 macros and syntax, plus #1702/#1703/#1810. The\nengine work behind them: procedural macro transformers (SRFI 211/213),\nnative apply lowering, and the types.zig split into 11 domain files.\n\nAlso refreshes counts that had drifted: built-in procedures 641 -> 690,\nprimitives files 26 -> 31, SRFI count 177/174 -> 178, and the R7RS suite\n1,391 -> 1,395 (what run-all.sh actually reports). SRFI 150 was missing\nfrom the CONFORMANCE table entirely; the table now cross-checks exactly\nagainst `kaappi features`.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T00:06:54+05:30",
-          "tree_id": "d57dfad572decd1c4e313321ce9a5aefa255a8f8",
-          "url": "https://github.com/kaappi/kaappi/commit/ca18ae69c906ea598462a9d4a92438048f1ee880"
-        },
-        "date": 1785352837302,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.948831,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.041143,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560853,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.809119,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00488,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044525,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.293782,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054496,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.343196,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.160104,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.505738,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305107,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.696183,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.803528,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045322,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035064,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98195459f6a0b658295d97c0a3a3543b0008fddc",
+          "message": "Phase 7D: golden .sbc bytes, because a paired byte-swap cancels (#2159)\n\nAudit v2, Phase 7D. Refs #1890.\n\n7C broke the writer/reader pairing for the `.sbc` *header* — writer against\nliteral bytes, reader against a hand-assembled little-endian header — and\nhanded 7D the rest: the per-function record and every constant encoding are\nreached only by the round-trip tests in `bytecode_file.zig`, which write and\nread on the same host. A swap present on *both* sides cancels and leaves them\ngreen on every machine, s390x included.\n\n## Field-by-field: nothing is unconverted\n\nEvery scalar in the format goes through a helper, and every `@bitCast` in\neither half is paired with a `nativeToLittle`/`littleToNative`. The two\napparent exceptions are not fields: `readI16FromCode` bitcasts a u16 already\nassembled byte-at-a-time from the code stream (bytecode operands are emitted\n`v >> 8`, `v & 0xFF` and read back the same way, so they are endian-neutral by\nconstruction), and bignum limbs are `[]u64` in little-endian *limb* order with\neach limb serialized whole through `writeU64`. No field is written with a raw\n`asBytes` or an unconverted `@bitCast`. **There is no byte-order bug here** —\nwhat was missing is the instrument that would show one.\n\n## The instrument\n\n`GOLDEN_BODY` in `src/tests_endian.zig`: a committed literal covering\n`func_count`/`top_level_count`, both function records\n(arity/locals/upvalues/variadic/name/code/line table) and all 18 constant\nencodings — fixnum, flonum, symbol, string, boolean, nil, void, eof,\nundefined, char, function reference, pair, vector, bytevector, bignum,\nrational, complex — plus the bundled-files and preamble trailers. Written as a\n`++` chain of one-field-per-line literals so `zig fmt` cannot reflow a value\nacross a line boundary; each line's comment names the value it spells LSB-first,\nand a `comptime` guard rejects a byte-palindrome for the four scalars carrying\nthe argument.\n\nIt is used twice with no contact between the uses: the serializer must\nreproduce it, and the deserializer must decode it. The hand-assembled header\nuses shifts only, never a `@bitCast`, so it cannot inherit the host's byte\norder from the code under test. Neither expected value is a function of the\nhost.\n\n## Mutation evidence\n\n| mutation | `bytecode_file.zig` round-trips | writer golden | reader golden |\n|---|---|---|---|\n| paired: `writeU32` **and** `readU32` flipped | 10/10 **pass** | **fail** | **fail** |\n| writer only (`writeU64`) | fail | **fail** | pass |\n| reader only (`readU32`) | pass | pass | **fail** |\n| byte-reverse one fixture field (the bignum limb) | pass | **fail** | **fail** |\n\nRow 1 is the point: the bug class that is invisible to every existing test now\nfails on every host. Rows 2–3 confirm the two directions are independent —\nneither test can mask the other's mutation. Row 4 confirms the literal is what\nis being asserted.\n\n## SRFI 271 has the identical shape\n\n`tests/scheme/srfi/srfi271.scm` compares two ports on the same host, so it is\nblind to byte order outright: flipping the seed-word read to `.big` leaves it\nat **35/35**. Eight golden assertions in\n`tests/scheme/audit/endianness-audit.scm` (which the s390x leg runs, via 7C's\n`tools/run-endian-suite.sh` step) pin both directions — a literal 32-byte seed\nto a literal 16-byte output prefix and a literal 46-byte state, and separately a\nhand-written literal state to its own literal output. Expected values were\nderived from the published xoshiro256** algorithm, not captured from the\nimplementation, and matched it exactly on the first run. Three mutations\n(`.little`→`.big` in the seed read, in the paired state read+write, and in the\noutput block write) each leave `srfi271.scm` at 35/35 and fail 3–4 of the new\nassertions. The unread-port state is called out explicitly as *the* cancelling\ncase — the words go in and straight back out, so those bytes equal the seed\nunder any consistent order — which is why the assertion after it reads the\nstate one byte in.\n\nAlso pins `sourceHash`/`compilerHashFor` as host-independent: Wyhash reads\nthrough `readInt(..., .little)`, so the cache key is a function of bytes, not of\nhost byte order. Nothing stated that, and a native-load hash would make the key\nhost-dependent with every other test still green.\n\n## The cache-key question: it should include the target\n\nFiled as #2155 rather than fixed. `compilerHashFor` takes the version string\nand the git build id and nothing else — not the target triple — and\n`gitBuildId` has no `-Dtarget` input, so all 17 platform binaries in a release\nshare one key. The load gate checks only magic, VERSION, source hash and\ncompiler hash; the header carries no target field. Meanwhile `cond-expand` is\nresolved at compile time and only the taken branch survives into the `.sbc`\n(measured: the cache entry for a `cond-expand` inside a procedure contains\n`POSIX-BRANCH` and not `WINDOWS-BRANCH`). Honest exposure, since it changes the\npriority: the realistic shared-`$KAAPPI_HOME` pairs all have identical feature\nsets today, so the reachable path is `zig build -Dbundle=out.sbc` with a cross\n`-Dtarget` — a documented workflow where the compiler-hash check silently\npasses.\n\nAlso filed #2156: `kaappi --compile` executes top-level `cond-expand`, `begin`\nand `define-values` bodies for real — a compile-only command that deletes a\nfile — while a bare top-level form, `define-record-type` and code inside a\nlambda are not executed.\n\n## Verification\n\nVerified, little-endian macOS aarch64 ReleaseSafe at `910f7c75`: `zig build\ntest` green; the endian tests green under `-Dgc-stress=true`; `kaappi test\ntests/scheme/audit` 5306/0 and `tests/scheme/srfi` 33937/0; the endian suite\n11/11; `zig fmt --check` and markdownlint clean; every mutation result above\nrun and reverted.\n\nNot verified, by construction: how any of this *behaves* big-endian. No s390x\nexecution was performed here, and a local `zig build test -Dtarget=s390x-linux`\nproves compilation only (`skip_foreign_checks`). The `s390x-test` leg on this PR\nis the first big-endian run of the new assertions — read that check before\nmerging, and treat a failure there as a finding.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T06:10:15+05:30",
+          "tree_id": "e61897380d74dbc2a1806e5488aa53459b5c691e",
+          "url": "https://github.com/kaappi/kaappi/commit/98195459f6a0b658295d97c0a3a3543b0008fddc"
+        },
+        "date": 1785633032591,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.29726,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.169655,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.579861,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.99875,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004797,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047313,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.320439,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057551,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.776925,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.22787,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.57278,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287638,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802809,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.659911,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044733,
             "unit": "seconds"
           }
         ]
