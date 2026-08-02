@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785633035017,
+  "lastUpdate": 1785636399416,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "65743ab14c4cf2aec12de89182ebb9b45d38ea61",
-          "message": "Split six oversized source files along their natural seams (#1853)\n\n* Split six oversized source files along their natural seams\n\nmemory.zig (2112 lines), expander.zig (1982), llvm_emit.zig (1710),\nvm_library.zig (1573), compiler_macro.zig (1530), and gc_collect.zig\n(1512) had all grown past the 1500-line file size policy through\ntangled coupling rather than breadth, so each is split at the seam\nwhere two domains shared one file:\n\n- memory.zig keeps the GC machinery (lifecycle, rooting, write\n  barrier, quarantine); the 61 allocXxx constructors move to\n  gc_alloc.zig, aliased back into GC so gc.allocXxx(...) call sites\n  are untouched (the existing gc_collect/gc_deep_copy precedent).\n- expander.zig keeps macro-use entry points, pattern matching, and the\n  hygiene-strip walks; template instantiation + renameForHygiene move\n  to expander_instantiate.zig, sharing the threadlocal expansion\n  context through qualified references.\n- llvm_emit.zig keeps the emitter core; the special-form and\n  eval-fallback emitters join the existing cond/case/do satellite\n  llvm_emit_forms.zig, aliased back into LLVMEmitter.\n- vm_library.zig keeps library definition/loading/SRFI 261/features;\n  the import-set algebra (only/except/prefix/rename) moves to\n  vm_imports.zig and is re-exported under its old names.\n- compiler_macro.zig keeps the macro-use path; the macro-defining\n  forms, SRFI 147 transformer-spec resolution, and syntax-rules\n  parsing move to compiler_define_syntax.zig, re-exported through the\n  same names so compiler_forms dispatch is unchanged.\n- gc_collect.zig keeps orchestration/marking/weak refs; the sweep\n  phase with the objectSize and freeObject per-tag switches moves to\n  gc_sweep.zig.\n\nPure code motion — no behavior change; same-name aliases keep every\ninternal and external call site compiling as-is. CLAUDE.md tables, the\nheap-type checklist, docs/dev (architecture, adding-features, harness),\nand the gc-safety rule globs (now src/gc_*.zig and src/expander*.zig)\nupdated to match. Remaining >1500-line files are the policy-exempt\nkinds: primitives_* and tests_* breadth, and generated unicode_tables.\n\nVerified: zig build test, full tests/scheme/run-all.sh (2013 pass,\n0 fail), and x86_64-linux / aarch64-windows / wasm cross-compiles.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #1853 review findings\n\nThe one reachable bug: compileLetSyntax registered its root-stack\ncleanup defer only after the binding loop, so a mid-loop InvalidSyntax\n(malformed later binding) or a failing resolveTransformerSpec returned\nwith earlier iterations' roots still pushed — permanently, since\nnothing resets the root stack on compile errors. The defer now\nregisters before the loop (still after tx_vals's deinit defer, so the\npops keep running first). Regression test fails without the fix.\n\nAlso from review: substitutePatternVarsOnly was caller-less (already\ndead before the split) and is removed, with the renameForHygiene doc\ncomment it had swallowed moved to the function it describes; gc_collect\ndrops the imports and type aliases only the moved sweep code used;\nstale gc_collect attributions in gc_alloc.zig/memory.zig comments now\nsay gc_sweep; the compiler table heading says 11 files (it had been\noff by one since before this PR); adding-features.md gains the\ntypes.zig typeName step.\n\nThe remaining review findings are deliberately not fixed here: the\nthree expander_instantiate push/pop sites are OutOfMemory-unwind-only\n(every user-reachable ExpandError path unwinds balanced) and match the\ndocumented canonical pattern used codebase-wide, and the native-backend\ninternal-define rooting question predates the split byte-for-byte —\nboth filed as issues instead.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T10:00:34+05:30",
-          "tree_id": "d03d5c0fbf275c546dc0c8a575f244c9413a3bf4",
-          "url": "https://github.com/kaappi/kaappi/commit/65743ab14c4cf2aec12de89182ebb9b45d38ea61"
-        },
-        "date": 1785388109052,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.255285,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.606989,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.561826,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.967353,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004648,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04594,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309985,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056846,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.619017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.217186,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.58321,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282746,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.776658,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.646559,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04271,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044733,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "03ccf6c53c705004b2b9c9190839c9616d282f7e",
+          "message": "Phase 7E: gate PRs on gc-stress — 7 min for the unit suite, 12 for the Scheme corpus (#2165)\n\n`-Dgc-stress=true` appeared 0 times in ci.yml (#1898, reconnaissance finding\nF9). It was not absent from CI — fuzz.yml's two gc-stress legs run the same\nunit suite as their pre-fuzz phase — but daily at 02:47 UTC against whatever\nlanded that day, not against the diff that introduced it.\n\nThe premise that kept it out is stale. Measured here, macOS aarch64 under\nload average 4-6 from two concurrent audit units:\n\n  plain       1579 pass, 3 skip     4m\n  gc-stress   1582 pass, 0 skip     7m\n\n1.75x, not the 30x the estimates assumed. The differing skip count is the\ncontrol that the flag applied; `zig build test` prints nothing on success, so\n`--summary all` is now on every unit-test step, including the five existing\nones, where the counts are the only thing distinguishing a passing run from a\nrun that executed nothing.\n\nTwo jobs, both hanging off `format` and running concurrently with everything\nelse: `gc-stress` (unit suite) and `gc-stress-scheme` (the 605-file .scm\ncorpus plus the R7RS suite, through a new tools/run-gc-stress-suite.sh in the\nshape of #2145's run-endian-suite.sh). Two rather than one because the\ncritical path is the 19-minute Debug leg; serialised they would exceed it, in\nparallel each sits inside its shadow.\n\nThree things make it a gate rather than a decoration: `kaappi features --json`\nmust report gc_stress:true before anything runs, the corpus glob has a floor\nso matching nothing cannot read as finding nothing, and the R7RS suite's\ncounts are parsed rather than its exit status -- which is a bug in five other\nlegs (#2157).\n\nMutation-tested: dropping the pushRoot around reader_datum.zig's datum-label\nplaceholder gives `1579 pass, 3 crash` / `test transitive failure` under\ngc-stress and `1579 pass, 3 skip` / `test success` plain, same tree, one flag\napart. An earlier attempt at the textbook #1414 shape was caught by neither --\ngc-stress detects a lost root when the freed object is later marked, not\nmerely read.\n\nThe gate found two real bugs on its first run, both excluded by name until\nfixed: #2160 (primitives_srfi1 buildList reads freed values from its unrooted\nitems slice -- three files abort, including one written to exercise SRFI-1\nunder GC pressure) and #2161 (record_uid_registry keys are borrowed slices\ninto GC-owned strings, so a nongenerative uid stops resolving -- 19\nassertions). Also filed #2162, #2163, #2164.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T06:50:11+05:30",
+          "tree_id": "5efa950ea939a53f247413aec8c35d25c92d9d20",
+          "url": "https://github.com/kaappi/kaappi/commit/03ccf6c53c705004b2b9c9190839c9616d282f7e"
+        },
+        "date": 1785636397676,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.263199,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.319449,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.579696,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.981557,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00473,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046123,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311191,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057383,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.755735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23095,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.569749,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284689,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799555,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.64892,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044017,
             "unit": "seconds"
           }
         ]
