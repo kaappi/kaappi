@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785649166027,
+  "lastUpdate": 1785652780957,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5400229c25e5e0e0a864e9aeeb0e02bea3f0ad24",
-          "message": "Hand the whole enclosing scope to the interpreter when a nested let abandons (#1862) (#1867)\n\n* Hand the whole enclosing scope to the interpreter when a nested let abandons (#1862)\n\nA `let` nested in another `let` that gave up on native compilation\nmid-emission was handed to `kaappi_eval` on its own. That eval resolves\nnames in the global environment, so the outer `let`'s bindings were\ninvisible: the compiled binary died with `undefined variable` on code the\ninterpreter runs fine, or — with a same-named global in scope — silently\nread that global instead, which is worse.\n\n#827 already fixed this class for anything an up-front syntactic scan can\nsee, by declining native compilation of the whole enclosing scope. The\ntriggers here are only discoverable mid-emission and no scan can pre-empt\nthem: more than 32 bindings, more head defines than the scope roots, or an\n`ir.lowerSingleExpr`/`emitNode` failure on a binding initializer or body\nform. #1854 added the last of those, which is what surfaced this.\n\n`bindParamsAsGlobals` is the one chokepoint every whole-form eval fallback\ngoes through, and params, the rest parameter, and upvalues are the whole of\nwhat it can reach — a `let`-local lives in an `alloca` it has no name for.\nIt now refuses when `self.locals != null`, the way it already refuses a\nboxed param it cannot honestly publish. The error abandons the enclosing\n`let` in turn, so the interpreter gets that whole lexical scope in one\npiece. Publishing the locals instead was the other option and is worse: a\nboxed local hits the same by-location problem as a boxed param (#1422), and\nboth of that helper's documented weaknesses — it aliases across\nactivations, and it permanently clobbers a same-named global — would extend\nto let-locals.\n\n`emitLambdaViaEval`'s own locals check is now that same gate one line\nlater, so it is dropped rather than duplicated.\n\nVerified against a pre-fix binary: 11 of the new test's 13 cases diverge\nwithout this and pass with it. The two that pass either way are the\ncoverage guard (a fallback inside a plain lambda frame, where params *are*\npublishable, must still compile the lambda natively — its emitted IR is\nbyte-identical) and the shadow-stack balance check. A 34-program sweep over\nthe shapes this touches moved 7 cases from diverging to agreeing with the\ninterpreter, regressed none, and changed no program's eval-fallback or\nnative-function count: the eval widens from the inner let to the enclosing\nscope rather than replacing native code.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Fix a stale cross-reference in the #1862 backend note\n\nThe paragraph pointed at \"the mid-emission escape hatch below\", but the\nabandon path is not described further down this document — name\n`abandonLetForFallback` and its triggers directly instead.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T14:01:29Z",
-          "tree_id": "8ad26633e9cbbfc5d395b6974f558abaf4149d81",
-          "url": "https://github.com/kaappi/kaappi/commit/5400229c25e5e0e0a864e9aeeb0e02bea3f0ad24"
-        },
-        "date": 1785422173386,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.946785,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.537929,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.584867,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.852584,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004924,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044643,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.294229,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054633,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.280049,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.163007,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.503969,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307724,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.696324,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.798772,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04564,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042993,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18c9b05b23a30d63e2aa51e6d436c653c932f92d",
+          "message": "Make SRFI 41 stream-map and stream-for-each variadic (#2178)\n\nSRFI 41 specifies both as (proc strm strm ...), and the document's\ncenterpiece example — the self-referential Fibonacci stream — depends\non the two-stream form:\n\n  (define fibs\n    (stream-cons 0 (stream-cons 1 (stream-map + fibs (stream-cdr fibs)))))\n\nBoth were defined with a single fixed strm parameter, so that example\n(and any multi-stream call) raised KP3003. The fix walks all streams in\nstep using the same any-null?/map-over-cars pattern stream-zip already\nuses, terminating at the shortest input per the spec. Requiring the\nfirst stream positionally keeps the spec's \"at least one stream\"\nprecondition as a natural arity error.\n\nRegression tests pin the fibs example plus two- and three-stream map,\nshortest-stream termination for both procedures, unary calls, and\nlaziness over infinite inputs.\n\nFixes #2176\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T11:36:11+05:30",
+          "tree_id": "c55965cc18bdbabb1b882066e1ec8e4a547bb741",
+          "url": "https://github.com/kaappi/kaappi/commit/18c9b05b23a30d63e2aa51e6d436c653c932f92d"
+        },
+        "date": 1785652779836,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344001,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.032625,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568976,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.000906,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004626,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046978,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314453,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056306,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.540724,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.220833,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.571931,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279931,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815307,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.604702,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042619,
             "unit": "seconds"
           }
         ]
