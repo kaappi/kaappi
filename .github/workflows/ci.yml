@@ -297,7 +297,12 @@ jobs:
           #     the 900 s stress timeout on this job's first run against it,
           #     PR #2174); the incomplete-input reader mode it guards gets its
           #     stress coverage from src/tests_reader_incremental.zig in the
-          #     gc-stress unit job instead.
+          #     gc-stress unit job instead. srfi178-segment-stack-2084.scm
+          #     builds a 200,000-element bitvector list to pin #2084's
+          #     tail-recursion fix past the 32,768 frame cap -- ~0.1 s plain,
+          #     exit 124 stressed (measured quadratic: ~3 min at 40k on a
+          #     fast machine); the n = 0 guard half of #2084 stays stressed
+          #     in srfi178-audit.scm.
           #
           # (b) REAL BUGS THIS GATE FOUND ON ITS FIRST RUN -- excluded so the
           #     gate is green for everything else, exactly as the campaign
@@ -311,7 +316,7 @@ jobs:
           #              GC-owned strings, so a nongenerative uid stops
           #              resolving once its string is collected (19 assertions)
           #
-          # All ten still run stressed in the nightly fuzz.yml legs' unit
+          # All eleven still run stressed in the nightly fuzz.yml legs' unit
           # phase where applicable, and unstressed under run-all.sh on every
           # other leg here, so nothing is untested -- only unstressed.
           #
@@ -319,7 +324,7 @@ jobs:
           # cannot rot into a silent no-op.
           KAAPPI_GC_STRESS_SKIP: >-
             trampoline-polish-1375.scm srfi14.scm srfi264.scm
-            reader-port-refill-gaps.scm
+            reader-port-refill-gaps.scm srfi178-segment-stack-2084.scm
             primitives_srfi1-audit.scm srfi1-ext.scm srfi1-gc-stress.scm
             primitives_srfi237-audit.scm srfi237.scm srfi240-audit.scm
 

@@ -444,9 +444,11 @@
 (test-equal "segment of the empty bitvector" '() (bitvector-segment (bitvector) 2))
 
 ;; Regression, #2084: the loop now accumulates in tail position (one frame
-;; total, not one per segment) and rejects a non-positive n at entry.
-(test-equal "segment of a 200,000-bit vector with n=1"
-            200000 (length (bitvector-segment (make-bitvector 200000 1) 1)))
+;; total, not one per segment) and rejects a non-positive n at entry. The
+;; full-depth 200,000-segment case lives in srfi178-segment-stack-2084.scm —
+;; its own file so the gc-stress leg can skip just it (building 200k
+;; bitvectors is quadratic in the live heap under stress collection) without
+;; skipping this file's assertions.
 (test-assert "segment with n=0 raises a catchable error"
              (raises? (lambda () (bitvector-segment (bitvector 1 0 1) 0))))
 (test-assert "segment with an inexact n raises a catchable error"
