@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785629991580,
+  "lastUpdate": 1785630775929,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "85eb70ad47e31c833af1c2bccb200ccfd2fa2f3b",
-          "message": "Close #1828 as not-a-bug: unquoted em-syntax-rules template, not chaining (#1849)\n\nThe reported \"variable bound by one => step can't be used as the operator\nof a later chained step\" symptom is fully explained by the repro's own\nfinal template being unquoted while calling an ordinary procedure\n(display) -- SRFI 148's spec documents that as an error case (\"It is an\nerror if the expanded output is not an eager macro use or a self-quoting\nsyntax element\"). The issue's exact repro, with only the final template\nquoted, already works correctly. Adds a regression test locking in the\ncorrect (already-working) operator-position chaining at 2 and 3 levels,\nand corrects the three places that cited #1828 as a confirmed, still-open\nengine bug.\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-29T17:15:08Z",
-          "tree_id": "da74a46e2f02dc2360d76d6397309619c17bf50a",
-          "url": "https://github.com/kaappi/kaappi/commit/85eb70ad47e31c833af1c2bccb200ccfd2fa2f3b"
-        },
-        "date": 1785347566928,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.046965,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.626059,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566426,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.835356,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004886,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044353,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297311,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054829,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.336662,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.173455,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.515401,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.304926,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.701495,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.771019,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044671,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043565,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c241e8e7938bd514461d7bac6e830b8b6b20f527",
+          "message": "Phase 6F: fmt adversarial comments and mutation fuzzing — 51,000 inputs, three root causes, and a formatter that reports a syntax error in a file that has none (#2148)\n\n* Phase 6F: fmt adversarial comments and mutation fuzzing\n\nFuzz `kaappi fmt` where its round-trip guard cannot see: comments are not\ndatums, so a comment that moves or vanishes passes `equal?` unnoticed, and\nidempotence is a separate property the guard says nothing about.\n\nAdds `tests/scheme/fmt/fmt-adversarial.sh` (61 fast assertions: 53 comment\nplacements where the layout engine must decide, the blank-line controls, and\nthe parser-depth property) and `tools/fmt_fuzz.py`, the on-demand fuzzer the\nfindings came from — four modes over the repo's own corpus, none of which can\nwrite to a corpus file.\n\nFound kaappi#2141 (stack overflow on a long reader-prefix chain; max_nesting\nguards lists only), kaappi#2142 (non-idempotent when a head-line block comment\ndisplaces a blank-preceded item past hasBodyBlank's index), and kaappi#2143\n(a `#`-led lexeme glued to an identifier splits differently in fmt's lexer\nthan in the reader). Their repros are committed disabled with FAIL markers.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Phase 6F: pin fit-to-width, and file the byte-vs-column gap\n\n`fmt.md` promises \"a form that fits within max_width (80) columns is put on\none line\"; `computeMeasure` returns `node.text.len`, so every non-ASCII lexeme\ncounts double or triple. A 75-column form of twelve five-character Unicode\nidentifiers breaks into 12 lines; the same shape in ASCII stays on one.\n\nCosmetic — measure and the inline emitter are both byte-based, so the fit\npredicate stays consistent and the result is idempotent. Filed as kaappi#2149.\nThe ASCII control is enabled; the Unicode case is committed disabled.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* head -c is not POSIX — OpenBSD generated an empty file and passed it\n\n`repeat() { head -c \"$2\" /dev/zero | tr '\\0' \"$1\"; }` builds the deep-nesting\ninputs. `head -c` is a GNU/FreeBSD extension; OpenBSD answers\n\n    head: unknown option -- c\n    usage: head [-count | -n count] [file ...]\n\nand prints nothing. The 300,000-paren file came out empty, `fmt` accepted it,\nand `expected exit 1, got 0` failed on openbsd-test alone.\n\nSame shape as the no-GNU-regex rule already in tests/scheme/CLAUDE.md: it\npasses on macOS, Linux and FreeBSD, and only the strict leg disagrees. The\nreason it presented as a *depth-limit* disagreement rather than a missing\nutility is that an empty file is valid input, so the failure looked like a\nplatform-dependent nesting cap.\n\n`printf '%*s'` is POSIX, needs no external file, and is faster. 62 passed,\n0 failed locally.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T05:03:47+05:30",
+          "tree_id": "ef9fc9c05c7d49995c616e0418b752ba6d659d42",
+          "url": "https://github.com/kaappi/kaappi/commit/c241e8e7938bd514461d7bac6e830b8b6b20f527"
+        },
+        "date": 1785630773842,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.074527,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.663753,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.441839,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.231727,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003814,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03495,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.233357,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.04269,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.826905,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.932382,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.166055,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235279,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.307668,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.360511,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037114,
             "unit": "seconds"
           }
         ]
