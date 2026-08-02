@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785640485481,
+  "lastUpdate": 1785642466067,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "138857555a5aa83d8f1a5231e52a913d7a3154a1",
-          "message": "Correct the three \"add a built-in procedure\" docs (#1863) (#1865)\n\n* Correct the three \"add a built-in procedure\" docs (#1863)\n\nAll three drifted far enough that two of them taught code that cannot\ncompile, so a contributor following them hit errors before reaching a\nreview. Rather than repeat the same content three times, make\ndocs/dev/adding-features.md the one detailed reference and reduce\nCLAUDE.md and the /add-builtin skill to checklists that defer to it.\n\nThe symbol names were the load-bearing errors. `primitives.gc_instance`\nand `primitives.vm_instance` do not exist and never did; the real\ndeclarations are the `memory.gc_instance` and `vm_mod.vm_instance`\nthreadlocals that all 31 primitives files already reach through those\nmodule names. The skill had a third spelling, bare unqualified\n`gc_instance`, which resolves in no primitives file at all.\n\nThe higher-order sample was wrong in a way the issue did not catch:\n`vm.callValue(proc, args_slice)` has no such method on VM, and the free\nfunction `vm_calls.callValue` is register-based — `(vm, callee, base,\nnargs)`. The slice-taking entry point is `vm.callWithArgs`. Since\nPrimitiveError and VMError are both aliases of errors.KaappiError, the\nsample now propagates the callee's error instead of flattening it to a\nTypeError and discarding the detail.\n\nThe skill also taught `return PrimitiveError.TypeError`, which the format\nCI job exists to prevent, so following the documented pattern broke the\nbuild. All three now teach `primitives.typeError(proc, expected, got)`\nand mention the expect* wrappers and the `// bare-ok:` opt-out. That\nguard's baseline was 91 against a current count of 20, leaving room for\n71 regressions; re-tighten it to 20 so it bites again.\n\nRemaining fixes: tests go in one of the 44 src/tests_*.zig files via the\ntesting_helpers (`th.`) API, not the \"src/vm.zig test section\" — vm.zig's\nsingle test block only pulls sibling modules into the test build and\nholds no assertions. Drop the step pointing at STATUS.md, deleted in\ncfe013ce. Correct the primitives table from 26 to 31 and add the 9 files\nit never listed, the stale src/vm.zig:37 and src/primitives.zig:182\nthreadlocal citations, and src/CLAUDE.md's test-file count.\n\nEvery sample was verified by compiling it: each was added verbatim as a\nreal primitive plus a th.expectEval test, built, run, and then reverted.\nThe documented error text is the observed output.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: undeclared `result` in sample, domain-file count\n\nThree findings from CodeRabbit, all valid.\n\nThe skill's step-1 sample returned `types.makeFixnum(result)` with no\n`result` in scope — inherited from the old skill and carried forward\nunexamined, which is precisely the non-compiling-sample defect #1863 is\nabout. Replaced with the computed body already verified in\ndocs/dev/adding-features.md, and compiled it the same way: added verbatim\nas a real primitive plus a th.expectEval test, built, ran (6/6), reverted.\n\n`primitives_*.zig` is 30 files; the 31st is `primitives.zig` itself, which\nall three docs explicitly exclude in the same sentence that claimed 31 —\ninternally contradictory. Prose now says 30 domain files. The table header\nstays at 31: it counts rows, and the table lists `primitives.zig` as one.\n\nListing `IndexOutOfBounds` among tags \"returned directly\" contradicted the\npreceding recommendation of `indexError(proc, index, len)` for exactly\nthose failures, for the same attach-the-detail reason typeError exists.\nDropped it from that list and made the preference explicit.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-30T16:54:12+05:30",
-          "tree_id": "e7982b0d61ddd19078d5b4f1911a36efb25c2583",
-          "url": "https://github.com/kaappi/kaappi/commit/138857555a5aa83d8f1a5231e52a913d7a3154a1"
-        },
-        "date": 1785413943358,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.266495,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.827828,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.56789,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.004717,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004666,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046518,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309417,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056888,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.636908,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.208337,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.636028,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.279357,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.77862,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.611433,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043665,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043076,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad53bc2a886065a0b1ad021b40125466cbaed8d2",
+          "message": "Phase 8: synthesis — 170 issues are 35 root causes, and the most repeated one is a check that tests nothing (#2171)\n\n* Phase 8: synthesis — 170 issues are 35 root causes, and the most repeated one is a check that tests nothing\n\nThe campaign filed 188 issues across 53 units. A pile that size is raw\nmaterial, not a result, so this adds a `## Findings` section recording what\nit concluded: every open issue assigned to one of 35 root-cause groups, a\nprioritisation with its reasoning visible, the deduplication recommendations,\nand the `;; FAIL:` marker inventory.\n\nThree hypotheses carried into the unit were disproved, which is the more\nuseful half. SRFI 166's 11 issues do not share a root cause: routing the\nthree the tracker names as derived through the working procedural mechanism\nstill gives the wrong answer, so the failures are consumer-side and there are\n11 separate procedures to write. The arity issues are four unrelated\nmechanisms, though a real structural finding survives them — three sites\nhand-roll frame setup instead of routing through callClosure, and each\ninherits none of its validation.\n\nThe open count is 170, not 168: two issues had fallen out of both tracking\nqueries and were recoverable only through the disabled-test markers.\n\nTwo findings are new here. The segment-at-n=0 class has four members, not\ntwo — string-segment and range-segment hang identically and are unfiled,\nwith SRFI 171's tsegment as the control proving it is a missing precondition\nrather than an inherent shape. And isSpecialTopLevelForm is a fourth\nhand-maintained parallel list, which disappears if the top-level dispatcher\nis split into classify and run.\n\nTracking issue: #1890\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct two counts in the Findings section\n\nReview caught both. The marker inventory said 435 lines in 35 files; the\ndefensible count over .scm files, matching the documented `;;+ FAIL: #NNNN`\nconvention, is 434 in 36 — the earlier figure came from a looser grep, and\nthe file count had dropped the one file whose three markers use `;;;`. Both\nspellings are now counted and stated.\n\nAnd \"two issues were reachable only through the disabled-test markers\" was\nwrong about which: 2129 is found by the `audit` label query, and only 1920\nneeds the markers. 1870 is the third case — footer, no label — so the honest\nstatement is that no single query finds every campaign issue.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-02T08:38:42+05:30",
+          "tree_id": "91afe839c3094c612c21e47203f9b98a50794f10",
+          "url": "https://github.com/kaappi/kaappi/commit/ad53bc2a886065a0b1ad021b40125466cbaed8d2"
+        },
+        "date": 1785642465143,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.261677,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.175552,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576768,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.93471,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004799,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046593,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311144,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056336,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.605735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233148,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.578445,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281905,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.791596,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.537989,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044209,
             "unit": "seconds"
           }
         ]
