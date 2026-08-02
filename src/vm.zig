@@ -519,16 +519,29 @@ pub const VM = struct {
     /// callWithArgs calls into a custom port's read!/write!/get-position/
     /// set-position!/close/flush. Since those calls always run with
     /// dispatched_from_scheduler forced false (nested runUntil, see above),
-    /// a callback that blocks on another port's fd or calls thread-sleep!
+    /// a callback that blocks — on another port's fd, on thread-sleep!, on a
+    /// channel, on a fiber/thread join, on a mutex or condition variable —
     /// would otherwise fall into an unbounded recursive scheduler drive
-    /// (fiber.waitForFd's park-vs-drive branch) with a confirmed native-
-    /// stack-overflow risk under concurrent fibers. This narrow counter
-    /// (not the broader native_reentry_depth, which is incremented for
-    /// every reentrant call — with-exception-handler thunks, native
-    /// higher-order drivers' callbacks, apply — and would wrongly reject
-    /// those already-working patterns too) lets those two sites raise a
-    /// specific, catchable error instead, only for the case this SRFI
-    /// introduces.
+    /// (fiber.waitForFd's park-vs-drive branch, or fiber.runSchedulerStep
+    /// directly) with a confirmed native-stack-overflow risk under
+    /// concurrent fibers. This narrow counter (not the broader
+    /// native_reentry_depth, which is incremented for every reentrant call —
+    /// with-exception-handler thunks, native higher-order drivers'
+    /// callbacks, apply — and would wrongly reject those already-working
+    /// patterns too) lets those sites raise a specific, catchable error
+    /// instead, only for the case this SRFI introduces.
+    ///
+    /// Three sites read it. fiber.runSchedulerStep is the general one: every
+    /// in-place drive passes through it, so a newly added blocking primitive
+    /// is covered without touching anything (#2000 was exactly that gap —
+    /// channel-receive/channel-send/fiber-join and SRFI-18's thread-join!/
+    /// mutex-lock!/condition-variable-wait each drove the scheduler
+    /// recursively, and enough nesting killed the process with SIGBUS well
+    /// before callReentrant's max_native_depth could fire, since a level
+    /// here is a nested runUntil *plus* a drive). fiber.waitForFd and
+    /// primitives_srfi18.threadSleepFn additionally check for themselves,
+    /// earlier: each has state (a registered fd, an armed timer) it is
+    /// cheaper never to arm than to unwind.
     in_custom_port_callback: u16 = 0,
     /// For child OS threads (SRFI-18): points at the parent-heap fiber's
     /// `terminated` flag. Checked at the periodic dispatch-loop safepoint so

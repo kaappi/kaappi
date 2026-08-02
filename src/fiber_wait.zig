@@ -177,9 +177,10 @@ fn raiseIoWaitAbandoned(vm: *VM) VMError {
 }
 
 /// SRFI 181: a custom port's read!/write!/get-position/set-position!/
-/// close/flush callback tried to block -- either on another port's fd
-/// (this function is called from waitForFd above) or via thread-sleep!
-/// (also called from primitives_srfi18.threadSleepFn's equivalent guard).
+/// close/flush callback tried to block -- on another port's fd (called
+/// from waitForFd above), via thread-sleep! (primitives_srfi18
+/// .threadSleepFn's equivalent guard), or on any other wait at all, since
+/// runSchedulerStep below is the shared body behind every one of them.
 /// Every such callback runs through vm.callWithArgs, which always
 /// executes with dispatched_from_scheduler forced false — so this fiber
 /// could never park here the normal way, only recursively drive the
@@ -190,7 +191,8 @@ pub fn raiseCustomPortCallbackBlocked(vm: *VM) VMError {
     var msg = vm.gc.allocString(
         "custom port callback blocked: a SRFI 181 read!/write!/get-position/" ++
             "set-position!/close/flush procedure tried to block (e.g. on " ++
-            "another port's I/O, or via thread-sleep!), which is not " ++
+            "another port's I/O, on thread-sleep!, or on a channel, join, " ++
+            "mutex or condition-variable wait), which is not " ++
             "supported -- custom port callbacks must be effectively " ++
             "synchronous, non-blocking code",
     ) catch return VMError.OutOfMemory;
@@ -287,6 +289,50 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
 /// excluding them from selection changes no genuine liveness outcome —
 /// only the parked fiber's own loop, right here, ever consumes its wake).
 pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberScheduler, me: *Fiber) VMError!bool {
+    // SRFI 181: reaching here from inside a custom port callback means that
+    // callback is about to block, which it may not do -- see
+    // vm.in_custom_port_callback's doc comment. The guard lives at this
+    // choke point rather than only at the individual blocking primitives
+    // because *every* in-place drive arrives here: waitForFd and
+    // thread-sleep! check for themselves (both have earlier state to avoid
+    // arming), but channel-receive/channel-send/fiber-join and SRFI-18's
+    // thread-join!/mutex-lock!/condition-variable-wait did not, and drove
+    // the scheduler recursively on the native stack instead -- a whole
+    // sibling fiber running inside the callback, and with enough nesting a
+    // SIGBUS from stack exhaustion long before callReentrant's own
+    // max_native_depth could fire, since each level is a nested runUntil
+    // *plus* this drive (#2000).
+    //
+    // Nothing below has been armed yet -- no saveCurrentFiber, no `driving`
+    // flag, no driving_waits entry -- but several callers arm state of
+    // their own *before* calling (a timed channel-send/receive, and
+    // mutex-lock!/thread-join!/condition-variable-wait unconditionally):
+    // .waiting status, a waiter_index enrolment, a reactor timer. Undo what
+    // the normal epilogue below undoes, plus the timer, rather than
+    // returning with `me` marked parked while it in fact runs on: the
+    // waiter_index tolerates a stale entry by design (indexWakeOn
+    // revalidates `status == .waiting`, which is also how the success path
+    // disposes of one), but that tolerance is exactly what a lying `.waiting`
+    // defeats. removeTimer is remove-first, so a caller's own cleanup after
+    // catching this stays correct.
+    //
+    // Defensive, not a reproduced fix: no program was found that observes
+    // the difference. Every caller either has no timer to leave behind or
+    // detaches it in its own catch, and a leftover `.waiting` self-heals at
+    // the fiber's next genuine park (waiting_on is overwritten) or at its
+    // retirement. It is kept because "running fiber marked parked" is the
+    // precondition for the #1487 dispatch-from-stale-snapshot corruption,
+    // and four lines here is cheaper than proving no future caller reaches
+    // it.
+    if (vm.in_custom_port_callback > 0) {
+        me.status = .running;
+        me.timed_out = false;
+        if (me.deadline_ns != null) {
+            if (vm.reactor) |r| r.removeTimer(me);
+            me.deadline_ns = null;
+        }
+        return raiseCustomPortCallbackBlocked(vm);
+    }
     const my_idx = sched.current_idx;
     try sched.saveCurrentFiber();
     const poll_cap_ns: ?u64 = if (@hasDecl(Ctx, "pollCapNs")) ctx.pollCapNs() else null;

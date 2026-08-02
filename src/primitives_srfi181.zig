@@ -29,11 +29,23 @@
 //! **Blocking limitation**: every callback here runs through
 //! vm.callWithArgs, which always executes with vm.dispatched_from_scheduler
 //! forced false (see fiber.zig's raiseCustomPortCallbackBlocked and the
-//! in_custom_port_callback guard) -- a callback that blocks on another
-//! port's fd or calls thread-sleep! is rejected with a catchable error
-//! rather than risking the native-stack-overflow a silent recursive
-//! scheduler drive would otherwise allow. Callbacks must be effectively
-//! synchronous, non-blocking Scheme code.
+//! in_custom_port_callback guard) -- a callback that blocks is rejected
+//! with a catchable error rather than risking the native-stack-overflow a
+//! silent recursive scheduler drive would otherwise allow. That covers
+//! every wait, not a hand-listed few: the guard sits in
+//! fiber.runSchedulerStep, the shared body behind channel-receive,
+//! channel-send, fiber-join, thread-join!, mutex-lock! and
+//! condition-variable waits, as well as in waitForFd (another port's fd)
+//! and thread-sleep! (#2000). Callbacks must be effectively synchronous,
+//! non-blocking Scheme code.
+//!
+//! **Re-entrancy**: a callback *may* touch its own port -- write! writing
+//! to it, close closing it, read! reading from it. A read! that reads from
+//! its own port runs a whole earlier read! to completion first, so the
+//! bytes it leaves buffered precede the ones the outer invocation then
+//! produces; primitives_io.takeFirstBufferingRest concatenates them in that
+//! order. It used to assert port.read_buf was empty there instead, which
+//! ordinary Scheme could turn into an uncatchable process abort (#1939).
 //!
 //! Sandbox/WASM availability: unlike SRFI 192 (real OS lseek) or SRFI 18/
 //! 170/FFI (real threads/OS info/native code), nothing here touches
