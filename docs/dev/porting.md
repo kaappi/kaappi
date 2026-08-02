@@ -326,14 +326,31 @@ all, only build/CI work — *provided* the preconditions hold.
       suite is a separate, deliberately small entry point rather than
       the whole tree. Two blind spots remain, both structural:
 
-      * **A paired byte-swap cancels out.** Every `.sbc` test writes and
-        reads on the same host, so a bug that swapped *both* directions
-        stays green everywhere. `src/tests_endian.zig` breaks the pairing
-        one direction at a time — the writer against literal expected
-        bytes, the reader against a hand-assembled literal-little-endian
-        header — but no test yet writes a file on one endianness and
-        reads it on the other. The nightly `cross-diff` fuzz job does not
-        close this either: both sides run against their own arch's cache.
+      * **A paired byte-swap used to cancel out — closed by golden
+        bytes (audit v2 Phase 7D).** Every `.sbc` *round-trip* test still
+        writes and reads on the same host, so a bug swapping both
+        directions leaves those green everywhere; no test writes a file on
+        one endianness and reads it on the other, and the nightly
+        `cross-diff` fuzz job does not close that either (both sides run
+        against their own arch's cache). What removes the need for a
+        second machine is a committed **golden byte sequence**:
+        `GOLDEN_BODY` in `src/tests_endian.zig` is a literal, hand-derived
+        from the format, used twice with no contact between the uses — the
+        serializer must reproduce it, and the deserializer must decode it.
+        Neither expected value is a function of the host, so a swap on
+        either side, or on both, fails on every target. Measured: flipping
+        `nativeToLittle`→`nativeToBig` in `writeU32` **and**
+        `littleToNative`→`bigToNative` in `readU32` leaves all 10
+        `bytecode_file.zig` round-trip tests passing and fails both golden
+        tests. The same shape covers SRFI 271's determinized random ports
+        in `tests/scheme/audit/endianness-audit.scm`, whose own suite is
+        likewise blind: a `.little`→`.big` flip in the seed-word read
+        leaves `tests/scheme/srfi/srfi271.scm` at 35/35.
+        **Still not covered:** what a `.sbc` carries that is
+        target-*dependent* rather than byte-order-dependent. The cache key
+        has no target component, so a binary built for one target loads
+        another's bytecode with its `cond-expand` branches already
+        chosen (#2155).
       * **A local `zig build test -Dtarget=s390x-linux` proves nothing
         about behaviour.** `build.zig` sets `skip_foreign_checks = true`,
         so on a host with no emulator registered the run step is
