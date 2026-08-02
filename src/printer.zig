@@ -17,271 +17,794 @@ pub const PrintMode = enum {
     shared, // write with datum labels for shared/circular structures
 };
 
+/// REPL pretty-printer (moved out under the 1500-line policy; re-exported so
+/// callers keep the `printer.prettyPrint` spelling).
+pub const prettyPrint = @import("printer_pretty.zig").prettyPrint;
+
 // ---------------------------------------------------------------------------
-// Shared-structure detection (write-shared support)
+// Structural traversal
+// ---------------------------------------------------------------------------
+//
+// The printer recurses into exactly SEVEN heap containers. Cycle/sharing
+// detection and the print engine below both enumerate children through
+// `childAt`, so the two can never disagree about which edges exist -- a
+// container the printer walked but detection did not is exactly the
+// four-procedure hang of kaappi#1954 (error-object irritants, mutex and
+// condition-variable names were printed recursively but invisible to the
+// pre-pass, so a cycle through them was never labelled).
+//
+// `.rational` is deliberately NOT here: its numerator/denominator are always
+// exact integers (fixnum or bignum), so the `.rational` print arm renders
+// them inline as atoms. That also removes the depth seam that made a
+// rational at bounded-printer depth 1023 render as `.../...` -- a legal
+// symbol datum with the wrong value (kaappi#1953).
+//
+// `.hash_table` holds Values but prints only its size, so it has no print
+// edges and does not belong here either.
+
+fn isTraversable(obj: *types.Object) bool {
+    return switch (obj.tag) {
+        .pair, .vector, .record_instance, .error_object, .multiple_values, .mutex, .condition_variable => true,
+        else => false,
+    };
+}
+
+/// Child Values of a traversable container in print order; null past the end.
+fn childAt(v: Value, obj: *types.Object, idx: usize) ?Value {
+    switch (obj.tag) {
+        .pair => return switch (idx) {
+            0 => types.car(v),
+            1 => types.cdr(v),
+            else => null,
+        },
+        .vector => {
+            const data = obj.as(types.Vector).data;
+            return if (idx < data.len) data[idx] else null;
+        },
+        .record_instance => {
+            const fields = obj.as(types.RecordInstance).fields;
+            return if (idx < fields.len) fields[idx] else null;
+        },
+        .error_object => {
+            const eo = obj.as(types.ErrorObject);
+            return switch (idx) {
+                0 => eo.message,
+                1 => eo.irritants,
+                else => null,
+            };
+        },
+        .multiple_values => {
+            const vals = obj.as(types.MultipleValues).values;
+            return if (idx < vals.len) vals[idx] else null;
+        },
+        .mutex => return if (idx == 0) obj.as(types.Mutex).name else null,
+        .condition_variable => return if (idx == 0) obj.as(types.ConditionVariable).name else null,
+        else => return null,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Label detection (cycles for write/display, all sharing for write-shared)
 // ---------------------------------------------------------------------------
 
-const MAX_SHARED = 1024;
-const MAX_PRINT_DEPTH: u32 = 1024;
+/// Values that need a datum label, mapped to their assigned label number.
+/// Detection stores -1; the print engine assigns numbers lazily in print
+/// order, so label numbering is independent of traversal order.
+const Labels = struct {
+    map: std.AutoHashMap(Value, i32),
+    next: i32 = 0,
 
-const SharedState = struct {
-    seen: [MAX_SHARED]Value = undefined,
-    seen_count: usize = 0,
-    shared: [MAX_SHARED]Value = undefined, // objects seen more than once
-    shared_count: usize = 0,
-    labels: [MAX_SHARED]i32 = undefined, // -1 = not yet labeled, >= 0 = label number
-    next_label: i32 = 0,
-    depth: u32 = 0,
-
-    fn isShared(self: *SharedState, val: Value) bool {
-        for (self.shared[0..self.shared_count]) |sh| {
-            if (sh == val) return true;
-        }
-        return false;
+    fn init(allocator: std.mem.Allocator) Labels {
+        return .{ .map = std.AutoHashMap(Value, i32).init(allocator) };
     }
-
-    fn getOrAssignLabel(self: *SharedState, val: Value) ?i32 {
-        for (self.shared[0..self.shared_count], 0..) |sh, i| {
-            if (sh == val) {
-                if (self.labels[i] == -1) {
-                    self.labels[i] = self.next_label;
-                    self.next_label += 1;
-                }
-                return self.labels[i];
-            }
-        }
-        return null;
-    }
-
-    fn getLabel(self: *SharedState, val: Value) ?i32 {
-        for (self.shared[0..self.shared_count], 0..) |sh, i| {
-            if (sh == val) {
-                return if (self.labels[i] >= 0) self.labels[i] else null;
-            }
-        }
-        return null;
+    fn deinit(self: *Labels) void {
+        self.map.deinit();
     }
 };
 
-/// Pass 1: Walk the datum and record which heap objects are referenced
-/// more than once (shared structures). Uses a simple two-state approach:
-/// first encounter adds to "seen", second encounter adds to "shared".
-/// We only recurse on first encounter to avoid infinite loops on cycles.
-fn markShared(value: Value, state: *SharedState) void {
-    if (!types.isPointer(value)) return;
-    if (state.depth >= MAX_PRINT_DEPTH) return;
-    state.depth += 1;
-    defer state.depth -= 1;
-    const obj = types.toObject(value);
-    switch (obj.tag) {
-        .pair, .vector, .record_instance => {
-            // Check if already seen
-            for (state.seen[0..state.seen_count]) |s| {
-                if (s == value) {
-                    // Second encounter: mark as shared, don't recurse
-                    for (state.shared[0..state.shared_count]) |sh| {
-                        if (sh == value) return; // already shared
-                    }
-                    if (state.shared_count < MAX_SHARED) {
-                        state.shared[state.shared_count] = value;
-                        state.labels[state.shared_count] = -1;
-                        state.shared_count += 1;
-                    }
-                    return;
-                }
-            }
-            // First encounter: add to seen and recurse into children
-            if (state.seen_count < MAX_SHARED) {
-                state.seen[state.seen_count] = value;
-                state.seen_count += 1;
-            }
-            if (obj.tag == .pair) {
-                markShared(types.car(value), state);
-                markShared(types.cdr(value), state);
-            } else if (obj.tag == .vector) {
-                const vec = obj.as(types.Vector);
-                for (vec.data) |elem| {
-                    markShared(elem, state);
-                }
-            } else if (obj.tag == .record_instance) {
-                const ri = obj.as(types.RecordInstance);
-                for (ri.fields) |elem| {
-                    markShared(elem, state);
-                }
-            }
-        },
-        else => {},
-    }
-}
-
-/// Pass 2: Print with datum labels for the objects recorded in `state.shared`.
-/// `atom_mode` selects write vs display rendering for leaf atoms (strings,
-/// chars); list/vector structure renders identically in both.
-fn printValueShared(writer: anytype, value: Value, state: *SharedState, atom_mode: PrintMode) anyerror!void {
-    if (state.depth >= MAX_PRINT_DEPTH) {
-        try writer.writeAll("#<deep>");
-        return;
-    }
-    state.depth += 1;
-    defer state.depth -= 1;
-    // Check if this value has a label assigned (shared/cyclic reference)
-    if (types.isPointer(value) and state.isShared(value)) {
-        if (state.getLabel(value)) |label| {
-            // Already labeled -- emit back-reference #N#
-            try writer.print("#{d}#", .{label});
-            return;
-        }
-        // First occurrence -- assign label and emit #N=
-        if (state.getOrAssignLabel(value)) |label| {
-            try writer.print("#{d}=", .{label});
-        }
-    }
-    // Print the value itself
-    if (types.isPair(value)) {
-        try printListShared(writer, value, state, atom_mode);
-    } else if (types.isPointer(value) and types.toObject(value).tag == .vector) {
-        const vec = types.toObject(value).as(types.Vector);
-        try writer.writeAll("#(");
-        for (vec.data, 0..) |elem, i| {
-            if (i > 0) try writer.writeByte(' ');
-            try printValueShared(writer, elem, state, atom_mode);
-        }
-        try writer.writeByte(')');
-    } else if (types.isPointer(value) and types.toObject(value).tag == .record_instance) {
-        const ri = types.toObject(value).as(types.RecordInstance);
-        try writer.print("#<{s}", .{ri.record_type.name});
-        for (ri.fields) |field| {
-            try writer.writeByte(' ');
-            try printValueShared(writer, field, state, atom_mode);
-        }
-        try writer.writeByte('>');
-    } else {
-        try printValue(writer, value, atom_mode);
-    }
-}
-
-fn printListShared(writer: anytype, value: Value, state: *SharedState, atom_mode: PrintMode) anyerror!void {
-    try writer.writeByte('(');
-    try printValueShared(writer, types.car(value), state, atom_mode);
-
-    var rest = types.cdr(value);
-    while (rest != types.NIL) {
-        if (types.isPair(rest)) {
-            // If this cdr is shared, print as ". #N#" or ". #N=(...)"
-            if (state.isShared(rest)) {
-                try writer.writeAll(" . ");
-                try printValueShared(writer, rest, state, atom_mode);
-                break;
-            }
-            try writer.writeByte(' ');
-            try printValueShared(writer, types.car(rest), state, atom_mode);
-            rest = types.cdr(rest);
-        } else {
-            try writer.writeAll(" . ");
-            try printValueShared(writer, rest, state, atom_mode);
-            break;
-        }
-    }
-    try writer.writeByte(')');
-}
-
-/// Record `value` as a node that needs a datum label (it closes a cycle).
-fn recordSharedNode(state: *SharedState, value: Value) void {
-    if (state.isShared(value)) return;
-    if (state.shared_count < MAX_SHARED) {
-        state.shared[state.shared_count] = value;
-        state.labels[state.shared_count] = -1;
-        state.shared_count += 1;
-    }
-}
-
-/// Detect heap objects that lie on a cycle (the target of a DFS back-edge) and
-/// record them in `state.shared`. Only cycles need datum labels for `write`/
-/// `display` to terminate; acyclic sharing is printed in full per R7RS.
+/// Record every back-edge target of a DFS from `root` -- the objects that
+/// close a cycle. Only those need datum labels for `write`/`display` to
+/// terminate; acyclic sharing prints in full per R7RS ("Datum labels must
+/// not be used if there are no cycles").
 ///
-/// The list spine is walked iteratively (recursing only into cars and a dotted
-/// tail) so deep proper lists don't overflow the native stack. Traversal sets
-/// live on the heap, so detection terminates on structures of any size.
-fn markCycles(allocator: std.mem.Allocator, value: Value, state: *SharedState) void {
+/// Fully iterative: the DFS stack, visited sets and result all live on the
+/// heap, so detection has no depth limit and uses no native stack -- the
+/// depth-848 wasm32 module abort of kaappi#2107 and the depth-1024 label
+/// loss of kaappi#1902 (D4) were both artifacts of the old native-stack
+/// recursion and its MAX_PRINT_DEPTH guard.
+fn findCycleTargets(allocator: std.mem.Allocator, root: Value, labels: *Labels) !void {
+    if (!types.isPointer(root)) return;
+    if (!isTraversable(types.toObject(root))) return;
+
+    const Frame = struct { v: Value, idx: usize };
+    var stack: std.ArrayList(Frame) = .empty;
+    defer stack.deinit(allocator);
     var on_stack = std.AutoHashMap(Value, void).init(allocator);
     defer on_stack.deinit();
     var done = std.AutoHashMap(Value, void).init(allocator);
     defer done.deinit();
-    markCyclesRec(allocator, value, state, &on_stack, &done, 0);
+
+    try stack.append(allocator, .{ .v = root, .idx = 0 });
+    try on_stack.put(root, {});
+
+    while (stack.items.len > 0) {
+        const top = stack.items.len - 1;
+        const v = stack.items[top].v;
+        const idx = stack.items[top].idx;
+        const obj = types.toObject(v);
+        if (childAt(v, obj, idx)) |child| {
+            stack.items[top].idx = idx + 1;
+            if (!types.isPointer(child)) continue;
+            if (!isTraversable(types.toObject(child))) continue;
+            if (on_stack.contains(child)) {
+                try labels.map.put(child, -1);
+            } else if (!done.contains(child)) {
+                try on_stack.put(child, {});
+                try stack.append(allocator, .{ .v = child, .idx = 0 });
+            }
+        } else {
+            _ = stack.pop();
+            _ = on_stack.remove(v);
+            try done.put(v, {});
+        }
+    }
 }
 
-/// Elements/fields to walk for a heap type whose cycle-detection treatment is
-/// otherwise identical to a vector's: visit each child once, flag a back-edge
-/// as shared. Record instances join vectors here so a cyclic web of records
-/// (e.g. two record types referencing each other, kaappi#1713) gets a datum
-/// label instead of recursing forever -- without this, such a cycle is
-/// invisible to this pre-pass, `state.shared_count` stays 0, and printing
-/// falls through to the plain depth-limited recursion, which merely bounds
-/// depth rather than detecting the cycle: a record type whose field is a
-/// vector of records that each reference it back fans out combinatorially
-/// long before the depth cap is reached.
-fn vectorLikeChildren(obj: *types.Object) ?[]const Value {
-    return switch (obj.tag) {
-        .vector => obj.as(types.Vector).data,
-        .record_instance => obj.as(types.RecordInstance).fields,
-        else => null,
-    };
+/// Record every traversable container encountered more than once from
+/// `root` (write-shared). R7RS mandates labels for repeated pairs and
+/// vectors; repeated instances of the other traversable containers are
+/// labelled too -- they print as unreadable `#<...>` forms either way, and
+/// a cycle whose revisited node is one of them must carry the label for
+/// printing to terminate.
+///
+/// Iterative worklist with hash sets: no capacity cap and no depth cap, so
+/// none of kaappi#1902's three cliffs exist (D1: sharing across a >=1024
+/// spine, D2: first occurrence past 1024 distinct nodes, D3: >1023 labels).
+fn findSharedNodes(allocator: std.mem.Allocator, root: Value, labels: *Labels) !void {
+    if (!types.isPointer(root)) return;
+    if (!isTraversable(types.toObject(root))) return;
+
+    var seen = std.AutoHashMap(Value, void).init(allocator);
+    defer seen.deinit();
+    var work: std.ArrayList(Value) = .empty;
+    defer work.deinit(allocator);
+
+    try work.append(allocator, root);
+    while (work.pop()) |v| {
+        if (!types.isPointer(v)) continue;
+        const obj = types.toObject(v);
+        if (!isTraversable(obj)) continue;
+        const gop = try seen.getOrPut(v);
+        if (gop.found_existing) {
+            // Second encounter: needs a label; children were already queued
+            // the first time.
+            try labels.map.put(v, -1);
+            continue;
+        }
+        if (obj.tag == .pair) {
+            // cdr first, car second: the car pops first and drains before the
+            // spine advances, so a flat list keeps the worklist O(1) deep.
+            try work.append(allocator, types.cdr(v));
+            try work.append(allocator, types.car(v));
+        } else {
+            var i: usize = 0;
+            while (childAt(v, obj, i)) |child| : (i += 1) {
+                try work.append(allocator, child);
+            }
+        }
+    }
 }
 
-fn markCyclesRec(
+// ---------------------------------------------------------------------------
+// Iterative print engine
+// ---------------------------------------------------------------------------
+
+/// Depth budget for the exact printer: effectively none. Structural nesting
+/// (and spine length, which also ticks the counter) cannot reach 2^32 on any
+/// real heap, so `write`/`display`/`write-shared` output is never truncated
+/// -- truncated-but-successful output was kaappi#1902, and the truncation
+/// sentinel reading back as a symbol was kaappi#1953.
+const NO_DEPTH_LIMIT: u32 = std.math.maxInt(u32);
+
+/// Depth cap for the bounded DIAGNOSTIC printer (`printValue`): compiler
+/// diagnostics and the REPL pretty-printer's layout probes, whose output is
+/// human-facing and never re-read. Bounded output uses the `...` sentinel.
+pub const MAX_PRINT_DEPTH: u32 = 1024;
+
+const PrintTask = union(enum) {
+    /// Print one value (label-aware).
+    value: ValDepth,
+    /// Emit literal text (static lifetime).
+    text: []const u8,
+    /// Inside an open '(': print the rest of a list from this tail.
+    list_tail: ValDepth,
+    /// Inside an open "#<error ...": print remaining irritants, then '>'.
+    irritants_tail: ValDepth,
+    /// Elements of a vector / record instance / multiple-values from `idx`.
+    seq: Seq,
+};
+const ValDepth = struct { v: Value, depth: u32 };
+const Seq = struct { v: Value, idx: usize, depth: u32 };
+
+fn labelPending(labels: ?*Labels, v: Value) bool {
+    const lbl = labels orelse return false;
+    return lbl.map.contains(v);
+}
+
+/// The single print loop behind every mode. Fully iterative -- the work
+/// stack lives on the heap, so printing consumes no native stack regardless
+/// of nesting depth (kaappi#2107: 848 frames of the old recursion exhausted
+/// the wasm32 shadow stack before the old depth guard could fire).
+///
+/// `labels` non-null makes it label-aware (datum labels assigned lazily in
+/// print order). With `max_depth` == NO_DEPTH_LIMIT output is exact at any
+/// depth; a real cap (diagnostic printer) truncates values with `...`, and
+/// counts spine elements toward the cap so even an UNlabelled cyclic list
+/// terminates -- the old spine walk had no such tick, which is why a cycle
+/// reached through a container detection didn't cover hung forever
+/// (kaappi#1954) instead of truncating.
+fn printStructured(
     allocator: std.mem.Allocator,
-    value: Value,
-    state: *SharedState,
-    on_stack: *std.AutoHashMap(Value, void),
-    done: *std.AutoHashMap(Value, void),
-    depth: u32,
-) void {
-    if (depth >= MAX_PRINT_DEPTH) return;
-    if (!types.isPointer(value)) return;
-    const obj = types.toObject(value);
+    writer: anytype,
+    root: Value,
+    mode: PrintMode,
+    labels: ?*Labels,
+    max_depth: u32,
+) anyerror!void {
+    var tasks: std.ArrayList(PrintTask) = .empty;
+    defer tasks.deinit(allocator);
+    try tasks.append(allocator, .{ .value = .{ .v = root, .depth = 0 } });
 
-    if (vectorLikeChildren(obj)) |children| {
-        if (on_stack.contains(value)) return recordSharedNode(state, value);
-        if (done.contains(value)) return;
-        on_stack.put(value, {}) catch return;
-        for (children) |elem| markCyclesRec(allocator, elem, state, on_stack, done, depth + 1);
-        _ = on_stack.remove(value);
-        done.put(value, {}) catch {};
+    while (tasks.pop()) |task| {
+        switch (task) {
+            .text => |s| try writer.writeAll(s),
+            .value => |vd| {
+                if (labels) |lbl| {
+                    if (types.isPointer(vd.v)) {
+                        if (lbl.map.getPtr(vd.v)) |slot| {
+                            if (slot.* >= 0) {
+                                // Later occurrence -- emit back-reference #N#.
+                                try writer.print("#{d}#", .{slot.*});
+                                continue;
+                            }
+                            // First occurrence -- assign a label, emit #N=,
+                            // and fall through to print the value itself.
+                            slot.* = lbl.next;
+                            lbl.next += 1;
+                            try writer.print("#{d}=", .{slot.*});
+                        }
+                    }
+                }
+                if (vd.depth >= max_depth) {
+                    try writer.writeAll("...");
+                    continue;
+                }
+                try printValueOnce(allocator, writer, vd.v, vd.depth, mode, &tasks);
+            },
+            .list_tail => |vd| {
+                const t = vd.v;
+                if (t == types.NIL) {
+                    try writer.writeByte(')');
+                    continue;
+                }
+                if (vd.depth >= max_depth) {
+                    try writer.writeAll(" ...)");
+                    continue;
+                }
+                if (types.isPair(t) and !labelPending(labels, t)) {
+                    try writer.writeByte(' ');
+                    try tasks.append(allocator, .{ .list_tail = .{ .v = types.cdr(t), .depth = vd.depth + 1 } });
+                    try tasks.append(allocator, .{ .value = .{ .v = types.car(t), .depth = vd.depth } });
+                } else {
+                    // Dotted tail: either a non-pair, or a labelled pair that
+                    // must restart as ". #N=(..." / ". #N#".
+                    try writer.writeAll(" . ");
+                    try tasks.append(allocator, .{ .text = ")" });
+                    try tasks.append(allocator, .{ .value = .{ .v = t, .depth = vd.depth } });
+                }
+            },
+            .irritants_tail => |vd| {
+                const t = vd.v;
+                if (t == types.NIL) {
+                    try writer.writeByte('>');
+                    continue;
+                }
+                if (vd.depth >= max_depth) {
+                    try writer.writeAll(" ...>");
+                    continue;
+                }
+                if (types.isPair(t) and !labelPending(labels, t)) {
+                    try writer.writeByte(' ');
+                    try tasks.append(allocator, .{ .irritants_tail = .{ .v = types.cdr(t), .depth = vd.depth + 1 } });
+                    try tasks.append(allocator, .{ .value = .{ .v = types.car(t), .depth = vd.depth } });
+                } else if (types.isPair(t)) {
+                    // A labelled irritants tail restarts as a fresh datum;
+                    // mark it dotted so the spine break is visible.
+                    try writer.writeAll(" . ");
+                    try tasks.append(allocator, .{ .text = ">" });
+                    try tasks.append(allocator, .{ .value = .{ .v = t, .depth = vd.depth } });
+                } else {
+                    // Improper irritants tail prints like one more irritant.
+                    try writer.writeByte(' ');
+                    try tasks.append(allocator, .{ .text = ">" });
+                    try tasks.append(allocator, .{ .value = .{ .v = t, .depth = vd.depth } });
+                }
+            },
+            .seq => |sq| {
+                const obj = types.toObject(sq.v);
+                switch (obj.tag) {
+                    .vector => {
+                        const data = obj.as(types.Vector).data;
+                        if (sq.idx >= data.len) {
+                            try writer.writeByte(')');
+                        } else {
+                            if (sq.idx > 0) try writer.writeByte(' ');
+                            try tasks.append(allocator, .{ .seq = .{ .v = sq.v, .idx = sq.idx + 1, .depth = sq.depth } });
+                            try tasks.append(allocator, .{ .value = .{ .v = data[sq.idx], .depth = sq.depth } });
+                        }
+                    },
+                    .record_instance => {
+                        const fields = obj.as(types.RecordInstance).fields;
+                        if (sq.idx >= fields.len) {
+                            try writer.writeByte('>');
+                        } else {
+                            try writer.writeByte(' ');
+                            try tasks.append(allocator, .{ .seq = .{ .v = sq.v, .idx = sq.idx + 1, .depth = sq.depth } });
+                            try tasks.append(allocator, .{ .value = .{ .v = fields[sq.idx], .depth = sq.depth } });
+                        }
+                    },
+                    .multiple_values => {
+                        const vals = obj.as(types.MultipleValues).values;
+                        if (sq.idx >= vals.len) {
+                            try writer.writeByte('>');
+                        } else {
+                            try writer.writeByte(' ');
+                            try tasks.append(allocator, .{ .seq = .{ .v = sq.v, .idx = sq.idx + 1, .depth = sq.depth } });
+                            try tasks.append(allocator, .{ .value = .{ .v = vals[sq.idx], .depth = sq.depth } });
+                        }
+                    },
+                    else => unreachable,
+                }
+            },
+        }
+    }
+}
+
+/// Numerator/denominator of a rational -- always an exact integer.
+fn writeExactIntPart(writer: anytype, v: Value) anyerror!void {
+    if (types.isFixnum(v)) {
+        try writer.print("{d}", .{types.toFixnum(v)});
         return;
     }
-
-    if (obj.tag != .pair) return;
-
-    // Walk the cdr spine iteratively; the spine pairs stay on the DFS stack
-    // until the whole spine is processed, then unwind together.
-    var spine: std.ArrayList(Value) = .empty;
-    defer spine.deinit(allocator);
-
-    var cur = value;
-    while (types.isPointer(cur)) {
-        const o = types.toObject(cur);
-        if (o.tag != .pair) {
-            markCyclesRec(allocator, cur, state, on_stack, done, depth + 1);
-            break;
-        }
-        if (on_stack.contains(cur)) {
-            recordSharedNode(state, cur);
-            break;
-        }
-        if (done.contains(cur)) break;
-        on_stack.put(cur, {}) catch break;
-        spine.append(allocator, cur) catch {};
-        markCyclesRec(allocator, types.car(cur), state, on_stack, done, depth + 1);
-        cur = types.cdr(cur);
+    if (types.isPointer(v) and types.toObject(v).tag == .bignum) {
+        try writeBignum(writer, v);
+        return;
     }
+    try writer.writeAll("#<unknown>");
+}
 
-    var i = spine.items.len;
-    while (i > 0) {
-        i -= 1;
-        _ = on_stack.remove(spine.items[i]);
-        done.put(spine.items[i], {}) catch {};
+fn writeBignum(writer: anytype, v: Value) anyerror!void {
+    const bignum_mod = @import("bignum.zig");
+    const allocator = std.heap.page_allocator;
+    const s = bignum_mod.toString(allocator, v) catch {
+        try writer.writeAll("?bignum?");
+        return;
+    };
+    defer allocator.free(s);
+    try writer.writeAll(s);
+}
+
+/// Emit one value's own rendering. Containers write their opening text and
+/// push continuation tasks; everything else is a leaf written in full.
+fn printValueOnce(
+    allocator: std.mem.Allocator,
+    writer: anytype,
+    value: Value,
+    depth: u32,
+    mode: PrintMode,
+    tasks: *std.ArrayList(PrintTask),
+) anyerror!void {
+    if (types.isFixnum(value)) {
+        try writer.print("{d}", .{types.toFixnum(value)});
+    } else if (value == types.NIL) {
+        try writer.writeAll("()");
+    } else if (value == types.TRUE) {
+        try writer.writeAll("#t");
+    } else if (value == types.FALSE) {
+        try writer.writeAll("#f");
+    } else if (value == types.VOID) {
+        // void prints nothing
+    } else if (value == types.EOF) {
+        try writer.writeAll("#<eof>");
+    } else if (value == types.UNDEFINED) {
+        try writer.writeAll("#<undefined>");
+    } else if (types.isChar(value)) {
+        const cp = types.toChar(value);
+        if (mode == .write) {
+            try writer.writeAll("#\\");
+            switch (cp) {
+                0x00 => try writer.writeAll("null"),
+                0x07 => try writer.writeAll("alarm"),
+                0x08 => try writer.writeAll("backspace"),
+                0x09 => try writer.writeAll("tab"),
+                0x0A => try writer.writeAll("newline"),
+                0x0D => try writer.writeAll("return"),
+                0x1B => try writer.writeAll("escape"),
+                0x20 => try writer.writeAll("space"),
+                0x7F => try writer.writeAll("delete"),
+                else => {
+                    if (cp < 0x20 or (cp >= 0x7F and cp <= 0x9F)) {
+                        var hex_buf: [8]u8 = undefined;
+                        var hw: std.Io.Writer = .fixed(&hex_buf);
+                        hw.print("x{x}", .{cp}) catch {};
+                        try writer.writeAll(hw.buffered());
+                    } else {
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(cp, &buf) catch 0;
+                        try writer.writeAll(buf[0..len]);
+                    }
+                },
+            }
+        } else {
+            var buf: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(cp, &buf) catch 0;
+            try writer.writeAll(buf[0..len]);
+        }
+    } else if (types.isFlonum(value)) {
+        var buf: [64]u8 = undefined;
+        try writer.writeAll(formatFlonum(&buf, types.toFlonum(value)));
+    } else if (types.isPointer(value)) {
+        const obj = types.toObject(value);
+        switch (obj.tag) {
+            .pair => {
+                try writer.writeByte('(');
+                try tasks.append(allocator, .{ .list_tail = .{ .v = types.cdr(value), .depth = depth + 1 } });
+                try tasks.append(allocator, .{ .value = .{ .v = types.car(value), .depth = depth + 1 } });
+            },
+            .symbol => {
+                const sym = obj.as(types.Symbol);
+                if (!sym.interned and mode != .display) {
+                    // SRFI 258: an uninterned symbol has no readable external
+                    // representation. Writing it in this `#<…>` form makes
+                    // `read` reject it (the reader errors on `#<`), deliberately
+                    // breaking write/read invariance (R7RS 6.5). `display` still
+                    // shows the bare name for human-readable output.
+                    try writer.writeAll("#<uninterned-symbol ");
+                    try writer.writeAll(sym.name);
+                    try writer.writeByte('>');
+                } else if (mode != .display and symbolNeedsBars(sym.name)) {
+                    try writer.writeByte('|');
+                    for (sym.name) |c| {
+                        if (c == '|' or c == '\\') {
+                            try writer.writeByte('\\');
+                            try writer.writeByte(c);
+                        } else if (c < 0x20 or c == 0x7F) {
+                            try writer.writeAll("\\x");
+                            const hex = "0123456789abcdef";
+                            try writer.writeByte(hex[c >> 4]);
+                            try writer.writeByte(hex[c & 0x0F]);
+                            try writer.writeByte(';');
+                        } else {
+                            try writer.writeByte(c);
+                        }
+                    }
+                    try writer.writeByte('|');
+                } else {
+                    try writer.writeAll(sym.name);
+                }
+            },
+            .string => {
+                const str = obj.as(types.SchemeString);
+                if (mode == .write) {
+                    try writer.writeByte('"');
+                    for (str.data) |c| {
+                        switch (c) {
+                            '"' => try writer.writeAll("\\\""),
+                            '\\' => try writer.writeAll("\\\\"),
+                            '\n' => try writer.writeAll("\\n"),
+                            '\r' => try writer.writeAll("\\r"),
+                            '\t' => try writer.writeAll("\\t"),
+                            0x07 => try writer.writeAll("\\a"),
+                            0x08 => try writer.writeAll("\\b"),
+                            else => {
+                                if (c < 0x20 or c == 0x7F) {
+                                    try writer.writeAll("\\x");
+                                    const hex = "0123456789abcdef";
+                                    try writer.writeByte(hex[c >> 4]);
+                                    try writer.writeByte(hex[c & 0x0F]);
+                                    try writer.writeByte(';');
+                                } else {
+                                    try writer.writeByte(c);
+                                }
+                            },
+                        }
+                    }
+                    try writer.writeByte('"');
+                } else {
+                    try writer.writeAll(str.data);
+                }
+            },
+            .flonum => {
+                const flo = obj.as(types.Flonum);
+                var buf: [64]u8 = undefined;
+                try writer.writeAll(formatFlonum(&buf, flo.value));
+            },
+            .closure => {
+                const cls = obj.as(types.Closure);
+                if (cls.func.name) |name| {
+                    try writer.print("#<procedure {s}>", .{name});
+                } else {
+                    try writer.writeAll("#<procedure>");
+                }
+            },
+            .native_fn => {
+                const nf = obj.as(types.NativeFn);
+                try writer.print("#<builtin {s}>", .{nf.name});
+            },
+            .native_closure => {
+                // A native closure is the LLVM backend's representation of a
+                // Scheme procedure; print it exactly like an interpreter closure
+                // so native output matches the interpreter (#1500). Native
+                // closures never exist in interpreter mode, so this only affects
+                // native binaries — where a define'd function's value is now a
+                // native closure rather than an eval'd interpreter closure.
+                const nc = obj.as(types.NativeClosure);
+                try writer.print("#<procedure {s}>", .{nc.name});
+            },
+            .function => {
+                try writer.writeAll("#<function>");
+            },
+            .transformer => {
+                try writer.writeAll("#<transformer>");
+            },
+            .error_object => {
+                const eo = obj.as(types.ErrorObject);
+                try writer.writeAll("#<error ");
+                try tasks.append(allocator, .{ .irritants_tail = .{ .v = eo.irritants, .depth = depth + 1 } });
+                try tasks.append(allocator, .{ .value = .{ .v = eo.message, .depth = depth + 1 } });
+            },
+            .port => {
+                const port = obj.as(types.Port);
+                if (port.is_input and port.is_output) {
+                    try writer.print("#<input/output-port {s}>", .{port.name});
+                } else if (port.is_input) {
+                    try writer.print("#<input-port {s}>", .{port.name});
+                } else {
+                    try writer.print("#<output-port {s}>", .{port.name});
+                }
+            },
+            .record_type => {
+                const rt = obj.as(types.RecordType);
+                try writer.print("#<record-type {s}>", .{rt.name});
+            },
+            .record_instance => {
+                const ri = obj.as(types.RecordInstance);
+                try writer.print("#<{s}", .{ri.record_type.name});
+                try tasks.append(allocator, .{ .seq = .{ .v = value, .idx = 0, .depth = depth + 1 } });
+            },
+            .complex => {
+                const c = obj.as(types.Complex);
+                var buf: [64]u8 = undefined;
+                if (c.imag == 0.0 and !std.math.signbit(c.imag)) {
+                    try writer.writeAll(formatFlonum(&buf, c.real));
+                } else {
+                    const has_real = c.real != 0.0 or std.math.signbit(c.real);
+                    if (has_real) try writeComplexPart(writer, c.real, c.exact_real);
+                    const im = c.imag;
+                    if (std.math.isNan(im)) {
+                        try writer.writeAll("+nan.0i");
+                    } else if (std.math.isInf(im)) {
+                        try writer.writeAll(if (im > 0) "+inf.0i" else "-inf.0i");
+                    } else {
+                        try writer.writeByte(if (im < 0 or std.math.signbit(im)) '-' else '+');
+                        const mag = @abs(im);
+                        if (mag != 1.0 or has_real) try writeComplexPart(writer, mag, c.exact_imag);
+                        try writer.writeByte('i');
+                    }
+                }
+            },
+            .vector => {
+                try writer.writeAll("#(");
+                try tasks.append(allocator, .{ .seq = .{ .v = value, .idx = 0, .depth = depth + 1 } });
+            },
+            .bytevector => {
+                const bv = obj.as(types.Bytevector);
+                try writer.writeAll("#u8(");
+                for (bv.data, 0..) |byte, i| {
+                    if (i > 0) try writer.writeByte(' ');
+                    try writer.print("{d}", .{byte});
+                }
+                try writer.writeByte(')');
+            },
+            .numeric_vector => {
+                const nv = obj.as(types.NumericVector);
+                try writer.print("#<{s}vector", .{@tagName(nv.kind)});
+                const width = nv.kind.elementWidth();
+                var buf: [64]u8 = undefined;
+                var i: usize = 0;
+                while (i < nv.data.len) : (i += width) {
+                    try writer.writeByte(' ');
+                    switch (nv.kind) {
+                        .s8 => try writer.print("{d}", .{@as(i8, @bitCast(nv.data[i]))}),
+                        .u16 => try writer.print("{d}", .{std.mem.readInt(u16, nv.data[i..][0..2], native_endian)}),
+                        .s16 => try writer.print("{d}", .{std.mem.readInt(i16, nv.data[i..][0..2], native_endian)}),
+                        .u32 => try writer.print("{d}", .{std.mem.readInt(u32, nv.data[i..][0..4], native_endian)}),
+                        .s32 => try writer.print("{d}", .{std.mem.readInt(i32, nv.data[i..][0..4], native_endian)}),
+                        .u64 => try writer.print("{d}", .{std.mem.readInt(u64, nv.data[i..][0..8], native_endian)}),
+                        .s64 => try writer.print("{d}", .{std.mem.readInt(i64, nv.data[i..][0..8], native_endian)}),
+                        .f32 => {
+                            const bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
+                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(bits))));
+                        },
+                        .f64 => {
+                            const bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
+                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(bits))));
+                        },
+                        .c64 => {
+                            const re_bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
+                            const im_bits = std.mem.readInt(u32, nv.data[i + 4 ..][0..4], native_endian);
+                            const im: f32 = @bitCast(im_bits);
+                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(re_bits))));
+                            try writeImaginaryPart(writer, &buf, im);
+                        },
+                        .c128 => {
+                            const re_bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
+                            const im_bits = std.mem.readInt(u64, nv.data[i + 8 ..][0..8], native_endian);
+                            const im: f64 = @bitCast(im_bits);
+                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(re_bits))));
+                            try writeImaginaryPart(writer, &buf, im);
+                        },
+                    }
+                }
+                try writer.writeByte('>');
+            },
+            .promise => {
+                try writer.writeAll("#<promise>");
+            },
+            .continuation => {
+                try writer.writeAll("#<continuation>");
+            },
+            .parameter => {
+                try writer.writeAll("#<parameter>");
+            },
+            .multiple_values => {
+                try writer.writeAll("#<values");
+                try tasks.append(allocator, .{ .seq = .{ .v = value, .idx = 0, .depth = depth + 1 } });
+            },
+            .hash_table => {
+                const ht = obj.as(types.HashTable);
+                try writer.print("#<hash-table size={d}>", .{ht.count});
+            },
+            .ffi_library => {
+                const lib = obj.as(types.FfiLibrary);
+                try writer.print("#<ffi-library \"{s}\">", .{lib.name});
+            },
+            .ffi_function => {
+                const ffi_fn = obj.as(types.FfiFunction);
+                try writer.print("#<ffi-function \"{s}\">", .{ffi_fn.name});
+            },
+            .ffi_callback => {
+                const cb = obj.as(types.FfiCallback);
+                if (cb.active) {
+                    try writer.print("#<ffi-callback slot={d}>", .{cb.slot_index});
+                } else {
+                    try writer.writeAll("#<ffi-callback released>");
+                }
+            },
+            .fiber => {
+                const fiber_mod = @import("fiber.zig");
+                const fiber = obj.as(fiber_mod.Fiber);
+                const status_str: []const u8 = switch (fiber.status) {
+                    .created => "created",
+                    .running => "running",
+                    .suspended => "suspended",
+                    .completed => "completed",
+                    .errored => "errored",
+                    .waiting => "waiting",
+                    .io_waiting => "io-waiting",
+                };
+                try writer.print("#<fiber {d} {s}>", .{ fiber.id, status_str });
+            },
+            .channel => {
+                try writer.writeAll("#<channel>");
+            },
+            .mutex => {
+                const m = obj.as(types.Mutex);
+                try writer.writeAll("#<mutex");
+                if (m.name != types.VOID) {
+                    try writer.writeAll(" ");
+                    try tasks.append(allocator, .{ .text = ">" });
+                    try tasks.append(allocator, .{ .value = .{ .v = m.name, .depth = depth + 1 } });
+                } else {
+                    try writer.writeAll(">");
+                }
+            },
+            .condition_variable => {
+                const cv = obj.as(types.ConditionVariable);
+                try writer.writeAll("#<condition-variable");
+                if (cv.name != types.VOID) {
+                    try writer.writeAll(" ");
+                    try tasks.append(allocator, .{ .text = ">" });
+                    try tasks.append(allocator, .{ .value = .{ .v = cv.name, .depth = depth + 1 } });
+                } else {
+                    try writer.writeAll(">");
+                }
+            },
+            .srfi18_time => {
+                const t = obj.as(types.Srfi18Time);
+                const type_name: []const u8 = switch (t.time_type) {
+                    .utc => "time-utc",
+                    .tai => "time-tai",
+                    .monotonic => "time-monotonic",
+                    .duration => "time-duration",
+                };
+                const ns: u64 = if (t.nanoseconds >= 0) @intCast(t.nanoseconds) else 0;
+                try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, ns });
+            },
+            .bignum => {
+                try writeBignum(writer, value);
+            },
+            .rational => {
+                // Rendered atomically: both parts are always exact integers,
+                // so no depth accounting can split this leaf into the
+                // symbol-shaped `.../...` of kaappi#1953.
+                const rat = obj.as(types.Rational);
+                try writeExactIntPart(writer, rat.numerator);
+                try writer.writeByte('/');
+                try writeExactIntPart(writer, rat.denominator);
+            },
+            .file_info => {
+                const fi = obj.as(types.FileInfo);
+                const kind = switch (fi.file_type) {
+                    .regular => "regular",
+                    .directory => "directory",
+                    .symlink => "symlink",
+                    .fifo => "fifo",
+                    .socket => "socket",
+                    .char_device => "char-device",
+                    .block_device => "block-device",
+                    .other => "other",
+                };
+                try writer.print("#<file-info {s} size={d} mode={o}>", .{ kind, fi.size, fi.mode });
+            },
+            .user_info => {
+                const ui = obj.as(types.UserInfo);
+                try writer.print("#<user-info \"{s}\" uid={d}>", .{ ui.name, ui.uid });
+            },
+            .group_info => {
+                const gi = obj.as(types.GroupInfo);
+                try writer.print("#<group-info \"{s}\" gid={d}>", .{ gi.name, gi.gid });
+            },
+            .directory_object => {
+                try writer.writeAll("#<directory-object>");
+            },
+            .random_source => {
+                try writer.writeAll("#<random-source>");
+            },
+            .scheme_environment => {
+                try writer.writeAll("#<environment>");
+            },
+            .ephemeron => {
+                const eph = obj.as(types.Ephemeron);
+                try writer.writeAll(if (eph.broken) "#<ephemeron broken>" else "#<ephemeron>");
+            },
+            .guardian => {
+                const g = obj.as(types.Guardian);
+                try writer.writeAll(if (g.is_transport) "#<transport-cell-guardian>" else "#<guardian>");
+            },
+            .transport_cell => {
+                const tc = obj.as(types.TransportCell);
+                try writer.writeAll(if (tc.broken) "#<transport-cell broken>" else "#<transport-cell>");
+            },
+        }
+    } else {
+        try writer.writeAll("#<unknown>");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Atom helpers (shared by the engine and the numeric printers)
+// ---------------------------------------------------------------------------
 
 fn startsWithIgnoreCase(s: []const u8, prefix: []const u8) bool {
     return s.len >= prefix.len and std.ascii.eqlIgnoreCase(s[0..prefix.len], prefix);
@@ -519,651 +1042,57 @@ fn writeImaginaryPart(writer: anytype, buf: []u8, im: f64) !void {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Bounded DIAGNOSTIC printer: no cycle pre-pass, no labels, output truncated
+/// with `...` at MAX_PRINT_DEPTH (spine elements count toward the cap, so
+/// even an unlabelled cyclic list terminates). For compiler diagnostics and
+/// the REPL pretty-printer's layout probes ONLY -- output that a program
+/// could `read` back must go through `valueToString`, whose output is exact
+/// and label-correct at any depth.
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
-    return printValueWithDepth(writer, value, mode, 0);
+    var sfb = std.heap.stackFallback(2048, std.heap.page_allocator);
+    const atom_mode: PrintMode = if (mode == .shared) .write else mode;
+    try printStructured(sfb.get(), writer, value, atom_mode, null, MAX_PRINT_DEPTH);
 }
 
-fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u32) anyerror!void {
-    if (mode == .shared) {
-        var state = SharedState{};
-        markShared(value, &state);
-        try printValueShared(writer, value, &state, .write);
-        return;
+/// Render `value` exactly. `write`/`display` label only structure that forms
+/// a cycle (acyclic sharing prints in full, per R7RS); `.shared` labels every
+/// repeated container. Output is never truncated: any depth, any number of
+/// labels, and every container the printer recurses into is covered by the
+/// pre-pass, so printing always terminates.
+pub fn valueToString(allocator: std.mem.Allocator, value: Value, mode: PrintMode) ![]u8 {
+    var labels = Labels.init(allocator);
+    defer labels.deinit();
+    switch (mode) {
+        .write, .display => try findCycleTargets(allocator, value, &labels),
+        .shared => try findSharedNodes(allocator, value, &labels),
     }
-    if (depth >= MAX_PRINT_DEPTH) {
-        try writer.writeAll("...");
-        return;
-    }
-    if (types.isFixnum(value)) {
-        try writer.print("{d}", .{types.toFixnum(value)});
-    } else if (value == types.NIL) {
-        try writer.writeAll("()");
-    } else if (value == types.TRUE) {
-        try writer.writeAll("#t");
-    } else if (value == types.FALSE) {
-        try writer.writeAll("#f");
-    } else if (value == types.VOID) {
-        // void prints nothing
-    } else if (value == types.EOF) {
-        try writer.writeAll("#<eof>");
-    } else if (value == types.UNDEFINED) {
-        try writer.writeAll("#<undefined>");
-    } else if (types.isChar(value)) {
-        const cp = types.toChar(value);
-        if (mode == .write) {
-            try writer.writeAll("#\\");
-            switch (cp) {
-                0x00 => try writer.writeAll("null"),
-                0x07 => try writer.writeAll("alarm"),
-                0x08 => try writer.writeAll("backspace"),
-                0x09 => try writer.writeAll("tab"),
-                0x0A => try writer.writeAll("newline"),
-                0x0D => try writer.writeAll("return"),
-                0x1B => try writer.writeAll("escape"),
-                0x20 => try writer.writeAll("space"),
-                0x7F => try writer.writeAll("delete"),
-                else => {
-                    if (cp < 0x20 or (cp >= 0x7F and cp <= 0x9F)) {
-                        var hex_buf: [8]u8 = undefined;
-                        var hw: std.Io.Writer = .fixed(&hex_buf);
-                        hw.print("x{x}", .{cp}) catch {};
-                        try writer.writeAll(hw.buffered());
-                    } else {
-                        var buf: [4]u8 = undefined;
-                        const len = std.unicode.utf8Encode(cp, &buf) catch 0;
-                        try writer.writeAll(buf[0..len]);
-                    }
-                },
-            }
-        } else {
-            var buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(cp, &buf) catch 0;
-            try writer.writeAll(buf[0..len]);
-        }
-    } else if (types.isFlonum(value)) {
-        var buf: [64]u8 = undefined;
-        try writer.writeAll(formatFlonum(&buf, types.toFlonum(value)));
-    } else if (types.isPointer(value)) {
-        const obj = types.toObject(value);
-        switch (obj.tag) {
-            .pair => try printListWithDepth(writer, value, mode, depth),
-            .symbol => {
-                const sym = obj.as(types.Symbol);
-                if (!sym.interned and mode != .display) {
-                    // SRFI 258: an uninterned symbol has no readable external
-                    // representation. Writing it in this `#<…>` form makes
-                    // `read` reject it (the reader errors on `#<`), deliberately
-                    // breaking write/read invariance (R7RS 6.5). `display` still
-                    // shows the bare name for human-readable output.
-                    try writer.writeAll("#<uninterned-symbol ");
-                    try writer.writeAll(sym.name);
-                    try writer.writeByte('>');
-                } else if (mode != .display and symbolNeedsBars(sym.name)) {
-                    try writer.writeByte('|');
-                    for (sym.name) |c| {
-                        if (c == '|' or c == '\\') {
-                            try writer.writeByte('\\');
-                            try writer.writeByte(c);
-                        } else if (c < 0x20 or c == 0x7F) {
-                            try writer.writeAll("\\x");
-                            const hex = "0123456789abcdef";
-                            try writer.writeByte(hex[c >> 4]);
-                            try writer.writeByte(hex[c & 0x0F]);
-                            try writer.writeByte(';');
-                        } else {
-                            try writer.writeByte(c);
-                        }
-                    }
-                    try writer.writeByte('|');
-                } else {
-                    try writer.writeAll(sym.name);
-                }
-            },
-            .string => {
-                const str = obj.as(types.SchemeString);
-                if (mode == .write) {
-                    try writer.writeByte('"');
-                    for (str.data) |c| {
-                        switch (c) {
-                            '"' => try writer.writeAll("\\\""),
-                            '\\' => try writer.writeAll("\\\\"),
-                            '\n' => try writer.writeAll("\\n"),
-                            '\r' => try writer.writeAll("\\r"),
-                            '\t' => try writer.writeAll("\\t"),
-                            0x07 => try writer.writeAll("\\a"),
-                            0x08 => try writer.writeAll("\\b"),
-                            else => {
-                                if (c < 0x20 or c == 0x7F) {
-                                    try writer.writeAll("\\x");
-                                    const hex = "0123456789abcdef";
-                                    try writer.writeByte(hex[c >> 4]);
-                                    try writer.writeByte(hex[c & 0x0F]);
-                                    try writer.writeByte(';');
-                                } else {
-                                    try writer.writeByte(c);
-                                }
-                            },
-                        }
-                    }
-                    try writer.writeByte('"');
-                } else {
-                    try writer.writeAll(str.data);
-                }
-            },
-            .flonum => {
-                const flo = obj.as(types.Flonum);
-                var buf: [64]u8 = undefined;
-                try writer.writeAll(formatFlonum(&buf, flo.value));
-            },
-            .closure => {
-                const cls = obj.as(types.Closure);
-                if (cls.func.name) |name| {
-                    try writer.print("#<procedure {s}>", .{name});
-                } else {
-                    try writer.writeAll("#<procedure>");
-                }
-            },
-            .native_fn => {
-                const nf = obj.as(types.NativeFn);
-                try writer.print("#<builtin {s}>", .{nf.name});
-            },
-            .native_closure => {
-                // A native closure is the LLVM backend's representation of a
-                // Scheme procedure; print it exactly like an interpreter closure
-                // so native output matches the interpreter (#1500). Native
-                // closures never exist in interpreter mode, so this only affects
-                // native binaries — where a define'd function's value is now a
-                // native closure rather than an eval'd interpreter closure.
-                const nc = obj.as(types.NativeClosure);
-                try writer.print("#<procedure {s}>", .{nc.name});
-            },
-            .function => {
-                try writer.writeAll("#<function>");
-            },
-            .transformer => {
-                try writer.writeAll("#<transformer>");
-            },
-            .error_object => {
-                const err = obj.as(types.ErrorObject);
-                try writer.writeAll("#<error ");
-                try printValueWithDepth(writer, err.message, mode, depth + 1);
-                if (err.irritants != types.NIL) {
-                    try writer.writeByte(' ');
-                    var irr = err.irritants;
-                    while (irr != types.NIL) {
-                        if (types.isPair(irr)) {
-                            try printValueWithDepth(writer, types.car(irr), mode, depth + 1);
-                            irr = types.cdr(irr);
-                            if (irr != types.NIL) try writer.writeByte(' ');
-                        } else {
-                            try printValueWithDepth(writer, irr, mode, depth + 1);
-                            break;
-                        }
-                    }
-                }
-                try writer.writeByte('>');
-            },
-            .port => {
-                const port = obj.as(types.Port);
-                if (port.is_input and port.is_output) {
-                    try writer.print("#<input/output-port {s}>", .{port.name});
-                } else if (port.is_input) {
-                    try writer.print("#<input-port {s}>", .{port.name});
-                } else {
-                    try writer.print("#<output-port {s}>", .{port.name});
-                }
-            },
-            .record_type => {
-                const rt = obj.as(types.RecordType);
-                try writer.print("#<record-type {s}>", .{rt.name});
-            },
-            .record_instance => {
-                const ri = obj.as(types.RecordInstance);
-                try writer.print("#<{s}", .{ri.record_type.name});
-                for (ri.fields) |field| {
-                    try writer.writeByte(' ');
-                    try printValueWithDepth(writer, field, mode, depth + 1);
-                }
-                try writer.writeByte('>');
-            },
-            .complex => {
-                const c = obj.as(types.Complex);
-                var buf: [64]u8 = undefined;
-                if (c.imag == 0.0 and !std.math.signbit(c.imag)) {
-                    try writer.writeAll(formatFlonum(&buf, c.real));
-                } else {
-                    const has_real = c.real != 0.0 or std.math.signbit(c.real);
-                    if (has_real) try writeComplexPart(writer, c.real, c.exact_real);
-                    const im = c.imag;
-                    if (std.math.isNan(im)) {
-                        try writer.writeAll("+nan.0i");
-                    } else if (std.math.isInf(im)) {
-                        try writer.writeAll(if (im > 0) "+inf.0i" else "-inf.0i");
-                    } else {
-                        try writer.writeByte(if (im < 0 or std.math.signbit(im)) '-' else '+');
-                        const mag = @abs(im);
-                        if (mag != 1.0 or has_real) try writeComplexPart(writer, mag, c.exact_imag);
-                        try writer.writeByte('i');
-                    }
-                }
-            },
-            .vector => {
-                const vec = obj.as(types.Vector);
-                try writer.writeAll("#(");
-                for (vec.data, 0..) |elem, i| {
-                    if (i > 0) try writer.writeByte(' ');
-                    try printValueWithDepth(writer, elem, mode, depth + 1);
-                }
-                try writer.writeByte(')');
-            },
-            .bytevector => {
-                const bv = obj.as(types.Bytevector);
-                try writer.writeAll("#u8(");
-                for (bv.data, 0..) |byte, i| {
-                    if (i > 0) try writer.writeByte(' ');
-                    try writer.print("{d}", .{byte});
-                }
-                try writer.writeByte(')');
-            },
-            .numeric_vector => {
-                const nv = obj.as(types.NumericVector);
-                try writer.print("#<{s}vector", .{@tagName(nv.kind)});
-                const width = nv.kind.elementWidth();
-                var buf: [64]u8 = undefined;
-                var i: usize = 0;
-                while (i < nv.data.len) : (i += width) {
-                    try writer.writeByte(' ');
-                    switch (nv.kind) {
-                        .s8 => try writer.print("{d}", .{@as(i8, @bitCast(nv.data[i]))}),
-                        .u16 => try writer.print("{d}", .{std.mem.readInt(u16, nv.data[i..][0..2], native_endian)}),
-                        .s16 => try writer.print("{d}", .{std.mem.readInt(i16, nv.data[i..][0..2], native_endian)}),
-                        .u32 => try writer.print("{d}", .{std.mem.readInt(u32, nv.data[i..][0..4], native_endian)}),
-                        .s32 => try writer.print("{d}", .{std.mem.readInt(i32, nv.data[i..][0..4], native_endian)}),
-                        .u64 => try writer.print("{d}", .{std.mem.readInt(u64, nv.data[i..][0..8], native_endian)}),
-                        .s64 => try writer.print("{d}", .{std.mem.readInt(i64, nv.data[i..][0..8], native_endian)}),
-                        .f32 => {
-                            const bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
-                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(bits))));
-                        },
-                        .f64 => {
-                            const bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
-                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(bits))));
-                        },
-                        .c64 => {
-                            const re_bits = std.mem.readInt(u32, nv.data[i..][0..4], native_endian);
-                            const im_bits = std.mem.readInt(u32, nv.data[i + 4 ..][0..4], native_endian);
-                            const im: f32 = @bitCast(im_bits);
-                            try writer.writeAll(formatFlonum(&buf, @as(f32, @bitCast(re_bits))));
-                            try writeImaginaryPart(writer, &buf, im);
-                        },
-                        .c128 => {
-                            const re_bits = std.mem.readInt(u64, nv.data[i..][0..8], native_endian);
-                            const im_bits = std.mem.readInt(u64, nv.data[i + 8 ..][0..8], native_endian);
-                            const im: f64 = @bitCast(im_bits);
-                            try writer.writeAll(formatFlonum(&buf, @as(f64, @bitCast(re_bits))));
-                            try writeImaginaryPart(writer, &buf, im);
-                        },
-                    }
-                }
-                try writer.writeByte('>');
-            },
-            .promise => {
-                try writer.writeAll("#<promise>");
-            },
-            .continuation => {
-                try writer.writeAll("#<continuation>");
-            },
-            .parameter => {
-                try writer.writeAll("#<parameter>");
-            },
-            .multiple_values => {
-                const mv = obj.as(types.MultipleValues);
-                try writer.writeAll("#<values");
-                for (mv.values) |val| {
-                    try writer.writeByte(' ');
-                    try printValueWithDepth(writer, val, mode, depth + 1);
-                }
-                try writer.writeByte('>');
-            },
-            .hash_table => {
-                const ht = obj.as(types.HashTable);
-                try writer.print("#<hash-table size={d}>", .{ht.count});
-            },
-            .ffi_library => {
-                const lib = obj.as(types.FfiLibrary);
-                try writer.print("#<ffi-library \"{s}\">", .{lib.name});
-            },
-            .ffi_function => {
-                const ffi_fn = obj.as(types.FfiFunction);
-                try writer.print("#<ffi-function \"{s}\">", .{ffi_fn.name});
-            },
-            .ffi_callback => {
-                const cb = obj.as(types.FfiCallback);
-                if (cb.active) {
-                    try writer.print("#<ffi-callback slot={d}>", .{cb.slot_index});
-                } else {
-                    try writer.writeAll("#<ffi-callback released>");
-                }
-            },
-            .fiber => {
-                const fiber_mod = @import("fiber.zig");
-                const fiber = obj.as(fiber_mod.Fiber);
-                const status_str: []const u8 = switch (fiber.status) {
-                    .created => "created",
-                    .running => "running",
-                    .suspended => "suspended",
-                    .completed => "completed",
-                    .errored => "errored",
-                    .waiting => "waiting",
-                    .io_waiting => "io-waiting",
-                };
-                try writer.print("#<fiber {d} {s}>", .{ fiber.id, status_str });
-            },
-            .channel => {
-                try writer.writeAll("#<channel>");
-            },
-            .mutex => {
-                const m = obj.as(types.Mutex);
-                try writer.writeAll("#<mutex");
-                if (m.name != types.VOID) {
-                    try writer.writeAll(" ");
-                    try printValueWithDepth(writer, m.name, mode, depth + 1);
-                }
-                try writer.writeAll(">");
-            },
-            .condition_variable => {
-                const cv = obj.as(types.ConditionVariable);
-                try writer.writeAll("#<condition-variable");
-                if (cv.name != types.VOID) {
-                    try writer.writeAll(" ");
-                    try printValueWithDepth(writer, cv.name, mode, depth + 1);
-                }
-                try writer.writeAll(">");
-            },
-            .srfi18_time => {
-                const t = obj.as(types.Srfi18Time);
-                const type_name: []const u8 = switch (t.time_type) {
-                    .utc => "time-utc",
-                    .tai => "time-tai",
-                    .monotonic => "time-monotonic",
-                    .duration => "time-duration",
-                };
-                const ns: u64 = if (t.nanoseconds >= 0) @intCast(t.nanoseconds) else 0;
-                try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, ns });
-            },
-            .bignum => {
-                const bignum_mod = @import("bignum.zig");
-                const allocator = std.heap.page_allocator;
-                const s = bignum_mod.toString(allocator, value) catch {
-                    try writer.writeAll("?bignum?");
-                    return;
-                };
-                defer allocator.free(s);
-                try writer.writeAll(s);
-            },
-            .rational => {
-                const rat = obj.as(types.Rational);
-                try printValueWithDepth(writer, rat.numerator, mode, depth + 1);
-                try writer.writeByte('/');
-                try printValueWithDepth(writer, rat.denominator, mode, depth + 1);
-            },
-            .file_info => {
-                const fi = obj.as(types.FileInfo);
-                const kind = switch (fi.file_type) {
-                    .regular => "regular",
-                    .directory => "directory",
-                    .symlink => "symlink",
-                    .fifo => "fifo",
-                    .socket => "socket",
-                    .char_device => "char-device",
-                    .block_device => "block-device",
-                    .other => "other",
-                };
-                try writer.print("#<file-info {s} size={d} mode={o}>", .{ kind, fi.size, fi.mode });
-            },
-            .user_info => {
-                const ui = obj.as(types.UserInfo);
-                try writer.print("#<user-info \"{s}\" uid={d}>", .{ ui.name, ui.uid });
-            },
-            .group_info => {
-                const gi = obj.as(types.GroupInfo);
-                try writer.print("#<group-info \"{s}\" gid={d}>", .{ gi.name, gi.gid });
-            },
-            .directory_object => {
-                try writer.writeAll("#<directory-object>");
-            },
-            .random_source => {
-                try writer.writeAll("#<random-source>");
-            },
-            .scheme_environment => {
-                try writer.writeAll("#<environment>");
-            },
-            .ephemeron => {
-                const eph = obj.as(types.Ephemeron);
-                try writer.writeAll(if (eph.broken) "#<ephemeron broken>" else "#<ephemeron>");
-            },
-            .guardian => {
-                const g = obj.as(types.Guardian);
-                try writer.writeAll(if (g.is_transport) "#<transport-cell-guardian>" else "#<guardian>");
-            },
-            .transport_cell => {
-                const tc = obj.as(types.TransportCell);
-                try writer.writeAll(if (tc.broken) "#<transport-cell broken>" else "#<transport-cell>");
-            },
-        }
-    } else {
-        try writer.writeAll("#<unknown>");
-    }
-}
 
-fn printList(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
-    return printListWithDepth(writer, value, mode, 0);
-}
-
-fn printListWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u32) anyerror!void {
-    try writer.writeByte('(');
-    try printValueWithDepth(writer, types.car(value), mode, depth + 1);
-
-    var rest = types.cdr(value);
-    while (rest != types.NIL) {
-        if (types.isPair(rest)) {
-            try writer.writeByte(' ');
-            try printValueWithDepth(writer, types.car(rest), mode, depth + 1);
-            rest = types.cdr(rest);
-        } else {
-            try writer.writeAll(" . ");
-            try printValueWithDepth(writer, rest, mode, depth + 1);
-            break;
-        }
-    }
-    try writer.writeByte(')');
-}
-
-pub fn prettyPrint(allocator: std.mem.Allocator, value: Value, width: u16) ![]u8 {
-    const flat = try valueToString(allocator, value, .write);
-    if (flat.len <= width) return flat;
-    allocator.free(flat);
     var aw: std.Io.Writer.Allocating = .init(allocator);
-    try ppValue(&aw.writer, value, 0, width, 0);
+    errdefer aw.deinit();
+    const atom_mode: PrintMode = if (mode == .shared) .write else mode;
+    const lbl: ?*Labels = if (labels.map.count() > 0) &labels else null;
+    try printStructured(allocator, &aw.writer, value, atom_mode, lbl, NO_DEPTH_LIMIT);
     return aw.toOwnedSlice();
 }
 
-fn ppValue(writer: anytype, value: Value, indent: u16, width: u16, depth: u32) anyerror!void {
-    if (depth >= MAX_PRINT_DEPTH) {
-        try writer.writeAll("...");
-        return;
-    }
+/// `write-simple` (R7RS 6.13.3): "shared structure is never represented
+/// using datum labels". Acyclic input renders exactly like `write`; cyclic
+/// input has no finite label-free representation, so rather than the
+/// non-termination the spec anticipates, this reports CircularStructure and
+/// the primitive raises a catchable error.
+pub fn valueToStringSimple(allocator: std.mem.Allocator, value: Value) ![]u8 {
+    var labels = Labels.init(allocator);
+    defer labels.deinit();
+    try findCycleTargets(allocator, value, &labels);
+    if (labels.map.count() > 0) return error.CircularStructure;
 
-    // Atoms — always single-line
-    if (!types.isPair(value) and !types.isVector(value) and !types.isBytevector(value)) {
-        try printValue(writer, value, .write);
-        return;
-    }
-
-    // Anything that fits on one line — print flat
-    const flat_len = exactFlatLen(value);
-    if (indent + flat_len <= width) {
-        try printValue(writer, value, .write);
-        return;
-    }
-
-    // Vectors — one element per line when too wide
-    if (types.isVector(value)) {
-        const vec = types.toObject(value).as(types.Vector);
-        try writer.writeAll("#(");
-        const new_indent = indent + 2;
-        for (vec.data, 0..) |elem, i| {
-            if (i > 0) {
-                try writer.writeByte('\n');
-                try writeIndent(writer, new_indent);
-            }
-            try ppValue(writer, elem, new_indent, width, depth + 1);
-        }
-        try writer.writeByte(')');
-        return;
-    }
-
-    // Bytevectors — flow-wrap (multiple bytes per line)
-    if (types.isBytevector(value)) {
-        const bv = types.toObject(value).as(types.Bytevector);
-        try writer.writeAll("#u8(");
-        const new_indent = indent + 4;
-        var col: u16 = indent + 4;
-        for (bv.data, 0..) |byte, i| {
-            var num_buf: [4]u8 = undefined;
-            var nw: std.Io.Writer = .fixed(&num_buf);
-            nw.print("{d}", .{byte}) catch {};
-            const num_str = nw.buffered();
-            const elem_w: u16 = @intCast(num_str.len + @as(usize, if (i > 0) 1 else 0));
-            if (i > 0 and col + elem_w > width) {
-                try writer.writeByte('\n');
-                try writeIndent(writer, new_indent);
-                col = new_indent;
-            } else if (i > 0) {
-                try writer.writeByte(' ');
-                col += 1;
-            }
-            try writer.writeAll(num_str);
-            col += @intCast(num_str.len);
-        }
-        try writer.writeByte(')');
-        return;
-    }
-
-    // Lists — special-form-aware indentation
-    const style = specialFormStyle(value);
-    try writer.writeByte('(');
-    const body_indent = indent + 2;
-
-    switch (style) {
-        .body => {
-            // (head arg1\n  body...) — head + first arg on line 1
-            try ppValue(writer, types.car(value), body_indent, width, depth + 1);
-            var cur = types.cdr(value);
-            if (cur != types.NIL and types.isPair(cur)) {
-                try writer.writeByte(' ');
-                try ppValue(writer, types.car(cur), body_indent, width, depth + 1);
-                cur = types.cdr(cur);
-            }
-            try ppListTail(writer, cur, body_indent, width, depth);
-        },
-        .clause => {
-            // (head\n  clause...) — head alone on line 1
-            try ppValue(writer, types.car(value), body_indent, width, depth + 1);
-            try ppListTail(writer, types.cdr(value), body_indent, width, depth);
-        },
-        .none => {
-            // Default: each element on its own line
-            try ppValue(writer, types.car(value), body_indent, width, depth + 1);
-            try ppListTail(writer, types.cdr(value), body_indent, width, depth);
-        },
-    }
-    try writer.writeByte(')');
-}
-
-fn ppListTail(writer: anytype, tail: Value, indent: u16, width: u16, depth: u32) anyerror!void {
-    var cur = tail;
-    var count: u32 = 0;
-    while (cur != types.NIL) {
-        if (count >= MAX_PRINT_DEPTH) {
-            try writer.writeAll(" ...");
-            break;
-        }
-        if (!types.isPair(cur)) {
-            try writer.writeByte('\n');
-            try writeIndent(writer, indent);
-            try writer.writeAll(". ");
-            try ppValue(writer, cur, indent, width, depth + 1);
-            break;
-        }
-        try writer.writeByte('\n');
-        try writeIndent(writer, indent);
-        try ppValue(writer, types.car(cur), indent, width, depth + 1);
-        cur = types.cdr(cur);
-        count += 1;
-    }
-}
-
-fn writeIndent(writer: anytype, n: u16) !void {
-    var i: u16 = 0;
-    while (i < n) : (i += 1) try writer.writeByte(' ');
-}
-
-const FormStyle = enum { body, clause, none };
-
-fn specialFormStyle(value: Value) FormStyle {
-    if (!types.isPair(value)) return .none;
-    const head = types.car(value);
-    if (!types.isSymbol(head)) return .none;
-    const name = types.symbolName(head);
-    for (body_forms) |f| {
-        if (std.mem.eql(u8, name, f)) return .body;
-    }
-    for (clause_forms) |f| {
-        if (std.mem.eql(u8, name, f)) return .clause;
-    }
-    return .none;
-}
-
-const body_forms = [_][]const u8{
-    "define",               "define-syntax",        "define-record-type",
-    "define-library",       "define-values",        "lambda",
-    "let",                  "let*",                 "letrec",
-    "letrec*",              "let-values",           "let*-values",
-    "when",                 "unless",               "begin",
-    "guard",                "parameterize",         "do",
-    "syntax-rules",         "dynamic-wind",         "with-exception-handler",
-    "call-with-port",       "call-with-input-file", "call-with-output-file",
-    "with-input-from-file", "with-output-to-file",
-};
-
-const clause_forms = [_][]const u8{ "cond", "case", "case-lambda" };
-
-fn exactFlatLen(value: Value) u16 {
-    var discard_buf: [64]u8 = undefined;
-    var dw: std.Io.Writer.Discarding = .init(&discard_buf);
-    printValue(&dw.writer, value, .write) catch return std.math.maxInt(u16);
-    const count = dw.fullCount();
-    return if (count > std.math.maxInt(u16)) std.math.maxInt(u16) else @intCast(count);
-}
-
-pub fn valueToString(allocator: std.mem.Allocator, value: Value, mode: PrintMode) ![]u8 {
     var aw: std.Io.Writer.Allocating = .init(allocator);
-
-    // For `write`/`display`, R7RS requires labeling only structure that forms a
-    // cycle (so output terminates) while leaving acyclic sharing in full. Detect
-    // cycles up front; if none exist, take the plain fast path so non-cyclic
-    // output is byte-for-byte unchanged.
-    if (mode == .write or mode == .display) {
-        var state = SharedState{};
-        markCycles(allocator, value, &state);
-        if (state.shared_count > 0) {
-            try printValueShared(&aw.writer, value, &state, mode);
-            return aw.toOwnedSlice();
-        }
-    }
-
-    try printValue(&aw.writer, value, mode);
+    errdefer aw.deinit();
+    try printStructured(allocator, &aw.writer, value, .write, null, NO_DEPTH_LIMIT);
     return aw.toOwnedSlice();
 }
 
@@ -1320,115 +1249,4 @@ test "write-shared circular record instance" {
     const s = try valueToString(std.testing.allocator, ri, .shared);
     defer std.testing.allocator.free(s);
     try std.testing.expectEqualStrings("#0=#<cell #0#>", s);
-}
-
-test "prettyPrint short list stays single-line" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    const items = [_]Value{ types.makeFixnum(1), types.makeFixnum(2), types.makeFixnum(3) };
-    const list_val = try gc.makeList(&items);
-
-    const s = try prettyPrint(std.testing.allocator, list_val, 80);
-    defer std.testing.allocator.free(s);
-    try std.testing.expectEqualStrings("(1 2 3)", s);
-}
-
-test "prettyPrint long list wraps" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    var items: [20]Value = undefined;
-    for (&items, 0..) |*slot, i| slot.* = types.makeFixnum(@intCast(i + 1));
-    const list_val = try gc.makeList(&items);
-
-    const s = try prettyPrint(std.testing.allocator, list_val, 40);
-    defer std.testing.allocator.free(s);
-    // Should wrap — check it contains newlines and starts/ends correctly
-    try std.testing.expect(std.mem.indexOf(u8, s, "\n") != null);
-    try std.testing.expect(std.mem.startsWith(u8, s, "(1\n"));
-    try std.testing.expect(std.mem.endsWith(u8, s, "20)"));
-}
-
-test "prettyPrint vector wraps when too wide" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    var data: [15]Value = undefined;
-    for (&data, 0..) |*slot, i| slot.* = types.makeFixnum(@intCast(i + 1));
-    const vec = try gc.allocVector(&data);
-
-    const s = try prettyPrint(std.testing.allocator, vec, 30);
-    defer std.testing.allocator.free(s);
-    try std.testing.expect(std.mem.indexOf(u8, s, "\n") != null);
-    try std.testing.expect(std.mem.startsWith(u8, s, "#(1\n"));
-    try std.testing.expect(std.mem.endsWith(u8, s, "15)"));
-}
-
-test "prettyPrint short vector stays single-line" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    const data = [_]Value{ types.makeFixnum(1), types.makeFixnum(2), types.makeFixnum(3) };
-    const vec = try gc.allocVector(&data);
-
-    const s = try prettyPrint(std.testing.allocator, vec, 80);
-    defer std.testing.allocator.free(s);
-    try std.testing.expectEqualStrings("#(1 2 3)", s);
-}
-
-test "prettyPrint body form indentation" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    // (define name (+ 1 2 3 4 5 6 7 8 9 10))
-    var body_items: [10]Value = undefined;
-    for (&body_items, 0..) |*slot, i| slot.* = types.makeFixnum(@intCast(i + 1));
-    const plus_sym = try gc.allocSymbol("+");
-    var plus_args: [11]Value = undefined;
-    plus_args[0] = plus_sym;
-    for (plus_args[1..], 0..) |*slot, i| slot.* = body_items[i];
-    var body = try gc.makeList(&plus_args);
-    // Root across the allocations below — unrooted locals are swept under
-    // -Dgc-stress=true (#1682).
-    gc.pushRoot(&body);
-    defer gc.popRoot();
-
-    const define_sym = try gc.allocSymbol("define");
-    const name_sym = try gc.allocSymbol("name");
-    const define_items = [_]Value{ define_sym, name_sym, body };
-    const form = try gc.makeList(&define_items);
-
-    const s = try prettyPrint(std.testing.allocator, form, 30);
-    defer std.testing.allocator.free(s);
-    // Should start with "(define name" on line 1
-    try std.testing.expect(std.mem.startsWith(u8, s, "(define name\n"));
-}
-
-test "prettyPrint clause form indentation" {
-    const memory = @import("memory.zig");
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    // (cond (#t 1) (#f 2))
-    const cond_sym = try gc.allocSymbol("cond");
-    const clause1_items = [_]Value{ types.TRUE, types.makeFixnum(1) };
-    var clause1 = try gc.makeList(&clause1_items);
-    // clause1 must stay rooted while the next makeList allocates: under
-    // -Dgc-stress=true that collection sweeps unrooted locals (#1682).
-    gc.pushRoot(&clause1);
-    defer gc.popRoot();
-    const clause2_items = [_]Value{ types.FALSE, types.makeFixnum(2) };
-    const clause2 = try gc.makeList(&clause2_items);
-    const cond_items = [_]Value{ cond_sym, clause1, clause2 };
-    const form = try gc.makeList(&cond_items);
-
-    const s = try prettyPrint(std.testing.allocator, form, 15);
-    defer std.testing.allocator.free(s);
-    try std.testing.expectEqualStrings("(cond\n  (#t 1)\n  (#f 2))", s);
 }

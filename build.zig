@@ -284,6 +284,13 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi",
         .root_module = wasm_mod,
     });
+    // Match the native executables' 64 MB stack (see `exe.stack_size` above).
+    // Without this the module took the 16 MiB linker default, so deep native
+    // recursion (reader nesting, the pretty-printer) ran the wasm32 shadow
+    // stack off the bottom of linear memory — an uncatchable module trap —
+    // before any depth guard calibrated for the native stack could fire
+    // (kaappi#2107).
+    wasm_exe.stack_size = 64 * 1024 * 1024;
     const wasm_install = b.addInstallArtifact(wasm_exe, .{});
     wasm_step.dependOn(&wasm_install.step);
 

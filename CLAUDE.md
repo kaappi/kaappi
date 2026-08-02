@@ -296,7 +296,8 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
 | `expander.zig` | ~1000 | Macro-use expansion engine: expandMacro/expandProceduralMacro, syntax-rules pattern matching, usertext/hygiene-strip walks |
 | `expander_instantiate.zig` | ~1000 | syntax-rules template instantiation + renameForHygiene/scope-table minting (shares expander.zig's threadlocal expansion context) |
-| `printer.zig` | ~300 | Value → string (write mode and display mode) |
+| `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
+| `printer_pretty.zig` | ~320 | REPL pretty-printer (fits-or-wraps layout over the bounded diagnostic printer; re-exported as `printer.prettyPrint`) |
 
 ### Heap-type domain files (split into 11 files, kaappi#1731)
 
@@ -1210,7 +1211,12 @@ re-export, IR tests, and tail position handling.
    (generational remembered-set check) — and two in `src/gc_sweep.zig`:
    `objectSize` (GC stats) and `freeObject` (free owned memory).
    `types.zig`'s `typeName` also switches on `ObjectTag` for error messages.
-5. Add display in `src/printer.zig`.
+5. Add display in `src/printer.zig` (`printValueOnce`). If the new arm
+   recurses into contained Values, it must ALSO join `isTraversable` +
+   `childAt` there, and push engine tasks instead of recursing — a printed
+   edge invisible to cycle detection is exactly the four-procedure hang of
+   kaappi#1954. Add a self-referential instance to the per-tag termination
+   test in `src/tests_printer.zig` ("every traversable container...").
 
 ## GC safety
 
