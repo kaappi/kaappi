@@ -66,9 +66,12 @@ fi
 #                     and `types_port.zig` move u64s in and out of a bytevector
 #                     with an explicit `.little`, so a seeded stream is meant
 #                     to be identical on every host. Its own assertions compare
-#                     two ports *on the same host*, which is the same
-#                     cancelling pairing the `.sbc` tests have -- running it
-#                     big-endian at least catches a write/read side disagreeing
+#                     two ports *on the same host*, so they cannot see a
+#                     byte-order change at all: flipping the seed-word read to
+#                     `.big` leaves this file at 35/35. The golden byte
+#                     sequences that DO see it live in endianness-audit.scm
+#                     above (audit v2 Phase 7D); this file stays in the list
+#                     because it is the behavioural suite around them
 #   internal-primitives-audit
 #                     %host-big-endian? reachability and arity
 FILES=(

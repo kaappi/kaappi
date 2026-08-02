@@ -54,6 +54,7 @@
         (srfi 160 u8) (srfi 160 u16) (srfi 160 s16) (srfi 160 u32) (srfi 160 s32)
         (srfi 160 u64) (srfi 160 s64) (srfi 160 f32) (srfi 160 f64)
         (srfi 160 c64) (srfi 160 c128)
+        (prefix (srfi 271 determinized) d:)
         (kaappi primitives))
 
 (test-begin "endianness audit")
@@ -445,6 +446,100 @@
             "18446744073709551617" (number->string (+ (expt 2 64) 1)))
 (test-equal "a negative two-limb bignum round-trips through string->number"
             (- (+ (expt 2 64) 1)) (string->number "-18446744073709551617"))
+
+;;; ------------------------------------------------------------------
+;;; 8. SRFI 271 determinized random ports: golden byte sequences.
+;;;
+;;;    `primitives_random_port.zig` and `types_port.zig` move u64s across the
+;;;    bytevector boundary with an explicit `.little` in four places: the seed
+;;;    words in, the state words in, the state words out, and each 8-byte
+;;;    output block. `tests/scheme/srfi/srfi271.scm` compares one port against
+;;;    another *on the same host*, so a swap present on both sides of any of
+;;;    those pairings cancels out and stays green everywhere -- the same
+;;;    cancelling pairing the `.sbc` round-trip tests have (audit v2, 7D).
+;;;
+;;;    Every expected value below is a literal, derived from the published
+;;;    xoshiro256** algorithm rather than captured from this implementation,
+;;;    so it means the same thing on a big-endian host as on a little-endian
+;;;    one. The two directions never touch: the "from a seed" assertions
+;;;    consult no literal state, and the "from a literal state" assertions
+;;;    consult no seed.
+;;; ------------------------------------------------------------------
+
+(define endian-seed
+  #u8(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+      17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32))
+
+(define (endian-seeded-port) (d:make-random-port (open-input-bytevector endian-seed)))
+
+;; Direction 1: seed bytes -> state words -> output blocks.
+;; xoshiro256** mixes the words, so a byte-swapped seed read produces a
+;; different stream rather than a mirrored one -- there is nothing here for a
+;; swap on the output side to cancel against.
+(test-equal "SRFI 271: a fixed 32-byte seed yields a fixed first 16 output bytes"
+            #u8(#xE8 #xCB #x61 #xF8 #x8E #x25 #xBC #x52
+                #x80 #x32 #xCB #x61 #xF8 #x8E #x25 #xBC)
+            (read-bytevector 16 (endian-seeded-port)))
+
+;; The state of an *unread* port is the cancelling case, stated explicitly so
+;; the assertion after it is not mistaken for a duplicate: the words go in
+;; through readInt(.little) and straight back out through writeInt(.little),
+;; so the state bytes equal the seed bytes under any consistent byte order.
+(test-equal "SRFI 271: an unread port's state echoes the seed bytes (the cancelling case)"
+            endian-seed
+            (bytevector-copy (d:random-port-state (endian-seeded-port)) 14 46))
+
+;; After one byte the words have advanced, so the state bytes are a real
+;; function of the seed rather than a copy of it.
+(test-equal "SRFI 271: the state after one byte is a fixed 46-byte sequence"
+            #u8(#x53 #x32 #x37 #x31 #x01 #x01 #xE8 #xCB
+                #x61 #xF8 #x8E #x25 #xBC #x52 #x11 #x12
+                #x13 #x14 #x15 #x16 #x17 #x38 #x19 #x1A
+                #x1B #x1C #x1D #x1E #x1F #x00 #x10 #x10
+                #x02 #x04 #x06 #x08 #x0A #x0C #x02 #x02
+                #x02 #x02 #x02 #x06 #x02 #x02)
+            (let ((p (endian-seeded-port)))
+              (read-u8 p)
+              (d:random-port-state p)))
+
+;; Direction 2: a literal state in. Consults nothing above.
+(define endian-literal-state
+  #u8(#x53 #x32 #x37 #x31 #x01 #x08 #x00 #x00
+      #x00 #x00 #x00 #x00 #x00 #x00 #x08 #x07
+      #x06 #x05 #x04 #x03 #x02 #x01 #x18 #x17
+      #x16 #x15 #x14 #x13 #x12 #x11 #x28 #x27
+      #x26 #x25 #x24 #x23 #x22 #x21 #x38 #x37
+      #x36 #x35 #x34 #x33 #x32 #x31))
+
+(test-assert "SRFI 271: the hand-written literal state is accepted as a state"
+             (d:random-port-state? endian-literal-state))
+
+(test-equal "SRFI 271: a literal state yields a fixed first 8 output bytes"
+            #u8(#x7A #x9D #x07 #x71 #xDA #x43 #xAD #x16)
+            (read-bytevector 8 (d:make-random-port endian-literal-state)))
+
+(test-equal "SRFI 271: a literal state's own state after three bytes is fixed"
+            #u8(#x53 #x32 #x37 #x31 #x01 #x03 #x7A #x9D
+                #x07 #x71 #xDA #x43 #xAD #x16 #x28 #x27
+                #x26 #x25 #x24 #x23 #x22 #x21 #x38 #x37
+                #x36 #x35 #x34 #x33 #x32 #x31 #x20 #x20
+                #x10 #x0E #x0C #x0A #x08 #x06 #x04 #x04
+                #x04 #x04 #x04 #x04 #x04 #x04)
+            (let ((p (d:make-random-port endian-literal-state)))
+              (read-bytevector 3 p)
+              (d:random-port-state p)))
+
+;; The fixed part of the layout, spelled out so a header change is a named
+;; failure rather than a diff inside a 46-byte blob.
+(test-equal "SRFI 271: a state begins with the ASCII magic S271 and version 1"
+            '(83 50 55 49 1)
+            (let ((st (d:random-port-state (endian-seeded-port))))
+              (list (bytevector-u8-ref st 0) (bytevector-u8-ref st 1)
+                    (bytevector-u8-ref st 2) (bytevector-u8-ref st 3)
+                    (bytevector-u8-ref st 4))))
+
+(test-equal "SRFI 271: a state is 46 bytes"
+            46 (bytevector-length (d:random-port-state (endian-seeded-port))))
 
 (let ((runner (test-runner-current)))
   (test-end "endianness audit")

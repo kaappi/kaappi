@@ -61,6 +61,25 @@ rebuilds. It reads exactly like nondeterminism in the code under test.
 changes, or measure with `--no-ir-opt`, which bypasses the cache in both
 directions.** See [performance.md](performance.md) for the full A/B protocol.
 
+### The other case it does not cover: a different *target*
+
+`compilerHashFor` takes the version string and the build id, and nothing else —
+in particular, **not** the target triple. Two binaries built from the same clean
+commit for different targets (`aarch64-macos` and `x86_64-windows`, say) have
+identical keys, and all 17 platform binaries in a release are built from one
+checkout. That would be harmless if bytecode were target-independent, but
+`cond-expand` is resolved at compile time against `types.platform_features` and
+only the taken branch survives into the `.sbc`. Tracked as
+[#2155](https://github.com/kaappi/kaappi/issues/2155); the exposure today is
+Windows-vs-POSIX and native-vs-WASM (the other feature identifiers are not
+arch-gated), and the reachable path is `zig build -Dbundle=out.sbc` with a
+cross `-Dtarget`, rather than the auto-run cache.
+
+Byte order is *not* part of this: `.sbc` scalars are canonically little-endian
+through explicit conversions, pinned against committed golden bytes in
+`src/tests_endian.zig` (audit v2 Phase 7D) so a swap on either side — or on
+both — fails on every host.
+
 A *filename* collision is self-correcting, never a wrong result: even if two
 different source paths hashed to the same cache filename, the stored source
 hash would not match, so the load misses and recompiles. The dirty-build-id
