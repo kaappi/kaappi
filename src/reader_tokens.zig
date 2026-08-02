@@ -85,8 +85,35 @@ fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, rad
     return .{ .big_rational = .{ .num_str = num_str, .den_str = den_str, .radix = radix } };
 }
 
+/// A malformed numeric token with no delimiter between the failure point and
+/// end-of-slice may be a truncated prefix of a valid literal (`3.` of `3.5`,
+/// `1_` of `1_2`, `#e+in` of `#e+inf.0` — the scan can stop with unconsumed
+/// bytes left, so this is a tail scan, not just pos >= len): in
+/// incomplete-input mode report UnexpectedEof so the incremental reader
+/// fetches more bytes instead of delivering a final verdict (#1940).
+/// Identity — plain InvalidNumber — whenever a delimiter ends the token
+/// within the slice or the whole input is known; deferral never loses the
+/// error, because the whole-input parse at fd EOF re-judges the full token.
+fn invalidNumberOrEof(self: *Reader) ReadError {
+    return if (numberTailTruncated(self)) ReadError.UnexpectedEof else ReadError.InvalidNumber;
+}
+
+/// True when, in incomplete-input mode, everything from the current position
+/// to end-of-slice is delimiter-free. A just-scanned numeric token followed
+/// by such a tail cannot be finalized: the tail (e.g. the "+2" a backtracked
+/// complex-literal attempt left behind out of a straddled "1+2i") may
+/// continue in the next chunk (#1940).
+fn numberTailTruncated(self: *Reader) bool {
+    if (!self.incomplete_input) return false;
+    var i = self.pos;
+    while (i < self.source.len) : (i += 1) {
+        if (Reader.isDelimiter(self.source[i])) return false;
+    }
+    return true;
+}
+
 pub fn readNumber(self: *Reader) ReadError!Token {
-    if (self.pos >= self.source.len) return ReadError.InvalidNumber;
+    if (self.pos >= self.source.len) return invalidNumberOrEof(self);
     const start = self.pos;
     if (self.source[self.pos] == '+' or self.source[self.pos] == '-') {
         self.pos += 1;
@@ -126,7 +153,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1;
-            const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
             const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = true } };
         }
@@ -146,7 +173,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                     (self.pos + 6 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 6])))
                 {
                     self.pos += 6; // skip inf.0i / nan.0i
-                    const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+                    const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
                     const imag = if (self.source[imag_start] == '-') -special_val else special_val;
                     return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = false } };
                 }
@@ -176,9 +203,9 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         // Must end with 'i'
         if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I')) {
             self.pos += 1;
-            const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
             const imag_str = self.source[imag_start .. self.pos - 1];
-            const imag = parseDecimalReal(imag_str) orelse return ReadError.InvalidNumber;
+            const imag = parseDecimalReal(imag_str) orelse return invalidNumberOrEof(self);
             const imag_exact = !imag_has_dot and !imag_has_exp;
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
         }
@@ -194,13 +221,13 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         const imag = if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-')))
             (if (num_str.len == 1 and num_str[0] == '-') @as(f64, -1.0) else @as(f64, 1.0))
         else
-            parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+            parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
         const imag_exact2 = !has_dot and !has_exp;
         return .{ .complex = .{ .real = 0.0, .imag = imag, .exact_real = true, .exact_imag = imag_exact2 } };
     }
 
     if (has_dot or has_exp) {
-        const f = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+        const f = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
         return .{ .flonum = f };
     } else {
         // SRFI 169: strip+validate embedded digit-separator underscores
@@ -210,9 +237,9 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         // .bignum_str are parsed later by parseBignumString, which strips
         // internally.
         var num_strip_buf: [256]u8 = undefined;
-        const clean_num_str = bignum.stripUnderscores(num_str, 10, &num_strip_buf) orelse return ReadError.InvalidNumber;
+        const clean_num_str = bignum.stripUnderscores(num_str, 10, &num_strip_buf) orelse return invalidNumberOrEof(self);
         const n = std.fmt.parseInt(i64, clean_num_str, 10) catch |err| {
-            if (err != error.Overflow) return ReadError.InvalidNumber;
+            if (err != error.Overflow) return invalidNumberOrEof(self);
             // Numerator overflows i64: still check for a rational literal N/D
             // so bignum numerators fall back to bignum parsing in the datum
             // constructor instead of leaving '/' behind as a stray token.
@@ -230,10 +257,10 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         {
             const den_str = scanDenominatorDigits(self, 10);
             var den_strip_buf: [256]u8 = undefined;
-            const clean_den_str = bignum.stripUnderscores(den_str, 10, &den_strip_buf) orelse return ReadError.InvalidNumber;
+            const clean_den_str = bignum.stripUnderscores(den_str, 10, &den_strip_buf) orelse return invalidNumberOrEof(self);
             const den = std.fmt.parseInt(i64, clean_den_str, 10) catch |err| {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, 10);
-                return ReadError.InvalidNumber;
+                return invalidNumberOrEof(self);
             };
             // Check for complex after rational: 1/2+3/4i
             if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
@@ -278,6 +305,11 @@ pub fn readNumber(self: *Reader) ReadError!Token {
 /// and check for special float literals on the folded text.
 /// Returns the (possibly folded) symbol token.
 pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token {
+    // A symbol scan that stopped only because the slice ended (every caller
+    // otherwise stops at a delimiter or non-subsequent byte, leaving pos on
+    // it) may be a prefix of a longer identifier — "zz" of "zzz", "+inf" of
+    // "+inf.0". Silently finalizing here is #1940's split-symbol bug.
+    if (self.truncatedHere()) return ReadError.UnexpectedEof;
     if (sym_text.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     const text = if (self.fold_case) blk: {
         self.token_buf.clearRetainingCapacity();
@@ -462,23 +494,37 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
 fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token {
     var radix = radix0;
     var exact = exact0;
-    if (self.pos + 1 < self.source.len and self.source[self.pos] == '#') {
-        var consumed = true;
-        switch (std.ascii.toLower(self.source[self.pos + 1])) {
-            'b' => radix = 2,
-            'o' => radix = 8,
-            'd' => radix = 10,
-            'x' => radix = 16,
-            'e' => exact = true,
-            'i' => exact = false,
-            else => consumed = false,
+    if (self.pos < self.source.len and self.source[self.pos] == '#') {
+        if (self.pos + 1 >= self.source.len) {
+            // "#e#" cut right at the second prefix's letter: the letter may
+            // be in the next chunk (falls through to readNumber's own
+            // InvalidNumber when the whole input is known).
+            if (self.incomplete_input) return ReadError.UnexpectedEof;
+        } else {
+            var consumed = true;
+            switch (std.ascii.toLower(self.source[self.pos + 1])) {
+                'b' => radix = 2,
+                'o' => radix = 8,
+                'd' => radix = 10,
+                'x' => radix = 16,
+                'e' => exact = true,
+                'i' => exact = false,
+                else => consumed = false,
+            }
+            if (consumed) self.pos += 2;
         }
-        if (consumed) self.pos += 2;
     }
 
-    if (tryReadInfNan(self)) |f| return applyExactness(.{ .flonum = f }, exact);
+    if (tryReadInfNan(self)) |f| {
+        // "#e+inf.0" ending exactly at the slice can't be finalized: a
+        // non-delimiter in the next chunk would make it a different (and
+        // invalid) token, not this flonum.
+        if (self.truncatedHere()) return ReadError.UnexpectedEof;
+        return applyExactness(.{ .flonum = f }, exact);
+    }
 
     const tok = if (radix == 10) try readNumber(self) else try readIntegerWithRadix(self, radix);
+    if (numberTailTruncated(self)) return ReadError.UnexpectedEof;
     return applyExactness(tok, exact);
 }
 
@@ -495,9 +541,13 @@ pub fn readHash(self: *Reader) ReadError!Token {
                 while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
                     self.pos += 1;
                 }
+                // "#tru" cut mid-word may be a prefix of "#true" (#1940).
+                if (self.truncatedHere()) return ReadError.UnexpectedEof;
                 const word = self.source[start..self.pos];
                 if (!std.mem.eql(u8, word, "true")) return ReadError.UnexpectedChar;
             }
+            // Bare "#t" at end-of-slice may be "#true" cut after the t.
+            if (self.truncatedHere()) return ReadError.UnexpectedEof;
             if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
                 return ReadError.UnexpectedChar;
             return .{ .boolean = true };
@@ -509,9 +559,11 @@ pub fn readHash(self: *Reader) ReadError!Token {
                 while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
                     self.pos += 1;
                 }
+                if (self.truncatedHere()) return ReadError.UnexpectedEof;
                 const word = self.source[start..self.pos];
                 if (!std.mem.eql(u8, word, "false")) return ReadError.UnexpectedChar;
             }
+            if (self.truncatedHere()) return ReadError.UnexpectedEof;
             if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
                 return ReadError.UnexpectedChar;
             return .{ .boolean = false };
@@ -535,6 +587,13 @@ pub fn readHash(self: *Reader) ReadError!Token {
                     return readByteStringLiteral(self);
                 }
             }
+            // "#u" or "#u8" cut at end-of-slice may still become #u8( or
+            // #u8" once the next chunk arrives (#1940). "#u<other>" is a
+            // real error regardless of what follows.
+            if (self.incomplete_input and
+                (self.pos + 1 >= self.source.len or
+                    (self.source[self.pos + 1] == '8' and self.pos + 2 >= self.source.len)))
+                return ReadError.UnexpectedEof;
             return ReadError.UnexpectedChar;
         },
         'b', 'B' => {
@@ -563,6 +622,7 @@ pub fn readHash(self: *Reader) ReadError!Token {
         },
         '!' => {
             self.pos += 1;
+            self.saw_directive = true;
             const dir_start = self.pos;
             while (self.pos < self.source.len) {
                 const dc = self.source[self.pos];
@@ -572,6 +632,9 @@ pub fn readHash(self: *Reader) ReadError!Token {
                     break;
                 }
             }
+            // "#!fold-c" cut mid-name: judging (and ignoring) the directive
+            // now would drop its effect once the rest arrives.
+            if (self.truncatedHere()) return ReadError.UnexpectedEof;
             const directive = self.source[dir_start..self.pos];
             if (std.mem.eql(u8, directive, "fold-case")) {
                 self.fold_case = true;
@@ -588,8 +651,11 @@ pub fn readHash(self: *Reader) ReadError!Token {
                 self.pos += 1;
             }
             const label_str = self.source[label_start..self.pos];
-            const label_num = std.fmt.parseInt(u32, label_str, 10) catch return ReadError.InvalidNumber;
+            // Exhausting the slice mid-label is a truncation whatever the
+            // digits parse to, so check before parseInt: an overflowing
+            // label cut at the boundary must refill, not report a verdict.
             if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+            const label_num = std.fmt.parseInt(u32, label_str, 10) catch return ReadError.InvalidNumber;
             if (self.source[self.pos] == '=') {
                 self.pos += 1;
                 return .{ .datum_label_def = label_num };
@@ -623,7 +689,11 @@ pub fn readRawString(self: *Reader) ReadError!Token {
     while (self.pos < self.source.len and self.source[self.pos] != '"') {
         self.pos += 1;
     }
-    if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+    if (self.pos >= self.source.len) {
+        // The delimiter's closing `"` may be in the next chunk (#1940).
+        if (self.incomplete_input) return ReadError.UnexpectedEof;
+        return ReadError.UnterminatedString;
+    }
     const delim = self.source[delim_start..self.pos];
     self.pos += 1; // consume the `"` closing the delimiter / opening the content
 
@@ -638,6 +708,7 @@ pub fn readRawString(self: *Reader) ReadError!Token {
         self.token_buf.append(self.gc.allocator, self.source[self.pos]) catch return ReadError.OutOfMemory;
         self.pos += 1;
     }
+    if (self.incomplete_input) return ReadError.UnexpectedEof;
     return ReadError.UnterminatedString;
 }
 
@@ -685,7 +756,10 @@ pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
         }
         if (c == '\\') {
             self.pos += 1;
-            if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+            if (self.pos >= self.source.len) {
+                if (self.incomplete_input) return ReadError.UnexpectedEof;
+                return ReadError.UnterminatedString;
+            }
             const esc = self.source[self.pos];
             switch (esc) {
                 'n' => try appendByteStringByte(self, '\n'),
@@ -702,7 +776,11 @@ pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
                     while (self.pos < self.source.len and self.source[self.pos] != ';') {
                         self.pos += 1;
                     }
-                    if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                    if (self.pos >= self.source.len) {
+                        // The terminating ';' may be in the next chunk.
+                        if (self.incomplete_input) return ReadError.UnexpectedEof;
+                        return ReadError.InvalidEscape;
+                    }
                     const hex_str = self.source[hex_start..self.pos];
                     const byte_val = std.fmt.parseInt(u8, hex_str, 16) catch return ReadError.InvalidEscape;
                     try appendByteStringByte(self, byte_val);
@@ -728,6 +806,9 @@ pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
                         skipIntralineWhitespace(self);
                         continue;
                     }
+                    // The line continuation's newline may be in the next
+                    // chunk; only a real non-newline byte is an error.
+                    if (self.truncatedHere()) return ReadError.UnexpectedEof;
                     return ReadError.InvalidEscape;
                 },
                 else => return ReadError.InvalidEscape,
@@ -743,6 +824,7 @@ pub fn readByteStringLiteral(self: *Reader) ReadError!Token {
         try appendByteStringByte(self, c);
         self.pos += 1;
     }
+    if (self.incomplete_input) return ReadError.UnexpectedEof;
     return ReadError.UnterminatedString;
 }
 
@@ -782,7 +864,7 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
 
     const num_str = self.source[start..self.pos];
     if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
-    if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
+    if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return invalidNumberOrEof(self);
     // SRFI 169: num_str/den_str may carry embedded digit-separator
     // underscores at this point (the scan loops above tolerate but don't
     // validate them); strip+validate right before parseInt, which doesn't
@@ -790,9 +872,9 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     // slices, since bigRationalToken/.bignum_str are parsed later by
     // parseBignumString, which strips internally.
     var num_strip_buf: [256]u8 = undefined;
-    const clean_num_str = bignum.stripUnderscores(num_str, radix, &num_strip_buf) orelse return ReadError.InvalidNumber;
+    const clean_num_str = bignum.stripUnderscores(num_str, radix, &num_strip_buf) orelse return invalidNumberOrEof(self);
     const n = std.fmt.parseInt(i64, clean_num_str, radix) catch |err| {
-        if (err != error.Overflow) return ReadError.InvalidNumber;
+        if (err != error.Overflow) return invalidNumberOrEof(self);
         // Numerator overflows i64: still consume a rational N/D so the '/'
         // does not get re-tokenized as the start of a symbol.
         if (self.pos < self.source.len and self.source[self.pos] == '/') {
@@ -809,10 +891,10 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         const den_str = scanDenominatorDigits(self, radix);
         if (den_str.len > 0) {
             var den_strip_buf: [256]u8 = undefined;
-            const clean_den_str = bignum.stripUnderscores(den_str, radix, &den_strip_buf) orelse return ReadError.InvalidNumber;
+            const clean_den_str = bignum.stripUnderscores(den_str, radix, &den_strip_buf) orelse return invalidNumberOrEof(self);
             const den = std.fmt.parseInt(i64, clean_den_str, radix) catch |err| {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
-                return ReadError.InvalidNumber;
+                return invalidNumberOrEof(self);
             };
             return .{ .rational = .{ .num = n, .den = den } };
         }
@@ -844,7 +926,7 @@ fn readHexFloatSuffix(self: *Reader, start: usize) ReadError!Token {
     }
     const full_str = self.source[start..self.pos];
     if (full_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
-    const f = bignum.parseHexFloat(full_str) orelse return ReadError.InvalidNumber;
+    const f = bignum.parseHexFloat(full_str) orelse return invalidNumberOrEof(self);
     return .{ .flonum = f };
 }
 
@@ -864,6 +946,8 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
                 while (self.pos < self.source.len and std.ascii.isHex(self.source[self.pos])) {
                     self.pos += 1;
                 }
+                // "#\x4" cut mid-digits may continue as "#\x41" (#1940).
+                if (self.truncatedHere()) return ReadError.UnexpectedEof;
                 const hex_str = self.source[start + 1 .. self.pos];
                 const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidNumber;
                 if (cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF)) return ReadError.InvalidCharacterName;
@@ -873,6 +957,8 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
             }
             // Just #\x alone — return 'x'
             if (self.pos >= self.source.len or !std.ascii.isAlphabetic(self.source[self.pos])) {
+                // "#\x" at end-of-slice may be "#\x41" cut before its digits.
+                if (self.truncatedHere()) return ReadError.UnexpectedEof;
                 if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
                     return ReadError.UnexpectedChar;
                 return .{ .character = first_byte };
@@ -881,6 +967,9 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
         while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
             self.pos += 1;
         }
+        // A name scan stopped by end-of-slice may be a prefix: "#\s" of
+        // "#\space", "#\spa" of "#\space" (#1940's #\s + `pace' split).
+        if (self.truncatedHere()) return ReadError.UnexpectedEof;
         const name = self.source[start..self.pos];
         if (name.len == 1) {
             if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
@@ -903,6 +992,9 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
             return ReadError.InvalidCharacterName;
         };
         self.pos += seq_len;
+        // "#\λ" at end-of-slice: a non-delimiter in the next chunk would
+        // make this a (malformed) longer literal, not the character λ.
+        if (self.truncatedHere()) return ReadError.UnexpectedEof;
         if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
             return ReadError.UnexpectedChar;
         return .{ .character = cp };

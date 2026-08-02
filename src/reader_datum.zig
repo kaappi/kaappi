@@ -7,6 +7,17 @@ const ReadError = reader_mod.ReadError;
 const Token = reader_mod.Token;
 
 pub fn readDatum(self: *Reader) ReadError!Value {
+    return (try readDatumOrEof(self)) orelse ReadError.UnexpectedEof;
+}
+
+/// readDatum, except a clean end of input — nothing left but whitespace,
+/// comments, and `#!` directives — yields null instead of UnexpectedEof.
+/// `hasMore()` + readDatum cannot make that distinction: a `#!` directive is
+/// consumed inside nextToken, so when one is the last thing in the input,
+/// hasMore() answers true and readDatum then reports UnexpectedEof, which
+/// `read` callers would mistake for a truncated datum and turn into a read
+/// error instead of the EOF object.
+pub fn readDatumOrEof(self: *Reader) ReadError!?Value {
     if (self.depth >= Reader.MAX_NESTING_DEPTH) return ReadError.NestingTooDeep;
     self.depth += 1;
     defer self.depth -= 1;
@@ -17,6 +28,7 @@ pub fn readDatum(self: *Reader) ReadError!Value {
     try self.skipWhitespaceAndCommentsChecked();
     const start_pos = self.pos;
     const tok = try self.nextToken();
+    if (tok == .eof) return null;
     const val = try tokenToValue(self, tok);
     self.recordSpan(val, start_pos);
     return val;
@@ -130,9 +142,11 @@ fn readList(self: *Reader) ReadError!Value {
             self.gc.pushRoot(&rest_root);
             defer self.gc.popRoot();
             try self.skipWhitespaceAndCommentsChecked();
-            if (self.pos >= self.source.len or self.source[self.pos] != ')') {
-                return ReadError.UnexpectedChar;
-            }
+            // Exhausted input where `)` belongs is the incomplete-datum
+            // case, not a wrong character (#1920): the incremental `read`
+            // loop keys "read more input" on exactly UnexpectedEof.
+            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+            if (self.source[self.pos] != ')') return ReadError.UnexpectedChar;
             self.pos += 1;
             const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
             if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
@@ -180,9 +194,10 @@ fn readListTail(self: *Reader) ReadError!Value {
                 self.gc.writeBarrier(types.toObject(tail), rest);
             }
             try self.skipWhitespaceAndCommentsChecked();
-            if (self.pos >= self.source.len or self.source[self.pos] != ')') {
-                return ReadError.UnexpectedChar;
-            }
+            // As in readList: no more input where `)` belongs means the
+            // datum is incomplete, not malformed (#1920).
+            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+            if (self.source[self.pos] != ')') return ReadError.UnexpectedChar;
             self.pos += 1;
             return result;
         }

@@ -93,6 +93,22 @@ pub const Reader = struct {
     labels: [32]?Value = .{null} ** 32,
     source_name: []const u8 = "<input>",
     depth: u32 = 0,
+    /// True when `source` is a possibly-truncated prefix of a longer input:
+    /// the incremental `read` path (primitives_io.readDatumFn) parses a
+    /// growing buffer chunk by chunk, refilling on `UnexpectedEof`. In this
+    /// mode a scan that stops at end-of-slice — rather than at a delimiter
+    /// or a closing character — must report `UnexpectedEof`: never finalize
+    /// a token more bytes could extend, and never reject one more bytes
+    /// could complete (kaappi#1893/#1920/#1940/#1945). Whole-input parses
+    /// (file loading, string ports, the final parse at fd EOF) leave it
+    /// false and keep the precise error kinds.
+    incomplete_input: bool = false,
+    /// Set when a `#!` directive was consumed. The incremental `read` loop
+    /// must not discard a buffer that held one the way it discards pure
+    /// whitespace/comments: a directive carries state (fold-case) forward,
+    /// and every refill re-parses the buffer from scratch with a fresh
+    /// Reader, so the directive's bytes have to stay in the buffer.
+    saw_directive: bool = false,
 
     pub const MAX_NESTING_DEPTH = 1024;
     pub const MAX_BLOCK_COMMENT_DEPTH = 256;
@@ -184,6 +200,13 @@ pub const Reader = struct {
         return c;
     }
 
+    /// True when the current position is at end-of-slice while more input
+    /// may still follow — the point where a token scan cannot be finalized
+    /// or rejected yet (see `incomplete_input`).
+    pub fn truncatedHere(self: *const Reader) bool {
+        return self.incomplete_input and self.pos >= self.source.len;
+    }
+
     fn ensureTokenSpace(self: *Reader, extra: usize) ReadError!void {
         if (self.token_buf.items.len + extra > MAX_TOKEN_BYTES) {
             return ReadError.TokenTooLong;
@@ -209,6 +232,10 @@ pub const Reader = struct {
                 while (self.pos < self.source.len and self.source[self.pos] != '\n') {
                     self.pos += 1;
                 }
+                // A line comment cut off by end-of-slice may continue in the
+                // next chunk; resuming there after a refill would feed the
+                // comment's tail to the datum stream as code (#1940).
+                if (self.truncatedHere()) return ReadError.UnexpectedEof;
             } else if (c == '#' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == ';') {
                 self.pos += 2;
                 _ = try self.readDatum();
@@ -332,7 +359,15 @@ pub const Reader = struct {
                 if (self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1])) {
                     return self.readNumber();
                 }
-                if (self.pos + 1 >= self.source.len or isDelimiter(self.source[self.pos + 1])) {
+                if (self.pos + 1 >= self.source.len) {
+                    // "." as the slice's last byte is undecidable while more
+                    // input may follow: it could be a pair dot, ".5", or
+                    // "..." (#1920's DotNotInList case).
+                    if (self.incomplete_input) return ReadError.UnexpectedEof;
+                    self.pos += 1;
+                    return .dot;
+                }
+                if (isDelimiter(self.source[self.pos + 1])) {
                     self.pos += 1;
                     return .dot;
                 }
@@ -348,7 +383,12 @@ pub const Reader = struct {
                 // Check for Unicode identifier start (multi-byte UTF-8)
                 if (c >= 0x80) {
                     const seq_len = std.unicode.utf8ByteSequenceLength(c) catch return ReadError.UnexpectedChar;
-                    if (self.pos + seq_len > self.source.len) return ReadError.UnexpectedChar;
+                    if (self.pos + seq_len > self.source.len) {
+                        // A codepoint whose bytes straddle the end of the
+                        // slice is a truncation, not bad UTF-8 (#1945).
+                        if (self.incomplete_input) return ReadError.UnexpectedEof;
+                        return ReadError.UnexpectedChar;
+                    }
                     const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch return ReadError.UnexpectedChar;
                     if (isUnicodeLetter(cp)) {
                         return self.readUnicodeSymbol();
@@ -366,6 +406,9 @@ pub const Reader = struct {
     fn readNumber(self: *Reader) ReadError!Token {
         const start = self.pos;
         const tok = try reader_tokens.readNumber(self);
+        // A numeric token whose scan stopped only because the slice ended
+        // may be a prefix of a longer literal ("1" of "12", "3." of "3.5").
+        if (self.truncatedHere()) return ReadError.UnexpectedEof;
         if (self.pos < self.source.len and !isDelimiter(self.source[self.pos])) {
             // Only reclassify when the character actually glued onto the number
             // could continue an identifier (`<subsequent>`, ASCII or Unicode) --
@@ -380,6 +423,9 @@ pub const Reader = struct {
             // that were the problem.
             const glued_start = self.pos;
             consumeGluedIdentifierChars(self);
+            // Glue running to end-of-slice can't be judged yet: "1e" may be
+            // the prefix of the valid "1e5", not a malformed identifier.
+            if (self.truncatedHere()) return ReadError.UnexpectedEof;
             if (self.pos == glued_start) return ReadError.UnexpectedChar;
             // Consume the rest of the token so the message can echo it in full,
             // then rewind to the token's start so the reported position is the
@@ -466,7 +512,12 @@ pub const Reader = struct {
                 }
             } else {
                 const seq_len = std.unicode.utf8ByteSequenceLength(sc) catch break;
-                if (self.pos + seq_len > self.source.len) break;
+                if (self.pos + seq_len > self.source.len) {
+                    // Mid-codepoint truncation: ending the symbol here would
+                    // split it and leave stray lead bytes behind (#1945).
+                    if (self.incomplete_input) return ReadError.UnexpectedEof;
+                    break;
+                }
                 const scp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch break;
                 if (isUnicodeSubsequent(scp)) {
                     self.pos += seq_len;
@@ -499,7 +550,11 @@ pub const Reader = struct {
             } else {
                 // Multi-byte UTF-8: decode and check
                 const seq_len = std.unicode.utf8ByteSequenceLength(c) catch break;
-                if (self.pos + seq_len > self.source.len) break;
+                if (self.pos + seq_len > self.source.len) {
+                    // Mid-codepoint truncation, as in readSymbol (#1945).
+                    if (self.incomplete_input) return ReadError.UnexpectedEof;
+                    break;
+                }
                 const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch break;
                 if (isUnicodeSubsequent(cp)) {
                     self.pos += seq_len;
@@ -535,7 +590,11 @@ pub const Reader = struct {
                         while (self.pos < self.source.len and self.source[self.pos] != ';') {
                             self.pos += 1;
                         }
-                        if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                        if (self.pos >= self.source.len) {
+                            // The terminating ';' may be in the next chunk.
+                            if (self.incomplete_input) return ReadError.UnexpectedEof;
+                            return ReadError.InvalidEscape;
+                        }
                         const hex_str = self.source[hex_start..self.pos];
                         const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidEscape;
                         var buf: [4]u8 = undefined;
@@ -572,7 +631,10 @@ pub const Reader = struct {
             }
             if (c == '\\') {
                 self.pos += 1;
-                if (self.pos >= self.source.len) return ReadError.UnterminatedString;
+                if (self.pos >= self.source.len) {
+                    if (self.incomplete_input) return ReadError.UnexpectedEof;
+                    return ReadError.UnterminatedString;
+                }
                 const esc = self.source[self.pos];
                 switch (esc) {
                     'n' => try self.appendTokenByte('\n'),
@@ -589,7 +651,11 @@ pub const Reader = struct {
                         while (self.pos < self.source.len and self.source[self.pos] != ';') {
                             self.pos += 1;
                         }
-                        if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                        if (self.pos >= self.source.len) {
+                            // The terminating ';' may be in the next chunk.
+                            if (self.incomplete_input) return ReadError.UnexpectedEof;
+                            return ReadError.InvalidEscape;
+                        }
                         const hex_str = self.source[hex_start..self.pos];
                         const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidEscape;
                         var buf: [4]u8 = undefined;
@@ -627,6 +693,9 @@ pub const Reader = struct {
                             }
                             continue;
                         }
+                        // The line continuation's newline may be in the next
+                        // chunk; only a real non-newline byte is an error.
+                        if (self.truncatedHere()) return ReadError.UnexpectedEof;
                         return ReadError.InvalidEscape;
                     },
                     else => return ReadError.InvalidEscape,
@@ -636,6 +705,7 @@ pub const Reader = struct {
             }
             self.pos += 1;
         }
+        if (self.incomplete_input) return ReadError.UnexpectedEof;
         return ReadError.UnterminatedString;
     }
 
@@ -656,6 +726,13 @@ pub const Reader = struct {
 
     pub fn readDatum(self: *Reader) ReadError!Value {
         return reader_datum.readDatum(self);
+    }
+
+    /// readDatum, but a clean end of input (only whitespace, comments, or
+    /// `#!` directives left) yields null instead of UnexpectedEof — the
+    /// distinction `read` needs to return the EOF object rather than raise.
+    pub fn readDatumOrEof(self: *Reader) ReadError!?Value {
+        return reader_datum.readDatumOrEof(self);
     }
 
     pub fn hasMore(self: *Reader) ReadError!bool {

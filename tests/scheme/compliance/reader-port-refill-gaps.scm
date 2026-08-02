@@ -1,18 +1,20 @@
-;; Reader / port read-buffer refill boundary — audit v2 Phase 1C.
+;; Reader / port read-buffer refill boundary — audit v2 Phase 1C, fixed by
+;; the incomplete-input reader mode (#1893/#1920/#1940/#1945).
 ;;
 ;; `(read port)` on an fd-backed port reads the fd in 4096-byte chunks
 ;; (`read_chunk_size`, src/primitives_io.zig) and re-parses the accumulated
 ;; buffer after each chunk.  It treats `ReadError.UnexpectedEof` as
 ;; "incomplete datum, read more" and every other outcome as final.  A token
 ;; whose bytes straddle a chunk boundary therefore only survives if its
-;; scanner reports truncation as exactly `UnexpectedEof`.
+;; scanner reports truncation as exactly `UnexpectedEof` — which is what
+;; `Reader.incomplete_input` (src/reader.zig) now guarantees.
 ;;
-;; Two failure modes exist:
-;;   (a) the scanner reports truncation as some other error
+;; Two failure modes existed:
+;;   (a) the scanner reported truncation as some other error
 ;;       (UnterminatedString / InvalidEscape / UnexpectedChar) — the read
-;;       raises instead of refilling;
-;;   (b) the scanner treats end-of-buffer as a legitimate token terminator —
-;;       the read silently returns a *truncated* datum and resumes in the
+;;       raised instead of refilling;
+;;   (b) the scanner treated end-of-buffer as a legitimate token terminator —
+;;       the read silently returned a *truncated* datum and resumed in the
 ;;       middle of the token, with no error at all.
 ;;
 ;; The invariant every case below asserts is the same: the identical bytes
@@ -155,6 +157,9 @@
 (define p-qsymbol-hex "|aaaaaaaaaaaaaaa\\x41;bbbbbbbbbbbbbbbbb|")
 (define p-number      "12345678901234567890123456789012345678")
 (define p-number-hex  "#x1234567890abcdef1234567890abcdef")
+(define p-complex     "12.5+3.25i")
+(define p-complex-pfx "#d12.5+3.25i")
+(define p-exact-inf   "#e+inf.0")
 (define p-char-space  "#\\space")
 (define p-char-hex    "#\\x41")
 (define p-true        "#true")
@@ -226,84 +231,126 @@
   (and (refill-ok-at? 8192 p-string 0)
        (refill-ok-at? 8192 p-string (utf8-length p-string))))
 
-;; --- failure mode (a): truncation reported as a non-refillable error ------
+;; --- failure mode (a): truncation once reported as a non-refillable error -
 
-;; FAIL: #1893 (string literal straddling the boundary raises KP3000 read error)
-;; (test-equal "string literal, every split" #t (all-splits-ok? p-string))
-;; FAIL: #1893 (a \n escape does not change it — readString's UnterminatedString)
-;; (test-equal "string with \\n escape, every split" #t (all-splits-ok? p-string-esc))
-;; FAIL: #1893 (\x41; escape truncated mid-escape reports InvalidEscape)
-;; (test-equal "string with \\x escape, every split" #t (all-splits-ok? p-string-hex))
-;; FAIL: #1893 (multi-byte string content is the same scanner)
-;; (test-equal "string with UTF-8 content, every split" #t (all-splits-ok? p-string-utf8))
-;; FAIL: #1893 (a string longer than the whole buffer can never be read)
-;; (test-assert "string longer than the buffer" (refill-ok-from? 2000 p-long-string))
+;; #1893: string literal straddling the boundary raised KP3000 read error
+(test-equal "string literal, every split" #t (all-splits-ok? p-string))
+;; #1893: a \n escape did not change it — readString's UnterminatedString
+(test-equal "string with \\n escape, every split" #t (all-splits-ok? p-string-esc))
+;; #1893: \x41; escape truncated mid-escape reported InvalidEscape
+(test-equal "string with \\x escape, every split" #t (all-splits-ok? p-string-hex))
+;; #1893: multi-byte string content is the same scanner
+(test-equal "string with UTF-8 content, every split" #t (all-splits-ok? p-string-utf8))
+;; #1893: a string longer than the whole buffer could never be read
+(test-assert "string longer than the buffer" (refill-ok-from? 2000 p-long-string))
 
-;; FAIL: #1940 (SRFI 267 raw string: readRawString returns UnterminatedString)
-;; (test-equal "raw string, every split" #t (all-splits-ok? p-rawstring))
-;; FAIL: #1940 (SRFI 207 #u8"...": readByteStringLiteral returns UnterminatedString)
-;; (test-equal "byte string, every split" #t (all-splits-ok? p-bytestring))
-;; FAIL: #1940 (|sym\x41;| truncated mid-escape reports InvalidEscape, splits 18-20)
-;; (test-equal "|quoted symbol| with \\x escape, every split" #t (all-splits-ok? p-qsymbol-hex))
-;; FAIL: #1940 (#u8( prefix truncated after #u or #u8 reports UnexpectedChar)
-;; (test-equal "bytevector, every split" #t (all-splits-ok? p-bytevector))
-;; FAIL: #1920 (dotted pair truncated after the . reports UnexpectedChar/DotNotInList)
-;; (test-equal "dotted pair, every split" #t (all-splits-ok? p-dotted))
+;; #1940: SRFI 267 raw string — readRawString returned UnterminatedString
+(test-equal "raw string, every split" #t (all-splits-ok? p-rawstring))
+;; #1940: SRFI 207 #u8"..." — readByteStringLiteral returned UnterminatedString
+(test-equal "byte string, every split" #t (all-splits-ok? p-bytestring))
+;; #1940: |sym\x41;| truncated mid-escape reported InvalidEscape
+(test-equal "|quoted symbol| with \\x escape, every split" #t (all-splits-ok? p-qsymbol-hex))
+;; #1940: #u8( prefix truncated after #u or #u8 reported UnexpectedChar
+(test-equal "bytevector, every split" #t (all-splits-ok? p-bytevector))
+;; #1920: dotted pair truncated after the . reported UnexpectedChar/DotNotInList
+(test-equal "dotted pair, every split" #t (all-splits-ok? p-dotted))
 
 ;; A multi-byte codepoint whose own bytes straddle the boundary — distinct
-;; from a token straddling it.  nextToken (src/reader.zig) reports a
+;; from a token straddling it.  nextToken (src/reader.zig) reported a
 ;; truncated UTF-8 sequence as UnexpectedChar, so even a list, which refills
-;; correctly for every ASCII payload, fails.
-;; FAIL: #1945 (multi-byte UTF-8 codepoint split across the boundary)
-;; (test-assert "UTF-8 codepoint split inside a list"
-;;   (and (refill-ok? p-utf8-list 4) (refill-ok? p-utf8-list 5)))
+;; correctly for every ASCII payload, failed.
+;; #1945: multi-byte UTF-8 codepoint split across the boundary
+(test-assert "UTF-8 codepoint split inside a list"
+  (and (refill-ok? p-utf8-list 4) (refill-ok? p-utf8-list 5)))
 
 ;; --- failure mode (b): silent truncation, no error at all -----------------
-;; These are strictly worse: `read` returns a datum that is a prefix of the
-;; real one and then resumes mid-token, so the caller sees extra datums it
-;; never wrote.  #1893's own stated discriminating control — "the same file
-;; with a bare symbol payload reads all 1024 datums" — is compromised by the
-;; first case here: the symbol only survived because #1893 wrapped it in a
-;; list (which does refill) and counted datums rather than comparing them.
+;; These were strictly worse: `read` returned a datum that is a prefix of the
+;; real one and then resumed mid-token, so the caller saw extra datums it
+;; never wrote.
 
-;; FAIL: #1940 (bare symbol split at the boundary reads as TWO symbols, silently)
-;; (test-equal "symbol, every split" #t (all-splits-ok? p-symbol))
-;; FAIL: #1945 (UTF-8 symbol: splits between codepoints truncate, splits inside raise)
-;; (test-equal "UTF-8 symbol, every split" #t (all-splits-ok? p-symbol-utf8))
-;; FAIL: #1940 (number split at the boundary reads as TWO numbers, silently)
-;; (test-equal "number, every split" #t (all-splits-ok? p-number))
-;; FAIL: #1940 (#x number: silent split plus InvalidNumber on a truncated prefix)
-;; (test-equal "hex number, every split" #t (all-splits-ok? p-number-hex))
-;; FAIL: #1940 (#\space truncated to #\s plus the symbol `pace')
-;; (test-equal "#\\space, every split" #t (all-splits-ok? p-char-space))
-;; FAIL: #1940 (#\x41 truncated to #\x plus the number 41)
-;; (test-equal "#\\x41, every split" #t (all-splits-ok? p-char-hex))
-;; FAIL: #1940 (#true truncated to #t plus the symbol `rue')
-;; (test-equal "#true, every split" #t (all-splits-ok? p-true))
-;; FAIL: #1940 (line comment truncated at the boundary: the REST OF THE COMMENT
-;;            is read as program data, because a buffer holding only a comment
-;;            is discarded and reading resumes inside it)
-;; (test-equal "line comment, every split" #t (all-splits-ok? p-linecmt))
-;; FAIL: #1940 (symbol longer than the whole buffer splits into two symbols)
-;; (test-assert "symbol longer than the buffer" (refill-ok-from? 2000 p-long-symbol))
-;; FAIL: #1940 (line comment longer than the whole buffer leaks its body as data)
-;; (test-assert "line comment longer than the buffer" (refill-ok-from? 2000 p-long-linecmt))
+;; #1940: bare symbol split at the boundary read as TWO symbols, silently
+(test-equal "symbol, every split" #t (all-splits-ok? p-symbol))
+;; #1945: UTF-8 symbol — splits between codepoints truncated, splits inside raised
+(test-equal "UTF-8 symbol, every split" #t (all-splits-ok? p-symbol-utf8))
+;; #1940: number split at the boundary read as TWO numbers, silently
+(test-equal "number, every split" #t (all-splits-ok? p-number))
+;; #1940: #x number — silent split plus InvalidNumber on a truncated prefix
+(test-equal "hex number, every split" #t (all-splits-ok? p-number-hex))
+;; #1940: #\space truncated to #\s plus the symbol `pace'
+(test-equal "#\\space, every split" #t (all-splits-ok? p-char-space))
+;; #1940: #\x41 truncated to #\x plus the number 41
+(test-equal "#\\x41, every split" #t (all-splits-ok? p-char-hex))
+;; #1940: #true truncated to #t plus the symbol `rue'
+(test-equal "#true, every split" #t (all-splits-ok? p-true))
+;; #1940: line comment truncated at the boundary — the rest of the comment
+;; was read as program data, because a buffer holding only a comment was
+;; discarded and reading resumed inside it
+(test-equal "line comment, every split" #t (all-splits-ok? p-linecmt))
+;; A complex literal exercises the backtracking scan: a straddled "1+2" is a
+;; committed fixnum 1 unless the delimiter-free tail defers the verdict.
+(test-equal "complex number, every split" #t (all-splits-ok? p-complex))
+(test-equal "#d-prefixed complex, every split" #t (all-splits-ok? p-complex-pfx))
+;; An exactness-prefixed inf: "#e+in" is InvalidNumber only once the whole
+;; token is known.
+(test-equal "#e+inf.0, every split" #t (all-splits-ok? p-exact-inf))
+;; #1940: symbol longer than the whole buffer split into two symbols
+(test-assert "symbol longer than the buffer" (refill-ok-from? 2000 p-long-symbol))
+;; #1940: line comment longer than the whole buffer leaked its body as data
+(test-assert "line comment longer than the buffer" (refill-ok-from? 2000 p-long-linecmt))
 
-;; --- the same failures repeat at every later boundary ---------------------
-;; FAIL: #1893 (nothing about the boundary is specific to the first chunk)
-;; (test-equal "string literal at the 8192 boundary, every split" #t
-;;   (let ((n (utf8-length p-string)))
-;;     (let loop ((i 1))
-;;       (cond ((>= i n) #t)
-;;             ((refill-ok-at? 8192 p-string i) (loop (+ i 1)))
-;;             (else i)))))
-;; FAIL: #1940 (symbol splits identically at 8192)
-;; (test-equal "symbol at the 8192 boundary, every split" #t
-;;   (let ((n (utf8-length p-symbol)))
-;;     (let loop ((i 1))
-;;       (cond ((>= i n) #t)
-;;             ((refill-ok-at? 8192 p-symbol i) (loop (+ i 1)))
-;;             (else i)))))
+;; --- the same failures repeated at every later boundary --------------------
+;; #1893: nothing about the boundary is specific to the first chunk
+(test-equal "string literal at the 8192 boundary, every split" #t
+  (let ((n (utf8-length p-string)))
+    (let loop ((i 1))
+      (cond ((>= i n) #t)
+            ((refill-ok-at? 8192 p-string i) (loop (+ i 1)))
+            (else i)))))
+;; #1940: symbol split identically at 8192
+(test-equal "symbol at the 8192 boundary, every split" #t
+  (let ((n (utf8-length p-symbol)))
+    (let loop ((i 1))
+      (cond ((>= i n) #t)
+            ((refill-ok-at? 8192 p-symbol i) (loop (+ i 1)))
+            (else i)))))
+
+;; --- read-loop state the fix must preserve --------------------------------
+
+;; A #! directive whose buffer holds nothing else is NOT discarded the way
+;; pure whitespace/comments are: fold-case state must survive into the next
+;; chunk, where each refill's fresh Reader recovers it by re-parsing the
+;; buffer from its start.
+(test-equal "fold-case directive separated from its datum by the boundary"
+  '((foo))
+  (let ()
+    (write-fixture (string-append "#!fold-case"
+                                  (make-string (- 4096 11) #\space)
+                                  "(FOO)\n"))
+    (let ((r (drain-file)))
+      (delete-file fixture-file)
+      r)))
+
+;; A trailing #! directive is trivia, so read must answer with the EOF
+;; object — not a read error (hasMore()+readDatum used to conflate this
+;; with a truncated datum).
+(test-assert "trailing directive on a file port yields eof"
+  (let ()
+    (write-fixture "42 #!fold-case")
+    (let* ((p (open-input-file fixture-file))
+           (d1 (read p))
+           (d2 (guard (e (#t 'read-error)) (read p))))
+      (close-port p)
+      (delete-file fixture-file)
+      (and (equal? d1 42) (eof-object? d2)))))
+(test-assert "trailing directive on a string port yields eof"
+  (eof-object? (read (open-input-string "#!fold-case"))))
+
+;; #1920's diagnostic half: the raised error names what failed instead of a
+;; bare "read error".
+(test-equal "read error message names the failure"
+  "read error: unterminated string literal"
+  (guard (e (#t (error-object-message e)))
+    (read (open-input-string "\"abc"))))
 
 (if (file-exists? fixture-file) (delete-file fixture-file))
 
