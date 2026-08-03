@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785720496716,
+  "lastUpdate": 1785740741774,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "261fde5fad3c3d65cda83fdd507ce5d14cee729a",
-          "message": "Gate publishing on CI, and ask for a changelog entry while it is cheap (#1885)\n\nv0.22.1 went public at 06:35:24 with ci.yml still running on the same\ncommit, and would have published identically had CI failed. The tag push\nand the branch push start release.yml and ci.yml as two independent runs\nwith nothing between them, so they race and publishing wins. The only\nthing that actually gated that release was a local test run.\n\nA new `ci-gate` job polls for the ci.yml run on the tagged SHA and only\nthe `release` job depends on it, so the 14 platform builds still run in\nparallel with CI -- gating costs no wall clock unless CI is the long pole.\nAbsence of a run is retried rather than treated as failure, since a tag\npushed alongside its branch can beat its own CI run into existence; a\nconcluded-but-not-successful run (including `cancelled`) refuses to\npublish. The workflow gains `actions: read`, without which the poll would\n403 -- declaring any `permissions:` block zeroes every scope not listed.\n\nThe changelog half addresses a different recurring miss: `[Unreleased]` is\nreconstructed from `git log` at release time rather than written as the\nwork lands, and had 14 of 100 commits at v0.22.0 and 5 of 16 at v0.22.1.\nA PR touching src/ or lib/srfi/ without touching CHANGELOG.md now fails,\nwith a `no-changelog` label for changes that are genuinely not\nuser-visible. Labels are read live via the API rather than from\ngithub.event, because re-running a job replays the original event payload\n-- a label added in response to the failure would otherwise be invisible\nto the re-run, making the documented escape hatch a dead end.\n\nAlso corrects two things the v0.22.1 run surfaced in the release skill:\nthe build-target list said 12 where the matrix ships 14 (s390x and\nppc64le were missing, both present in the released assets), and the\nNetBSD denormal probe imported (srfi 144), which needs ~/.kaappi/lib and\nso fails on a fresh VM as `undefined variable 'fl-least'` -- reading as a\ndenormal regression on the one platform whose FPCR fix it guards. The\nlibrary-free `5e-324` spelling tests the same thing with no import.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T13:08:23+05:30",
-          "tree_id": "b2a7bbed1d42d32efd3baa3a2e7685fb4d8c6579",
-          "url": "https://github.com/kaappi/kaappi/commit/261fde5fad3c3d65cda83fdd507ce5d14cee729a"
-        },
-        "date": 1785485901359,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.318459,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.998063,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.582215,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.982443,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004751,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046463,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311828,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057339,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.604341,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231106,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580214,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.278186,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.797204,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.626622,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044503,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033317,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c742af6856fed94f266bc3d100bc5e16a0106f62",
+          "message": "Fix four SRFI-69 hashing defects: deep keys, a self-mutating hash procedure, and negative hashes (#2195)\n\n* Fix four SRFI-69 hashing defects: deep keys, self-mutating hash, negative hashes\n\nAll four live in valueHashDepth/rehash and break the same SRFI 69 rule from\ndifferent directions: a hash must agree with the table's equality, and must\nland in [0, bound).\n\nCloses #2023.\n\n  The depth cutoff at MAX_HASH_DEPTH returned the *pointer* of whatever sat\n  there, while findKey/findSlot compare with deepEqual. Two equal? keys whose\n  structure reached depth 8 hashed to unrelated buckets, so the stored entry\n  became unreachable -- 200 of 200 twelve-element keys unfindable, and the\n  same through (srfi 125), (srfi 126) and (srfi 146 hash). The cutoff now\n  folds in a fixed sentinel, and a list spine is walked iteratively so length\n  no longer spends the nesting budget that only nesting should.\n\n  Found while fixing it: SRFI 160 numeric vectors are compared structurally by\n  deepEqual (kind + raw bytes) but had no arm at all in valueHashDepth, so\n  they fell through to the same pointer hash at depth 0. Same invariant, same\n  symptom, no depth needed -- fixed here too rather than filed separately.\n\nCloses #2024.\n\n  rehash captured the old entry array and then called the table's own hash\n  procedure from inside the loop iterating it. A hash procedure that inserted\n  into its own table reached a nested rehash, which swapped in its own array\n  and freed the one the outer loop was still walking, then freed it a second\n  time -- a silent abort, exit 133/134 with empty stdout and stderr.\n\n  HashEntry now caches the hash computed at insertion, so rehash re-buckets\n  from it and runs no Scheme code at all. hash-table-merge!, the second site,\n  walked ht2's live array across findSlot on ht1 and left ht1 with 1 of 10\n  entries; it now iterates a rooted snapshot, the shape walk/fold got in\n  #1181. findKey/findSlot derive the mask only after the hash procedure has\n  returned, and copy entries out by value.\n\nCloses #2025.\n\n  hash, string-hash, string-ci-hash and hash-by-identity masked to 62 bits and\n  handed the result to makeFixnum, which keeps 48 and sign-extends from i48 --\n  so any hash with bit 47 set came back negative, about half of all inputs.\n  Masking to 47 bits is the widest value that survives the round trip. The\n  bounded arm was always correct and is untouched.\n\nThe audit file's disabled assertions are re-enabled (all four FAIL markers\ncleared) and joined by the numeric-vector cells, a discriminating merge\nrepro, and coverage for the caching itself: growth, copy, and re-bucketing a\nmerged entry under the target table's hash function rather than the source's.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Wire types.zig to types_hashtable.zig instead of duplicating it\n\nThe #1731 domain split added `types_hashtable.zig` but never wired it up:\nnothing imported it, so the byte-identical copy in `types.zig` was the one the\nbuild compiled and the domain file was never even type-checked.\n\nAdding `HashEntry.hash` in the previous commit meant editing both by hand,\nwith no compile error if they drifted -- which is exactly the trap a split\ninto domain files is supposed to remove. `types.zig` now re-exports the four\nnames the way it does for every other `types_*.zig`, matching what CLAUDE.md\nalready documents.\n\nNo behaviour change: the struct definitions are identical.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: stale slot indices, cutoff coverage, and a benchmark regression\n\nThree things review turned up on the first two commits.\n\n**A silent entry-loss path the abort fix did not close.** CodeRabbit and my own\nreading independently landed on the same gap: `findSlot`/`findKey` derive a\nmask and choose a slot, but a `.custom` equality procedure is arbitrary Scheme\nand one that inserts into the table being probed makes `rehash` install a new,\nlarger `entries`. There is no use-after-free -- `ht.entries` is re-read -- but\nthe chosen index names an arbitrary bucket in the new layout, so the caller's\nwrite lands on a live entry for a different key while `count` is still\nincremented. One pre-existing key destroyed, `count` no longer matching the\nlive set. A (prefill x inject x span) sweep reproduced it in **128 of 210**\ncombinations; all 210 are clean now. The probe restarts when it observes the\nlayout move, bounded at 16 restarts so a procedure that mutates on every call\nraises instead of spinning.\n\n**The new #2023 assertions did not reach either cutoff.** `mk` builds a flat\nlist, and after the fix a flat list no longer spends the nesting budget -- so\nnothing exercised `DEEP_CUTOFF_HASH` or the `MAX_HASH_SPINE` truncation. Added\na `nest` helper for keys deeper than `MAX_HASH_DEPTH`, and a case whose only\ndistinguishing element sits past the spine cutoff so every key hashes alike and\n`deepEqual` has to separate them. The duplicate 200-deep-keys cell became the\nnesting one rather than a second copy of a test three lines away.\n\n**A 1.32x regression on `benchmarks/hashtable.scm`.** Routing the default\n`.equal` mode through `hashForTable`/`equalForTable` -- whose `.custom` arms\npull in the whole VM-call path -- stopped `valueHash` and `deepEqual` from\ninlining: 18% on insert, 10% on lookup. The `.equal` specialization the\noriginal code had is restored, and the other callback-free modes get a probe\nloop without the restart bookkeeping. `HashEntry.hash` is also `u32` rather\nthan `usize`: only `hash & (capacity - 1)` is ever read, and it keeps the\nstruct at its original 24 bytes. Now 0.0302s against 0.0306s on main.\n\nAlso: strengthened the #2024 abort assertion, which accepted entry loss\n(`(>= size 5)` passes while a key is missing); corrected an inaccurate test\nname (an f64vector and a bytevector with the same elements are not the same\nbyte length); and made the deep-copy test assert the copied entry's cached hash\nagrees with the *destination* table -- not with the source, since the\nnon-custom arm deliberately re-hashes as it re-buckets.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Note why MAX_PROBE_RESTARTS is a backstop, not the first defence\n\nAn unconditionally-mutating custom procedure re-enters the table from inside\nits own callback, so `KP3008: native re-entrancy too deep` fires long before\nthe restart count runs out -- verified directly: the process raises and stays\nalive rather than spinning. Records that, and why the exhaustion path raises an\nordinary catchable error instead of another VM limit: KP3008 is uncatchable by\ndesign (#1886), so if anything ever does reach this bound, a `guard` should be\nable to see it.\n\nComment only.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T12:05:58+05:30",
+          "tree_id": "5c94ad0105eae57cdef3c873276c201dc972f64e",
+          "url": "https://github.com/kaappi/kaappi/commit/c742af6856fed94f266bc3d100bc5e16a0106f62"
+        },
+        "date": 1785740731206,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.273146,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.063715,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583473,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.961217,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004665,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046886,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314323,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058016,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.745254,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.211907,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.641061,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284403,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.791189,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.654606,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043161,
             "unit": "seconds"
           }
         ]
