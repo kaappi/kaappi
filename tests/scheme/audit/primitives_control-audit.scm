@@ -822,6 +822,29 @@
                                      (lambda (a b c) (list a b c))
                                    (lambda () (raise-continuable 'x))))))
 
+;; The same two helpers reach a *native* procedure through their own branches,
+;; which had no arity check at all.  A NativeFn body indexes args[0], args[1],
+;; ... trusting the VM to have validated arity, so these three read past the end
+;; of a fixed-size argument array and PANICKED under ReleaseSafe -- a process
+;; abort out of ordinary Scheme, which is why they could not be written as
+;; disabled assertions next to the closure cases.  All four native call sites
+;; now share vm_calls.checkNativeArity.
+(test-assert "arity: a native call-with-values producer of the wrong arity is rejected"
+             (raises? (call-with-values cons list)))
+(test-assert "arity: a native exception handler of the wrong arity is rejected"
+             (raises? (with-exception-handler cons (lambda () (raise-continuable 'x)))))
+;; A failing after-thunk is discarded by the unwind loop, so the correct outcome
+;; is the ORIGINAL condition arriving intact -- the point is that the process
+;; survives the trip.
+(test-equal "arity: a wrong-arity native dynamic-wind after-thunk keeps the original raise"
+            'x (guard (e (#t e))
+                 (dynamic-wind (lambda () 1) (lambda () (raise 'x)) -)))
+;; Arity-correct natives on those same branches must still run.
+(test-equal "arity: a legal native handler receives the condition"
+            9 (with-exception-handler car (lambda () (raise-continuable '(9)))))
+(test-equal "arity: a legal native producer is called with no arguments"
+            '(()) (call-with-values list list))
+
 ;; A variadic handler is legal at any arity and must keep working.
 (test-equal "arity: a variadic exception handler receives exactly one argument"
             '(x) (with-exception-handler (lambda args args)

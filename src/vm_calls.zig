@@ -616,14 +616,17 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
     }
 }
 
-pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMError!void {
-    if (vm.profile_mode) {
-        native.profile_calls += 1;
-    }
-
-    if (@as(usize, base) + @as(usize, nargs) + 1 > vm.registers.len)
-        return VMError.StackOverflow;
-
+/// Validate `nargs` against a native procedure's declared arity.
+///
+/// A `NativeFn` body indexes `args[0]`, `args[1]`, … without bounds checks of
+/// its own, because the VM is expected to have validated arity before the call.
+/// Every site that hands one an argument slice therefore has to run this — and
+/// the two re-entrancy helpers did not, so a wrong-arity *native* handler or
+/// thunk read past the end of a fixed-size argument array. Under the default
+/// ReleaseSafe build that is a panic, i.e. a process abort out of ordinary
+/// Scheme (`(call-with-values cons list)` was enough), not the catchable
+/// ArityMismatch the closure path produces.
+fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void {
     switch (native.arity) {
         .exact => |expected| {
             if (nargs != expected) {
@@ -638,6 +641,17 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMErro
             }
         },
     }
+}
+
+pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMError!void {
+    if (vm.profile_mode) {
+        native.profile_calls += 1;
+    }
+
+    if (@as(usize, base) + @as(usize, nargs) + 1 > vm.registers.len)
+        return VMError.StackOverflow;
+
+    try checkNativeArity(vm, native, nargs);
 
     const saved_alloc_target = vm.gc.profile_alloc_target;
     if (vm.profile_mode) {
@@ -815,6 +829,7 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
         return callReentrant(vm, closure, computeReentrantBase(vm), &[_]Value{arg}, return_dst, false);
     } else if (types.isNativeFn(handler_val)) {
         const native = types.toObject(handler_val).as(types.NativeFn);
+        try checkNativeArity(vm, native, 1);
         const args = [1]Value{arg};
         vm.last_error_detail_len = 0;
         vm.native_call_was_tail = false; // SRFI 248: re-entrant, not a tail call
@@ -837,6 +852,7 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
         return callReentrant(vm, closure, computeReentrantBase(vm), &.{}, 0, false);
     } else if (types.isNativeFn(thunk_val)) {
         const native = types.toObject(thunk_val).as(types.NativeFn);
+        try checkNativeArity(vm, native, 0);
         const empty_args: []const Value = &.{};
         vm.native_call_was_tail = false; // SRFI 248: re-entrant, not a tail call
         const result = native.func(empty_args) catch |err| {
@@ -904,20 +920,7 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         return callNativeClosure(vm, nc, args);
     } else if (types.isNativeFn(proc)) {
         const native = types.toObject(proc).as(types.NativeFn);
-        switch (native.arity) {
-            .exact => |expected| {
-                if (args.len != expected) {
-                    vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, args.len });
-                    return VMError.ArityMismatch;
-                }
-            },
-            .variadic => |min| {
-                if (args.len < min) {
-                    vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, args.len });
-                    return VMError.ArityMismatch;
-                }
-            },
-        }
+        try checkNativeArity(vm, native, args.len);
         vm.last_error_detail_len = 0;
         const result = native.func(args) catch |err| {
             return mapNativeError(vm, err, native.name, args);
