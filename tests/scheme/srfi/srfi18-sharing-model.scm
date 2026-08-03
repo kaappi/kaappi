@@ -7,7 +7,8 @@
 ;; copy at all. The two routes have separate, unrelated enforcement:
 ;; gc_deep_copy.zig's fourteen-tag uncopyable list governs the copy route
 ;; only, and the globals route is checked by individual primitives for
-;; exactly two types (channels and thread handles).
+;; exactly four types (channels, thread handles, fibers and guardians —
+;; the last two added by #2001 and #2008).
 ;;
 ;; This file pins BOTH routes for each type, which is the pairing that makes
 ;; the asymmetry visible -- and it is deliberately a characterisation test,
@@ -92,12 +93,20 @@
 (define g-guardian (make-guardian))
 (define g-channel (make-channel))
 (define g-thread (make-thread (lambda () 'never-started)))
+(define g-fiber (spawn (lambda () (list 1 2 3))))
 
-;; Checked on this route -- the only two types that are.
+;; Checked on this route -- the only four types that are. A fiber and a
+;; guardian joined the list with #2001 and #2008: fiber-join was handing the
+;; child the parent's own heap object as its documented result value, and
+;; invokeGuardian was growing the parent's raw ArrayList from the child.
 (test-assert "global refused: channel"
   (refused? (on-child (lambda () (channel-send g-channel 'hi)))))
 (test-assert "global refused: thread handle"
   (refused? (on-child (lambda () (thread-name g-thread)))))
+(test-assert "global refused: fiber"
+  (refused? (on-child (lambda () (fiber-join g-fiber)))))
+(test-assert "global refused: guardian"
+  (refused? (on-child (lambda () (g-guardian (list 1 2))))))
 
 ;; Unchecked on this route. Mutexes and condition variables are not merely
 ;; tolerated here: a global is the ONLY way to share one, since the line
@@ -130,12 +139,12 @@
 (test-equal "global works: environment (eval succeeds in it)"
   3
   (on-child (lambda () (eval '(+ 1 2) g-env))))
+;; An ephemeron is still unchecked: it is bound to one GC's collection cycle
+;; the same way a guardian is, but nothing mutates a raw Zig container through
+;; it, so it stays a characterisation row rather than a fix.
 (test-equal "global works: ephemeron"
   'k
   (on-child (lambda () (ephemeron-key g-ephemeron))))
-(test-equal "global works: guardian"
-  'ok
-  (on-child (lambda () (g-guardian (list 1 2)) 'ok)))
 
 ;; ---------------------------------------------------------------------------
 ;; The copy route also governs the two boundaries that are not the thunk.

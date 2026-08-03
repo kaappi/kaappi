@@ -516,24 +516,34 @@
 (test-equal "channel? does not apply the owner check (total predicate)"
     '(allowed #t) (child-does (lambda () (channel? shared-ch))))
 
-;;; --- D6: fiber-join has no owner check (#2001) ---
-;; Every channel operation above rejects a foreign-heap object. fiber-join
-;; performs no such check, so a child thread reaches straight into the
-;; parent's heap through a top-level fiber binding.
+;;; --- D6: fiber-join applies the owner check too (#2001) ---
+;; Every channel operation above rejects a foreign-heap object, and so does
+;; fiber-join: without that check a child thread reached straight into the
+;; parent's heap through a top-level fiber binding, and fiber-join *returned*
+;; the parent's object uncopied.
 (define shared-fiber (spawn (lambda () (list 1 2 3))))
 (define parent-view (fiber-join shared-fiber))
 (test-equal "CONTROL: the parent's own fiber-join returns the thunk's value"
     '(1 2 3) parent-view)
-;; FAIL: #2001 (a child thread's fiber-join on a parent-heap fiber is allowed,
-;; and returns the parent's heap object uncopied — a cross-thread set-car! in
-;; the child is observed by the parent)
-;; (test-equal "fiber-join through a shared global is refused, like every channel op"
-;;     '(refused #t) (child-does (lambda () (fiber-join shared-fiber))))
-;; FAIL: #2001 (the value a child gets from a foreign fiber-join is an alias)
-;; (test-equal "a foreign fiber-join result is not aliased into the parent's heap"
-;;     '(1 2 3)
-;;     (begin (child-does (lambda () (set-car! (fiber-join shared-fiber) 'MUTATED)))
-;;            parent-view))
+(test-equal "fiber-join through a shared global is refused, like every channel op"
+    '(refused #t) (child-does (lambda () (fiber-join shared-fiber))))
+(test-equal "a foreign fiber-join result is not aliased into the parent's heap"
+    '(1 2 3)
+    (begin (child-does (lambda () (set-car! (fiber-join shared-fiber) 'MUTATED)))
+           parent-view))
+;; A still-running foreign fiber used to report a deadlock that does not
+;; exist — the fiber belongs to another thread's scheduler, and no cycle is
+;; involved. It must be refused with the ownership message instead.
+(define running-fiber (spawn (lambda () (channel-receive (make-channel)))))
+(test-assert "a foreign fiber-join says 'another thread', not 'deadlock'"
+    (let ((t (make-thread (lambda ()
+                            (msg-has? (lambda () (fiber-join running-fiber))
+                                      "another thread")))))
+      (thread-start! t)
+      (thread-join! t)))
+;; fiber? stays a total predicate, exactly like channel? above.
+(test-equal "fiber? does not apply the owner check (total predicate)"
+    '(allowed #t) (child-does (lambda () (fiber? shared-fiber))))
 
 ;;; --- deadlock detection (each leaks a parked fiber; that is inherent) ---
 ;; joining a fiber blocked on a never-sent channel raises, not hangs

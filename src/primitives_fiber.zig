@@ -67,6 +67,22 @@ fn fiberJoinFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("fiber-join", "fiber", args[0]);
 
+    // A fiber belongs to the scheduler of the thread that spawned it, and
+    // gc_deep_copy.zig refuses the `.fiber` tag outright -- so no thunk
+    // capture, join result or channel message can ever legally carry one to
+    // another thread. The globals route can (a top-level binding is shared
+    // by pointer, never copied), and without this check fiber-join then
+    // *hands the parent's own heap object to the child*, uncopied: a
+    // set-car! in the child is observed by the parent (#2001). A still-
+    // running foreign fiber was worse than wrong -- it reported a deadlock
+    // that does not exist, since another thread's scheduler is what would
+    // complete it. Same shape as the four channel entry points below and
+    // primitives_srfi18.checkThreadOwner; `fiber?` stays exempt as a total
+    // predicate, exactly like `channel?`.
+    const owner_gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (types.toObject(args[0]).owner != owner_gc.id)
+        return raiseFiberError("fiber-join: fiber belongs to another thread; a fiber may only be joined by the thread that spawned it");
+
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
     if (target.status == .completed) return target.result;
