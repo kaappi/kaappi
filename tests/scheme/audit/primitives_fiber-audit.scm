@@ -353,9 +353,13 @@
 ;;; --- D5: SRFI-181 custom-port callbacks may not block (#2000) ---
 ;; vm.in_custom_port_callback exists so a callback that tries to block raises
 ;; a catchable error rather than recursively driving the scheduler on the
-;; native stack. It is checked at exactly two sites (fiber.waitForFd and
-;; primitives_srfi18.threadSleepFn) — the (kaappi fibers) blocking primitives
-;; are not among them.
+;; native stack. It used to be checked at exactly two sites (fiber.waitForFd
+;; and primitives_srfi18.threadSleepFn), so the (kaappi fibers) blocking
+;; primitives drove instead — and with enough nesting the drive exhausted the
+;; native stack (SIGBUS, exit 134). The check now also lives at the shared
+;; choke point every in-place drive passes through, fiber.runSchedulerStep,
+;; which covers these three and SRFI-18's thread-join!/mutex-lock!/
+;; condition-variable-wait as well.
 (define (port-whose-read! body)
   (make-custom-textual-input-port
    "probe"
@@ -364,25 +368,80 @@
 (test-assert "CONTROL: a custom-port read! that calls thread-sleep! is rejected"
     (msg-has? (lambda () (read-char (port-whose-read! (lambda () (thread-sleep! 0.05)))))
               "custom port callback blocked"))
-;; FAIL: #2000 (channel-receive inside a custom-port callback drives the
-;; scheduler in place instead of being rejected; deep nesting aborts)
-;; (test-assert "a custom-port read! that blocks on a channel is rejected"
-;;     (let ((ch (make-channel)))
-;;       (spawn (lambda () (channel-send ch 'v)))
-;;       (msg-has? (lambda () (read-char (port-whose-read! (lambda () (channel-receive ch)))))
-;;                 "custom port callback blocked")))
-;; FAIL: #2000 (channel-send inside a custom-port callback likewise drives)
-;; (test-assert "a custom-port read! that blocks on a full channel is rejected"
-;;     (let ((ch (make-channel 1)))
-;;       (channel-send ch 'fill)
-;;       (spawn (lambda () (channel-receive ch)))
-;;       (msg-has? (lambda () (read-char (port-whose-read! (lambda () (channel-send ch 'v)))))
-;;                 "custom port callback blocked")))
-;; FAIL: #2000 (fiber-join inside a custom-port callback likewise drives)
-;; (test-assert "a custom-port read! that blocks in fiber-join is rejected"
-;;     (let ((f (spawn (lambda () 'joined))))
-;;       (msg-has? (lambda () (read-char (port-whose-read! (lambda () (fiber-join f)))))
-;;                 "custom port callback blocked")))
+(test-assert "a custom-port read! that blocks on a channel is rejected"
+    (let ((ch (make-channel)))
+      (spawn (lambda () (channel-send ch 'v)))
+      (msg-has? (lambda () (read-char (port-whose-read! (lambda () (channel-receive ch)))))
+                "custom port callback blocked")))
+(test-assert "a custom-port read! that blocks on a full channel is rejected"
+    (let ((ch (make-channel 1)))
+      (channel-send ch 'fill)
+      (spawn (lambda () (channel-receive ch)))
+      (msg-has? (lambda () (read-char (port-whose-read! (lambda () (channel-send ch 'v)))))
+                "custom port callback blocked")))
+(test-assert "a custom-port read! that blocks in fiber-join is rejected"
+    (let ((f (spawn (lambda () 'joined))))
+      (msg-has? (lambda () (read-char (port-whose-read! (lambda () (fiber-join f)))))
+                "custom port callback blocked")))
+;; The sibling SRFI-18 waits reach the same choke point. mutex-lock! on a
+;; mutex another fiber holds is the one that blocks with no channel involved
+;; at all. The holder must still be alive when the callback runs — a fiber
+;; that has completed abandons its mutexes, and mutex-lock! then returns the
+;; "abandoned" error immediately without ever waiting.
+(test-assert "a custom-port read! that blocks in mutex-lock! is rejected"
+    (let ((m (make-mutex)) (ready (make-channel)) (release (make-channel)))
+      (spawn (lambda () (mutex-lock! m) (channel-send ready 'held)
+                        (channel-receive release) (mutex-unlock! m)))
+      (channel-receive ready)
+      (let ((r (msg-has? (lambda () (read-char (port-whose-read! (lambda () (mutex-lock! m)))))
+                         "custom port callback blocked")))
+        (channel-send release 'go) ; let the holder unlock and retire
+        r)))
+;; thread-join!'s *fiber* path is the one that drives. Its OS-thread path
+;; does not (reapOsThread joins the pthread, or polls with sleepNs), which
+;; is why primitives_srfi181-audit.scm's "a read! that joins a short-lived
+;; thread is NOT rejected" control keeps passing. The target must already
+;; have STARTED: thread-join! on a spawn'd fiber still in .created spins in
+;; its own sleepNs poll and never reaches the scheduler at all — unrelated
+;; to this guard, and it hangs, so it is not probed here.
+(test-assert "a custom-port read! that blocks in thread-join! on a started fiber is rejected"
+    (let ((started (make-channel)) (hold (make-channel)))
+      (let ((f (spawn (lambda () (channel-send started 'up) (channel-receive hold) 'done))))
+        (channel-receive started) ; f has run and is now parked on `hold`
+        (let ((r (msg-has? (lambda () (read-char (port-whose-read! (lambda () (thread-join! f)))))
+                           "custom port callback blocked")))
+          (channel-send hold 'go)
+          (thread-join! f) ; retire it rather than leave a parked fiber behind
+          r))))
+;; SRFI-18 spells a condition-variable wait `(mutex-unlock! mutex cv timeout)`.
+;; The timeout keeps this bounded if the guard ever stops firing.
+(test-assert "a custom-port read! that blocks in a condition-variable wait is rejected"
+    (let ((m (make-mutex)) (cv (make-condition-variable)))
+      (mutex-lock! m)
+      (msg-has? (lambda () (read-char (port-whose-read! (lambda () (mutex-unlock! m cv 0.05)))))
+                "custom port callback blocked")))
+;; The TIMED variants are the ones that arm scheduler state (a .waiting
+;; status, a waiter_index enrolment, a reactor timer) *before* the wait is
+;; entered, so the rejection unwinds through more than the untimed ones do.
+;; The round trip after each rejection is the actual assertion: it only
+;; completes if the scheduler came out of that unwind healthy.
+(test-equal "a rejected timed channel-receive in read! leaves the scheduler usable"
+    'still-works
+    (let ((ch (make-channel)) (after (make-channel)))
+      (msg-has? (lambda () (read-char (port-whose-read!
+                                        (lambda () (channel-receive ch 0.05 'timed-out)))))
+                "custom port callback blocked")
+      (spawn (lambda () (channel-send after 'still-works)))
+      (channel-receive after)))
+(test-equal "a rejected timed channel-send in read! leaves the scheduler usable"
+    'still-works
+    (let ((full (make-channel 1)) (after (make-channel)))
+      (channel-send full 'fill)
+      (msg-has? (lambda () (read-char (port-whose-read!
+                                        (lambda () (channel-send full 'v 0.05 'timed-out)))))
+                "custom port callback blocked")
+      (spawn (lambda () (channel-send after 'still-works)))
+      (channel-receive after)))
 
 ;;; --- D6: cross-thread sharing model ---
 ;; CLAUDE.md and docs/dev/thread-value-sharing.md: a channel must be captured

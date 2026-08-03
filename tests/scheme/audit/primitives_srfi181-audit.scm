@@ -525,32 +525,102 @@
 ;;; 5. Re-entrancy  (dimension D5, second half)
 ;;; ==================================================================
 ;;;
-;;; #1939 (already filed by Phase 2.2) covers the one shape that ABORTS the
-;;; process: a read! that re-enters a read on its OWN port while returning
-;;; >= 2 elements trips std.debug.assert(port.read_buf == null). It is
-;;; deliberately not reproduced here — an abort cannot be caught, so it
-;;; cannot live in a green suite even commented back in later without care.
+;;; #1939 covered the one shape that ABORTED the process: a read! that
+;;; re-enters a read on its OWN port while returning >= 2 elements tripped
+;;; std.debug.assert(port.read_buf == null). The inner re-entry runs a whole
+;;; EARLIER read! to completion, so the bytes it leaves buffered are
+;;; chronologically ahead of the ones the outer invocation then produces —
+;;; the single read_buf slot had both, and asserted instead. At exactly one
+;;; outer byte the assert did not fire and the stream was silently reordered
+;;; instead. An outer return of 0 (EOF) had the same class of bug: it
+;;; reported EOF while the inner leftover still sat in read_buf. All three
+;;; sizes are pinned below.
 ;;;
-;;; What IS pinned here: every neighbouring re-entrant shape completes
-;;; cleanly, which is what makes #1939 specifically about the single-slot
-;;; read_buf rather than about re-entrancy as such.
+;;; Also pinned here: every neighbouring re-entrant shape completes cleanly.
 
-;; FAIL: #1939 (read! re-entering a read on its own port aborts the process when it returns >= 2 bytes)
-;; (test-equal "re-entrant read!: an inner read on the same port preserves stream order"
-;;   '(65 66)
-;;   (let ((self #f) (depth 0) (n 0) (out '()))
-;;     (set! self (make-custom-binary-input-port "reent"
-;;       (lambda (bv start count)
-;;         (set! depth (+ depth 1))
-;;         (if (= depth 1) (set! out (cons (read-u8 self) out)))
-;;         (set! depth (- depth 1))
-;;         (if (< n 8)
-;;             (begin (bytevector-u8-set! bv start 65)
-;;                    (bytevector-u8-set! bv (+ start 1) 66)
-;;                    (set! n (+ n 1)) 2)
-;;             0))
-;;       #f #f #f))
-;;     (list (read-u8 self))))
+(test-equal "re-entrant read!: an inner read on the same port preserves stream order"
+  '(1 2 3 4 5 6 7)
+  (let ((self #f) (depth 0) (next 1) (got '()))
+    (set! self (make-custom-binary-input-port "reent"
+      (lambda (bv start count)
+        (set! depth (+ depth 1))
+        ;; Only the outermost invocation re-enters, so the nesting is
+        ;; exactly two deep and every burst is a clean pair.
+        (when (= depth 1) (set! got (cons (read-u8 self) got)))
+        (set! depth (- depth 1))
+        (bytevector-u8-set! bv start next)
+        (bytevector-u8-set! bv (+ start 1) (+ next 1))
+        (set! next (+ next 2))
+        2)
+      #f #f #f))
+    ;; 5 outer reads + the 2 inner ones they trigger = the first 7 bytes,
+    ;; in the order read! produced them.
+    (do ((i 0 (+ i 1))) ((= i 5)) (set! got (cons (read-u8 self) got)))
+    (reverse got)))
+
+(test-equal "re-entrant read!: a one-element outer burst does not overtake the inner burst"
+  '(65 66 90)
+  (let ((self #f) (depth 0) (got '()))
+    (set! self (make-custom-binary-input-port "reent1"
+      (lambda (bv start count)
+        (set! depth (+ depth 1))
+        (cond ((= depth 1)
+               (set! got (cons (read-u8 self) got))
+               (set! depth (- depth 1))
+               (bytevector-u8-set! bv start 90)   ; outer: Z, one byte
+               1)
+              (else
+               (set! depth (- depth 1))
+               (bytevector-u8-set! bv start 65)   ; inner: A B
+               (bytevector-u8-set! bv (+ start 1) 66)
+               2)))
+      #f #f #f))
+    (set! got (cons (read-u8 self) got))
+    (set! got (cons (read-u8 self) got))
+    (reverse got)))
+
+;; Same nesting as the one-byte reorder case, but the outer callback
+;; returns 0 (EOF). The inner fill left a leftover in read_buf; serving
+;; EOF before that leftover would report a spurious EOF while the next
+;; read still yields the buffered byte.
+(test-equal "re-entrant read!: outer EOF still serves inner leftover before eof-object"
+  66
+  (let ((self #f) (depth 0))
+    (set! self (make-custom-binary-input-port "eof-reent"
+      (lambda (bv start count)
+        (set! depth (+ depth 1))
+        (cond ((= depth 1)
+               (read-u8 self) ; inner fill leaves a leftover in read_buf
+               (set! depth (- depth 1))
+               0)            ; outer reports EOF
+              (else
+               (set! depth (- depth 1))
+               (bytevector-u8-set! bv start 65)
+               (bytevector-u8-set! bv (+ start 1) 66)
+               2)))
+      #f #f #f))
+    (read-u8 self)))
+
+(test-equal "re-entrant read!: a textual inner read on the same port preserves stream order"
+  '(#\a #\b #\c)
+  (let ((self #f) (depth 0) (got '()))
+    (set! self (make-custom-textual-input-port "reent-t"
+      (lambda (str start count)
+        (set! depth (+ depth 1))
+        (cond ((= depth 1)
+               (set! got (cons (read-char self) got))
+               (set! depth (- depth 1))
+               (string-set! str start #\c)
+               1)
+              (else
+               (set! depth (- depth 1))
+               (string-set! str start #\a)
+               (string-set! str (+ start 1) #\b)
+               2)))
+      #f #f #f))
+    (set! got (cons (read-char self) got))
+    (set! got (cons (read-char self) got))
+    (reverse got)))
 
 (test-equal "re-entrant write!: an inner write on the same port completes, inner data first"
   '(99 1)

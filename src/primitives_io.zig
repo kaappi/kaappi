@@ -1225,6 +1225,84 @@ fn flushCustomPortIfNeeded(vm: *vm_mod.VM, cb: *types.CustomBacking) PrimitiveEr
     _ = try callCustomPortProc(vm, cb.flush_proc, &[_]Value{});
 }
 
+/// Hands out the next byte of a port's stream once a fresh burst has
+/// arrived, buffering the remainder in port.read_buf for the drain at the
+/// top of readOneByte to serve on later calls. Shared by all three fills:
+/// the fd burst, a custom port's read! result, and a transcoded port's
+/// re-encoded character.
+///
+/// `bytes` is chronologically *later* than anything already sitting in
+/// read_buf, so the two concatenate in that order and the byte handed out
+/// is the front of the concatenation — not necessarily `bytes[0]`.
+/// read_buf is normally empty here (its drain frees it the moment it
+/// empties), and then this is exactly the "return the first, stash the
+/// rest" these paths have always done, with no extra copy.
+///
+/// It is *not* empty when a fill re-enters itself on the same port: a
+/// custom port's read! callback that reads from its own port (directly, or
+/// through a transcoded port wrapping it) leaves bytes behind from a
+/// chronologically earlier fill. Each of the three sites used to assert
+/// read_buf was null there — a process abort reachable from ordinary
+/// Scheme, uncatchable by `guard` (#1939) — and in the one-byte case where
+/// the assert happened not to fire, the later burst's byte was served
+/// ahead of the earlier burst's leftovers, silently reordering the stream.
+/// Concatenating handles both: no abort, and bytes come out in the order
+/// read! produced them.
+fn takeFirstBufferingRest(port: *types.Port, bytes: []const u8) PrimitiveError!?u8 {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    // Live span is the *last* read_buf_len bytes — consumption advances
+    // from the front by shrinking the count, the same cursor rule
+    // stashPartialRead and readOneByte's own drain follow.
+    const old = port.read_buf;
+    const pending: []const u8 = if (old) |rb| rb[rb.len - port.read_buf_len ..] else &.{};
+
+    // Empty burst -- every EOF exit of all three fills routes here rather
+    // than returning null directly, so a re-entrant fill's leftovers are
+    // served before EOF is reported. Without it the custom-port path
+    // answered eof-object while chronologically earlier bytes sat in
+    // read_buf, and the *next* read then produced them: a spurious EOF
+    // mid-stream, the same #1939 root cause as the >= 1-byte cases above.
+    // Two of the three EOF exits (the fd burst's, the transcoded
+    // character's) need re-entrancy on their own port to reach a non-empty
+    // read_buf here and no program was found that does, but they route
+    // through this anyway: three fills that "look the same" while one
+    // silently isn't is exactly what produced the bug.
+    if (pending.len == 0) {
+        if (old) |rb| {
+            gc.allocator.free(rb);
+            port.read_buf = null;
+            port.read_buf_len = 0;
+        }
+        if (bytes.len == 0) return null;
+        if (bytes.len > 1) {
+            const rest = gc.allocator.dupe(u8, bytes[1..]) catch return PrimitiveError.OutOfMemory;
+            port.read_buf = rest;
+            port.read_buf_len = rest.len;
+        }
+        return bytes[0];
+    }
+
+    // Re-entrant fill: serve the earlier burst's front byte and re-buffer
+    // its tail with this burst appended behind it (possibly empty, on
+    // EOF). The fresh slice is entirely live (read_buf_len == len), so
+    // the cursor restarts at 0.
+    const first = pending[0];
+    const rest_len = pending.len - 1 + bytes.len;
+    if (rest_len == 0) {
+        gc.allocator.free(old.?);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+        return first;
+    }
+    const rest = gc.allocator.alloc(u8, rest_len) catch return PrimitiveError.OutOfMemory;
+    @memcpy(rest[0 .. pending.len - 1], pending[1..]);
+    @memcpy(rest[pending.len - 1 ..], bytes);
+    gc.allocator.free(old.?);
+    port.read_buf = rest;
+    port.read_buf_len = rest.len;
+    return first;
+}
+
 /// Single byte source for every textual and binary port read primitive
 /// (read-char, peek-char, read-line, read-string, read-u8, peek-u8,
 /// read-bytevector, ...). Drains the software buffers — peek_byte,
@@ -1312,37 +1390,19 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
                 try waitPortFd(port, .read);
                 continue;
             }
-            return null;
+            return takeFirstBufferingRest(port, &.{});
         }
-        if (raw == 0) return null;
+        if (raw == 0) return takeFirstBufferingRest(port, &.{});
         const n: usize = @intCast(raw);
-        // One read(2) per burst, not per byte (#1460): return the first byte
-        // and park the rest in read_buf for the consumption drain above to
-        // hand out on the next calls. read_buf is empty on this path — its
-        // drain only falls through once exhausted (and freed to null then) —
-        // so the fresh slice is entirely live (read_buf_len == len, so the
-        // "last read_buf_len bytes" cursor starts at 0). A caller that later
-        // parks does so on a subsequent call after this buffer drains, where
+        // One read(2) per burst, not per byte (#1460): hand out the next
+        // stream byte and park the rest in read_buf for the consumption
+        // drain above to serve on the next calls. A caller that later parks
+        // does so on a subsequent call after this buffer drains, where
         // stashPartialRead prepends onto an empty read_buf.
-        if (n > 1) {
-            std.debug.assert(port.read_buf == null);
-            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-            const rest = gc.allocator.alloc(u8, n - 1) catch return PrimitiveError.OutOfMemory;
-            @memcpy(rest, chunk[1..n]);
-            port.read_buf = rest;
-            port.read_buf_len = n - 1;
-        }
-        return chunk[0];
+        return takeFirstBufferingRest(port, chunk[0..n]);
     }
 }
 
-/// SRFI 181: fills a bytevector (binary port) or string (textual port) of
-/// up to read_chunk_size capacity by calling cb.read_proc once, then hands
-/// out the first byte and stashes the rest in port.read_buf -- the same
-/// "one call, buffer the burst" shape readOneByte's real-fd path uses.
-/// read_proc runs through vm.callWithArgs, which always executes with
-/// dispatched_from_scheduler forced false (see in_custom_port_callback):
-/// it must be effectively synchronous, non-blocking Scheme code.
 /// SRFI 181: calls one of a custom port's callback procedures, bracketing
 /// the call with vm.in_custom_port_callback so fiber.waitForFd and
 /// thread-sleep! can reject a callback that tries to block instead of
@@ -1366,6 +1426,13 @@ fn raiseCustomPortBadReturn(vm: *vm_mod.VM, proc: []const u8) PrimitiveError {
     return PrimitiveError.InvalidArgument;
 }
 
+/// SRFI 181: fills a bytevector (binary port) or string (textual port) of
+/// up to read_chunk_size capacity by calling cb.read_proc once, then hands
+/// the burst to takeFirstBufferingRest -- the same "one call, buffer the
+/// burst" shape readOneByte's real-fd path uses. read_proc runs through
+/// vm.callWithArgs, which always executes with dispatched_from_scheduler
+/// forced false (see in_custom_port_callback): it must be effectively
+/// synchronous, non-blocking Scheme code.
 fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) PrimitiveError!?u8 {
     if (cb.read_proc == types.FALSE) return null; // output-only custom port
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
@@ -1385,7 +1452,7 @@ fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) Primit
     if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "read!");
     const n = types.toFixnum(result);
     if (n < 0 or n > read_chunk_size) return raiseCustomPortBadReturn(vm, "read!");
-    if (n == 0) return null; // EOF
+    if (n == 0) return takeFirstBufferingRest(port, &.{});
     const count: usize = @intCast(n);
 
     const bytes: []const u8 = if (port.is_binary)
@@ -1402,14 +1469,7 @@ fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) Primit
         break :blk s.data[0..byte_end];
     };
 
-    const first = bytes[0];
-    if (bytes.len > 1) {
-        std.debug.assert(port.read_buf == null);
-        const rest = gc.allocator.dupe(u8, bytes[1..]) catch return PrimitiveError.OutOfMemory;
-        port.read_buf = rest;
-        port.read_buf_len = rest.len;
-    }
-    return first;
+    return takeFirstBufferingRest(port, bytes);
 }
 
 /// SRFI 181: the wrapped port underneath a transcoded port was found
@@ -1551,7 +1611,7 @@ fn readOneByteFromTranscodedPort(port: *types.Port, ts: *types.TranscodeState) P
     const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
     if (!wrapped.is_open) return raiseWrappedPortClosed();
 
-    const cp = try decodeOneChar(wrapped, ts) orelse return null;
+    const cp = try decodeOneChar(wrapped, ts) orelse return takeFirstBufferingRest(port, &.{});
 
     var utf8_buf: [4]u8 = undefined;
     // cp is always a valid Unicode scalar value here (a successful
@@ -1560,14 +1620,7 @@ fn readOneByteFromTranscodedPort(port: *types.Port, ts: *types.TranscodeState) P
     // re-encoding it can't fail the way an arbitrary user-supplied
     // character (writeCharFn's case) could.
     const len = std.unicode.utf8Encode(cp, &utf8_buf) catch unreachable;
-    if (len > 1) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        std.debug.assert(port.read_buf == null);
-        const rest = gc.allocator.dupe(u8, utf8_buf[1..len]) catch return PrimitiveError.OutOfMemory;
-        port.read_buf = rest;
-        port.read_buf_len = rest.len;
-    }
-    return utf8_buf[0];
+    return takeFirstBufferingRest(port, utf8_buf[0..len]);
 }
 
 const Utf8ReadResult = struct {
