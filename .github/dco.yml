@@ -1,0 +1,12 @@
+# Config for the DCO2 GitHub App (https://github.com/cncf/dco2).
+# Backwards compatible with the original dcoapp/app format.
+
+# Allow a contributor to retroactively sign off commits that failed the
+# check, without rewriting history (adds a remediation commit instead).
+allowRemediationCommits:
+  individual: true
+  thirdParty: false
+
+# Show the "Set DCO to pass" override button to maintainers on the check
+# details page, for edge cases (e.g. a bot-authored commit).
+allowOverrideAction: true
